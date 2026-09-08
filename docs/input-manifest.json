@@ -1,0 +1,197 @@
+[
+  {
+    "file": "ASPLnchr.exe",
+    "bytes": 248568,
+    "sha256": "ceb494e83c32a28958ee55e5a2334d5524184e920eb3333ea88798e1e99a54b7"
+  },
+  {
+    "file": "Base.wz",
+    "bytes": 6540,
+    "sha256": "83fa0a8c2e11f8cbc4e92f46b5f9e8137fb1d0f7dd4b6cdc7ea337087c854cf4"
+  },
+  {
+    "file": "Canvas.dll",
+    "bytes": 118784,
+    "sha256": "9a14ea054cbde05ac42838047bf5057ccf6847ef78a8551da2d0f31cfe1fbb73"
+  },
+  {
+    "file": "Character.wz",
+    "bytes": 186792151,
+    "sha256": "9e873074213bdb660c27cee11c4052233c408f6864249d459931321f0c05ddc5"
+  },
+  {
+    "file": "Effect.wz",
+    "bytes": 63334965,
+    "sha256": "3504500e6891895f747cbac9bd707f8faf0815c9d0df79ecd468c6b15b33d660"
+  },
+  {
+    "file": "Etc.wz",
+    "bytes": 1201101,
+    "sha256": "03981551dab46e529f19f335de593ce54f4966ea9d83fa2c9f1b9768a81f711c"
+  },
+  {
+    "file": "Gr2D_DX8.dll",
+    "bytes": 258048,
+    "sha256": "ab1c942229af33da04d913ed1157ab322bff0812f7368bcf745d64b98698d34d"
+  },
+  {
+    "file": "Item.wz",
+    "bytes": 18361778,
+    "sha256": "089052c36d8c4980f637d569c0dd84107334f8bcbb7068fb4f75f2ba5e92f401"
+  },
+  {
+    "file": "List.wz",
+    "bytes": 13336,
+    "sha256": "7f9b67d010d8901f81b541b4c611f2ffa0b166001e4762d44fedab6ab7dfad8b"
+  },
+  {
+    "file": "Map.wz",
+    "bytes": 635444895,
+    "sha256": "a0657907c42962d5b8a38e007defbcb9ba4f8a61bc32884e9f8c2bc1cb0ebebe"
+  },
+  {
+    "file": "MapleStory.exe",
+    "bytes": 9920523,
+    "sha256": "7fa7e956d45119eb5910b67cfd4ece16d7e7c8ef40e176502cf791ec1e0880fe"
+  },
+  {
+    "file": "Maplestory_UNPACKED.exe",
+    "bytes": 8503296,
+    "sha256": "1198fa57ca5a7c489bae43ec13c69681d9cabe0f96762f3dc0357facf2e7d4df"
+  },
+  {
+    "file": "Mob.wz",
+    "bytes": 479665103,
+    "sha256": "9232a9dcc95082432e543b2126f50236e3ebbbd06c2c1a9a00037330c462ecef"
+  },
+  {
+    "file": "Morph.wz",
+    "bytes": 6204606,
+    "sha256": "9bf57995efcd331f23e8fd0ff818e00ec159ab1995f8d9bca7ef856e301f6782"
+  },
+  {
+    "file": "NameSpace.dll",
+    "bytes": 143360,
+    "sha256": "7eed6c13a60a99bd3f7c2e22ae4b9f0cdb492361260a81172703f260ab661251"
+  },
+  {
+    "file": "Npc.wz",
+    "bytes": 51137866,
+    "sha256": "500e43f4dc00f0021ae88fbfff4bac89d75f3e583bf7af6b6d3e126aae8e320a"
+  },
+  {
+    "file": "PCOM.dll",
+    "bytes": 114688,
+    "sha256": "917181e24f3b152302f9f93adf4ac3e13baf086a68224d258f47df5bb3862cf1"
+  },
+  {
+    "file": "Patcher.exe",
+    "bytes": 1392640,
+    "sha256": "ac4e77b3da6aeb4b831cb4e94f55697e70741e5880821e805716db1b110a740e"
+  },
+  {
+    "file": "Quest.wz",
+    "bytes": 5971537,
+    "sha256": "1c8a247b28c291b47b79e4b7284e730b39a347b3edb94fd2da0421ad053e3985"
+  },
+  {
+    "file": "Reactor.wz",
+    "bytes": 54133811,
+    "sha256": "be1573dc3461298906a35aaa8736c4097f0ab81055cfada640de72fa6774ad94"
+  },
+  {
+    "file": "ResMan.dll",
+    "bytes": 49152,
+    "sha256": "5e31263f9dbab4b6f161aa85485162d01038bddc859821cafe88ab805530189e"
+  },
+  {
+    "file": "Setup.exe",
+    "bytes": 409600,
+    "sha256": "1d2dc8d83181ce8a5d153f9a0310fe6c0e80822e5dcea6be1f39960b2f151d19"
+  },
+  {
+    "file": "Shape2D.dll",
+    "bytes": 86016,
+    "sha256": "5e9b27d392b4a373fcb21d8b188c8b6864c1fd60fc33563ae24c782b26d97e43"
+  },
+  {
+    "file": "Skill.wz",
+    "bytes": 76874780,
+    "sha256": "c68f7f4667c1493a7c7f2437f28d83192f84f2dc4b010cf2d9d69ad45bbad0f1"
+  },
+  {
+    "file": "Sound.wz",
+    "bytes": 363261964,
+    "sha256": "bc6570d39ae1c021af433616ed4ec5f0c8917513b63d28536d116aac74bdfd76"
+  },
+  {
+    "file": "Sound_DX8.dll",
+    "bytes": 147456,
+    "sha256": "607a0c5840a2ed7d45236c9446b8b87df35b0c3c5a8f9161c12b80b4442662c9"
+  },
+  {
+    "file": "String.wz",
+    "bytes": 3251564,
+    "sha256": "43bd9d417051481666c3ce651d8e9fdf5e735c2047bde53a56fca74dae841bc6"
+  },
+  {
+    "file": "TamingMob.wz",
+    "bytes": 797,
+    "sha256": "d23604f70c25cabd83e5c30a2ed9390ba1078c0966fd7d76a4adfc03cb2cae0d"
+  },
+  {
+    "file": "UI.wz",
+    "bytes": 28259933,
+    "sha256": "d253934d986cd428ba914c37f1bfae18513e2830ec3ec5d0e055fd2cef05e47c"
+  },
+  {
+    "file": "WzFlashRenderer.dll",
+    "bytes": 524288,
+    "sha256": "f71d8b5b0806f0c0fd037247442811f05ce996f93ed21b3774f79b785d21af0e"
+  },
+  {
+    "file": "ZLZ.dll",
+    "bytes": 81973,
+    "sha256": "ce65505fc65b3c03c22db309c66443e9b81fc1aa8e246c3bb4757bdd66a98ce9"
+  },
+  {
+    "file": "aossdk.dll",
+    "bytes": 254083,
+    "sha256": "2a4aa5b75372c7f1aff830f5937b7953442dd3856e8d93e4349a3ef76d877d42"
+  },
+  {
+    "file": "bz32ex.dll",
+    "bytes": 87536,
+    "sha256": "67ff9952d102811c89c56198e55c31d9f79c591e316303c4241d34a0c604c7e0"
+  },
+  {
+    "file": "ijl15.dll",
+    "bytes": 352256,
+    "sha256": "41d37bfb0a39017497e0aa373dc01f71ac9c5046c75f7cd269bee52112a5f3a1"
+  },
+  {
+    "file": "mss32.dll",
+    "bytes": 450048,
+    "sha256": "b6cff7051614201aa0714b95e703568ebf2ba667b47986352d630a1147df1416"
+  },
+  {
+    "file": "nmcogame.dll",
+    "bytes": 315392,
+    "sha256": "24a3b61afed1fa928d1795a6e2e4d6fe8551089f4344401f442e93d4600854ad"
+  },
+  {
+    "file": "nmconew.dll",
+    "bytes": 1638400,
+    "sha256": "8bc0709be19b25a2e0a22ad41d6c2a336f8459464eadec79c8041911458b0472"
+  },
+  {
+    "file": "suipre.dll",
+    "bytes": 417937,
+    "sha256": "287eb2257ffd1dd3eaaab2a5a6debb1a6c80bebe04c186788e8b01498684c000"
+  },
+  {
+    "file": "v3hunt.dll",
+    "bytes": 131201,
+    "sha256": "f4afe407bea443adbb18387de30bf139e8ff8cd6028464f200efc55d1348cce9"
+  }
+]

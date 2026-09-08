@@ -1,0 +1,4 @@
+node_modules/
+client/public/generated/
+client/dist/
+.DS_Store

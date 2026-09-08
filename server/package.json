@@ -1,0 +1,6 @@
+{
+  "name": "@maple/server",
+  "private": true,
+  "type": "module",
+  "description": "Reserved workspace. Backend implementation intentionally deferred."
+}

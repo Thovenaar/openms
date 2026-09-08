@@ -1,0 +1,52 @@
+{
+  "map": "Map.wz:Map/Map1/100000000.img",
+  "inputDirectory": "/Users/k/Development/tensorfish/Maplestory-Client",
+  "version": 83,
+  "versionHash": 1876,
+  "entities": 1112,
+  "textures": 270,
+  "rgbaBytes": 26162516,
+  "formats": {
+    "1/0": 270
+  },
+  "images": [
+    "Map.wz:Map/Map1/100000000.img",
+    "Map.wz:Obj/houseGS.img",
+    "Map.wz:Obj/acc1.img",
+    "Map.wz:Obj/door.img",
+    "Map.wz:Obj/house.img",
+    "Map.wz:Obj/guide.img",
+    "Map.wz:Obj/Tdungeon.img",
+    "Map.wz:Obj/signboard.img",
+    "Map.wz:Tile/woodMarble.img",
+    "Map.wz:Obj/StoreGL.img",
+    "Map.wz:Obj/connect.img",
+    "Map.wz:Back/grassySoil.img",
+    "Base.wz:zmap.img",
+    "Character.wz:00002000.img",
+    "Character.wz:00012000.img",
+    "Character.wz:Hair/00030000.img",
+    "Character.wz:Face/00020000.img",
+    "Character.wz:Coat/01040002.img",
+    "Character.wz:Pants/01060002.img",
+    "Character.wz:Shoes/01072001.img"
+  ],
+  "archiveEntries": {
+    "Map": 5616,
+    "Base": 18,
+    "Character": 7218
+  },
+  "durationMs": 527.040542,
+  "memory": {
+    "rss": 203669504,
+    "heapTotal": 49528832,
+    "heapUsed": 84732554,
+    "external": 66950397,
+    "arrayBuffers": 65655867
+  },
+  "observations": [],
+  "limitations": [
+    "Gameplay, NPC/mob simulation, portals and audio intentionally not implemented; map visual resources and composed avatar are the demo scope.",
+    "Camera bounds derived from footholds when VR fields absent; exact original fallback formula pending evidence."
+  ]
+}

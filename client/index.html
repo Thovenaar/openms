@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Maple · Original asset reconstruction</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Maple <span>original asset reconstruction</span></h1>
+        <p>
+          Original textures · reconstructed rendering · not an original client
+        </p>
+      </div>
+      <div class="transport">
+        <button id="pause" type="button" aria-pressed="false">Pause</button>
+        <label class="step-label"
+          ><input
+            id="step-ms"
+            type="number"
+            min="0"
+            step="1"
+            value="16"
+            aria-label="Step milliseconds"
+          />
+          ms</label
+        >
+        <button id="step" type="button">Step</button>
+        <button id="reload" type="button">Reload</button>
+      </div>
+    </header>
+    <main>
+      <section id="viewport" aria-label="Scene viewport">
+        <div id="error" role="alert" hidden></div>
+      </section>
+      <aside>
+        <fieldset id="scene-controls" disabled>
+          <legend>Scene controls</legend>
+          <label for="entity">Entity</label>
+          <select id="entity" disabled aria-label="Entity"></select>
+          <label for="action">Action</label>
+          <select id="action" disabled aria-label="Action"></select>
+          <label class="check"
+            ><input id="visible" type="checkbox" checked disabled />
+            Visible</label
+          >
+          <div class="label-row">
+            <span>Layer</span><output id="layer-value">—</output>
+          </div>
+          <div class="button-row">
+            <button type="button" data-layer="back">To back</button
+            ><button type="button" data-layer="front">To front</button>
+          </div>
+          <div class="label-row">
+            <span>Camera</span><output id="camera-position">—</output>
+          </div>
+          <div class="camera-buttons">
+            <button type="button" data-camera="0,-32" aria-label="Camera up">
+              Up
+            </button>
+            <div class="button-row">
+              <button
+                type="button"
+                data-camera="-32,0"
+                aria-label="Camera left"
+              >
+                Left</button
+              ><button type="button" id="camera-reset">Reset</button
+              ><button
+                type="button"
+                data-camera="32,0"
+                aria-label="Camera right"
+              >
+                Right
+              </button>
+            </div>
+            <button type="button" data-camera="0,32" aria-label="Camera down">
+              Down
+            </button>
+          </div>
+          <p class="hint">
+            Drag the scene to pan, or focus it and use arrow keys. Step pauses
+            and advances by the selected milliseconds.
+          </p>
+        </fieldset>
+      </aside>
+    </main>
+    <footer>
+      <output id="status" role="status">Starting WebGL renderer…</output
+      ><span>WebGL · 1:1 pixels</span>
+    </footer>
+    <script type="module" src="/dist/main.js"></script>
+  </body>
+</html>

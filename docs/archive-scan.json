@@ -1,0 +1,70 @@
+{
+  "source": "/Users/k/Development/tensorfish/Maplestory-Client",
+  "archives": [
+    {
+      "archive": "Map",
+      "entries": 5616,
+      "images": 5602,
+      "parsed": 5602,
+      "canvases": 32542
+    },
+    {
+      "archive": "Character",
+      "entries": 7218,
+      "images": 7201,
+      "parsed": 7201,
+      "canvases": 391184
+    },
+    {
+      "archive": "UI",
+      "entries": 19,
+      "images": 19,
+      "parsed": 19,
+      "canvases": 10839
+    }
+  ],
+  "canvasFormats": {
+    "1/0": 434177,
+    "2/0": 188,
+    "513/4": 2,
+    "513/0": 198
+  },
+  "compressionEnvelopes": {
+    "zlib": 434565
+  },
+  "decodedExamples": {
+    "1/0/zlib": {
+      "path": "Map.wz:Effect.img/quest/party/clear/0",
+      "width": 526,
+      "height": 234,
+      "rgbaBytes": 492336,
+      "sha256": "d88978097210185e0ae93017e89ebbfaaa29bd4c2b8c0c9ab377007fce2a9980"
+    },
+    "2/0/zlib": {
+      "path": "Map.wz:Obj/etc.img/killing/backgrnd",
+      "width": 192,
+      "height": 61,
+      "rgbaBytes": 46848,
+      "sha256": "2139413fce63bb4ffbb08c498d33d5e142ce3b68a3b4f1608926e73427987e34"
+    },
+    "513/4/zlib": {
+      "path": "Map.wz:Back/dryRock.img/back/0",
+      "width": 256,
+      "height": 256,
+      "rgbaBytes": 262144,
+      "sha256": "1eae99aafc306c498015add32dc5e92cd517fc59be13eb68952310be763b161f"
+    },
+    "513/0/zlib": {
+      "path": "UI.wz:Logo.img/Nexon/0",
+      "width": 800,
+      "height": 600,
+      "rgbaBytes": 1920000,
+      "sha256": "66cc9fd59607ea6acccd93f3eb76e9a430d4c69d80fd5c528d5d7b895a6603de"
+    }
+  },
+  "failures": [],
+  "startedAt": "2026-09-08T03:45:54.069Z",
+  "durationMs": 7989.39225,
+  "peakSampledRSS": 270712832,
+  "scope": "Every IMG payload in the named original archives checksum-checked and parsing attempted; unsupported entries are failures. Canvas metadata from parsed images counted; first original canvas per format/scale/compression envelope inflated and pixel-decoded. Not all canvases pixel-decoded; no original-client screenshot comparison."
+}

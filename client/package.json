@@ -1,0 +1,15 @@
+{
+  "name": "@maple/client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun tools/dev.js",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "pixi.js": "8.17.1"
+  },
+  "devDependencies": {
+    "puppeteer-core": "24.40.0"
+  }
+}

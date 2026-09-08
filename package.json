@@ -1,0 +1,20 @@
+{
+  "name": "maple-mono",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "bun client/tools/dev.js",
+    "extract": "bun client/tools/extract.js",
+    "scan": "bun client/tools/scan.js",
+    "test": "bun test",
+    "validate": "bun client/tools/validate.js",
+    "format": "bunx --bun prettier --write 'client/src/**/*.js' 'client/tools/*.js' 'client/test/*.js' client/index.html client/style.css package.json client/package.json server/package.json"
+  },
+  "devDependencies": {
+    "prettier": "3.8.1"
+  }
+}
