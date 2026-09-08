@@ -2,6 +2,16 @@
 
 Plain JavaScript + JSDoc, Bun workspaces, PixiJS WebGL. Original v83 assets are decoded locally; no third-party client is an implementation source. `server/` contains only its reserved package manifest. No backend implementation.
 
+## Documentation conventions
+
+`docs/` is the source of truth for project guidance, contracts, recovered behavior, and validation.
+
+- The [root README](../README.md) is a short introduction and quick start for humans.
+- [AGENTS.md](../AGENTS.md) is navigation only: links to the relevant documentation and implementation, not a separate set of requirements or findings.
+- Update the authoritative page here when behavior or guidance changes; keep root entry points brief and linked rather than duplicating detailed documentation.
+- Record recovered behavior with original input identities and source locations or Ghidra addresses. Label inference and unverified behavior explicitly.
+- Keep measured results separate from procedures: [validation-method.md](validation-method.md) describes how to check the client; [validation.md](validation.md) and its linked reports record what was actually checked. Update results only after running the relevant checks.
+
 ## Run
 
 From the workspace root:
