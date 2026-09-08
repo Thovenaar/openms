@@ -155,7 +155,7 @@ function updateReadouts(snapshot) {
     : "—";
   updateSettings(snapshot);
   document.querySelector("#status").value = snapshot.loading
-    ? "Streaming map replacement; current map remains playable…"
+    ? "Streaming map replacement; current scene retained, gameplay paused…"
     : `${snapshot.currentMap || "No map"} · ${snapshot.entities.length} entities · ${snapshot.pendingLoads} region loads · ${snapshot.streaming.gpuEstimatedBytes || 0} GPU bytes`;
 }
 function updateSettings(snapshot) {

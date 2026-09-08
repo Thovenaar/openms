@@ -1,0 +1,68 @@
+# Offline gameplay implementation and evidence checklist
+
+The earlier presentation-only boundary is replaced by playable **local offline authority**. This is not an original server implementation or a completed original-client fidelity claim. JavaScript/JSDoc/Bun and the existing bounded rendering/physics architecture remain the implementation contract.
+
+## Evidence boundary
+
+Original inputs are `/Users/k/Development/tensorfish/Maplestory-Client`: executable, DLL and WZ files, including Quest.wz and Reactor.wz. No original C/C++ source, server scripts or native gameplay recordings were supplied. Retained Ghidra decompilation/disassembly is binary evidence, not original source. No third-party client implementation or invented NPC script was substituted. See [coding-style.md](coding-style.md), [offline integration contract](offline-integration-contract.md), and [Windows reference requirements](windows-reference-captures.md).
+
+## Behavior checklist
+
+| Area | Implemented | Executed acceptance | Provisional policy / blocked evidence |
+| --- | --- | --- | --- |
+| HUD/UI | Original status-bar anchors, windows/controls, durable HP/MP/EXP/inventory/quest projections; non-modal hotkeys and recovery focus. | Independent native window/tab/resize scenarios; Main replayed expanded inventory above the complete HUD, focused-button I toggle and Recover. | Browser font metrics, window/focus arbitration and local status text are labeled policies. |
+| Movement/actions | One recovered 30-ms clock; ordinary ground/air/ladder/water/flight poses; held-jump scheduling; 43 original standard/ordinary avatar families, anchor forest and death substitution. | Native movement/swim/flight/action scenarios; all 356 maps validated with 60/120/144/240-Hz elapsed partitions; final offline jump and portal entry. | Held-repeat cadence, interpolation and integer browser projection are policies. x87/register and special actor/controller parity remain unverified. |
+| Mobs | Stable authored-placement local records; bounded floor patrol/facing, original bodies/artwork, hit/knockback/death/respawn; simulation survives artwork eviction. | Independent native Pig combat, respawn and progression; exact final world compositing includes dynamic mobs. | Server AI, spawn authorization, special/flying trajectories and many attack gates are absent; unsupported cases remain classified. |
+| NPCs/quests | Nearby world-click admission; complete Check/Act/Say/Info inventory; one generic condition/dialogue/choice/reward interpreter; persistent journal. 2,825 records, 961 supported ordinary declarative records. | Native Camila 28268 acceptance, 30 Pig kills, EXP600 once, reload; Main reopened completed 30/30 journal/detail with duplicate completion disabled. Generic Bun scenarios also cover literal-job/NPC rejection, item debit/reward and quiz choices. | Supported syntax is not profile eligibility or content feasibility. Missing scripts, item acquisition/drop authority and original job advancement are explicit. |
+| Portals | Exact supported named-route closure, edge/repeat guards, `(x,y-10)` arrivals, atomic replacement and retained-scene failure behavior. | Independent native ordinary/hidden/same-map routes; final installed-release Henesys↔Maya's House round trip with origin stopped. Loading interception proved frozen coordinates/ticks/HP while replacement waits. | Script/event gates are classified, not bypassed; local routes are not server authorization. |
+| Combat/progression | Equipped original sword artwork/afterimage, local impact/damage, supported mob type-0 attacks, HP/MP, death/recovery and once-only EXP progression. | Native damaging attacks, mob/player death, recovery, progression and quest completion; focused Recover replay passed. | Damage equations, AI decisions, respawn/recovery cadence and EXP thresholds are explicitly local. No invented loot, learned skills, projectile or summon authority. |
+| Saves | Versioned IndexedDB whole-profile checkpoints, revision/generation compare-and-swap, explicit reset, visible corruption/future-version/conflict errors. | Real browser all-domain reopen, stale-writer rejection, reset and invalid-record preservation; native completed quest reload; final offline Save/reload full-profile equality. | Browser eviction/site-data loss and best-effort pagehide flushing remain limits. Not every storage failure code was fault-injected. |
+| Viewport/camera | Shared DOM/Pixi logical transform, bottom anchoring, bounded drag/window layout, original VR bounds and small-map collapse; whole-composition integer projection. | Independent native viewport scenarios; Main 768×900 expanded-window clamp; final 1280×900 / DPR1 world oracle and visible offline HUD. | Non-original viewport extensions and camera follow are browser policy; rotated/skewed embedding is not supported. |
+| True offline launch | Verified immutable shell/catalog dependency closure, resumable staging, explicit activation and per-client release pinning; character saves remain separate. | Independent cancellation/resume/corruption/quota/update scenarios; Main final install/activation, browser restart with server stopped, cached native travel/jump and save/reload. | Update discovery cannot work offline and says so; it does not invalidate verified installed readiness. Quota, persistence denial and browser eviction remain visible. |
+| Reactors/other entities | Original reactor placement/templates/event state transitions, timeouts and accepted attack areas; original world/portal/effect dependencies. Default closure includes 57 reactor maps / 26 templates. | Independent native reactor scenarios; Main accepted 2302002 state0→state1 hit with no fault, including original zero-delay endpoint handling. | Script-driven drops/events, unsupported hit/skill conditions and projectile/summon controllers are not fabricated from artwork. |
+| Fidelity/performance | Original input/address evidence, independent world oracle, actual-input scenarios and bounded live metrics. | Final browser pass: **403 checks, zero failed checks, zero captured browser errors**. Seven world captures have zero pixels outside four-level channel tolerance. | This is interchange/browser agreement, not original Windows reference parity or proof of every gameplay path/display rate. |
+
+## Independent scenarios and replay evidence
+
+- [UI/movement worker](offline-validation/ui-movement/results.json): native windows, focus, viewport and locomotion scenarios, with retained screenshots.
+- [Combat/quest worker](offline-validation/combat-quests/evidence.json): native combat, 30-Pig quest, progression, death/recovery and persistence.
+- [Portal/reactor worker](offline-validation/portals-reactors/evidence.json): native route and reactor scenarios.
+- [Delivery worker](offline-validation/delivery/evidence.json): isolated browser installation/failure/update scenarios.
+- Main replays: [HUD clamp](offline-validation/main/clamp-after.json), [focused hotkey](offline-validation/main/hotkey-after.json), [Recover/reactor](offline-validation/main/recovery-reactor-after.json), [loading authority](offline-validation/main/loading-alive-after.json), [journal](offline-validation/main/journal-after.json), [quest detail](offline-validation/main/journal-detail-after.json), [delivery failure/retry/cancel](offline-validation/main/delivery-failures-after.json), and [normal update](offline-validation/main/delivery-update-after.json).
+- [Native durable-store evidence](offline-save-validation.json); [all-map refresh/manifest validation](offline-validation/refresh-invariance.json): 356 maps, 7,013 regions and 573 dynamic renderables.
+
+Worker artifacts precede Main's replay fixes. Their original failures are retained as findings, not represented as final passes. The old waiting-worker update warning is likewise historical; the activated worker's normal update and final install have no hash-warning error.
+
+## Final release and server-stopped proof
+
+- Build: `2a08e4020a9770693c2f5ec422eb3e333d92f82819596288fed537e89cddf455`.
+- Release: `71146c859aeae9a15148d5e91a4ec11947ffcc221bbd378441bcaea132018c94`.
+- **356 maps, 9,709 resources, 416,128,097 verified file bytes (396.9 MiB).**
+- Native [installation](offline-validation/main/final-release-install.json) and [activation](offline-validation/main/final-release-active.json) retain complete readiness and exact release pinning, with no installer/worker error or uncached content.
+- [Cold restart](offline-validation/main/final-server-stopped-restart.json): the origin process was stopped and isolated Chrome restarted with its retained profile. Installed shell/catalog/world resources return 200 through the service worker with zero network transfer. The sole failed resource-timing entry is the intentionally network-only release-update check. Its visible `Update check unavailable: Failed to fetch` is expected; installed readiness remains true, and runtime/physics faults and uncached lists remain clear.
+- [Final native offline play/save/reload](offline-validation/main/final-offline-portal-reload.json): `navigator.onLine=false`, Henesys→Maya's House at `(202,232)`, an eligible upward jump, native return to Henesys, Save locally and reload. The complete saved player projection matches after reload; release pin remains exact, with no gameplay fault or uncached resource. [Visible final surface](offline-validation/main/final-offline-portal-reload.png).
+
+## Measured loading, stalls and memory
+
+Command: `bun run validate --duration 10 --maps 100000000,100000001,104040001,106010000,230030100,211040000 --output docs/offline-validation/performance`.
+
+[Summary](offline-validation/performance/summary.json) and [full report](offline-validation/performance/report.json): Chrome152, Apple M3 ANGLE/Metal, WebGL2, 1280×900, DPR1. Page-target emulation uses150-ms latency and1.5-Mbit/s download with empty initial cache; service-worker-originated requests are **not** throttled by that target.
+
+| Measurement | Observed |
+| --- | --- |
+| Cold playable readiness | 23.514 s under the scoped emulation; maximum measured interval33.4 ms, one interval over33 ms, no long tasks |
+| Screenshot-free live movement | 10.005 s /599 intervals; mean16.666 ms, p95/p99/max16.8 ms; no intervals over20 ms and no long tasks |
+| Native offline combat | 10.291 s /617 intervals, two actual kills and EXP+8; mean16.666 ms, max16.8 ms, no intervals over20 ms or long tasks; used heap26.71 MB |
+| Six map replacement times | 75.99, 91.17, 103.59, 198.99, 90.38 and89.54 ms; no measured replacement interval over20 ms, no long tasks |
+| Live used JS heap | 42.46 MB |
+| Largest sampled replacement heap | 103.74 MB; sampled heap, not a process-wide peak or forced-GC leak claim |
+| Largest sampled replacement GPU estimate | 73.82 MB, below the192-MiB GPU budget |
+| World oracle | Seven captures; zero pixels outside the unchanged four-level per-channel tolerance |
+
+The separate [combat measurement](offline-validation/performance/combat.json) uses the final installed release with origin stopped and network disabled. Native map selection, bounded observed-target approach and X presses exercise actual damaging attacks; snapshots observe rather than mutate authority. The measurement includes driver observation overhead and is not a process-wide peak-memory claim.
+
+[HTTP byte-identity smoke](offline-validation/main/http-encoding.json) shows catalog gzip reducing11,337,089 file bytes to1,979,464 wire bytes with unchanged SHA-256; `gzip;q=0` correctly returns identity encoding. Compression is bounded to16 MiB of precomputed server representations and does not alter release hashes. The benchmark's former center-click opened Regular Cab legitimately; [diagnosis](offline-validation/main/first-input-diagnosis.json) distinguishes that modal from an input bug. Half-pixel camera/vertex artifacts were fixed at whole-composition projection, not by weakening the oracle.
+
+## Publication milestone
+
+The coherent milestone includes local gameplay authority, original-data closure, durable saves, complete-release installation, integrated replay fixes, documentation and retained proof. Generated runtime artwork and original binaries remain outside source publication. Source checks: strict ESLint and35 tests /131 assertions pass; final browser and offline evidence above cover the integrated behavior. Remaining evidence boundaries are intentional and named, not hidden placeholders.

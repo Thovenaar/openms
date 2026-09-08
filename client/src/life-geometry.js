@@ -58,15 +58,19 @@ export function npcRectangle(info) {
 export function contactGraphic(record, segment) {
   const graphic = new Graphics();
   const a = record.authored;
-  graphic
-    .moveTo(a.rx0, a.cy)
-    .lineTo(a.rx1, a.cy)
-    .stroke({ color: 0xf5b942, width: 1 });
-  graphic
-    .moveTo(a.x, a.y)
-    .lineTo(a.x, a.cy)
-    .stroke({ color: 0xf5b942, width: 1 });
-  graphic.circle(a.x, a.cy, 3).fill(0xf5b942);
+  if ([a.rx0, a.rx1, a.cy].every(Number.isFinite)) {
+    graphic
+      .moveTo(a.rx0, a.cy)
+      .lineTo(a.rx1, a.cy)
+      .stroke({ color: 0xf5b942, width: 1 });
+  }
+  if (Number.isFinite(a.cy)) {
+    graphic
+      .moveTo(a.x, a.y)
+      .lineTo(a.x, a.cy)
+      .stroke({ color: 0xf5b942, width: 1 });
+    graphic.circle(a.x, a.cy, 3).fill(0xf5b942);
+  }
   if (segment) {
     graphic
       .moveTo(segment.x1, segment.y1)

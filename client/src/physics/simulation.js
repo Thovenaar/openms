@@ -24,6 +24,8 @@ import { prepareBounds } from "./bounds.js";
 const MAX_CATCH_UP = 8;
 const QUANTUM_MS = 30;
 const SECONDS = QUANTUM_MS / 1000;
+/** Provisional offline held-key cadence; 009b1d3d proves impulses, not repeat timing. */
+const HELD_BUOYANT_JUMP_MS = 300;
 const INPUT_KEYS = [
   "left",
   "right",
@@ -54,9 +56,8 @@ function createContactScratch() {
   };
 }
 
-/** Validate contract physics metadata and allocate all reusable state before play.
- * Coordinates are original world pixels at the avatar's feet. */
-export function createSimulation(world, spawn) {
+/** Reject invalid source coordinates before clamping to the map bounds. */
+function validateSpawn(spawn) {
   if (!Number.isFinite(spawn.x) || !Number.isFinite(spawn.y)) {
     throw new Error("Nonfinite simulation spawn");
   }
@@ -66,6 +67,12 @@ export function createSimulation(world, spawn) {
   ) {
     throw new Error("Simulation spawn exceeds supported coordinate range");
   }
+}
+
+/** Validate contract physics metadata and allocate all reusable state before play.
+ * Coordinates are original world pixels at the avatar's feet. */
+export function createSimulation(world, spawn) {
+  validateSpawn(spawn);
   const effectiveSettings = prepareSettings(world);
   const geometry = prepareSegments(world.footholds);
   if (geometry.segments.length === 0) {
@@ -103,6 +110,9 @@ export function createSimulation(world, spawn) {
     accumulatorMs: 0,
     accumulatorError: 0,
     groundJumpSequence: 0,
+    jumpRepeatMs: 0,
+    movementLocked: false,
+    advancing: false,
     movementMode: "air",
     baseMode: world.map.swim ? "swim" : world.map.fly ? "fly" : "air",
     waterAreas: prepareWaterAreas(world.map),
@@ -116,10 +126,54 @@ export function createSimulation(world, spawn) {
   return sim;
 }
 
+/** Same-map travel preserves the simulation identity and sole fixed clock.
+ * Clear contacts/velocity, not gameplay locks, diagnostic history or elapsed backlog. */
+export function relocateSimulation(sim, arrival) {
+  if (
+    !Number.isFinite(arrival.x) ||
+    !Number.isFinite(arrival.y) ||
+    Math.abs(arrival.x) > MAX_COORDINATE ||
+    Math.abs(arrival.y) > MAX_COORDINATE
+  ) {
+    throw new Error("Invalid simulation relocation");
+  }
+  sim.x = Math.max(sim.bounds.left, Math.min(sim.bounds.right, arrival.x));
+  sim.y = Math.max(sim.bounds.top, Math.min(sim.bounds.bottom, arrival.y));
+  sim.previousX = sim.x;
+  sim.previousY = sim.y;
+  sim.vx = 0;
+  sim.vy = 0;
+  sim.foothold = null;
+  sim.footholdId = 0;
+  sim.ladder = null;
+  sim.ladderId = 0;
+  sim.position = 0;
+  sim.speed = 0;
+  sim.contactLayer = 7;
+  sim.contactGroup = 0;
+  sim.horizontalInput = 0;
+  sim.ignoredFootholdId = 0;
+  sim.crouching = false;
+  sim.jumpRepeatMs = 0;
+  sim.contactScratch.pendingAir = false;
+  sim.contactScratch.segment = null;
+  sim.contactScratch.first = null;
+  sim.contactScratch.last = null;
+  updateEnvironment(sim);
+  sim.state = sim.movementMode;
+  updateAction(sim);
+  return sim;
+}
+
 /** Mutate reusable state/input; retain overload backlog for subsequent calls.
- * Input booleans are held states except jumpPressed, which is one edge. */
-export function advanceSimulation(sim, input, elapsedMs) {
+ * onStep receives each executed quantum, never RAF elapsed; reentry is forbidden.
+ * Held-key repeat scheduling is local policy, distinct from the immediate edge. */
+export function advanceSimulation(sim, input, elapsedMs, onStep) {
   validateInput(input, elapsedMs);
+  if (onStep !== undefined && typeof onStep !== "function") {
+    throw new Error("Simulation step consumer must be a function");
+  }
+  if (sim.advancing) throw new Error("Simulation advance cannot reenter");
   if (sim.diagnostics.fault) return sim;
   const adjusted = elapsedMs - sim.accumulatorError;
   const elapsed = sim.accumulatorMs + adjusted;
@@ -128,17 +182,26 @@ export function advanceSimulation(sim, input, elapsedMs) {
   }
   sim.accumulatorError = elapsed - sim.accumulatorMs - adjusted;
   sim.accumulatorMs = elapsed;
-  let steps = 0;
-  for (; steps < MAX_CATCH_UP && sim.accumulatorMs >= QUANTUM_MS; steps++) {
-    step(sim, input);
-    sim.accumulatorMs -= QUANTUM_MS;
-    sim.diagnostics.ticks++;
-    sim.diagnostics.simulatedMs += QUANTUM_MS;
-    if (sim.diagnostics.fault) break;
+  sim.advancing = true;
+  try {
+    for (
+      let steps = 0;
+      steps < MAX_CATCH_UP && sim.accumulatorMs >= QUANTUM_MS;
+      steps++
+    ) {
+      step(sim, input);
+      sim.accumulatorMs -= QUANTUM_MS;
+      sim.diagnostics.ticks++;
+      sim.diagnostics.simulatedMs += QUANTUM_MS;
+      if (sim.diagnostics.fault) break;
+      if (onStep) onStep(QUANTUM_MS);
+    }
+  } finally {
+    sim.advancing = false;
+    sim.diagnostics.backlogMs = sim.accumulatorMs;
+    sim.diagnostics.overload = sim.accumulatorMs >= QUANTUM_MS;
+    if (sim.diagnostics.overload) sim.diagnostics.overloadCount++;
   }
-  sim.diagnostics.backlogMs = sim.accumulatorMs;
-  sim.diagnostics.overload = sim.accumulatorMs >= QUANTUM_MS;
-  if (sim.diagnostics.overload) sim.diagnostics.overloadCount++;
   return sim;
 }
 
@@ -159,13 +222,16 @@ function step(sim, input) {
   sim.previousX = sim.x;
   sim.previousY = sim.y;
   updateEnvironment(sim);
-  const horizontal = Number(input.right) - Number(input.left);
+  const horizontal = sim.movementLocked
+    ? 0
+    : Number(input.right) - Number(input.left);
   sim.horizontalInput = horizontal;
-  const vertical = Number(input.down) - Number(input.up);
+  const vertical = sim.movementLocked
+    ? 0
+    : Number(input.down) - Number(input.up);
   if (horizontal !== 0) sim.facing = horizontal;
-  sim.crouching = sim.state === "ground" && input.down;
-  sim.diagnostics.unsupportedAttack = input.attack;
-  acceptJump(sim, input, horizontal);
+  sim.crouching = !sim.movementLocked && sim.state === "ground" && input.down;
+  scheduleJump(sim, input, horizontal);
   if (sim.state === "ladder") climb(sim, vertical);
   else integrate(sim, sim.crouching ? 0 : horizontal, vertical);
   captureLadder(sim, vertical);
@@ -197,9 +263,22 @@ function integrate(sim, direction, vertical) {
   }
 }
 
-function acceptJump(sim, input, direction) {
-  if (!input.jumpPressed) return;
+/** Held ground/ladder requests retry when permissible; buoyant repeats wait 300 ms.
+ * Ordinary airborne edges are consumed immediately, never buffered for landing. */
+function scheduleJump(sim, input, direction) {
+  const pressed = input.jumpPressed;
   input.jumpPressed = false;
+  sim.jumpRepeatMs = Math.max(0, sim.jumpRepeatMs - QUANTUM_MS);
+  if (!input.jump) sim.jumpRepeatMs = 0;
+  if (sim.movementLocked || (!pressed && !input.jump)) return;
+  const buoyant =
+    !sim.foothold && sim.state !== "ladder" && sim.movementMode !== "air";
+  if (!pressed && buoyant && sim.jumpRepeatMs > 0) return;
+  if (buoyant) sim.jumpRepeatMs = HELD_BUOYANT_JUMP_MS;
+  acceptJump(sim, input, direction);
+}
+
+function acceptJump(sim, input, direction) {
   if (sim.state === "ladder") {
     if (direction === 0) return;
     releaseLadder(sim);
@@ -257,7 +336,8 @@ function beginDrop(sim) {
 function updateAction(sim) {
   if (sim.state === "ladder") {
     sim.action = sim.ladder.ladder ? "ladder" : "rope";
-  } else if (sim.state !== "ground") sim.action = "jump";
+  } else if (sim.state === "swim" || sim.state === "fly") sim.action = "fly";
+  else if (sim.state !== "ground") sim.action = "jump";
   else if (sim.crouching) sim.action = "prone";
   else sim.action = sim.speed === 0 ? "stand1" : "walk1";
 }
@@ -282,6 +362,8 @@ export function snapshotSimulation(sim) {
     facing: sim.facing,
     action: sim.action,
     crouching: sim.crouching,
+    movementLocked: sim.movementLocked,
+    jumpRepeatMs: sim.jumpRepeatMs,
     movementMode: sim.movementMode,
     effectiveSettings: { ...sim.effectiveSettings },
     blocked: [...sim.blocked],

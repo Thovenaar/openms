@@ -28,6 +28,7 @@ export class UISurface {
     this.controls = [];
     this.listeners = [];
     this.dependencies = [];
+    this.cleanups = [];
     owner.root.addChild(this.root);
     owner.host.append(this.element);
   }
@@ -144,6 +145,15 @@ export class UISurface {
     return button;
   }
 
+  /** Browser-policy scroll viewport: never implies recovered original text metrics or slot layout. */
+  contentArea(x, y, width, height) {
+    const content = document.createElement("div");
+    content.className = "maple-ui-content";
+    content.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${width}px;height:${height}px;overflow:auto;box-sizing:border-box;pointer-events:auto;`;
+    this.element.append(content);
+    return content;
+  }
+
   listen(target, type, handler) {
     target.addEventListener(type, handler);
     this.listeners.push({ target, type, handler });
@@ -158,6 +168,8 @@ export class UISurface {
   }
 
   destroy() {
+    for (const cleanup of this.cleanups) cleanup();
+    this.cleanups.length = 0;
     for (const listener of this.listeners) {
       listener.target.removeEventListener(listener.type, listener.handler);
     }
@@ -221,6 +233,13 @@ class UIControl {
     this.render();
   }
 
+  setDisabled(disabled) {
+    this.options.disabled = disabled;
+    this.element.setAttribute("aria-disabled", String(disabled));
+    if (disabled) this.pressed = false;
+    this.render();
+  }
+
   createElement(normal) {
     const { panel, options } = this;
     this.element = document.createElement("button");
@@ -258,9 +277,10 @@ class UIControl {
   handle(event) {
     this.updateFlags(event);
     if (event.type === "click" && this.options.disabled) return;
+    if (event.type === "click" && !this.visible) return;
     if (event.type === "click" && !this.options.disabled) {
       this.panel.owner.sound("BtMouseClick");
-      this.options.action();
+      this.options.action?.();
     }
     if (event.type === "pointerenter") {
       this.panel.owner.sound("BtMouseOver");
@@ -271,6 +291,7 @@ class UIControl {
       );
     }
     if (event.type === "pointerleave") this.panel.owner.hideTooltip();
+    if (event.type === "blur") this.panel.owner.hideTooltip();
     this.render();
   }
   updateFlags(event) {
@@ -279,11 +300,12 @@ class UIControl {
       this.hover = false;
       this.pressed = false;
     }
-    if (event.type === "pointerdown") this.pressed = true;
+    if (event.type === "pointerdown" && event.button === 0) this.pressed = true;
     if (["pointerup", "pointercancel", "blur"].includes(event.type)) {
       this.pressed = false;
     }
     if (event.type === "focus") this.focused = true;
+    if (event.type === "pointercancel") this.hover = false;
     if (event.type === "blur") this.focused = false;
     if (event.type === "keydown" && ["Enter", " "].includes(event.key)) {
       this.pressed = true;
@@ -305,12 +327,12 @@ class UIControl {
 
   render() {
     const state = this.currentState();
-    for (const [name, sprite] of Object.entries(this.states)) {
+    for (const name in this.states) {
+      const sprite = this.states[name];
       const visible =
         this.visible &&
         (name === state ||
           (name === "keyFocused" && this.focused && !this.options.disabled));
-      if (visible && !sprite.container.visible) sprite.setAction("default");
       sprite.container.visible = visible;
     }
   }

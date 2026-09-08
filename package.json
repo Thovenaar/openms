@@ -13,7 +13,7 @@
     "test": "bun test",
     "validate": "bun client/tools/validate.js",
     "lint": "bunx --bun eslint . --max-warnings 0",
-    "format": "bunx --bun prettier --write 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' client/index.html client/style.css eslint.config.js package.json client/package.json server/package.json"
+    "format": "bunx --bun prettier --write 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' 'client/public/*.js' client/public/app.webmanifest client/index.html client/style.css eslint.config.js package.json client/package.json server/package.json"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

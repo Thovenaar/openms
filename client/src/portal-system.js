@@ -4,51 +4,170 @@ const ENTRY_HALF_WIDTH = 20;
 const REVEAL_HALF_WIDTH = 100;
 const HALF_HEIGHT = 50;
 const REQUEST_INTERVAL_MS = 500; // 0053035d: elapsed > 499, cross-map request only.
+const SAME_MAP_ADMISSION_MS = 120; // 00957b74: provisional +0x2b2c guard.
+const SAME_MAP_RECOVERY_MS = 600; // 0094e5e5: movement commits next update, then guard=now+600.
+
+/** Lifetime is InGameSystems, not a field. One token owns admission until settlement. */
+export class PortalTravelGate {
+  constructor(clock = () => performance.now()) {
+    if (typeof clock !== "function") {
+      throw new Error("Portal clock is required");
+    }
+    this.clock = clock;
+    this.lastNow = 0;
+    this.lastRequestMs = -Infinity;
+    this.sameMapUntilMs = 0;
+    this.active = null;
+    this.sequence = 0;
+    this.completed = 0;
+    this.failed = 0;
+    this.lastOutcome = "idle";
+  }
+
+  now() {
+    const now = this.clock();
+    if (!Number.isFinite(now) || now < this.lastNow) {
+      throw new Error("Portal clock must be finite and monotonic");
+    }
+    this.lastNow = now;
+    return now;
+  }
+
+  /** crossMap means original packet path, including same-field types 4/5. */
+  tryBegin(crossMap) {
+    if (typeof crossMap !== "boolean") {
+      throw new Error("Invalid portal request kind");
+    }
+    const now = this.now();
+    if (this.active) {
+      this.lastOutcome = "request-already-pending";
+      return null;
+    }
+    if (crossMap && now - this.lastRequestMs < REQUEST_INTERVAL_MS) {
+      this.lastOutcome = "cross-map-request-cooldown";
+      return null;
+    }
+    if (!crossMap && now < this.sameMapUntilMs) {
+      this.lastOutcome = "same-map-motion-in-flight";
+      return null;
+    }
+    if (!Number.isSafeInteger(this.sequence + 1)) {
+      throw new Error("Portal request sequence exhausted");
+    }
+    const controller = new AbortController();
+    const token = {
+      id: ++this.sequence,
+      crossMap,
+      controller,
+      signal: controller.signal,
+      notBeforeMs: now,
+    };
+    this.active = token;
+    if (crossMap) this.lastRequestMs = now;
+    else this.sameMapUntilMs = now + SAME_MAP_ADMISSION_MS;
+    this.lastOutcome = "offline-request-pending";
+    return token;
+  }
+
+  owns(token) {
+    return token !== null && this.active === token;
+  }
+
+  /** 0053185c timestamps responses, including failures. Stale tokens cannot release a successor. */
+  complete(token, outcome = "committed") {
+    if (!this.owns(token)) return false;
+    if (!["committed", "failed", "cancelled"].includes(outcome)) {
+      throw new Error("Invalid portal completion outcome");
+    }
+    const now = this.now();
+    if (!token.crossMap && outcome === "committed") {
+      this.sameMapUntilMs = now + SAME_MAP_RECOVERY_MS;
+    }
+    if (token.crossMap) this.lastRequestMs = now;
+    this.active = null;
+    this.lastOutcome = outcome;
+    if (outcome === "committed") this.completed++;
+    else this.failed++;
+    return true;
+  }
+
+  /** Explicit application cancellation only; destroying a committed source is not cancellation. */
+  cancel(token) {
+    if (!this.owns(token)) return false;
+    token.controller.abort();
+    return this.complete(token, "cancelled");
+  }
+
+  snapshot() {
+    const now = this.now();
+    return {
+      pending: this.active !== null,
+      token: this.active?.id ?? null,
+      cooldownMs: Math.max(0, REQUEST_INTERVAL_MS - (now - this.lastRequestMs)),
+      sameMapMotionMs: Math.max(0, this.sameMapUntilMs - now),
+      requests: this.sequence,
+      completed: this.completed,
+      failed: this.failed,
+      lastOutcome: this.lastOutcome,
+    };
+  }
+}
 
 /** Original Win32 PtInRect uses exclusive right/bottom boundaries and integer feet. */
-function contains(portal, sim, halfWidth) {
+function contains(portal, sim, halfWidth, halfHeight = HALF_HEIGHT) {
   const x = Math.trunc(sim.x),
     y = Math.trunc(sim.y);
   return (
     x >= portal.x - halfWidth &&
     x < portal.x + halfWidth &&
-    y >= portal.y - HALF_HEIGHT &&
-    y < portal.y + HALF_HEIGHT
+    y >= portal.y - halfHeight &&
+    y < portal.y + halfHeight
   );
 }
 
+function containsAutomatic(record, sim) {
+  const type = record.portal.type;
+  return (
+    (type === 3 || type === 9 || type === 12 || type === 13) &&
+    contains(record.portal, sim, record.halfWidth, record.halfHeight)
+  );
+}
+
+function travelOptions(portal, token) {
+  return {
+    token,
+    signal: token.signal,
+    sound: portal.type !== 4 && portal.type !== 5,
+    effect: token.crossMap ? null : "Teleport",
+    sameMapMotion: !token.crossMap,
+    notBeforeMs: token.notBeforeMs,
+  };
+}
+
 /** Preserve unsupported records rather than silently redirecting or running WZ scripts. */
-function unsupported(portal, raw) {
+export function portalRouteStatus(portal, raw) {
   if (raw.script !== undefined && raw.script !== "") {
     return "server-script-unavailable";
   }
   if (portal.type === 0) return "spawn-only";
-  if (![1, 2, 10].includes(portal.type)) return "unsupported-portal-type";
-  return unsupportedConditions(raw) ?? unsupportedDestination(portal);
-}
-
-function unsupportedConditions(raw) {
-  if (raw.reactorName !== undefined && raw.reactorName !== "") {
-    return "reactor-condition-unavailable";
+  if (portal.type === 6) return "special-field-loader-unavailable";
+  if (portal.type === 9) return "automatic-script-packet-unavailable";
+  if (portal.type === 12) return "impact-skill-state-unavailable";
+  if (portal.type === 13) return "impact-field-reactor-state-unavailable";
+  if (![1, 2, 3, 4, 5, 7, 8, 10, 11].includes(portal.type)) {
+    return "unsupported-portal-type";
   }
-  if (Number(raw.onlyOnce ?? 0) !== 0) return "onlyOnce-lifetime-unavailable";
-  if (Number(raw.delay ?? 0) !== 0) {
-    return "authored-delay-semantics-unavailable";
-  }
-  if (
-    Number(raw.horizontalImpact ?? 0) !== 0 ||
-    Number(raw.verticalImpact ?? 0) !== 0
-  ) {
-    return "impact-semantics-unavailable";
-  }
-  return null;
+  // delay/onlyOnce/impacts/reactorName are consumed by 9/12/13, not ordinary routing.
+  return unsupportedDestination(portal);
 }
 
 function unsupportedDestination(portal) {
   if (!Number.isInteger(portal.targetMap) || portal.targetMap === 999999999) {
     return "no-route";
   }
-  if (!/^\d{9}$/.test(String(portal.targetMap))) return "invalid-target-map";
+  if (portal.targetMap < 0 || portal.targetMap > 999999998) {
+    return "invalid-target-map";
+  }
   if (typeof portal.targetName !== "string" || !portal.targetName.length) {
     return "missing-target-name";
   }
@@ -67,11 +186,23 @@ function prepareRecord(presentation, portals, raw) {
   ) {
     throw new Error("Portal presentation identity mismatch");
   }
+  const properties = raw[String(portal.id)] ?? {};
+  const hRange = Number(properties.hRange ?? 100);
+  const vRange = Number(properties.vRange ?? 100);
+  if (
+    ![hRange, vRange].every(
+      (n) => Number.isSafeInteger(n) && n >= 0 && n <= 1000000,
+    )
+  ) {
+    throw new Error("Invalid authored automatic portal range");
+  }
   return {
     portal,
     entityId: presentation.entityId,
     status: presentation.status,
-    denied: unsupported(portal, raw[String(portal.id)] ?? {}),
+    denied: portalRouteStatus(portal, properties),
+    halfWidth: Math.trunc(hRange / 2),
+    halfHeight: Math.trunc(vRange / 2),
     phase: presentation.status === "looping-graphics" ? "looping" : "hidden",
     animation: null,
     desired: false,
@@ -97,7 +228,8 @@ export class PortalSystem {
     }
     if (
       typeof hooks.travel !== "function" ||
-      typeof hooks.onError !== "function"
+      typeof hooks.onError !== "function" ||
+      !(hooks.travelGate instanceof PortalTravelGate)
     ) {
       throw new Error("Portal travel and error hooks are required");
     }
@@ -114,9 +246,11 @@ export class PortalSystem {
     this.scene = scene;
     this.hooks = hooks;
     this.destroyed = false;
-    this.pending = false;
+    this.token = null;
     this.generation = 0;
-    this.cooldownMs = 0;
+    this.gate = hooks.travelGate;
+    this.automatic = null;
+    this.automaticAttempt = null;
     this.candidate = null;
     this.reveal = null;
     this.lastOutcome = "offline-traversal-not-server-authorization";
@@ -130,10 +264,11 @@ export class PortalSystem {
     if (!Number.isFinite(ms) || ms < 0) {
       throw new Error("Invalid portal update input");
     }
-    this.cooldownMs = Math.max(0, this.cooldownMs - ms);
+    // Cooldown uses the shared monotonic application clock, never scene delta time.
     this.handleInput(inputState);
     if (this.destroyed) return;
     this.selectNearby(this.scene.simulation);
+    this.handleAutomatic();
     for (const record of this.records) this.updateGraphics(record);
   }
 
@@ -146,11 +281,11 @@ export class PortalSystem {
     }
     const pressed = inputState.upPressed;
     inputState.upPressed = false;
-    if (!pressed || this.pending) return;
+    if (!pressed || this.gate.active) return;
     const sim = this.scene.simulation;
     this.selectNearby(sim);
     if (!this.candidate) return;
-    if (!sim.footholdId || sim.action === "attack") {
+    if (!sim.footholdId || sim.action === "attack" || sim.movementLocked) {
       this.lastOutcome = "requires-grounded-unblocked-local-user";
       return;
     }
@@ -161,10 +296,14 @@ export class PortalSystem {
   selectNearby(sim) {
     this.candidate = null;
     this.reveal = null;
+    this.automatic = null;
     for (let index = this.records.length - 1; index >= 0; index--) {
       const record = this.records[index],
         portal = record.portal;
       if (portal.type === 0 || portal.type === 6) continue;
+      if (!this.automatic && containsAutomatic(record, sim)) {
+        this.automatic = record;
+      }
       if (!this.candidate && contains(portal, sim, ENTRY_HALF_WIDTH)) {
         this.candidate = record;
       }
@@ -178,9 +317,34 @@ export class PortalSystem {
     }
   }
 
+  /** 0094dac6 runs without Up/contact for type3. Failed overlap requests require reentry. */
+  handleAutomatic() {
+    if (!this.automatic) {
+      this.automaticAttempt = null;
+      return;
+    }
+    if (this.automaticAttempt === this.automatic || this.gate.active) return;
+    if (
+      this.scene.simulation.action === "attack" ||
+      this.scene.simulation.movementLocked
+    ) {
+      return;
+    }
+    if (this.request(this.automatic)) this.automaticAttempt = this.automatic;
+  }
+
+  get blocksMovement() {
+    return this.gate.active !== null && !this.gate.active.crossMap;
+  }
+
   /** Region replacement is detected by identity: do not hold sprites/leases after eviction. */
   updateGraphics(record) {
-    if (!record.entityId || record.portal.type !== 10) return;
+    if (
+      !record.entityId ||
+      (record.portal.type !== 10 && record.portal.type !== 11)
+    ) {
+      return;
+    }
     const animation = this.scene.byId.get(record.entityId);
     if (!animation) {
       record.animation = null;
@@ -198,7 +362,7 @@ export class PortalSystem {
       record.desired = desired;
       record.phase = desired ? "portalStart" : "portalExit";
       animation.container.visible = true;
-      animation.setAction(record.phase);
+      animation.setAction(record.phase, "once");
     }
     if (
       record.phase === "portalStart" &&
@@ -217,45 +381,66 @@ export class PortalSystem {
 
   /** Named route errors stay visible and retain the current scene; no rejection is swallowed. */
   request(record) {
-    if (this.destroyed || this.pending) return;
+    if (this.destroyed || this.gate.active) return false;
+    if (
+      this.scene.offlineField?.dead ||
+      this.scene.offlineField?.blocksMovement
+    ) {
+      return false;
+    }
     if (record.denied) {
       this.lastOutcome = record.denied;
       this.hooks.onError(
         new Error(`Portal ${record.portal.name}: ${record.denied}`),
       );
-      return;
+      return true;
     }
-    const crossMap =
-      String(record.portal.targetMap) !== String(this.scene.manifest.id);
-    if (crossMap && this.cooldownMs > 0) {
-      this.lastOutcome = "cross-map-request-cooldown";
-      return;
+    const packetPath =
+      String(record.portal.targetMap).padStart(9, "0") !==
+        String(this.scene.manifest.id) ||
+      record.portal.type === 4 ||
+      record.portal.type === 5;
+    const token = this.gate.tryBegin(packetPath);
+    if (!token) {
+      this.lastOutcome = this.gate.lastOutcome;
+      return false;
     }
-    this.pending = true;
+    this.token = token;
     this.requests++;
     const generation = ++this.generation;
-    if (crossMap) this.cooldownMs = REQUEST_INTERVAL_MS;
     this.lastOutcome = "offline-request-pending";
     this.finishTravel(record, generation);
+    return true;
   }
 
   async finishTravel(record, generation) {
+    const token = this.token;
+    let outcome = "failed";
     try {
       await this.hooks.travel(
-        String(record.portal.targetMap),
+        String(record.portal.targetMap).padStart(9, "0"),
         record.portal.targetName,
+        travelOptions(record.portal, token),
       );
+      outcome = token.signal.aborted ? "cancelled" : "committed";
       if (this.destroyed || generation !== this.generation) return;
       this.completed++;
       this.lastOutcome = "offline-request-committed";
     } catch (error) {
-      if (this.destroyed || generation !== this.generation) return;
+      outcome = token.signal.aborted ? "cancelled" : "failed";
+      if (
+        this.destroyed ||
+        generation !== this.generation ||
+        outcome === "cancelled"
+      ) {
+        return;
+      }
       this.lastOutcome = error instanceof Error ? error.message : String(error);
       this.hooks.onError(error);
     } finally {
-      if (!this.destroyed && generation === this.generation) {
-        this.pending = false;
-      }
+      // Successful Main commit destroys this owner before travel resolves.
+      this.gate.complete(token, outcome);
+      if (this.token === token) this.token = null;
     }
   }
 
@@ -263,8 +448,10 @@ export class PortalSystem {
     return {
       mode: "offline-packaged-traversal-not-server-authorization",
       records: this.records.length,
-      pending: this.pending,
-      cooldownMs: this.cooldownMs,
+      pending: this.gate.active !== null,
+      cooldownMs: this.gate.snapshot().cooldownMs,
+      gate: this.gate.snapshot(),
+      automatic: this.automatic?.portal.id ?? null,
       requests: this.requests,
       completed: this.completed,
       lastOutcome: this.lastOutcome,
@@ -291,7 +478,7 @@ export class PortalSystem {
     if (this.destroyed) return;
     this.destroyed = true;
     this.generation++;
-    this.pending = false;
+    // Keep the gate token: the application still owns the in-flight async operation.
     this.candidate = null;
     this.reveal = null;
     for (const record of this.records) record.animation = null;

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { at, resolveNode, value } from "../src/assets/image.js";
 
 const MAX_PLACEMENTS = 4096;
-const MAX_TEMPLATES = 512;
+const MAX_TEMPLATES = 8192;
 const MAX_ACTIONS = 128;
 const MAX_FRAMES = 1024;
 const MAX_METADATA = 32768;
@@ -166,23 +166,18 @@ async function extractTemplate(context, kind, id) {
   );
   const stringNode = strings.children[String(Number(id))];
   const stringsFields = fields(stringNode);
-  const actions = Object.create(null),
-    actionMetadata = Object.create(null);
-  const branches = Object.entries(linked.node.children);
-  if (branches.length > MAX_ACTIONS) {
-    throw new Error("Life action count exceeds policy");
-  }
-  for (const [name, child] of branches) {
-    if (name === "info") continue;
-    const action = resolveNode(child);
-    if (!action.children["0"]) continue;
-    const extracted = await extractAction(context, action, kind);
-    actions[name] = extracted.frames;
-    actionMetadata[name] = extracted.metadata;
-  }
-  if (!actions.stand) {
-    throw new Error(`Life template lacks stand artwork: ${kind}:${id}`);
-  }
+  const { actions, actionMetadata } = await extractTemplateActions(
+    context,
+    linked.node,
+    kind,
+  );
+  const combat =
+    kind === "mob" ? mobCombat(infoNode, actionMetadata, linked.node) : null;
+  const defaultAction = actions.stand
+    ? "stand"
+    : actions.fly
+      ? "fly"
+      : (Object.keys(actions)[0] ?? null);
   const artworkHash = createHash("sha256")
     .update(JSON.stringify(actions))
     .digest("hex");
@@ -198,8 +193,70 @@ async function extractTemplate(context, kind, id) {
       info: fields(infoNode),
       sources: linked.chain,
       actions: actionMetadata,
+      defaultAction,
+      artworkStatus: defaultAction
+        ? "original-action-artwork"
+        : "unavailable: no original action canvases",
+      combat,
       stringSource: `String.wz:${kind === "npc" ? "Npc" : "Mob"}.img/${Number(id)}`,
     },
+  };
+}
+
+/** Extract only original action canvas branches; retain each timing/body record. */
+async function extractTemplateActions(context, root, kind) {
+  const actions = Object.create(null);
+  const actionMetadata = Object.create(null);
+  const branches = Object.entries(root.children);
+  if (branches.length > MAX_ACTIONS) {
+    throw new Error("Life action count exceeds policy");
+  }
+  for (const [name, child] of branches) {
+    if (name === "info") continue;
+    const action = resolveNode(child);
+    if (!action.children["0"]) continue;
+    if (at(action, "0").type !== "Canvas") continue;
+    const extracted = await extractAction(context, action, kind);
+    actions[name] = extracted.frames;
+    actionMetadata[name] = extracted.metadata;
+  }
+  return { actions, actionMetadata };
+}
+
+/** Preserve executable type-0 inputs and classify other attack families explicitly. */
+function mobCombat(info, actions, root) {
+  const allowed = info.children.damagedBySelectedSkill;
+  const allowedSkills = allowed ? Object.values(fields(allowed)) : [];
+  if (!allowedSkills.every(Number.isSafeInteger)) {
+    throw new Error("Invalid selected-skill mob restriction");
+  }
+  const attacks = [];
+  for (const name of Object.keys(actions)) {
+    if (!/^attack\d+$/.test(name)) continue;
+    attacks.push(mobAttack(name, actions[name], root));
+  }
+  return { allowedSkills, attacks };
+}
+
+function mobAttack(name, metadata, root) {
+  const action = at(root, name);
+  const node = action.children.info ? at(action, "info") : null;
+  const properties = node ? fields(node) : {};
+  const range = node?.children.range ? bodyRectangle(at(node, "range")) : null;
+  const supported =
+    properties.type === 0 &&
+    !!range &&
+    Number.isSafeInteger(properties.attackAfter) &&
+    properties.attackAfter >= 0 &&
+    metadata.timingKnown;
+  return {
+    action: name,
+    properties,
+    rectangle: range,
+    supported,
+    status: supported
+      ? "type-0-area; local selection/eligibility/damage"
+      : "unavailable attack type, timing or geometry; no synthetic projectile/summon",
   };
 }
 
@@ -209,6 +266,7 @@ function placement(node, mapId) {
     throw new Error(`Invalid life template reference on ${mapId}`);
   }
   for (const key of ["x", "y", "fh", "cy", "rx0", "rx1"]) {
+    if (key !== "x" && key !== "y" && authored[key] === undefined) continue;
     if (
       !Number.isSafeInteger(authored[key]) ||
       Math.abs(authored[key]) > 1000000
@@ -263,7 +321,7 @@ function lifeEntity(record, template, planes) {
     visible: record.authored.hide !== 1,
     flip: record.authored.f === 0,
     opacity: 1,
-    action: "stand",
+    action: template.metadata.defaultAction,
     actions: template.actions,
   };
 }
@@ -327,7 +385,9 @@ export async function extractLife(context, map, mapId) {
     const template = cache.get(record.template);
     templates[record.template] = template.metadata;
     placements.push(record);
-    entities.push(lifeEntity(record, template, planes));
+    if (template.metadata.defaultAction) {
+      entities.push(lifeEntity(record, template, planes));
+    }
   }
   return { entities, life: lifeManifest(mapId, placements, templates) };
 }

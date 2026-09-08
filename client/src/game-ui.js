@@ -1,11 +1,13 @@
 import { Container } from "pixi.js";
 import { loadVisualBundle } from "./visual-resources.js";
 import { UISurface } from "./ui-surface.js";
-import { layoutHud, layoutWindow } from "./ui-layout.js";
+import { HUD_TOP, layoutHud, layoutWindow } from "./ui-layout.js";
 import {
   populateEquipment,
   populateEquipmentTooltip,
   replaceMinimap,
+  updateProfileHud,
+  updateProfilePanel,
 } from "./ui-inspection.js";
 
 const MAX_OPEN_WINDOWS = 4;
@@ -20,6 +22,7 @@ const WINDOWS = new Set([
   "MiniMap",
   "UtilDlgEx",
   "GameOpt",
+  "Quest",
   "SysOpt",
   "EquipmentPreview",
   "ToolTip",
@@ -35,10 +38,28 @@ const KEYS = new Map([
 const SIZES = {
   MiniMap: [260, 216],
   UtilDlgEx: [529, 206],
-  EquipmentPreview: [330, 250],
+  Quest: [529, 206],
+  EquipmentPreview: [330, 280],
   ToolTip: [330, 310],
 };
 const STYLE = `.maple-ui-root{position:absolute;pointer-events:none;transform-origin:0 0;z-index:5;font:11px Tahoma,Arial,sans-serif;color:#222;user-select:none}.maple-ui-root button{pointer-events:auto;cursor:pointer;font:11px Tahoma,Arial,sans-serif;min-height:0;min-width:0;box-sizing:border-box;margin:0;line-height:normal}.maple-ui-root .maple-ui-hit{padding:0;border:0;background:transparent;color:transparent;box-shadow:none;border-radius:0}.maple-ui-root .maple-ui-hit:focus-visible{outline:1px solid #ffc63d;outline-offset:1px}.maple-ui-root .maple-ui-local{padding:3px 5px;background:#263442;color:white;border:1px solid #a6bed0;border-radius:2px;white-space:nowrap}.maple-ui-root .maple-ui-text{white-space:pre-wrap;line-height:1.35;overflow-wrap:anywhere;pointer-events:none}.maple-ui-root .maple-ui-unavailable{background:rgba(255,255,240,.94);padding:4px;box-sizing:border-box;border:1px solid #c6ad75}.maple-ui-root .maple-ui-status{color:white;background:#273342;padding:3px}.maple-ui-root .maple-ui-dialog-text{color:#222}.maple-ui-root .maple-ui-tooltip{position:absolute;max-width:300px;background:#20252a;color:white;padding:6px;border:1px solid #a9b6c2;white-space:pre-wrap;z-index:100;pointer-events:none}.maple-ui-root .maple-ui-drag{position:absolute;left:0;top:0;height:20px;cursor:move;background:transparent;touch-action:none}`;
+const LOCAL_STYLE = `.maple-ui-root .maple-ui-content{white-space:pre-wrap;line-height:1.35;overflow-wrap:anywhere;user-select:text}.maple-ui-root .maple-ui-profile{font-size:11px}.maple-ui-root .maple-ui-content button{position:static;white-space:normal}.maple-ui-root select,.maple-ui-root input{pointer-events:auto;max-width:100%;box-sizing:border-box}.maple-ui-root .maple-ui-status{box-sizing:border-box}.maple-ui-root .maple-ui-save-actions{display:flex;gap:8px;margin-top:8px}`;
+const FOCUSABLE =
+  "button:not([disabled]):not([hidden]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex='0']";
+
+/** Resolve retained window sizes or original background dimensions within the logical viewport. */
+function windowSize(name, resource) {
+  const asset = resource.manifest.metadata.assets?.[`${name}/backgrnd`];
+  const size = SIZES[name] || [asset?.width, asset?.height];
+  if (
+    !size.every((value) => Number.isFinite(value) && value > 0) ||
+    size[0] > 800 ||
+    size[1] > HUD_TOP
+  ) {
+    throw new Error(`Invalid UI dimensions: ${name}`);
+  }
+  return [size[0], size[1]];
+}
 
 function windowBounds(panel) {
   const bounds = panel.root.getLocalBounds();
@@ -91,7 +112,7 @@ export class GameUI {
     this.host.style.width = "800px";
     this.host.style.height = "600px";
     this.style = document.createElement("style");
-    this.style.textContent = STYLE;
+    this.style.textContent = STYLE + LOCAL_STYLE;
     this.host.append(this.style);
     app.canvas.parentElement.append(this.host);
     this.tooltip = document.createElement("div");
@@ -108,6 +129,14 @@ export class GameUI {
     this.visible = true;
     this.drag = null;
     this.dialogText = "";
+    this.dialogNpc = null;
+    this.dialogMode = "notice";
+    this.store = null;
+    this.quests = null;
+    this.saving = false;
+    this.resetting = false;
+    this.layoutGeneration = 0;
+    this.layoutFrame = null;
     this.keyHandler = this.onKey.bind(this);
     this.pointerHandler = this.onPointer.bind(this);
     this.focusHandler = this.onFocus.bind(this);
@@ -120,6 +149,7 @@ export class GameUI {
     window.addEventListener("pointerup", this.releaseHandler, true);
     window.addEventListener("pointercancel", this.releaseHandler, true);
     this.resize(app.screen.width, app.screen.height);
+    this.observeLayout();
   }
 
   validateIndex(index) {
@@ -175,6 +205,7 @@ export class GameUI {
       panel = null;
       resource = null;
       this.root.setChildIndex(this.hud.root, 0);
+      this.refreshProfile();
     } catch (error) {
       basic?.destroy();
       if (panel) panel.destroy();
@@ -192,6 +223,103 @@ export class GameUI {
 
   sound(name) {
     this.hooks.playSound?.("UI", name);
+  }
+
+  /** Subscribe to durable authority; profile root may be null after an explicit load failure. */
+  setProfile(store, quests) {
+    if (
+      !store ||
+      typeof store.subscribe !== "function" ||
+      typeof store.flush !== "function"
+    ) {
+      throw new Error("UI requires a subscribable ProfileStore");
+    }
+    this.unsubscribeProfile?.();
+    this.store = store;
+    this.quests = quests;
+    const jobs = quests?.knownJobs() || [];
+    if (
+      !Array.isArray(jobs) ||
+      jobs.length > 1024 ||
+      !jobs.every((id) => Number.isSafeInteger(id) && id >= 0)
+    ) {
+      throw new Error("Invalid retained quest job catalog");
+    }
+    this.knownJobs = jobs.slice();
+    this.unsubscribeProfile = store.subscribe(() => this.refreshProfile());
+    this.refreshProfile();
+  }
+
+  refreshProfile() {
+    if (this.disposed) return;
+    updateProfileHud(this.hud, this.store);
+    for (const panel of this.windows.values()) {
+      this.refreshProfilePanel(panel);
+      panel.dialogCleanup?.refresh?.();
+    }
+  }
+
+  refreshProfilePanel(panel) {
+    updateProfilePanel(panel, this.store);
+  }
+
+  /** Recovery is queued by field authority; the UI never grants HP or moves the avatar. */
+  recoverProfile() {
+    if (this.store?.profile?.hp !== 0 || !this.hooks.onRecover) return;
+    try {
+      const accepted = this.hooks.onRecover();
+      this.showTooltip(
+        accepted
+          ? "Local recovery queued."
+          : "Recovery is not ready. Wait for the local death animation, then try again.",
+        438,
+        535,
+      );
+      if (accepted) this.hooks.focusGame();
+    } catch (error) {
+      this.report(error);
+    }
+  }
+
+  async saveProfile() {
+    if (!this.store?.profile || this.saving || this.resetting) return;
+    this.saving = true;
+    this.refreshProfile();
+    try {
+      await this.hooks.onSave?.();
+      await this.store.flush();
+    } catch (error) {
+      this.report(error);
+      this.notice(`Local save failed: ${error.message}`);
+    } finally {
+      this.saving = false;
+      this.refreshProfile();
+    }
+  }
+
+  requestReset() {
+    if (!this.store || this.saving || this.resetting) return;
+    this.dialogMode = "reset";
+    this.dialogNpc = null;
+    this.refreshDialog();
+  }
+
+  async resetProfile() {
+    if (!this.store || this.saving || this.resetting) return;
+    this.resetting = true;
+    this.refreshProfile();
+    try {
+      await this.store.reset();
+      await this.hooks.onReset?.();
+      this.closeAll();
+      this.hooks.focusGame();
+    } catch (error) {
+      this.report(error);
+      this.notice(`Local reset failed: ${error.message}`);
+    } finally {
+      this.resetting = false;
+      this.refreshProfile();
+    }
   }
 
   activate(name) {
@@ -232,23 +360,14 @@ export class GameUI {
 
   async loadWindow(name, signal) {
     let resource = await loadVisualBundle(
-      this.index.bundles[name],
+      this.index.bundles[name === "Quest" ? "UtilDlgEx" : name],
       this.services,
       signal,
     );
     let panel = null;
     try {
       signal.throwIfAborted();
-      const asset = resource.manifest.metadata.assets?.[`${name}/backgrnd`];
-      const size = SIZES[name] || [asset?.width, asset?.height];
-      if (
-        !size.every(
-          (value) => Number.isFinite(value) && value > 0 && value <= 1000,
-        )
-      ) {
-        throw new Error(`Invalid UI dimensions: ${name}`);
-      }
-      panel = new UISurface(this, name, resource, [size[0], size[1]]);
+      panel = new UISurface(this, name, resource, windowSize(name, resource));
       panel.borrow(this.hud.basic);
       resource = null;
       this.compose(panel);
@@ -259,6 +378,7 @@ export class GameUI {
       this.hooks.clearInput();
       panel.element.querySelector("button")?.focus();
       if (name === "MiniMap") this.refreshMinimap(panel);
+      this.refreshProfilePanel(panel);
       return panel;
     } catch (error) {
       if (panel) panel.destroy();
@@ -272,18 +392,15 @@ export class GameUI {
     else if (panel.name === "ToolTip") {
       populateEquipmentTooltip(panel, this.inspectedEquipment);
     } else layoutWindow(panel);
+    if (panel.name === "UtilDlgEx" || panel.name === "Quest") {
+      this.mountDialog(panel);
+    }
   }
 
   /** Initial centering, drag strip and viewport clamping are browser policies, not inferred WZ origins. */
   addWindowChrome(panel) {
     const offset = this.windows.size * 18;
-    panel.position(
-      Math.min(
-        800 - panel.width,
-        Math.max(0, (800 - panel.width) / 2 + offset),
-      ),
-      Math.max(0, Math.min(500 - panel.height, 70 + offset)),
-    );
+    this.positionWindow(panel, (800 - panel.width) / 2 + offset, 70 + offset);
     const strip = document.createElement("div");
     strip.className = "maple-ui-drag";
     strip.style.width = `${panel.width - 24}px`;
@@ -294,6 +411,13 @@ export class GameUI {
       label: `Close ${panel.name}`,
       action: () => this.close(panel.name),
     });
+  }
+
+  positionWindow(panel, x, y) {
+    panel.position(
+      Math.max(0, Math.min(800 - panel.width, x)),
+      Math.max(0, Math.min(HUD_TOP - panel.height, y)),
+    );
   }
 
   front(panel) {
@@ -339,6 +463,7 @@ export class GameUI {
     const panel = this.windows.get(name);
     if (!panel) return;
     panel.mapController?.abort();
+    if (this.drag?.panel === panel) this.drag = null;
     this.windows.delete(name);
     panel.destroy();
     this.clipDomWindows();
@@ -364,30 +489,99 @@ export class GameUI {
 
   notice(text) {
     this.dialogText = String(text).slice(0, 1800);
-    const panel = this.windows.get("UtilDlgEx");
-    if (panel) {
-      panel.message.textContent = this.dialogText;
-      this.front(panel);
-      return;
-    }
-    this.activate("UtilDlgEx");
+    this.dialogMode = "notice";
+    this.dialogNpc = null;
+    this.refreshDialog();
   }
 
-  /** NPC interaction is an explicit unavailable-server boundary; no String.wz line is treated as scripted speech. */
+  /** Only the quest owner may interpret original NPC/quest data or mutate quest state. */
   showNpc(record) {
-    if (!record || typeof record.name !== "string") {
+    const id = record?.templateId;
+    const validId =
+      (typeof id === "string" && /^\d{1,8}$/.test(id)) ||
+      (Number.isSafeInteger(id) && id >= 0 && id <= 99999999);
+    if (!record || typeof record.name !== "string" || !validId) {
       throw new Error("Invalid NPC UI interaction record");
     }
-    this.notice(
-      `${record.name}${record.functionName ? ` — ${record.functionName}` : ""}\nNPC template ${record.templateId}; placement ${record.id}.\n\nServer dialogue unavailable. This inspection does not start, advance, accept or complete a quest or NPC script.`,
-    );
+    if (typeof record.canInteract !== "function" || !record.canInteract()) {
+      this.notice(
+        "NPC interaction is no longer available. Approach a visible nearby NPC while alive.",
+      );
+      return;
+    }
+    this.dialogNpc = record;
+    this.dialogMode = "npc";
+    this.refreshDialog();
+  }
+
+  refreshDialog() {
+    const panel = this.windows.get("UtilDlgEx");
+    if (panel) {
+      this.mountDialog(panel);
+      this.front(panel);
+      panel.element.querySelector(FOCUSABLE)?.focus();
+    } else this.activate("UtilDlgEx");
+  }
+
+  mountDialog(panel) {
+    panel.dialogCleanup?.();
+    panel.dialogCleanup = null;
+    panel.content.replaceChildren();
+    if (!panel.dialogDisposal) {
+      panel.dialogDisposal = true;
+      panel.cleanups.push(() => panel.dialogCleanup?.());
+    }
+    if (panel.name === "Quest" && this.hooks.onQuestJournal) {
+      panel.dialogCleanup = this.hooks.onQuestJournal(panel);
+    } else if (panel.name === "Quest") {
+      panel.content.textContent = "Local quest journal is not connected.";
+    } else if (this.dialogMode === "npc" && this.hooks.onNpcDialogue) {
+      panel.dialogCleanup = this.hooks.onNpcDialogue(panel, this.dialogNpc);
+    } else if (this.dialogMode === "reset") this.mountReset(panel);
+    else {
+      panel.content.textContent =
+        this.dialogMode === "npc"
+          ? `${this.dialogNpc.name}: local quest dialogue is not connected. Original NPC scripts remain unavailable.`
+          : this.dialogText ||
+            "Local dialogue presentation. Original server scripts are unavailable.";
+    }
+  }
+
+  mountReset(panel) {
+    panel.content.textContent =
+      "RESET LOCAL PROFILE\nThis permanently replaces this browser's name, statistics, inventory, quests, location and settings with the provisional beginner profile. No server is contacted.";
+    const actions = document.createElement("div");
+    actions.className = "maple-ui-save-actions";
+    const confirm = document.createElement("button");
+    confirm.className = "maple-ui-local";
+    confirm.type = "button";
+    confirm.textContent = "Reset local profile";
+    const cancel = confirm.cloneNode(false);
+    cancel.textContent = "Cancel";
+    const reset = () => {
+      confirm.disabled = true;
+      this.resetProfile();
+    };
+    const close = () => this.close(panel.name);
+    confirm.addEventListener("click", reset);
+    cancel.addEventListener("click", close);
+    actions.append(confirm, cancel);
+    panel.content.append(actions);
+    panel.dialogCleanup = () => {
+      confirm.removeEventListener("click", reset);
+      cancel.removeEventListener("click", close);
+    };
   }
 
   showTooltip(text, x, y) {
     this.tooltip.textContent = String(text).slice(0, 1800);
-    this.tooltip.style.left = `${Math.max(0, Math.min(490, x))}px`;
-    this.tooltip.style.top = `${Math.max(0, Math.min(460, y - 40))}px`;
     this.tooltip.hidden = false;
+    this.tooltip.style.maxHeight = "560px";
+    this.tooltip.style.overflow = "hidden";
+    const width = this.tooltip.offsetWidth,
+      height = this.tooltip.offsetHeight;
+    this.tooltip.style.left = `${Math.max(0, Math.min(800 - width, x))}px`;
+    this.tooltip.style.top = `${Math.max(0, Math.min(600 - height, y - height - 6))}px`;
   }
 
   hideTooltip() {
@@ -403,7 +597,7 @@ export class GameUI {
     }
     panel.detail = panel.image(path, panel.width + 4, 0);
     panel.detailNotice = panel.text(
-      "Static alternate skin; live values unavailable",
+      "Static alternate skin; local values use the labeled native list.",
       panel.width + 9,
       25,
       { width: 150, className: "maple-ui-unavailable" },
@@ -430,16 +624,9 @@ export class GameUI {
     panel.smallControl.position(panel.width - 47, 6);
     panel.fullControl.setVisible(!full);
     panel.smallControl.setVisible(full);
-    if (!panel.fullNotice) {
-      panel.fullNotice = panel.text(
-        "Skin preview only; inventory unavailable",
-        190,
-        205,
-        { width: 360, className: "maple-ui-unavailable" },
-      );
-    }
-    panel.fullNotice.hidden = !full;
-    panel.position(Math.min(panel.x, 800 - panel.width), panel.y);
+    panel.profileContent.style.width = `${panel.width - 24}px`;
+    panel.profileContent.style.height = `${panel.height - 90}px`;
+    this.positionWindow(panel, panel.x, panel.y);
     (full ? panel.smallControl : panel.fullControl).element.focus();
     this.clipDomWindows();
   }
@@ -511,12 +698,81 @@ export class GameUI {
     this.offsetY = height - 600 * this.scale;
     this.root.scale.set(this.scale);
     this.root.position.set(this.offsetX, this.offsetY);
-    const canvas = this.app.canvas;
-    const ratioX = canvas.clientWidth / width,
-      ratioY = canvas.clientHeight / height;
-    this.host.style.left = `${canvas.offsetLeft + this.offsetX * ratioX}px`;
-    this.host.style.top = `${canvas.offsetTop + this.offsetY * ratioY}px`;
+    this.viewportWidth = width;
+    this.viewportHeight = height;
+    this.syncDomLayout();
+    this.clipDomWindows();
+  }
+
+  /** Track canvas resize and ancestor layout changes without querying layout in the animation loop. */
+  observeLayout() {
+    this.layoutHandler = this.scheduleLayout.bind(this);
+    this.layoutCommit = this.commitLayout.bind(this);
+    this.layoutObserver = new ResizeObserver(this.layoutHandler);
+    this.layoutObserver.observe(this.app.canvas);
+    this.layoutObserver.observe(this.host.parentElement);
+    this.layoutMutations = new MutationObserver(this.layoutHandler);
+    this.layoutMutations.observe(this.app.canvas, {
+      attributes: true,
+      attributeFilter: ["class", "style", "width", "height"],
+    });
+    let ancestor = this.host.parentElement,
+      depth = 0;
+    while (ancestor && depth++ < 32) {
+      this.layoutMutations.observe(ancestor, {
+        attributes: true,
+        childList: true,
+      });
+      ancestor = ancestor.parentElement;
+    }
+    if (ancestor) {
+      throw new Error("UI ancestor layout depth exceeds supported bound");
+    }
+    window.addEventListener("resize", this.layoutHandler);
+    window.addEventListener("scroll", this.layoutHandler, true);
+  }
+
+  scheduleLayout() {
+    if (this.disposed || this.layoutFrame !== null) return;
+    this.layoutFrame = requestAnimationFrame(this.layoutCommit);
+  }
+
+  commitLayout() {
+    this.layoutFrame = null;
+    if (!this.disposed) this.syncDomLayout();
+  }
+
+  syncDomLayout() {
+    const parent = this.host.parentElement;
+    const canvasRect = this.app.canvas.getBoundingClientRect();
+    const parentRect = parent.getBoundingClientRect();
+    if (
+      canvasRect.width <= 0 ||
+      canvasRect.height <= 0 ||
+      parent.offsetWidth <= 0 ||
+      parent.offsetHeight <= 0
+    ) {
+      return;
+    }
+    const parentScaleX = parentRect.width / parent.offsetWidth;
+    const parentScaleY = parentRect.height / parent.offsetHeight;
+    if (parentScaleX <= 0 || parentScaleY <= 0) return;
+    const ratioX = canvasRect.width / this.viewportWidth / parentScaleX;
+    const ratioY = canvasRect.height / this.viewportHeight / parentScaleY;
+    const left =
+      (canvasRect.left - parentRect.left) / parentScaleX -
+      parent.clientLeft +
+      parent.scrollLeft;
+    const top =
+      (canvasRect.top - parentRect.top) / parentScaleY -
+      parent.clientTop +
+      parent.scrollTop;
+    this.host.style.left = `${left + this.offsetX * ratioX}px`;
+    this.host.style.top = `${top + this.offsetY * ratioY}px`;
     this.host.style.transform = `scale(${this.scale * ratioX},${this.scale * ratioY})`;
+    this.screenScaleX = this.scale * ratioX * parentScaleX;
+    this.screenScaleY = this.scale * ratioY * parentScaleY;
+    this.layoutGeneration++;
   }
 
   onKey(event) {
@@ -531,10 +787,7 @@ export class GameUI {
     }
     const modal = this.modal();
     if (modal && this.captureModalKey(event, modal)) return;
-    if (this.host.contains(event.target)) {
-      this.hooks.clearInput();
-      return;
-    }
+    if (this.captureControlInput(event, modal)) return;
     const name = KEYS.get(event.code);
     if (!name) return;
     event.preventDefault();
@@ -544,6 +797,16 @@ export class GameUI {
     if (this.windows.has(name) || this.pending.has(name)) this.close(name);
     else this.activate(name);
   }
+  captureControlInput(event, modal) {
+    if (!this.host.contains(event.target)) return false;
+    this.hooks.clearInput();
+    return (
+      Boolean(modal) ||
+      event.target.isContentEditable ||
+      event.target.matches("input,select,textarea")
+    );
+  }
+
   acceptsKey(event) {
     if (
       !this.visible ||
@@ -570,7 +833,9 @@ export class GameUI {
       return true;
     }
     if (event.key !== "Tab") return false;
-    const buttons = panel.element.querySelectorAll("button:not([disabled])");
+    const buttons = Array.from(
+      panel.element.querySelectorAll(FOCUSABLE),
+    ).filter((element) => element.getClientRects().length > 0);
     const edge = event.shiftKey ? buttons[0] : buttons[buttons.length - 1];
     if (event.target === edge) {
       event.preventDefault();
@@ -608,6 +873,7 @@ export class GameUI {
 
   beginDrag(event, panel) {
     if (event.button !== 0) return;
+    if (!this.screenScaleX || !this.screenScaleY) return;
     event.preventDefault();
     this.front(panel);
     this.hooks.clearInput();
@@ -624,22 +890,10 @@ export class GameUI {
     if (!this.drag) return;
     event.preventDefault();
     const drag = this.drag;
-    const ratio = this.app.canvas.clientWidth / this.app.screen.width;
-    drag.panel.position(
-      Math.max(
-        0,
-        Math.min(
-          800 - drag.panel.width,
-          drag.startX + (event.clientX - drag.x) / (this.scale * ratio),
-        ),
-      ),
-      Math.max(
-        0,
-        Math.min(
-          529 - drag.panel.height,
-          drag.startY + (event.clientY - drag.y) / (this.scale * ratio),
-        ),
-      ),
+    this.positionWindow(
+      drag.panel,
+      drag.startX + (event.clientX - drag.x) / this.screenScaleX,
+      drag.startY + (event.clientY - drag.y) / this.screenScaleY,
     );
     this.clipDomWindows();
   }
@@ -667,6 +921,10 @@ export class GameUI {
         ),
       scale: this.scale,
       minimap: this.windows.get("MiniMap")?.mapId || null,
+      layoutGeneration: this.layoutGeneration,
+      offsetX: this.offsetX,
+      offsetY: this.offsetY,
+      localProfile: this.store?.snapshot() || null,
       originalTiming:
         "Only explicitly authored frame delays advance; missing timing is static/unsupported.",
     };
@@ -678,6 +936,12 @@ export class GameUI {
     this.prepareController?.abort();
     this.controller.abort();
     this.closeAll();
+    this.unsubscribeProfile?.();
+    this.layoutObserver?.disconnect();
+    this.layoutMutations?.disconnect();
+    if (this.layoutFrame !== null) cancelAnimationFrame(this.layoutFrame);
+    window.removeEventListener("resize", this.layoutHandler);
+    window.removeEventListener("scroll", this.layoutHandler, true);
     this.hud?.destroy();
     this.root.destroy({ children: true });
     this.host.remove();

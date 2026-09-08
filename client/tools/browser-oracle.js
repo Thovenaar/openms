@@ -19,7 +19,29 @@ async function originalScene(state) {
     const data = await json(region.url);
     entities.push(...data.entities);
   }
+  appendDynamicArtwork(entities, manifest, state);
   return { manifest, entities };
+}
+
+/** Resolve dynamic mob artwork independently from its authored placement/template. */
+function appendDynamicArtwork(entities, manifest, state) {
+  const placements = new Map(
+    (manifest.life?.placements ?? []).map((record) => [record.id, record]),
+  );
+  for (const live of state.entities) {
+    if (live.kind !== "mob") continue;
+    const placement = placements.get(live.id);
+    const descriptor = manifest.life?.renderables?.[placement?.template];
+    if (!descriptor) {
+      throw new Error(`Oracle dynamic artwork unavailable: ${live.id}`);
+    }
+    // Local display ties follow authored placement order, not the shared template's first instance.
+    entities.push({
+      ...descriptor.entity,
+      id: live.id,
+      order: 100000 + Number(placement.id.slice(5)),
+    });
+  }
 }
 
 async function loadImages(scene) {
@@ -66,6 +88,9 @@ function partAlpha(entity, frame, part) {
   const start = Math.round((part.opacity ?? 1) * 255);
   if (frame.alphaEnd === undefined) {
     return ((entity.opacity ?? 1) * start) / 255;
+  }
+  if (frame.delay === 0) {
+    return (entity.opacity ?? 1) * frame.alphaEnd;
   }
   let frameStart = 0;
   for (let index = 0; index < entity.frame; index++) {

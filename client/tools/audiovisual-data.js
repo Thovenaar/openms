@@ -63,7 +63,7 @@ function soundFormat(node, source) {
   };
 }
 
-async function publishSound(context, node, source) {
+export async function publishSound(context, node, source) {
   node = resolveNode(node);
   const format = soundFormat(node, source);
   return {
@@ -105,7 +105,7 @@ async function effectFrames(context, node) {
     const rawDelay = value(canvas, "delay", null);
     // Original 00439750 -> 0043e86f -> 0043ea3e -> 0043f768: 120 ms.
     const delay = rawDelay === null ? 120 : Number(rawDelay);
-    if (!Number.isFinite(delay) || delay <= 0 || delay > 60000) {
+    if (!Number.isFinite(delay) || delay < 0 || delay > 60000) {
       throw new Error("Invalid effect delay");
     }
     const rawStart = Number(value(canvas, "a0", -1)),
@@ -158,7 +158,7 @@ async function publishEffect(context, imageName, name) {
 
 /** Immutable catalog metadata; audio and visual payloads remain separately demand-loaded. */
 export async function extractAudiovisual(context, mapIds) {
-  if (!Array.isArray(mapIds) || mapIds.length > 32) {
+  if (!Array.isArray(mapIds) || mapIds.length > 512) {
     throw new Error("Invalid audiovisual map selection");
   }
   mkdirSync(resolve(context.output, "audio"), { recursive: true });
@@ -169,7 +169,8 @@ export async function extractAudiovisual(context, mapIds) {
     const map = context.image("Map", `Map/Map${mapId[0]}/${mapId}.img`);
     const info = at(map, "info");
     const bgm = value(info, "bgm", "");
-    if (!/^[A-Za-z0-9_]+\/[A-Za-z0-9_]+$/.test(bgm)) {
+    // Track names are original WZ child keys, not JavaScript identifiers.
+    if (!/^[A-Za-z0-9_]+\/[^/\\]+$/.test(bgm)) {
       throw new Error(`Unsupported map BGM ${bgm}`);
     }
     const [image, name] = bgm.split("/");

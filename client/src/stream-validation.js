@@ -10,7 +10,7 @@ export const LIMITS = Object.freeze({
   cacheEntries: 2048,
   uploadBytes: 16 * 1024 * 1024,
   uploadMs: 4,
-  maps: 4096,
+  maps: 512,
   regions: 4096,
   textures: 65536,
   entities: 8192,
@@ -179,15 +179,12 @@ function sourceSize(value) {
     }
   }
 }
-function frame(value, count, map, background) {
+function frame(value, map, background) {
   finite(value.delay);
-  if (value.delay < 0 || (count > 1 && value.delay === 0)) {
+  if (value.delay < 0) {
     throw new Error("Invalid animation duration");
   }
   alpha(value.alphaEnd);
-  if (value.alphaEnd !== undefined && value.delay === 0) {
-    throw new Error("Alpha tween requires duration");
-  }
   frameParts(value, map, background);
 }
 /** Validate original canvas extent and each atlas-backed frame part. */
@@ -222,7 +219,7 @@ function entityActions(entity, map) {
   for (const [, frames] of entries(entity.actions, LIMITS.actions)) {
     if (!array(frames, LIMITS.frames).length) throw new Error("Empty action");
     for (const value of frames) {
-      frame(value, frames.length, map, entity.background);
+      frame(value, map, entity.background);
     }
   }
   if (!Object.hasOwn(entity.actions, entity.action)) {
@@ -240,9 +237,16 @@ export function entities(values, map) {
       throw new Error("Missing global entity draw order");
     }
     if (
-      !["map", "character", "ui", "portal", "mob", "npc", "effect"].includes(
-        entity.kind,
-      )
+      ![
+        "map",
+        "character",
+        "ui",
+        "portal",
+        "mob",
+        "npc",
+        "effect",
+        "reactor",
+      ].includes(entity.kind)
     ) {
       throw new Error("Unsupported entity kind");
     }

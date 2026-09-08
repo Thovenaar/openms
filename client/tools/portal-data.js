@@ -1,4 +1,86 @@
 import { at, value, resolveNode } from "../src/assets/image.js";
+import { portalRouteStatus } from "../src/portal-system.js";
+
+const MAX_PLAYABLE_MAPS = 512;
+
+function mapPortals(context, mapId) {
+  const map = context.image("Map", `Map/Map${mapId[0]}/${mapId}.img`);
+  const nodes = Object.values(map.children.portal?.children ?? {});
+  if (nodes.length > MAX_PORTALS) {
+    throw new Error("Portal closure record bound exceeded");
+  }
+  return nodes;
+}
+
+function routeFields(node) {
+  return {
+    id: Number(node.name),
+    name: value(node, "pn"),
+    type: value(node, "pt"),
+    targetMap: value(node, "tm"),
+    targetName: value(node, "tn"),
+  };
+}
+
+function destinationStatus(context, portal, target) {
+  const nodes = mapPortals(context, target);
+  let matches = 0;
+  for (const node of nodes) {
+    if (value(node, "pn") === portal.targetName) matches++;
+  }
+  if (matches === 0) return "missing-named-destination";
+  if (matches !== 1) return "ambiguous-named-destination";
+  return null;
+}
+
+/** Bounded source-driven closure; unsupported scripts and malformed named routes stay explicit.
+ * context.image owns decoding/cache and must fail on missing/corrupt original IMG dependencies.
+ * @returns {{ids:string[],blocked:object[]}} */
+export function collectPlayableMaps(context, seeds) {
+  if (
+    !Array.isArray(seeds) ||
+    !seeds.length ||
+    seeds.length > MAX_PLAYABLE_MAPS ||
+    seeds.some((id) => typeof id !== "string" || !/^\d{9}$/.test(id))
+  ) {
+    throw new Error("Invalid playable-map seed set");
+  }
+  const ids = [...new Set(seeds)],
+    seen = new Set(ids),
+    blocked = [];
+  for (let index = 0; index < ids.length; index++) {
+    const source = ids[index];
+    for (const node of mapPortals(context, source)) {
+      const portal = routeFields(node);
+      const raw = { script: value(node, "script", "") };
+      let reason = portalRouteStatus(portal, raw);
+      const target = Number.isInteger(portal.targetMap)
+        ? String(portal.targetMap).padStart(9, "0")
+        : null;
+      if (!reason) reason = destinationStatus(context, portal, target);
+      if (reason) {
+        blocked.push({
+          source,
+          portalId: portal.id,
+          name: portal.name,
+          target,
+          targetName: portal.targetName,
+          reason,
+        });
+        continue;
+      }
+      if (seen.has(target)) continue;
+      if (ids.length >= MAX_PLAYABLE_MAPS) {
+        throw new Error(
+          "Playable map closure exceeds 512 maps; select an explicit release",
+        );
+      }
+      seen.add(target);
+      ids.push(target);
+    }
+  }
+  return { ids: ids.sort(), blocked };
+}
 
 const MAX_PORTALS = 4096;
 const MAX_FRAMES = 1024;
@@ -25,7 +107,7 @@ async function portalFrames(context, node) {
     const delay = Number(
       value(at(node, children[index]), "delay", ORIGINAL_FRAME_DELAY_MS),
     );
-    if (!Number.isSafeInteger(delay) || delay <= 0) {
+    if (!Number.isSafeInteger(delay) || delay < 0) {
       throw new Error("Invalid portal frame delay");
     }
     result[index].delay = delay;
@@ -63,11 +145,37 @@ async function cachedActions(context, helper, path, cache) {
       actions[state] = await portalFrames(context, at(resource, state));
     }
   }
+  // 0071332c deliberately uses ph Continue even for psh Start/Exit (type11).
+  if (path.startsWith("portal/game/psh/")) {
+    const continuePath = path.replace("/psh/", "/ph/");
+    let continueResource = helper;
+    for (const key of continuePath.split("/")) {
+      continueResource = continueResource?.children[key];
+    }
+    if (!continueResource?.children.portalContinue) return null;
+    actions.portalContinue = await portalFrames(
+      context,
+      at(continueResource, "portalContinue"),
+    );
+  }
   cache.set(path, actions);
   return actions;
 }
 
 /** No route metadata is duplicated here: portalId indexes physics.portals/$portalProperties. */
+function activation(node) {
+  const type = value(node, "pt");
+  if (value(node, "script", "") !== "") return "server-script";
+  if (type === 0) return "spawn";
+  if (type === 6) return "special-field-loader";
+  if (type === 9) return "automatic-server-script";
+  if (type === 12 || type === 13) return "automatic-impact";
+  if (type === 3) return "automatic-and-up";
+  if (type === 10 || type === 11) return "hidden-up";
+  if ([1, 2, 4, 5, 7, 8].includes(type)) return "ordinary-up";
+  return "unknown-type";
+}
+
 async function extractOne(context, node, helper, actionCache) {
   const path = graphics(node);
   const record = {
@@ -75,6 +183,7 @@ async function extractOne(context, node, helper, actionCache) {
     entityId: null,
     graphics: path,
     status: "metadata-only",
+    activation: activation(node),
   };
   if (!path) return { entity: null, record };
   const actions = await cachedActions(context, helper, path, actionCache);
@@ -103,9 +212,6 @@ async function extractOne(context, node, helper, actionCache) {
   };
   record.entityId = entity.id;
   record.status = hidden ? "proximity-state-graphics" : "looping-graphics";
-  if (value(node, "pt") === 11) {
-    record.status = "unsupported-psh-continue-family";
-  }
   return { entity, record };
 }
 

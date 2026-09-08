@@ -59,7 +59,7 @@ test("a jump before the first real contact does not invent a standing foothold",
   expect(sim.vy).toBe(60);
 });
 
-test("a sub-quantum jump edge survives until the original30ms boundary, without auto-repeat", () => {
+test("a sub-quantum jump edge survives and holding jumps again after landing", () => {
   const sim = standing(world(), { x: 0, y: 0 });
   const held = input({ jump: true, jumpPressed: true });
   advanceSimulation(sim, held, 29);
@@ -68,11 +68,9 @@ test("a sub-quantum jump edge survives until the original30ms boundary, without 
   expect(sim.y).toBeCloseTo(-16.75, 10);
   expect(sim.vy).toBe(-495);
   for (let tick = 0; tick < 20; tick++) advanceSimulation(sim, held, 30);
-  expect({ y: sim.y, vy: sim.vy, state: sim.state }).toEqual({
-    y: 0,
-    vy: 0,
-    state: "ground",
-  });
+  expect(sim.state).toBe("air");
+  expect(sim.y).toBeLessThan(0);
+  expect(sim.vy).toBeLessThan(0);
 });
 
 test("refresh partitions preserve actual moving and jumping outcomes", () => {
@@ -111,7 +109,9 @@ test("drop eligibility does not restrict landing to the queried lower candidate"
     y: 0,
   });
   const held = input({ down: true, jump: true, jumpPressed: true });
-  for (let tick = 0; tick < 40; tick++) advanceSimulation(sim, held, 30);
+  advanceSimulation(sim, held, 30);
+  held.jump = false;
+  for (let tick = 0; tick < 39; tick++) advanceSimulation(sim, held, 30);
   expect({ y: sim.y, foothold: sim.footholdId }).toEqual({
     y: 100,
     foothold: 2,
@@ -237,4 +237,30 @@ test("VRLimit gates viewport restrictions and zero edges remain unspecified", ()
     { x: -500, y: 0 },
   );
   expect(zeroLeft.x).toBe(-500);
+});
+
+test("authored inverted ladder endpoints preserve directional capture and idle position", () => {
+  const terrain = world([floor(1, 375)]);
+  terrain.ladders = [
+    { id: 6, x: 0, y1: 374, y2: 372, ladder: 1, uf: 0, page: 3 },
+  ];
+  const sim = standing(terrain, { x: 0, y: 375 });
+  advanceSimulation(sim, input({ up: true }), 30);
+  expect({ state: sim.state, y: sim.y }).toEqual({ state: "ladder", y: 372 });
+  advanceSimulation(sim, input(), 30);
+  expect({ state: sim.state, y: sim.y }).toEqual({ state: "ladder", y: 372 });
+  advanceSimulation(sim, input({ down: true }), 30);
+  expect({ state: sim.state, y: sim.y }).toEqual({ state: "air", y: 373 });
+});
+
+test("grounded downward ladder entry is restricted to its top endpoint", () => {
+  const terrain = world([floor(1, 50)]);
+  terrain.ladders = [
+    { id: 1, x: 0, y1: 0, y2: 100, ladder: 1, uf: 1, page: 0 },
+  ];
+  const sim = standing(terrain, { x: 0, y: 50 });
+  advanceSimulation(sim, input({ down: true }), 30);
+  expect(sim.state).toBe("ground");
+  advanceSimulation(sim, input({ up: true }), 30);
+  expect({ state: sim.state, y: sim.y }).toEqual({ state: "ladder", y: 50 });
 });

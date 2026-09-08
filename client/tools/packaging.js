@@ -49,7 +49,7 @@ function splitRegions(entities, pixels) {
   }
   const regions = new Map();
   for (const entity of entities) {
-    if (entity.kind === "character") continue;
+    if (entity.kind === "character" || entity.kind === "mob") continue;
     const extent = entityBounds(entity, pixels);
     const spanning =
       extent.right - extent.left > REGION_SIZE ||
@@ -75,6 +75,7 @@ export async function packageMap(scene, state) {
   expandCanvasParts(scene.entities, state);
   const actors = scene.entities.filter((entity) => entity.kind === "character");
   const atlasIds = new Set(await packageAtlases(state, textureIds(actors)));
+  const renderables = await packageMobs(scene, state, atlasIds);
   const regions = [];
   for (const region of splitRegions(scene.entities, state.pixels)) {
     const atlases = await packageAtlases(state, textureIds(region.entities));
@@ -116,7 +117,9 @@ export async function packageMap(scene, state) {
     evidence: scene.evidence,
     equipment: scene.equipment,
     portalPresentation: scene.portalPresentation,
-    life: scene.life,
+    combat: scene.combat,
+    reactors: scene.reactors,
+    life: scene.life ? { ...scene.life, renderables } : scene.life,
   };
   const descriptor = await resource(
     state.output,
@@ -125,6 +128,29 @@ export async function packageMap(scene, state) {
     Buffer.from(JSON.stringify(manifest)),
   );
   return { descriptor, manifest };
+}
+
+/** Dynamic mob artwork is leased by template, never by an authored static cell. */
+async function packageMobs(scene, state, atlasIds) {
+  const renderables = Object.create(null);
+  const placements = new Map(
+    scene.life?.placements.map((record) => [record.id, record]) ?? [],
+  );
+  for (const entity of scene.entities) {
+    if (entity.kind !== "mob") continue;
+    const record = placements.get(entity.id);
+    if (!record) throw new Error("Mob artwork lacks authored placement");
+    if (renderables[record.template]) continue;
+    const atlases = await packageAtlases(state, textureIds([entity]));
+    for (const id of atlases) atlasIds.add(id);
+    const bounds = entityBounds(entity, state.pixels);
+    bounds.left -= entity.x;
+    bounds.right -= entity.x;
+    bounds.top -= entity.y;
+    bounds.bottom -= entity.y;
+    renderables[record.template] = { entity, atlases, bounds };
+  }
+  return renderables;
 }
 
 /** UI/effect bundles share exact texture identities, atlas packing and byte verification. */

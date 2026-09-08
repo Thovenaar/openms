@@ -149,7 +149,6 @@ export function createDiagnostics() {
     overloadCount: 0,
     transitionLimit: false,
     fault: null,
-    unsupportedAttack: false,
     unsupportedLadderFlags: false,
     originalCadenceVerified: true,
     policies: [
@@ -158,6 +157,8 @@ export function createDiagnostics() {
       "rare object/group collision exceptions require original dynamic actor context",
       "base avatar only: equipment, skills, mounts and morphs not applied",
       "active unsupported map options are reported, not given guessed coefficients",
+      "held jump: retry permissible ground/ladder states; buoyant impulses repeat every 300ms (provisional offline policy)",
+      "local gameplay movement locks gate controls, not gravity, friction or existing velocity",
     ],
   };
 }

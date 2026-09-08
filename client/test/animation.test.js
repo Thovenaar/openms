@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { Texture } from "pixi.js";
 import { EntityAnimation } from "../src/animation.js";
 
-function entity() {
+function entity(additional = {}) {
   return new EntityAnimation(
     {
       id: "timing",
@@ -32,10 +32,10 @@ function entity() {
             parts: [{ texture: "pixel", x: 0, y: 0, z: 0, opacity: 0 }],
           },
         ],
+        ...additional,
       },
     },
     new Map([["pixel", Texture.EMPTY]]),
-    0,
   );
 }
 test("variable elapsed time crosses exact boundaries, wraps cycles and resets actions", () => {
@@ -82,5 +82,49 @@ test("alpha uses signed integer interpolation and switches endpoints without a s
   e.advance(50);
   expect(e.frame).toBe(0);
   expect(e.sprites[0].alpha).toBe(1);
+  e.container.destroy({ children: true });
+});
+
+test("one-shot completion holds its last frame and repeated selection cannot restart it", () => {
+  const e = entity();
+  e.setAction("walk", "once");
+  e.advance(199);
+  expect(e.completed).toBe(false);
+  e.setAction("walk", "once");
+  e.advance(1);
+  expect(e.completed).toBe(true);
+  expect(e.sprites[0].x).toBe(2);
+  e.advance(1000);
+  expect(e.sprites[0].x).toBe(2);
+  e.setAction("still", "once");
+  expect(e.completed).toBe(true);
+  expect(e.sprites[0].x).toBe(4);
+  e.setAction("walk", "loop");
+  e.advance(200);
+  expect(e.completed).toBe(false);
+  expect(e.sprites[0].x).toBe(0);
+  e.container.destroy({ children: true });
+});
+
+test("zero-delay boundaries skip immediately and terminal alpha applies without division", () => {
+  const frames = [0, 100, 0, 100, 0].map((delay, index) => ({
+    delay,
+    alphaEnd: index === 4 ? 0 : 1,
+    parts: [{ texture: "pixel", x: index, y: 0, z: 0 }],
+  }));
+  const e = entity({ instant: frames });
+  e.setAction("instant", "once");
+  expect(e.sprites[0].x).toBe(1);
+  e.advance(100);
+  expect(e.sprites[0].x).toBe(3);
+  e.advance(100);
+  expect(e.sprites[0].x).toBe(4);
+  expect(e.sprites[0].alpha).toBe(0);
+  expect(e.completed).toBe(true);
+  e.setAction("instant", "loop");
+  e.advance(200);
+  expect(e.sprites[0].x).toBe(1);
+  e.seek(100);
+  expect(e.sprites[0].x).toBe(3);
   e.container.destroy({ children: true });
 });

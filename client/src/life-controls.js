@@ -14,7 +14,7 @@ export class LifeControls {
     element("summary", "Life metadata preview · no server", this.root);
     element(
       "p",
-      "Authored placements, not live spawns. No AI, combat, dialogue or inventory.",
+      "Original life metadata. Mobs use explicit offline-local combat policy; NPC actions are inspection previews.",
       this.root,
     );
     this.placement = element("select", "", this.root);
@@ -40,7 +40,7 @@ export class LifeControls {
     const label = element("label", "", this.root);
     this.geometry = element("input", "", label);
     this.geometry.type = "checkbox";
-    label.append(" Show nondamaging body / interaction / fh geometry");
+    label.append(" Show original body / interaction / fh geometry");
     const hiddenLabel = element("label", "", this.root);
     this.hidden = element("input", "", hiddenLabel);
     this.hidden.type = "checkbox";
@@ -80,6 +80,7 @@ export class LifeControls {
       option.value = name;
     }
     this.action.value = slot.action;
+    this.action.disabled = slot.record.kind === "mob" || !slot.action;
     const a = slot.record.authored;
     this.status.textContent = `${slot.template.name ?? slot.template.originalId}; authored (${a.x}, ${a.y}), fh=${a.fh}, cy=${a.cy}, range=${a.rx0}..${a.rx1}. ${slot.contactStatus}. Click artwork to inspect; NPC requests stop at the server boundary.`;
   }

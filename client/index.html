@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Maple · Original asset reconstruction</title>
     <link rel="stylesheet" href="/style.css" />
+    <link rel="manifest" href="/app.webmanifest" />
+    <link rel="icon" href="/app-icon.svg" type="image/svg+xml" />
   </head>
   <body>
     <header>
@@ -53,8 +55,8 @@
             <option value="">Enable debug to load references</option>
           </select>
           <p class="hint">
-            Preview bounds are recovered geometry, not verified attack timing or
-            active combat.
+            Inspector bounds show recovered geometry. Local combat rules and
+            unverified original activation timing are reported separately.
           </p>
           <label class="check"
             ><input id="follow" type="checkbox" checked /> Follow player
@@ -103,11 +105,12 @@
             </button>
           </div>
           <p class="hint">
-            Click the map to play: arrows move and climb, Space jumps, Down +
-            Space drops. Up requests supported offline portal traversal. I/E/S/K
-            open UI windows; attacks and server state remain unavailable. Camera
-            buttons inspect independently. Deterministic stepping requires Pause
-            and advances by the selected milliseconds.
+            Click the map to play: arrows move and climb; hold Space for
+            repeated eligible jumps; Down + Space drops; Control or X attacks.
+            Up uses supported portals. I/E/S/K open windows; NPC clicks open
+            available original quest dialogue. Saves and class rules are local.
+            Camera controls inspect independently; deterministic stepping
+            requires Pause.
           </p>
         </fieldset>
         <p id="physics-status" class="hint" role="status">

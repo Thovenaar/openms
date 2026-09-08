@@ -1,13 +1,18 @@
-// Recovered 008d01b2 control-create calls, reference screen coordinates (800 x 600).
+/** First original status-bar control row; windows must leave it unobstructed. */
+export const HUD_TOP = 515;
+
+// Recovered 008d2fc3..008d36ab control-create calls, reference screen coordinates (800 x 600).
 const HUD_BUTTONS = [
-  ["EquipKey", 618, 515, "Equip"],
-  ["InvenKey", 648, 515, "Item"],
-  ["StatKey", 678, 515, "Stat"],
-  ["SkillKey", 708, 515, "Skill"],
-  ["KeySet", 738, 515, "KeyConfig"],
+  ["BtClaim", 573, HUD_TOP, "Claim"],
+  ["EquipKey", 618, HUD_TOP, "Equip"],
+  ["InvenKey", 648, HUD_TOP, "Item"],
+  ["StatKey", 678, HUD_TOP, "Stat"],
+  ["SkillKey", 708, HUD_TOP, "Skill"],
+  ["KeySet", 738, HUD_TOP, "KeyConfig"],
   ["BtShop", 573, 543, "shop"],
-  ["BtShort", 629, 543, "ShortCut"],
+  ["BtNPT", 629, 543, "NPT"],
   ["BtMenu", 685, 543, "GameMenu"],
+  ["BtShort", 741, 543, "ShortCut"],
 ];
 // 00849f3e and 0084a6bc: x=6, y=24+26*n. Only controls actually constructed there.
 const MENUS = {
@@ -29,17 +34,21 @@ const MENUS = {
   ],
 };
 
-/** HUD unknown values are unavailable, not zero-valued gauges or invented character text. */
+/** Original raster HUD anchors with explicitly local native profile text and controls. */
 export function layoutHud(panel, index) {
   panel.element.style.pointerEvents = "none";
   panel.image("base/backgrnd", 0, 529);
-  const block = panel.text(
-    "OFFLINE RECONSTRUCTION — HP / MP / EXP / level / mesos unavailable",
-    8,
-    564,
-    { width: 545, className: "maple-ui-status" },
-  );
-  block.style.pointerEvents = "auto";
+  panel.profileText = panel.text("", 8, 564, {
+    width: 545,
+    className: "maple-ui-status",
+  });
+  panel.saveStatus = panel.text("", 8, HUD_TOP, {
+    width: 545,
+    className: "maple-ui-status",
+  });
+  panel.saveStatus.style.maxHeight = "17px";
+  panel.saveStatus.style.overflow = "auto";
+  panel.saveStatus.style.pointerEvents = "auto";
   for (const [path, x, y, target] of HUD_BUTTONS) {
     panel.button(path, x, y, {
       label: index.help[target]?.title || target,
@@ -48,7 +57,7 @@ export function layoutHud(panel, index) {
   }
   const quick = panel.image("base/quickSlot", 649, 435);
   quick.container.visible = false;
-  panel.button("QuickSlot", 768, 515, {
+  panel.button("QuickSlot", 768, HUD_TOP, {
     label: "Quick slots — assignments unavailable",
     action: () => {
       quick.container.visible = !quick.container.visible;
@@ -61,14 +70,26 @@ export function layoutHud(panel, index) {
   });
   panel.localButton("UI help", 8, 535, () =>
     panel.owner.notice(
-      "Browser presentation controls: I inventory, E equipment, S stats, K skills, M minimap, F10 key config, Escape close/menu. Server data is unavailable.",
+      "Offline local controls: arrows move/climb, hold Space to jump, Ctrl or X to attack; I inventory, E equipment, S stats, K skills, M minimap, F10 key config, Escape close/menu. Save is durable in this browser; Reset replaces the local profile after confirmation. Quest and combat policies are provisional, not an original server.",
     ),
+  );
+  panel.localButton("Stats", 65, 535, () => panel.owner.activate("Stat"));
+  panel.localButton("Inventory", 110, 535, () => panel.owner.activate("Item"));
+  panel.localButton("Quests", 178, 535, () => panel.owner.activate("Quest"));
+  panel.saveControl = panel.localButton("Save locally", 232, 535, () =>
+    panel.owner.saveProfile(),
+  );
+  panel.resetControl = panel.localButton("Reset local profile", 315, 535, () =>
+    panel.owner.requestReset(),
+  );
+  panel.recoverControl = panel.localButton("Recover", 438, 535, () =>
+    panel.owner.recoverProfile(),
   );
 }
 
 export function layoutWindow(panel) {
   const name = panel.name;
-  if (name === "UtilDlgEx") return layoutDialog(panel);
+  if (name === "UtilDlgEx" || name === "Quest") return layoutDialog(panel);
   if (name === "MiniMap") return layoutMinimap(panel);
   panel.image(`${name}/backgrnd`, 0, 0);
   if (MENUS[name]) return layoutMenu(panel);
@@ -109,6 +130,7 @@ function inventoryTabs(panel, branch, count) {
       tab.button.setAttribute("aria-selected", String(i === selected));
     }
     panel.selectedTab = selected;
+    panel.owner.refreshProfilePanel(panel);
   };
   for (let i = 0; i < count; i++) {
     const size = width + (i < remainder ? 1 : 0);
@@ -163,15 +185,15 @@ function tabLabel(panel, path, x, width) {
 
 function layoutInventory(panel) {
   inventoryTabs(panel, "Item", 5);
-  panel.text(
-    "Inventory unavailable\n\nSlots and quantities require a server session. No empty-inventory claim is made.",
-    12,
-    65,
-    { width: 150, className: "maple-ui-unavailable" },
+  panel.profileContent = panel.contentArea(12, 49, 150, panel.height - 90);
+  panel.profileContent.classList.add(
+    "maple-ui-unavailable",
+    "maple-ui-profile",
   );
   // 0092c2e8 proves +0x590 is close-X, not width; 0081e3a6 uses close-X minus15.
   panel.gatherControl = panel.button("Item/BtGather", panel.width - 32, 6, {
-    label: "Gather requires server inventory",
+    label:
+      "Original gather/slot ordering unavailable; local inventory is a counted list",
     action: null,
     disabled: true,
   });
@@ -188,16 +210,16 @@ function layoutInventory(panel) {
 }
 
 function layoutStats(panel) {
-  panel.text(
-    "Character statistics unavailable\n\nNo HP, MP, AP, level, job or ability values are inferred from artwork.",
-    12,
-    48,
-    { width: 150, className: "maple-ui-unavailable" },
+  panel.profileContent = panel.contentArea(12, 44, 135, 266);
+  panel.profileContent.classList.add(
+    "maple-ui-unavailable",
+    "maple-ui-profile",
   );
   // 008c79f5 exact AP increment controls: (153,117/135/247/265/283/301).
   for (const y of [117, 135, 247, 265, 283, 301]) {
     panel.button("Stat/BtApUp", 153, y, {
-      label: "AP allocation requires server state",
+      label:
+        "AP allocation unavailable; local profile does not invent AP grants",
       action: null,
       disabled: true,
     });
@@ -224,10 +246,11 @@ function layoutSkills(panel) {
 }
 
 function layoutEquipment(panel) {
-  panel.text("Live equipment unavailable", 10, 30, {
-    width: 155,
-    className: "maple-ui-unavailable",
-  });
+  panel.profileContent = panel.contentArea(10, 30, 155, 204);
+  panel.profileContent.classList.add(
+    "maple-ui-unavailable",
+    "maple-ui-profile",
+  );
   panel.localButton("Inspect avatar artwork", 9, 245, () =>
     panel.owner.equipmentPreview(panel),
   );
@@ -314,15 +337,10 @@ function layoutDialog(panel) {
   panel.image("UtilDlgEx/t", 0, 0);
   for (let i = 0; i < 6; i++) panel.image("UtilDlgEx/c", 0, 28 + i * 20);
   panel.image("UtilDlgEx/s", 0, 148);
-  panel.message = panel.text(
-    panel.owner.dialogText ||
-      "Server dialogue is unavailable. This is original dialog chrome only; no script branch or NPC speech is invented.",
-    24,
-    38,
-    { width: 480, className: "maple-ui-dialog-text" },
-  );
+  panel.content = panel.contentArea(24, 30, 480, 132);
+  panel.content.classList.add("maple-ui-dialog-text");
   panel.button("UtilDlgEx/BtClose", 425, 176, {
-    label: "Close server-unavailable inspection",
+    label: "Close dialogue",
     action: () => panel.owner.close(panel.name),
   });
 }

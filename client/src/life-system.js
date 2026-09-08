@@ -13,6 +13,8 @@ import {
 const MAX_PLACEMENTS = 4096;
 const MAX_ACTIONS = 128;
 const MAX_FRAMES = 1024;
+const LOCAL_NPC_REACH_X = 120;
+const LOCAL_NPC_REACH_Y = 100;
 
 /** Validate the independent metadata boundary before allocating preview graphics. */
 function validateLife(life) {
@@ -46,6 +48,9 @@ function validatePlacements(placements, templates) {
     }
     validateTemplate(template);
     for (const key of ["x", "y", "fh", "cy", "rx0", "rx1"]) {
+      if (key !== "x" && key !== "y" && record.authored[key] === undefined) {
+        continue;
+      }
       if (!Number.isSafeInteger(record.authored[key])) {
         throw new Error("Invalid authored life geometry");
       }
@@ -55,7 +60,7 @@ function validatePlacements(placements, templates) {
 
 function validateTemplate(template) {
   const actions = Object.values(template.actions);
-  if (!actions.length || actions.length > MAX_ACTIONS) {
+  if (actions.length > MAX_ACTIONS) {
     throw new Error("Invalid life actions");
   }
   for (const action of actions) validateAction(action);
@@ -90,7 +95,7 @@ function validateAction(action) {
   }
 }
 
-/** No server-controlled actor state is synthesized; Main alone advances artwork animation. */
+/** Metadata inspection observes dynamic gameplay-owned mobs without mutating their state. */
 export class LifeSystem {
   constructor(scene, hooks) {
     validateLife(scene.manifest.life);
@@ -123,7 +128,8 @@ export class LifeSystem {
       template,
       label,
       entity: null,
-      action: "stand",
+      action:
+        template.defaultAction ?? Object.keys(template.actions)[0] ?? null,
       elapsedMs: 0,
       body: rectangleSlot(0xff6868),
       sweep: rectangleSlot(0xffc45b),
@@ -139,6 +145,7 @@ export class LifeSystem {
       resident: false,
       playerFootInsideBody: false,
       handler: null,
+      canInteract: this.canInteract.bind(this, record.id),
       hitArea: null,
     };
     slot.handler = this.pointer.bind(this, slot);
@@ -168,8 +175,12 @@ export class LifeSystem {
     }
     slot.entity = entity ?? null;
     if (!entity) return;
-    entity.setAction(slot.action);
-    entity.advance(slot.elapsedMs);
+    slot.previousX = entity.container.x;
+    slot.previousY = entity.container.y;
+    if (!entity.gameplayOwned) {
+      entity.setAction(slot.action);
+      entity.advance(slot.elapsedMs);
+    }
     entity.container.eventMode = "static";
     entity.container.cursor = "pointer";
     // No missing dc geometry is invented. Without dc, Pixi artwork clicks are inspection only.
@@ -197,15 +208,17 @@ export class LifeSystem {
 
   updateSlot(slot, ms) {
     const entity = slot.entity;
-    slot.elapsedMs += ms;
+    if (entity?.gameplayOwned) {
+      slot.action = entity.action;
+      slot.elapsedMs = entity.elapsedMs;
+    } else slot.elapsedMs += ms;
     slot.resident = !!entity;
-    const visible =
-      !!entity && (slot.record.authored.hide !== 1 || this.revealHidden);
+    const visible = slotVisible(slot, this.revealHidden);
     slot.label.visible = visible && slot.template.info.hideName !== 1;
     slot.contact.visible =
       visible && this.showGeometry && this.selected === slot;
     if (entity) {
-      entity.container.visible = visible;
+      if (!entity.gameplayOwned) entity.container.visible = visible;
       slot.label.position.set(entity.container.x, entity.container.y + 5);
       this.updateGeometry(slot, entity);
     } else {
@@ -229,9 +242,14 @@ export class LifeSystem {
     const frame = action?.frames[entity.frame];
     const rectangle = slot.record.kind === "mob" ? frame?.body : null;
     placeBody(slot.body, rectangle, position, mirrored);
-    slot.delta.x = slot.previousX - position.x;
-    slot.delta.y = slot.previousY - position.y;
+    const mob = this.scene.offlineField?.byId.get(slot.record.id);
+    slot.delta.x = (mob ? mob.previousX : slot.previousX) - position.x;
+    slot.delta.y = (mob ? mob.previousY : slot.previousY) - position.y;
     sweepBody(slot.sweep, slot.body, slot.delta);
+    if (mob && !mob.alive) {
+      slot.body.active = false;
+      slot.sweep.active = false;
+    }
     placeBody(slot.interaction, slot.interactionLocal, position, mirrored);
     slot.previousX = position.x;
     slot.previousY = position.y;
@@ -240,16 +258,20 @@ export class LifeSystem {
 
   pointer(slot, event) {
     event.stopPropagation();
-    this.interact(slot.record.id);
+    this.interact(slot.record.id, "world-pointer");
   }
 
-  /** Exact strings/metadata reach UI; onInteract is a server-unavailable boundary, not dialogue. */
-  interact(id) {
+  /** Inspector selection cannot open gameplay. Native world clicks use local proximity admission. */
+  interact(id, source = "inspection") {
     if (this.destroyed) return;
     const slot = this.byId.get(id);
     if (!slot) throw new Error("Unknown life interaction preview");
     this.selected = slot;
-    if (slot.record.kind !== "npc") {
+    if (
+      slot.record.kind !== "npc" ||
+      source !== "world-pointer" ||
+      !this.canInteract(id)
+    ) {
       this.controls.showSelection(id);
       return;
     }
@@ -258,12 +280,15 @@ export class LifeSystem {
       templateId: slot.template.originalId,
       name: slot.template.name,
       functionName: slot.template.function,
-      authority: "server-unavailable; metadata-preview",
+      authority: "offline-local-policy",
       kind: slot.record.kind,
       authored: slot.record.authored,
       info: slot.template.info,
       interactionGeometryKnown: !!slot.interactionLocal,
-      mode: "npc-server-boundary",
+      mode: "npc-local-interaction",
+      canInteract: slot.canInteract,
+      admissionPolicy:
+        "local visible/alive world-pointer within 120px horizontal and 100px vertical; dc geometry remains separate",
     };
     try {
       const pending = this.hooks.onInteract?.(record);
@@ -273,6 +298,33 @@ export class LifeSystem {
     } catch (error) {
       this.hooks.onError(error);
     }
+  }
+
+  /** Provisional interaction reach is not a recovered dc-rectangle admission rule. */
+  canInteract(id) {
+    const slot = this.byId.get(id);
+    if (
+      this.destroyed ||
+      this.scene.destroyed ||
+      !slot ||
+      slot.record.kind !== "npc"
+    ) {
+      return false;
+    }
+    if (
+      !this.scene.offlineField?.prepared ||
+      this.scene.offlineField.dead ||
+      slot.record.authored.hide === 1
+    ) {
+      return false;
+    }
+    if (!residentNpcVisible(slot)) return false;
+    const entity = slot.entity;
+    const sim = this.scene.simulation;
+    return (
+      Math.abs(sim.x - entity.container.x) <= LOCAL_NPC_REACH_X &&
+      Math.abs(sim.y - entity.container.y) <= LOCAL_NPC_REACH_Y
+    );
   }
 
   select(id) {
@@ -285,6 +337,7 @@ export class LifeSystem {
   setPreviewAction(id, action) {
     if (this.destroyed) return;
     const slot = this.byId.get(id);
+    if (slot?.record.kind === "mob") return false;
     if (!slot || !Object.hasOwn(slot.template.actions, action)) {
       throw new Error("Unknown life preview action");
     }
@@ -321,6 +374,20 @@ export class LifeSystem {
   }
 }
 
+/** Gameplay owns mob visibility; preview reveal applies only to authored scenery. */
+function slotVisible(slot, revealHidden) {
+  const entity = slot.entity;
+  if (!entity) return false;
+  return entity.gameplayOwned
+    ? entity.container.visible
+    : slot.record.authored.hide !== 1 || revealHidden;
+}
+
+function residentNpcVisible(slot) {
+  const entity = slot.entity;
+  return !!entity && !entity.container.destroyed && entity.container.visible;
+}
+
 /** Browser typography is explicitly not a reconstruction of the original font renderer. */
 function createLabel(template) {
   const label = new Text({
@@ -341,9 +408,7 @@ function createLabel(template) {
 
 function nameplate(template) {
   const label = template.name ?? template.originalId;
-  return template.function
-    ? `${label}\n${template.function}\n[metadata preview]`
-    : `${label}\n[metadata preview]`;
+  return template.function ? `${label}\n${template.function}` : label;
 }
 
 function snapshotRectangle(rectangle) {
@@ -365,7 +430,7 @@ function snapshotSlot(slot) {
     resident: slot.resident,
     action: slot.action,
     frame: slot.entity?.frame ?? null,
-    timingKnown: slot.template.actions[slot.action].timingKnown,
+    timingKnown: slot.template.actions[slot.action]?.timingKnown ?? false,
     nameHidden: slot.template.info.hideName === 1,
     authored: slot.record.authored,
     contactStatus: slot.contactStatus,
@@ -373,6 +438,9 @@ function snapshotSlot(slot) {
     sweptBody: snapshotRectangle(slot.sweep),
     npcInteraction: snapshotRectangle(slot.interaction),
     playerFootInsideBody: slot.playerFootInsideBody,
-    authority: "metadata-preview; no damage",
+    authority:
+      slot.record.kind === "mob"
+        ? "offline-local-policy; inspection only"
+        : "metadata-preview; no damage",
   };
 }

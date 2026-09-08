@@ -10,6 +10,7 @@ const KEY_ACTIONS = Object.freeze({
   Space: "jump",
   KeyX: "attack",
   ControlLeft: "attack",
+  ControlRight: "attack",
 });
 const KEYS = Object.freeze(Object.keys(KEY_ACTIONS));
 

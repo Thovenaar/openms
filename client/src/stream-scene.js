@@ -39,7 +39,14 @@ class Region {
         }
         values = entities(data.entities, this.scene.manifest);
       }
-      await this.resources.load(values, signal, this.descriptor?.atlases);
+      // OfflineField owns mob residency and clocks, including legacy region payloads.
+      const hasMobs = values.some((entity) => entity.kind === "mob");
+      if (hasMobs) values = values.filter((entity) => entity.kind !== "mob");
+      await this.resources.load(
+        values,
+        signal,
+        hasMobs ? undefined : this.descriptor?.atlases,
+      );
       check(signal);
       this.instantiate(values);
       check(signal);
@@ -100,6 +107,8 @@ export class StreamScene {
     this.entities = [];
     this.backgrounds = [];
     this.byId = new Map();
+    this.dynamicEntities = new Map();
+    this.offlineField = null;
     this.actorRegion = new Region(this, null);
     this.simulation = null;
     this.actor = null;
@@ -170,6 +179,9 @@ export class StreamScene {
     this.spriteCount = 0;
     this.collect(this.actorRegion);
     for (const region of this.regions.values()) this.collect(region);
+    for (const entity of this.dynamicEntities.values()) {
+      this.collectEntity(entity);
+    }
     this.entities.sort(
       (left, right) =>
         left.container.zIndex - right.container.zIndex ||
@@ -185,14 +197,36 @@ export class StreamScene {
   /** Initialize and update the same pose contract, including paused map entry. */
   updateActor(pose) {
     const actor = this.actor;
-    const action = this.simulation.action;
+    const action = pose.action ?? this.simulation.action;
     actor.setPosition(pose.x, pose.y);
     // Original extracted artwork faces left; positive direction mirrors it.
     actor.container.scale.x = pose.facing > 0 ? -1 : 1;
-    if (actor.action !== action && actor.actions.has(action)) {
-      actor.setAction(action);
-    }
+    const playback =
+      pose.playback ?? (actor.action === action ? actor.playback : "loop");
+    actor.setAction(action, playback);
     this.updateActorDepth();
+  }
+  /** Dynamic systems own artwork/textures; this scene owns only display membership. */
+  addDynamicEntity(entity) {
+    if (this.destroyed) throw aborted();
+    if (this.byId.has(entity.id) || this.dynamicEntities.has(entity.id)) {
+      throw new Error(`Duplicate resident entity: ${entity.id}`);
+    }
+    if (
+      this.entities.length >= LIMITS.entities ||
+      this.spriteCount + entity.sprites.length > LIMITS.sprites
+    ) {
+      throw new Error("Dynamic entity residency backpressure");
+    }
+    this.dynamicEntities.set(entity.id, entity);
+    this.refreshEntities();
+  }
+  removeDynamicEntity(id) {
+    const entity = this.dynamicEntities.get(id);
+    if (!entity) return;
+    this.dynamicEntities.delete(id);
+    entity.container.removeFromParent();
+    this.refreshEntities();
   }
   /** 0092fd16 local-user depth; update sorted ownership only when its plane changes. */
   updateActorDepth() {
@@ -225,15 +259,16 @@ export class StreamScene {
 
   collect(region) {
     if (!region.ready) return;
-    this.spriteCount += region.spriteCount;
-    for (const entity of region.entities) {
-      if (this.byId.has(entity.id)) {
-        throw new Error(`Duplicate resident entity: ${entity.id}`);
-      }
-      this.entities.push(entity);
-      this.byId.set(entity.id, entity);
-      if (entity.background) this.backgrounds.push(entity);
+    for (const entity of region.entities) this.collectEntity(entity);
+  }
+  collectEntity(entity) {
+    if (this.byId.has(entity.id)) {
+      throw new Error(`Duplicate resident entity: ${entity.id}`);
     }
+    this.spriteCount += entity.sprites.length;
+    this.entities.push(entity);
+    this.byId.set(entity.id, entity);
+    if (entity.background) this.backgrounds.push(entity);
   }
   /** Timer-driven demand, bounded by validated region count and two concurrent regions. */
   updateDemand() {
@@ -253,6 +288,7 @@ export class StreamScene {
     if (changed) this.refreshEntities();
     this.scheduleRegions(0);
     this.scheduleRegions(0.5);
+    this.offlineField?.updateDemand();
   }
   scheduleRegions(margin) {
     for (
@@ -283,6 +319,8 @@ export class StreamScene {
     if (this.destroyed) return;
     this.destroyed = true;
     this.fieldSystems?.destroy();
+    this.offlineField?.destroy();
+    this.dynamicEntities.clear();
     this.actorRegion.destroy();
     for (const region of this.regions.values()) region.destroy();
     this.regions.clear();

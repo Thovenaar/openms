@@ -11,12 +11,17 @@ import { hash, resource, ATLAS_LIMIT, PADDING } from "./atlas.js";
 import { packageMap, packageVisualBundle, REGION_SIZE } from "./packaging.js";
 import { prepareCanvasTiles } from "./canvas-tiles.js";
 import { extractGameUI } from "./ui-data.js";
-import { extractPortals } from "./portal-data.js";
+import { collectPlayableMaps, extractPortals } from "./portal-data.js";
 import { extractLife } from "./life-data.js";
 import { extractAudiovisual } from "./audiovisual-data.js";
+import { extractAvatar } from "./avatar-data.js";
+import { extractQuests } from "./quest-data.js";
+import { extractCombat } from "./combat-data.js";
+import { extractReactors } from "./reactor-data.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
+const explicitMaps = args.includes("--maps") || args.includes("--map");
 const option = (name, fallback) => {
   const i = args.indexOf(name);
   return i < 0 ? fallback : args[i + 1];
@@ -36,12 +41,12 @@ const selected = option(
 ).split(",");
 if (
   !selected.length ||
-  selected.length > 32 ||
+  selected.length > 512 ||
   selected.some((id) => !/^\d{9}$/.test(id))
 ) {
-  throw new Error("--maps requires at most 32 comma-separated nine-digit IDs");
+  throw new Error("--maps requires at most 512 comma-separated nine-digit IDs");
 }
-const mapIds = [...new Set(selected)].sort();
+let mapIds = [...new Set(selected)].sort();
 const started = performance.now();
 const output = resolve(root, "client/public/generated");
 for (const directory of [
@@ -146,11 +151,20 @@ async function part(node, x = 0, y = 0, z = 0) {
   const origin = value(node, "origin", { x: 0, y: 0 });
   return { texture: await texture(node), x: x - origin.x, y: y - origin.y, z };
 }
+/** Original Gr2D preserves zero-delay frames as equal-time timeline entries. */
+function frameDelay(node) {
+  const delay = Number(value(node, "delay", 120));
+  if (!Number.isSafeInteger(delay) || delay < 0) {
+    throw new Error(`Invalid frame delay at ${nodePath(node)}`);
+  }
+  return delay;
+}
+
 /** @param {import('../src/assets/image.js').WzNode} node */
 async function frames(node) {
   node = resolveNode(node);
   if (node.type === "Canvas") {
-    return [{ delay: value(node, "delay", 120), parts: [await part(node)] }];
+    return [{ delay: frameDelay(node), parts: [await part(node)] }];
   }
   const result = [];
   let carriedAlpha = 255;
@@ -161,10 +175,7 @@ async function frames(node) {
     if (frame.type !== "Canvas") {
       throw new Error(`Expected Canvas animation frame: ${nodePath(frame)}`);
     }
-    const delay = value(frame, "delay", 120);
-    if (delay <= 0) {
-      throw new Error(`Nonpositive frame delay at ${nodePath(frame)}`);
-    }
+    const delay = frameDelay(frame);
     const start = value(frame, "a0", -1),
       end = value(frame, "a1", -1);
     const a0 = start < 0 ? carriedAlpha : start,
@@ -311,146 +322,28 @@ async function backgrounds(map) {
     };
   }
 }
-/** Collect original equipment canvases for one body frame. */
-function candidatesFor(equipment, action, index, bodyFrame) {
-  const candidates = [];
-  for (let e = 0; e < equipment.length; e++) {
-    const item = equipment[e];
-    let frame;
-    if (e === 3) {
-      if (!value(bodyFrame, "face", 0)) continue;
-      frame = at(item, "default");
-    } else {
-      if (!item.children[action]) {
-        throw new Error(`Missing equipment action ${item.source}/${action}`);
-      }
-      const a = at(item, action);
-      if (!a.children[index]) {
-        throw new Error(
-          `Missing equipment frame ${item.source}/${action}/${index}`,
-        );
-      }
-      frame = at(a, index);
-    }
-    for (const child of Object.values(frame.children)) {
-      const c = resolveNode(child);
-      if (c.type === "Canvas") candidates.push(c);
-      else if (child.name === "hairShade" && c.children["0"]) {
-        candidates.push(at(c, "0"));
-      }
-    }
-  }
-  return candidates;
+/** Local initial field placement uses the original spawn portal and feet offset. */
+function appendAvatar(map, character) {
+  const portal = Object.values(at(map, "portal").children).find(
+    (entry) => value(entry, "pn") === "sp",
+  );
+  if (!portal) throw new Error("Map has no spawn portal for initial placement");
+  const actor = {
+    id: "character",
+    kind: "character",
+    x: value(portal, "x"),
+    y: value(portal, "y") - 10, // 0094969a: original portal-entry feet offset.
+    z: 239997, // 009b12a8 / 0092fd16: before first foothold, plane7/group0.
+    visible: true,
+    flip: false,
+    opacity: 1,
+    action: "stand1",
+    actions: character.actions,
+  };
+  state.entities.push(actor);
+  return actor;
 }
-/** Merge matching original avatar anchor names, retaining the first position. */
-function addAnchors(anchors, canvas, p) {
-  const maps = canvas.children.map;
-  if (maps) {
-    for (const [name, n] of Object.entries(at(canvas, "map").children)) {
-      const v = resolveNode(n).value;
-      if (!anchors[name]) anchors[name] = { x: p.x + v.x, y: p.y + v.y };
-    }
-  }
-}
-/** Match one canvas to an already placed original anchor. */
-function anchorPosition(canvas, anchors) {
-  if (!canvas.children.map) return undefined;
-  for (const [name, n] of Object.entries(at(canvas, "map").children)) {
-    if (!anchors[name]) continue;
-    const v = resolveNode(n).value;
-    return { x: anchors[name].x - v.x, y: anchors[name].y - v.y };
-  }
-  return undefined;
-}
-/** Bounded anchor resolution; an unconnected component is a conversion error. */
-function placeCandidates(candidates, action, index) {
-  const anchors = Object.create(null),
-    positions = new Map();
-  const body = candidates.find((c) => c.name === "body");
-  if (!body) throw new Error(`Missing body canvas ${action}/${index}`);
-  positions.set(body, { x: 0, y: 0 });
-  addAnchors(anchors, body, { x: 0, y: 0 });
-  let unresolved = candidates.filter((c) => c !== body);
-  for (let pass = 0; unresolved.length && pass < candidates.length; pass++) {
-    const next = [];
-    for (const canvas of unresolved) {
-      const position = anchorPosition(canvas, anchors);
-      if (!position) {
-        next.push(canvas);
-        continue;
-      }
-      positions.set(canvas, position);
-      addAnchors(anchors, canvas, position);
-    }
-    if (next.length === unresolved.length) {
-      throw new Error(
-        "Unconnected avatar anchors " + next.map(nodePath).join(", "),
-      );
-    }
-    unresolved = next;
-  }
-  if (unresolved.length) throw new Error("Avatar anchor limit exceeded");
-  return positions;
-}
-/** Compose one avatar frame without altering origin, anchor or depth data. */
-async function avatarFrame(equipment, zmap, action, frameInfo) {
-  const { index, count } = frameInfo;
-  const bodyFrame = at(at(equipment[0], action), index);
-  const candidates = candidatesFor(equipment, action, index, bodyFrame);
-  const positions = placeCandidates(candidates, action, index);
-  const parts = [];
-  for (const canvas of candidates) {
-    const position = positions.get(canvas);
-    const z = value(canvas, "z");
-    const rank = typeof z === "number" ? z : zmap.indexOf(z);
-    if (rank === -1) throw new Error(`Unknown avatar z ${z}`);
-    parts.push(await part(canvas, position.x, position.y, -rank));
-  }
-  const delay = value(bodyFrame, "delay", count === 1 ? 0 : undefined);
-  if (!Number.isFinite(delay) || delay < 0 || (count > 1 && delay === 0)) {
-    throw new Error(`Missing/invalid body delay ${action}/${index}`);
-  }
-  return { delay, parts };
-}
-/** All supported artwork actions from the original equipped character. */
-async function avatar() {
-  const zmap = Object.keys(image("Base", "zmap.img").children);
-  const equipment = [
-    "00002000.img",
-    "00012000.img",
-    "Hair/00030000.img",
-    "Face/00020000.img",
-    "Coat/01040002.img",
-    "Pants/01060002.img",
-    "Shoes/01072001.img",
-  ].map((path) => image("Character", path));
-  const actions = Object.create(null);
-  for (const action of [
-    "stand1",
-    "walk1",
-    "jump",
-    "prone",
-    "ladder",
-    "rope",
-    "sit",
-  ]) {
-    const bodyAction = at(equipment[0], action);
-    const outputFrames = [];
-    const indices = Object.keys(bodyAction.children)
-      .filter((k) => /^\d+$/.test(k))
-      .sort((a, b) => Number(a) - Number(b));
-    for (const index of indices) {
-      outputFrames.push(
-        await avatarFrame(equipment, zmap, action, {
-          index,
-          count: indices.length,
-        }),
-      );
-    }
-    actions[action] = outputFrames;
-  }
-  return { actions, equipment: equipment.map((node) => node.source) };
-}
+
 /** Extract a complete map's geometry and region-ready original artwork. */
 async function extractMap(mapId, character) {
   state.entities = [];
@@ -470,26 +363,13 @@ async function extractMap(mapId, character) {
   await backgrounds(map);
   const portals = await extractPortals(extractionContext, map, mapId);
   const life = await extractLife(extractionContext, map, mapId);
-  state.entities.push(...portals.entities, ...life.entities);
-  const actions = character.actions;
-  const portal = Object.values(at(map, "portal").children).find(
-    (p) => value(p, "pn") === "sp",
+  const reactors = await extractReactors(extractionContext, map, mapId);
+  state.entities.push(
+    ...portals.entities,
+    ...life.entities,
+    ...reactors.entities,
   );
-  if (!portal) throw new Error("Map has no spawn portal for demo placement");
-  const x = value(portal, "x"),
-    y = value(portal, "y") - 10; // 0094969a: original portal-entry feet offset.
-  state.entities.push({
-    id: "character",
-    kind: "character",
-    x,
-    y,
-    z: 239997, // 009b12a8 / 0092fd16: local user before first foothold, plane7/group0.
-    visible: true,
-    flip: false,
-    opacity: 1,
-    action: "stand1",
-    actions,
-  });
+  const actor = appendAvatar(map, character);
   for (let index = 0; index < state.entities.length; index++) {
     state.entities[index].order = index;
   }
@@ -497,12 +377,13 @@ async function extractMap(mapId, character) {
     id: mapId,
     source: `Map.wz:${mapPath}`,
     bounds: mapBounds(map),
-    camera: { x: x - 400, y: y - 360 },
+    camera: { x: actor.x - 400, y: actor.y - 360 },
     entities: state.entities,
     physics: readPhysicsData(map, image("Map", "Physics.img")),
     equipment: character.equipment,
     portalPresentation: portals.presentation,
     life: life.life,
+    reactors: reactors.reactors,
     evidence: [
       "docs/asset-evidence.md",
       "docs/client-evidence.md",
@@ -521,7 +402,7 @@ function conversionReport(buildId, reports) {
       atlasLimit: ATLAS_LIMIT,
       padding: PADDING,
       regionSize: REGION_SIZE,
-      maxMaps: 32,
+      maxMaps: 512,
     },
     counts: {
       textures: Object.keys(textures).length,
@@ -547,7 +428,7 @@ function conversionReport(buildId, reports) {
     limitations: [
       "Camera fallback derived from footholds; exact original fallback remains unverified.",
       "Map metadata retains active unsupported physics in physics.unsupported.",
-      "Background effect IMG and NPC/mob artwork are not reconstructed.",
+      "Unpackaged destinations and original server-script dependencies remain explicitly unavailable.",
     ],
   };
 }
@@ -582,15 +463,14 @@ async function publishReport(catalog, reports) {
   );
   console.log(JSON.stringify(report, null, 2));
 }
-/** Atomic catalog is the only mutable entry point. */
-async function run() {
-  const character = await avatar();
-  const ui = await extractGameUI(extractionContext);
-  const audiovisual = await extractAudiovisual(extractionContext, mapIds);
+/** Package each selected map once; neighbor membership uses an immutable selection. */
+async function extractMaps(character, combat) {
   const maps = Object.create(null),
     reports = [];
+  const selectedMaps = new Set(mapIds);
   for (const id of mapIds) {
     const scene = await extractMap(id, character);
+    scene.combat = combat;
     const result = await packageMap(scene, state);
     const neighbors = [
       ...new Set(
@@ -599,7 +479,7 @@ async function run() {
         ),
       ),
     ]
-      .filter((target) => target !== id && mapIds.includes(target))
+      .filter((target) => target !== id && selectedMaps.has(target))
       .sort();
     maps[id] = { ...result.descriptor, neighbors };
     reports.push({
@@ -610,6 +490,29 @@ async function run() {
       physics: scene.physics.map,
     });
   }
+  return { maps, reports };
+}
+
+/** Atomic catalog is the only mutable entry point. */
+async function run() {
+  const routes = explicitMaps
+    ? { ids: mapIds, blocked: [], scope: "explicit selected-content release" }
+    : collectPlayableMaps(extractionContext, mapIds);
+  mapIds = routes.ids;
+  extractionContext.mapIds = mapIds;
+  const character = await extractAvatar(extractionContext);
+  const quests = await extractQuests(extractionContext);
+  // Full original evidence belongs to the offline closure, not the startup JSON parse.
+  quests.inventory = await resource(
+    output,
+    "references",
+    "json",
+    Buffer.from(JSON.stringify(quests.inventory)),
+  );
+  const combat = await extractCombat(extractionContext);
+  const ui = await extractGameUI(extractionContext);
+  const audiovisual = await extractAudiovisual(extractionContext, mapIds);
+  const { maps, reports } = await extractMaps(character, combat);
   const references = extractHitboxReferences(image);
   const hitboxes = await resource(
     output,
@@ -618,7 +521,17 @@ async function run() {
     Buffer.from(JSON.stringify(references)),
   );
   const buildId = hash(
-    Buffer.from(JSON.stringify({ maps, hitboxes, ui, audiovisual })),
+    Buffer.from(
+      JSON.stringify({
+        maps,
+        hitboxes,
+        ui,
+        audiovisual,
+        quests,
+        combat,
+        routes,
+      }),
+    ),
   );
   const catalog = {
     schemaVersion: 2,
@@ -628,6 +541,9 @@ async function run() {
     hitboxes,
     ui,
     audiovisual,
+    quests,
+    combat,
+    routes,
   };
   await Bun.write(resolve(output, "catalog.json.tmp"), JSON.stringify(catalog));
   renameSync(

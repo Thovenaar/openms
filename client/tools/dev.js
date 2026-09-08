@@ -1,6 +1,7 @@
 import { resolve, dirname, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { prepareRelease } from "./release-manifest.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** Resolve only public entry files, browser bundles and generated assets. */
@@ -8,6 +9,17 @@ function resourcePath(path) {
   if (path === "/") path = "/index.html";
   if (path === "/index.html" || path === "/style.css") {
     return { filename: resolve(root, `.${path}`), directory: root };
+  }
+  if (
+    [
+      "/service-worker.js",
+      "/offline-manifest.js",
+      "/app.webmanifest",
+      "/app-icon.svg",
+    ].includes(path)
+  ) {
+    const directory = resolve(root, "public");
+    return { filename: resolve(directory, `.${path}`), directory };
   }
   let directory;
   let relative;
@@ -22,8 +34,59 @@ function resourcePath(path) {
   if (!filename.startsWith(directory + sep)) return null;
   return { filename, directory };
 }
+/** Prepare large text once; HTTP coding does not change verified, decoded asset bytes. */
+async function prepareHttpEncoding(release) {
+  const encoded = new Map();
+  let retainedBytes = 0;
+  const candidates = release.resources
+    .filter(
+      (info) =>
+        info.bytes >= 65536 && /\.(json|js|css|html|svg)$/.test(info.url),
+    )
+    .sort((left, right) => right.bytes - left.bytes);
+  for (const info of candidates) {
+    const resource = resourcePath(info.url);
+    if (!resource) throw new Error(`Unservable release resource: ${info.url}`);
+    const file = Bun.file(resource.filename);
+    const body = Bun.gzipSync(await file.arrayBuffer(), { level: 6 });
+    if (
+      body.byteLength >= file.size ||
+      retainedBytes + body.byteLength > 16777216
+    ) {
+      continue;
+    }
+    encoded.set(resource.filename, {
+      body,
+      size: file.size,
+      modified: file.lastModified,
+    });
+    retainedBytes += body.byteLength;
+  }
+  return encoded;
+}
+
+function acceptsGzip(header) {
+  for (const token of (header ?? "").toLowerCase().split(",")) {
+    const [name, ...parameters] = token.trim().split(";");
+    if (name.trim() !== "gzip") continue;
+    const quality = parameters.find((value) => value.trim().startsWith("q="));
+    const weight = quality === undefined ? 1 : Number(quality.trim().slice(2));
+    return Number.isFinite(weight) && weight > 0 && weight <= 1;
+  }
+  return false;
+}
+
+function selectEncoding(filename, file, request) {
+  const cached = httpEncoding.get(filename);
+  return cached?.size === file.size &&
+    cached.modified === file.lastModified &&
+    acceptsGzip(request.headers.get("accept-encoding"))
+    ? cached.body
+    : null;
+}
+
 /** Canonicalize paths before serving, so a generated-asset symlink cannot expose private input. */
-async function serveFile(resource, method) {
+async function serveFile(resource, request) {
   let filename;
   try {
     filename = await realpath(resource.filename);
@@ -38,16 +101,22 @@ async function serveFile(resource, method) {
   }
   const file = Bun.file(filename);
   const immutable =
-    /[/\\](atlases|regions|maps|references|bundles|audio)[/\\][a-f0-9]{64}\.(png|json|mp3|wav)$/.test(
+    /[/\\](atlases|regions|maps|references|bundles|audio|releases|blobs)[/\\][a-f0-9]{64}\.(png|json|mp3|wav|bin)$/.test(
       filename,
     );
-  return new Response(method === "HEAD" ? null : file, {
-    headers: {
-      "Content-Type": file.type,
-      "Cache-Control": immutable
-        ? "public, max-age=31536000, immutable"
-        : "no-store",
-    },
+  const encoded = selectEncoding(filename, file, request);
+  const headers = {
+    "Content-Type": file.type,
+    "Content-Length": String(encoded ? encoded.byteLength : file.size),
+    "Service-Worker-Allowed": "/",
+    Vary: "Accept-Encoding",
+    "Cache-Control": immutable
+      ? "public, max-age=31536000, immutable"
+      : "no-store",
+  };
+  if (encoded) headers["Content-Encoding"] = "gzip";
+  return new Response(request.method === "HEAD" ? null : (encoded ?? file), {
+    headers,
   });
 }
 /** Handle only GET/HEAD and reject malformed URL encodings before touching the filesystem. */
@@ -64,7 +133,7 @@ async function fetchAsset(request) {
   if (path.includes("\0")) return new Response("Invalid path", { status: 400 });
   const resource = resourcePath(path);
   if (!resource) return new Response("Not found", { status: 404 });
-  return serveFile(resource, request.method);
+  return serveFile(resource, request);
 }
 const result = await Bun.build({
   entrypoints: [
@@ -82,6 +151,11 @@ const result = await Bun.build({
 if (!result.success) {
   throw new AggregateError(result.logs, "Browser build failed");
 }
+const release = await prepareRelease(root);
+const httpEncoding = await prepareHttpEncoding(release);
+console.log(
+  `Offline release ${release.releaseId}: ${release.resources.length} resources, ${release.totalBytes} bytes, ${release.maps.length} maps`,
+);
 const port = Number(Bun.env.PORT ?? 3100);
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("PORT must be an integer from 1 to 65535");

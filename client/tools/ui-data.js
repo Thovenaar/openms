@@ -2,6 +2,9 @@ import { at, resolveNode, value } from "../src/assets/image.js";
 
 const MAX_UI_NODES = 16000;
 const MAX_UI_DEPTH = 64;
+const MAX_UI_MAPS = 512;
+const MAX_ITEM_NAME_NODES = 150000;
+const MAX_ITEM_NAMES = 50000;
 const BRANCHES = [
   "Item",
   "Equip",
@@ -20,6 +23,7 @@ const EQUIPMENT = [
   ["Coat", "01040002"],
   ["Pants", "01060002"],
   ["Shoes", "01072001"],
+  ["Weapon", "01302000"],
 ];
 
 /** Each canvas is a static presentation entity. Delay=1 is a storage sentinel, never an original animation default. */
@@ -184,6 +188,59 @@ async function minimapBundle(context, mapId) {
   return { available: true, descriptor };
 }
 
+/** Full original item-name table; labels do not confer possession, use rules or instance statistics. */
+async function itemLabels(context) {
+  const state = { labels: Object.create(null), visited: 0, items: 0 };
+  for (const imageName of [
+    "Eqp.img",
+    "Consume.img",
+    "Ins.img",
+    "Etc.img",
+    "Cash.img",
+  ]) {
+    const root = await context.image("String", imageName);
+    collectItemLabels(root, state);
+  }
+  return state.labels;
+}
+
+/** One image traversal shares cumulative limits across the complete original name table. */
+function collectItemLabels(root, state) {
+  const stack = [{ node: root, key: "", depth: 0 }];
+  while (stack.length) {
+    if (++state.visited > MAX_ITEM_NAME_NODES) {
+      throw new Error("UI item-name node budget exceeded");
+    }
+    const entry = stack.pop();
+    if (entry.depth > MAX_UI_DEPTH) {
+      throw new Error("UI item-name depth exceeded");
+    }
+    const node = resolveNode(entry.node);
+    if (/^\d{7,8}$/.test(entry.key) && node.children?.name) {
+      recordItemLabel(state, entry.key, node);
+      continue;
+    }
+    for (const [key, child] of Object.entries(node.children || {})) {
+      stack.push({ node: child, key, depth: entry.depth + 1 });
+    }
+  }
+}
+
+function recordItemLabel(state, key, node) {
+  const id = Number(key),
+    name = value(node, "name", null);
+  if (typeof name !== "string" || name.length > 4096) {
+    throw new Error(`Invalid original item name ${key}`);
+  }
+  if (++state.items > MAX_ITEM_NAMES) {
+    throw new Error("UI item-name count exceeded");
+  }
+  if (state.labels[id] && state.labels[id] !== name) {
+    throw new Error(`Conflicting item name ${id}`);
+  }
+  state.labels[id] = name;
+}
+
 /** Immutable catalog.ui schema v1. Bundles load only when the corresponding window is opened. */
 export async function extractGameUI(context) {
   const bundles = Object.create(null);
@@ -197,7 +254,7 @@ export async function extractGameUI(context) {
   }
   bundles.EquipmentPreview = await equipmentBundle(context);
   const minimaps = Object.create(null);
-  if (!Array.isArray(context.mapIds) || context.mapIds.length > 32) {
+  if (!Array.isArray(context.mapIds) || context.mapIds.length > MAX_UI_MAPS) {
     throw new Error("UI extraction requires bounded selected map IDs");
   }
   for (const mapId of context.mapIds) {
@@ -217,8 +274,9 @@ export async function extractGameUI(context) {
     bundles,
     minimaps,
     help,
+    itemLabels: await itemLabels(context),
     authority:
-      "Original UI artwork and recovered local layout only; character values, inventory and dialogue require an unavailable server.",
+      "Original raster artwork and recovered anchors; live values and controls are explicitly provisional local-profile presentation, not original server authority.",
     evidence: "docs/ingame-ui.md",
   };
 }

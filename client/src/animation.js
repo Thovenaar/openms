@@ -72,12 +72,10 @@ export class EntityAnimation {
       cx: 0,
       cy: 0,
     };
-    this.baseX = entity.x;
-    this.baseY = entity.y;
     this.elapsedMs = 0;
     this.actions = new Map();
     this.container = new Container({ label: entity.id });
-    this.container.position.set(entity.x, entity.y);
+    this.setPosition(entity.x, entity.y);
     this.container.zIndex = entity.z;
     this.container.visible = entity.visible !== false;
     this.container.alpha = entity.opacity ?? 1;
@@ -103,27 +101,70 @@ export class EntityAnimation {
     this.setAction(entity.action);
   }
 
-  /** @param {string} name */
-  setAction(name) {
+  /** Repeating the same name/mode is idempotent. Once holds its final frame.
+   * @param {string} name @param {'loop'|'once'} [playback] */
+  setAction(name, playback = "loop") {
     const next = this.actions.get(name);
     if (!next) throw new Error(`Unknown action ${name} for ${this.id}`);
+    if (playback !== "loop" && playback !== "once") {
+      throw new Error(`Unknown animation playback ${playback}`);
+    }
+    if (this.action === name && this.playback === playback) return;
     this.action = name;
+    this.playback = playback;
     this.current = next;
     this.actionTimeMs = 0;
     this.elapsedMs = 0;
+    this.completed = playback === "once" && next.duration === 0;
     this.frame = -1;
-    this.applyFrame(0);
+    this.selectTimedFrame();
   }
 
-  /** Advance by elapsed milliseconds, selecting the NEXT frame at an exact boundary.
-   * @param {number} ms
-   */
+  /** Advance in milliseconds; equality selects the next frame, or completes once.
+   * Player callers supply only the simulation's executed quantum.
+   * @param {number} ms */
   advance(ms) {
+    if (
+      !Number.isFinite(ms) ||
+      ms < 0 ||
+      !Number.isFinite(this.elapsedMs + ms)
+    ) {
+      throw new Error("Invalid animation elapsed milliseconds");
+    }
     this.elapsedMs += ms;
     const current = this.current;
-    if (current.duration === 0) return;
+    if (current.duration === 0 || this.completed) return;
+    if (this.playback === "once") {
+      this.actionTimeMs = Math.min(current.duration, this.actionTimeMs + ms);
+      this.completed = this.actionTimeMs === current.duration;
+    } else {
+      this.actionTimeMs =
+        (this.actionTimeMs + (ms % current.duration)) % current.duration;
+    }
+    this.selectTimedFrame();
+  }
+
+  /** Seek an authoritative action clock without exposing mutable frame bookkeeping.
+   * Resuming a completed one-shot at an earlier time clears completion.
+   * @param {number} ms Elapsed milliseconds since the current action began. */
+  seek(ms) {
+    if (!Number.isFinite(ms) || ms < 0) {
+      throw new Error("Invalid animation seek milliseconds");
+    }
+    const duration = this.current.duration;
+    this.elapsedMs = ms;
+    this.completed = this.playback === "once" && ms >= duration;
     this.actionTimeMs =
-      (this.actionTimeMs + (ms % current.duration)) % current.duration;
+      duration === 0
+        ? 0
+        : this.playback === "once"
+          ? Math.min(ms, duration)
+          : ms % duration;
+    this.selectTimedFrame();
+  }
+
+  selectTimedFrame() {
+    const current = this.current;
     let low = 0;
     let high = current.ends.length - 1;
     while (low < high) {
@@ -159,6 +200,10 @@ export class EntityAnimation {
       this.actionTimeMs - (this.frame ? this.current.ends[this.frame - 1] : 0);
     const duration = this.current.frames[this.frame].delay;
     const parts = this.current.parts[this.frame];
+    if (duration === 0) {
+      for (let i = 0; i < parts.length; i++) this.sprites[i].alpha = end;
+      return;
+    }
     for (let i = 0; i < parts.length; i++) {
       const start = Math.round((parts[i].opacity ?? 1) * 255);
       const target = Math.round(end * 255);
@@ -170,6 +215,11 @@ export class EntityAnimation {
 
   /** @param {number} x @param {number} y */
   setPosition(x, y) {
+    // Quantize the whole composition, not each GPU vertex at an unstable half-pixel tie.
+    if (this.kind !== "ui") {
+      x = Math.trunc(x);
+      y = Math.trunc(y);
+    }
     this.baseX = x;
     this.baseY = y;
     this.container.position.set(x, y);
@@ -308,6 +358,8 @@ export class EntityAnimation {
       id: this.id,
       kind: this.kind,
       action: this.action,
+      playback: this.playback,
+      completed: this.completed,
       frame: this.frame,
       actionTimeMs: this.actionTimeMs,
       elapsedMs: this.elapsedMs,

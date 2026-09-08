@@ -19,6 +19,7 @@ const { values } = parseArgs({
       default: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     },
     duration: { type: "string", default: "15" },
+    maps: { type: "string" },
     output: { type: "string", default: "docs/physics-validation" },
     headed: { type: "boolean", default: false },
   },
@@ -64,6 +65,18 @@ async function ready() {
     { timeout: 120000 },
   );
 }
+/** The initial center can hit the nearby Regular Cab while the avatar is falling. */
+async function focusCanvas() {
+  const canvas = await page.$("#scene-canvas");
+  if (!canvas) throw new Error("Playable canvas missing");
+  try {
+    const bounds = await canvas.boundingBox();
+    await page.mouse.click(bounds.x + 8, bounds.y + 8);
+  } finally {
+    await canvas.dispose();
+  }
+}
+
 async function hold(key, milliseconds) {
   await page.keyboard.down(key);
   try {
@@ -84,6 +97,7 @@ function compactState(state) {
     streaming: state.streaming,
     residentSprites: state.residentSprites,
     lastError: state.lastError,
+    entities: state.entities,
   };
 }
 /** The atlas oracle covers world sprites, not UI text/nameplate composition. */
@@ -175,7 +189,7 @@ async function coldLoad() {
   );
 }
 async function movement() {
-  await page.click("#scene-canvas");
+  await focusCanvas();
   await delay(700);
   const before = await snapshot();
   await hold("ArrowRight", 600);
@@ -211,7 +225,7 @@ async function movement() {
 }
 async function livePerformance() {
   await page.evaluate(() => window.maple.pause(false));
-  await page.click("#scene-canvas");
+  await focusCanvas();
   await resetProbe(page);
   await hold("ArrowRight", duration * 1000);
   report.live = {
@@ -258,7 +272,7 @@ async function transition(id) {
     `Map ${id} transition commits without renderer error`,
     !after.lastError,
   );
-  await page.click("#scene-canvas");
+  await focusCanvas();
   await hold("ArrowRight", 300);
   await hold("Space", 80);
   await delay(350);
@@ -319,6 +333,24 @@ async function deterministicPhysics() {
     );
   }
 }
+function selectedBrowserMaps(available) {
+  if (!values.maps) return available;
+  const selected = values.maps.split(",");
+  if (selected.length === 0 || selected.length > available.length) {
+    throw new Error("--maps requires a bounded list of packaged map IDs");
+  }
+  const unique = new Set(selected);
+  for (const id of selected) {
+    if (!available.includes(id)) {
+      throw new Error(`Unpackaged validation map ${id}`);
+    }
+  }
+  if (unique.size !== selected.length) {
+    throw new Error("Duplicate validation maps");
+  }
+  return selected;
+}
+
 async function run() {
   browser = await puppeteer.launch({
     executablePath: values.chrome,
@@ -339,11 +371,18 @@ async function run() {
     ...throttle.conditions,
     httpCacheDisabled: true,
     persistentCacheInitiallyEmpty: true,
+    scope:
+      "Page-target emulation; service-worker-originated fetches are not throttled",
   };
   await coldLoad();
   await movement();
   await livePerformance();
-  const maps = (await snapshot()).maps;
+  const available = (await snapshot()).maps;
+  const maps = selectedBrowserMaps(available);
+  report.browserMapCoverage = {
+    selected: maps,
+    packagedCount: available.length,
+  };
   for (const id of maps) if (id !== "100000000") await transition(id);
   await transition("100000000");
   await geometryPreviews();

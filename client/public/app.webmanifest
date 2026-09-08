@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "Maple original-asset offline reconstruction",
+  "short_name": "Maple Offline",
+  "description": "Local original-asset reconstruction. Offline download covers the selected packaged catalog only.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#e6e3dc",
+  "theme_color": "#62432e",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

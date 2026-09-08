@@ -17,7 +17,7 @@ function validateIndex(index) {
     throw new Error("Invalid audiovisual catalog");
   }
   if (
-    Object.keys(index.maps).length > 32 ||
+    Object.keys(index.maps).length > 512 ||
     Object.keys(index.effects).length > MAX_EFFECTS
   ) {
     throw new Error("Audiovisual catalog budget exceeded");
@@ -149,11 +149,11 @@ export class AudiovisualSystem {
           "Original MP3 playback enabled. Independent original backend volume curve.";
       }
     } else if (action === "effect") {
-      await this.previewEffect(this.controls.select.value);
+      await this.playEffect(this.controls.select.value);
     } else if (action === "map-effect") {
       const name = this.index?.maps[this.scene?.manifest.id]?.effect;
       if (!name) throw new Error("This map has no authored MapEff binding");
-      await this.previewEffect(name);
+      await this.playEffect(name);
     } else if (action === "capture") {
       const pcm = await this.capturePCM(2);
       if (!this.destroyed) {
@@ -225,12 +225,12 @@ export class AudiovisualSystem {
     }
     return this.audio.playSound(descriptor, this.controller.signal);
   }
-  /** One active preview, demand loaded with the shared AtlasStore. Replacements cancel stale loads. */
-  async previewEffect(name) {
+  /** One bounded effect slot; gameplay and inspection triggers share resource ownership. */
+  async playEffect(name, trigger = "inspection") {
     const record = this.index?.effects[name],
       scene = this.scene;
     if (this.destroyed || !scene || !record) {
-      throw new Error("Effect preview requires a packaged scene/effect");
+      throw new Error(`Effect ${name} requires a packaged scene/effect`);
     }
     this.clearEffect();
     this.effectController = new AbortController();
@@ -255,7 +255,7 @@ export class AudiovisualSystem {
       scene.overlays.addChild(animation.container);
       this.effect = { name, owner, animation, remaining: record.durationMs };
       owner = null;
-      this.controls.status.textContent = `${name}: original frames/timing, one local preview; no server state modified.`;
+      this.controls.status.textContent = `${name}: original frames/timing; ${trigger} trigger is local policy.`;
     } finally {
       if (owner) owner.destroy();
       if (generation === this.effectGeneration) this.loadingEffect = false;

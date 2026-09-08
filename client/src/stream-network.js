@@ -69,7 +69,14 @@ export class Network {
     this.writes = Promise.resolve();
     this.ready = this.open();
   }
+  /** A controlled page reads the pinned release through fetch, never stale runtime entries. */
+  releaseControlled() {
+    const controlled = Boolean(globalThis.navigator?.serviceWorker?.controller);
+    if (controlled) this.cacheStatus = "release-managed";
+    return controlled;
+  }
   async open() {
+    if (this.releaseControlled()) return;
     try {
       this.cache = await caches.open("maple-content-v2");
       const keys = await this.cache.keys();
@@ -89,6 +96,7 @@ export class Network {
       }
       await this.evict(0);
       this.cacheStatus = "persistent";
+      this.releaseControlled();
     } catch (error) {
       this.disableCache(error);
     }
@@ -111,9 +119,12 @@ export class Network {
     }
   }
   async store(url, buffer) {
-    if (!this.cache || this.cacheEntries.has(url)) return;
+    if (this.releaseControlled() || !this.cache || this.cacheEntries.has(url)) {
+      return;
+    }
     try {
       await this.evict(buffer.byteLength);
+      if (this.releaseControlled()) return;
       await this.cache.put(
         url,
         new Response(buffer, {
@@ -174,7 +185,10 @@ export class Network {
       await this.ready;
       check(signal);
       const url = new URL(info.url, location.origin).href;
-      const cached = this.cache ? await this.cache.match(url) : null;
+      const cached =
+        !this.releaseControlled() && this.cache
+          ? await this.cache.match(url)
+          : null;
       let buffer;
       if (cached) {
         buffer = await cached.arrayBuffer();
