@@ -12,8 +12,13 @@ let stream = Buffer.alloc(0);
  * @param {number} length @returns {Buffer}
  */
 export function keyStream(length) {
-  if (!Number.isSafeInteger(length) || length < 0 || length > 16 * 1024 * 1024)
+  if (
+    !Number.isSafeInteger(length) ||
+    length < 0 ||
+    length > 16 * 1024 * 1024
+  ) {
     throw new RangeError("Invalid cipher stream length");
+  }
   if (stream.length >= length) return stream;
   const next = Buffer.alloc(Math.ceil(length / 4096) * 4096);
   next.set(stream);

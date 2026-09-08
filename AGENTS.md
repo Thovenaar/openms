@@ -5,6 +5,7 @@
 ## Documentation
 
 - [Start here: overview, setup, scope, and limitations](docs/README.md)
+- [Required coding style for all coding agents](docs/coding-style.md)
 - [Original inputs and provenance](docs/inputs.md)
 - [Original file hashes](docs/input-manifest.json)
 - [Asset formats and decoder evidence](docs/asset-evidence.md)

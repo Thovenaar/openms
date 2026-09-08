@@ -32,19 +32,21 @@ export function encodePNG(width, height, rgba) {
     width <= 0 ||
     height <= 0 ||
     rgba.length !== width * height * 4
-  )
+  ) {
     throw new Error("Invalid RGBA dimensions");
+  }
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header[8] = 8;
   header[9] = 6;
   const scanlines = Buffer.alloc(height * (width * 4 + 1));
-  for (let y = 0; y < height; y++)
+  for (let y = 0; y < height; y++) {
     scanlines.set(
       rgba.subarray(y * width * 4, (y + 1) * width * 4),
       y * (width * 4 + 1) + 1,
     );
+  }
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk("IHDR", header),

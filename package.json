@@ -12,9 +12,13 @@
     "scan": "bun client/tools/scan.js",
     "test": "bun test",
     "validate": "bun client/tools/validate.js",
-    "format": "bunx --bun prettier --write 'client/src/**/*.js' 'client/tools/*.js' 'client/test/*.js' client/index.html client/style.css package.json client/package.json server/package.json"
+    "lint": "bunx --bun eslint . --max-warnings 0",
+    "format": "bunx --bun prettier --write 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' client/index.html client/style.css eslint.config.js package.json client/package.json server/package.json"
   },
   "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "eslint": "9.39.5",
+    "globals": "17.12.0",
     "prettier": "3.8.1"
   }
 }

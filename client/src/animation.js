@@ -1,14 +1,14 @@
 import { Container, Sprite } from "pixi.js";
 
 /** @typedef {{texture:string,x:number,y:number,z:number,flip?:boolean,opacity?:number}} Part */
-/** @typedef {{delay:number,parts:Part[],alphaEnd?:number}} Frame */
+/** @typedef {{delay:number,parts:Part[],alphaEnd?:number,sourceSize?:{width:number,height:number}}} Frame */
 /** @typedef {{type:number,rx:number,ry:number,cx:number,cy:number}} Background */
-/** @typedef {{id:string,kind:string,x:number,y:number,z:number,visible:boolean,flip:boolean,opacity:number,action:string,actions:Record<string,Frame[]>,background?:Background}} Entity */
+/** @typedef {{id:string,order:number,kind:string,x:number,y:number,z:number,visible:boolean,flip:boolean,opacity:number,action:string,actions:Record<string,Frame[]>,background?:Background}} Entity */
 
 /** Compile frame boundaries and stable draw order once, outside the render loop.
  * @param {Frame[]} frames
  */
-function compileAction(frames) {
+function compileAction(frames, textures) {
   let duration = 0;
   const ends = new Float64Array(frames.length);
   const parts = frames.map((frame, index) => {
@@ -16,18 +16,62 @@ function compileAction(frames) {
     ends[index] = duration;
     return frame.parts.slice().sort((a, b) => a.z - b.z);
   });
-  return { ends, parts, duration, frames };
+  const geometry = frames.map((frame, index) =>
+    frameGeometry(frame, parts[index], textures),
+  );
+  return { ends, parts, duration, frames, geometry };
+}
+
+/** Logical frame geometry preserves the original canvas period across atlas tiles. */
+function frameGeometry(frame, parts, textures) {
+  let left = Infinity,
+    top = Infinity,
+    right = -Infinity,
+    bottom = -Infinity;
+  for (const part of parts) {
+    const texture = textures.get(part.texture);
+    left = Math.min(left, part.x);
+    top = Math.min(top, part.y);
+    right = Math.max(right, part.x + texture.width);
+    bottom = Math.max(bottom, part.y + texture.height);
+  }
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+    periodWidth: frame.sourceSize?.width ?? right - left,
+    periodHeight: frame.sourceSize?.height ?? bottom - top,
+  };
+}
+
+function repetitionType(type) {
+  if (type < 4) return type;
+  if (type === 4) return 1;
+  if (type === 5) return 2;
+  return 3;
 }
 
 /** A persistent container and sprite pool; changing frames never builds display objects. */
 export class EntityAnimation {
-  /** @param {Entity} entity @param {Map<string, import('pixi.js').Texture>} textures @param {number} order */
-  constructor(entity, textures, order) {
+  /** @param {Entity} entity @param {Map<string, import('pixi.js').Texture>} textures */
+  constructor(entity, textures) {
     this.id = entity.id;
     this.kind = entity.kind;
-    this.order = order;
+    this.order = entity.order;
     this.textures = textures;
     this.background = entity.background;
+    this.repeat = entity.background
+      ? repetitionType(entity.background.type)
+      : 0;
+    this.backgroundLayout = {
+      firstX: 0,
+      lastX: 0,
+      firstY: 0,
+      lastY: 0,
+      cx: 0,
+      cy: 0,
+    };
     this.baseX = entity.x;
     this.baseY = entity.y;
     this.elapsedMs = 0;
@@ -40,10 +84,11 @@ export class EntityAnimation {
     this.container.scale.x = entity.flip ? -1 : 1;
     let capacity = 0;
     for (const [name, frames] of Object.entries(entity.actions)) {
-      const action = compileAction(frames);
+      const action = compileAction(frames, textures);
       this.actions.set(name, action);
-      for (const parts of action.parts)
+      for (const parts of action.parts) {
         capacity = Math.max(capacity, parts.length);
+      }
     }
     this.sprites = new Array(capacity);
     for (let i = 0; i < capacity; i++) {
@@ -130,11 +175,43 @@ export class EntityAnimation {
     this.container.position.set(x, y);
   }
 
+  /** Reserve all repetition sprites outside rendering for the current bounded viewport. */
+  prepareBackground(viewport, available = 10000) {
+    const bg = this.background;
+    let capacity = 1;
+    for (const action of this.actions.values()) {
+      for (let index = 0; index < action.parts.length; index++) {
+        const geometry = action.geometry[index];
+        const columns =
+          Math.ceil(
+            (viewport.width + geometry.width) / (bg.cx || geometry.periodWidth),
+          ) + 3;
+        const rows =
+          Math.ceil(
+            (viewport.height + geometry.height) /
+              (bg.cy || geometry.periodHeight),
+          ) + 3;
+        const copies =
+          (this.repeat & 1 ? columns : 1) * (this.repeat & 2 ? rows : 1);
+        capacity = Math.max(capacity, copies * action.parts[index].length);
+      }
+    }
+    if (capacity > 10000 || capacity > available) {
+      throw new Error(`Background pool exceeds browser limit: ${this.id}`);
+    }
+    while (this.sprites.length < capacity) {
+      const sprite = new Sprite();
+      sprite.visible = false;
+      this.sprites.push(sprite);
+      this.container.addChild(sprite);
+    }
+  }
+
   /** Original camera delta ratios and viewport-clipped repetition. No per-frame display-object rebuilding.
    * @param {{x:number,y:number}} camera @param {{x:number,y:number}} initial
    * @param {{width:number,height:number}} viewport
    */
-  updateBackground(camera, initial, viewport) {
+  positionBackground(camera, initial) {
     const bg = this.background;
     const autoX = bg.type === 4 || bg.type === 6,
       autoY = bg.type === 5 || bg.type === 7;
@@ -149,53 +226,80 @@ export class EntityAnimation {
       Math.trunc((dy * (autoY ? -100 : bg.ry)) / 100) +
       (autoY ? Math.trunc((this.elapsedMs * bg.ry) / 200) : 0);
     this.container.position.set(px, py);
-    const part = this.current.parts[this.frame][0],
-      texture = this.textures.get(part.texture);
-    const repeat =
-      bg.type < 4 ? bg.type : bg.type === 4 ? 1 : bg.type === 5 ? 2 : 3;
-    const cx = bg.cx || texture.width,
-      cy = bg.cy || texture.height;
-    const screenX = px - camera.x,
-      screenY = py - camera.y;
+  }
+
+  layoutBackground(camera, viewport) {
+    const geometry = this.current.geometry[this.frame];
+    const layout = this.backgroundLayout;
+    layout.cx = this.background.cx || geometry.periodWidth;
+    layout.cy = this.background.cy || geometry.periodHeight;
+    const screenX = this.container.x - camera.x;
+    const screenY = this.container.y - camera.y;
     const flip = this.container.scale.x < 0;
-    const localLeft = flip ? screenX - viewport.width : -screenX;
-    const localRight = flip ? screenX : viewport.width - screenX;
-    const firstX =
-      repeat & 1
-        ? Math.floor((localLeft - part.x - texture.width) / cx) + 1
+    const left = flip ? screenX - viewport.width : -screenX;
+    const right = flip ? screenX : viewport.width - screenX;
+    layout.firstX =
+      this.repeat & 1
+        ? Math.floor((left - geometry.x - geometry.width) / layout.cx) + 1
         : 0;
-    const lastX = repeat & 1 ? Math.ceil((localRight - part.x) / cx) - 1 : 0;
-    const firstY =
-      repeat & 2
-        ? Math.floor((-screenY - part.y - texture.height) / cy) + 1
+    layout.lastX =
+      this.repeat & 1 ? Math.ceil((right - geometry.x) / layout.cx) - 1 : 0;
+    layout.firstY =
+      this.repeat & 2
+        ? Math.floor((-screenY - geometry.y - geometry.height) / layout.cy) + 1
         : 0;
-    const lastY =
-      repeat & 2 ? Math.ceil((viewport.height - screenY - part.y) / cy) - 1 : 0;
+    layout.lastY =
+      this.repeat & 2
+        ? Math.ceil((viewport.height - screenY - geometry.y) / layout.cy) - 1
+        : 0;
+  }
+
+  drawBackground() {
+    const layout = this.backgroundLayout;
+    const parts = this.current.parts[this.frame];
     const count =
-      Math.max(0, lastX - firstX + 1) * Math.max(0, lastY - firstY + 1);
-    if (count > 10000)
-      throw new Error(`Background repetition exceeds limit: ${this.id}`);
-    while (this.sprites.length < count) {
-      const sprite = new Sprite();
-      this.sprites.push(sprite);
-      this.container.addChild(sprite);
+      Math.max(0, layout.lastX - layout.firstX + 1) *
+      Math.max(0, layout.lastY - layout.firstY + 1) *
+      parts.length;
+    if (count > this.sprites.length) {
+      throw new Error(
+        `Background pool requires resize preparation: ${this.id}`,
+      );
     }
-    const alpha = this.sprites[0]?.alpha ?? 1;
     let index = 0;
-    for (let y = firstY; y <= lastY; y++)
-      for (let x = firstX; x <= lastX; x++) {
-        const sprite = this.sprites[index++];
-        sprite.texture = texture;
-        sprite.visible = true;
-        sprite.alpha = alpha;
-        sprite.position.set(
-          part.x + x * cx + (part.flip ? texture.width : 0),
-          part.y + y * cy,
-        );
-        sprite.scale.set(part.flip ? -1 : 1, 1);
+    for (let y = layout.firstY; y <= layout.lastY; y++) {
+      for (let x = layout.firstX; x <= layout.lastX; x++) {
+        index = this.drawBackgroundCopy(index, x, y);
       }
-    for (; index < this.sprites.length; index++)
+    }
+    for (; index < this.sprites.length; index++) {
       this.sprites[index].visible = false;
+    }
+  }
+
+  drawBackgroundCopy(index, x, y) {
+    const parts = this.current.parts[this.frame],
+      layout = this.backgroundLayout;
+    for (let partIndex = 0; partIndex < parts.length; partIndex++) {
+      const part = parts[partIndex],
+        texture = this.textures.get(part.texture);
+      const sprite = this.sprites[index++];
+      sprite.texture = texture;
+      sprite.visible = true;
+      sprite.alpha = this.sprites[partIndex].alpha;
+      sprite.position.set(
+        part.x + x * layout.cx + (part.flip ? texture.width : 0),
+        part.y + y * layout.cy,
+      );
+      sprite.scale.set(part.flip ? -1 : 1, 1);
+    }
+    return index;
+  }
+
+  updateBackground(camera, initial, viewport) {
+    this.positionBackground(camera, initial);
+    this.layoutBackground(camera, viewport);
+    this.drawBackground();
   }
 
   snapshot() {

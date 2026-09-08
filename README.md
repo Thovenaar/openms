@@ -2,7 +2,7 @@
 
 A browser reconstruction of MapleStory's original v83 assets and rendering, written in JavaScript with JSDoc, Bun, and PixiJS.
 
-The current demo loads Henesys and an animated character. It is not a complete game; gameplay and the backend are not implemented.
+The client progressively streams eight original maps and supports keyboard-driven base-avatar movement, footholds, ladders, swimming, flight and collision inspection. It is not a complete game: combat, NPC/mob simulation, networking and the backend remain absent.
 
 ## Run
 
@@ -14,7 +14,7 @@ bun run extract
 bun run dev
 ```
 
-Open **http://127.0.0.1:3100**. Use the controls to change animations, visibility, layering, and camera position.
+Open **http://127.0.0.1:3100**. Click the map, then use arrows/WASD and Space; Down+Space requests drop-through. Mouse controls switch maps, inspect hitbox geometry, toggle overlays, move the camera, and pause or step.
 
 ## Project
 
@@ -22,4 +22,4 @@ Open **http://127.0.0.1:3100**. Use the controls to change animations, visibilit
 - `server/` — reserved for future backend work.
 - `docs/` — the source of truth for setup, reverse-engineering evidence, validation, and known limitations.
 
-See [the documentation](docs/README.md) for details, or [validation results](docs/validation.md) for what has been checked.
+See [the documentation](docs/README.md) for details and [current validation results](docs/physics-validation/results.md) for measured coverage, original evidence, and remaining fidelity limits.

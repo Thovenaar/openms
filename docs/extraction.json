@@ -1,15 +1,1521 @@
 {
-  "map": "Map.wz:Map/Map1/100000000.img",
+  "schemaVersion": 2,
+  "buildId": "c311a390000ad9b182b2a78892972c5a7e9f6b161ed11b7e76f0cc41780b0592",
   "inputDirectory": "/Users/k/Development/tensorfish/Maplestory-Client",
-  "version": 83,
-  "versionHash": 1876,
-  "entities": 1112,
-  "textures": 270,
-  "rgbaBytes": 26162516,
+  "maps": [
+    {
+      "id": "100000000",
+      "entities": 1112,
+      "regions": 20,
+      "textures": 271,
+      "physics": {
+        "version": 10,
+        "cloud": 0,
+        "town": 1,
+        "mobRate": 1,
+        "bgm": "Bgm00/FloralLife",
+        "returnMap": 100000000,
+        "forcedReturn": 999999999,
+        "hideMinimap": 0,
+        "moveLimit": 0,
+        "mapMark": "Henesys",
+        "swim": 0,
+        "fly": 0,
+        "noMapCmd": 0,
+        "fieldLimit": 0,
+        "onUserEnter": "explorationPoint",
+        "$portalProperties": {
+          "0": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 112,
+            "y": 197,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "1": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 1473,
+            "y": 260,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "2": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 1928,
+            "y": 213,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "3": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 2741,
+            "y": 259,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "4": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 3827,
+            "y": 368,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "5": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 4024,
+            "y": 67,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "6": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 4281,
+            "y": 395,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "7": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 4690,
+            "y": 300,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "8": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 5634,
+            "y": 402,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "9": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 5094,
+            "y": -155,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "10": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 5653,
+            "y": -213,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "11": {
+            "pn": "in03",
+            "pt": 2,
+            "x": 318,
+            "y": -75,
+            "tm": 100000002,
+            "tn": "out00"
+          },
+          "12": {
+            "pn": "hp00",
+            "pt": 10,
+            "x": 1302,
+            "y": 93,
+            "tm": 100000000,
+            "tn": "hp00_1",
+            "image": ""
+          },
+          "13": {
+            "pn": "hp00_1",
+            "pt": 10,
+            "x": 5169,
+            "y": 92,
+            "tm": 100000000,
+            "tn": "hp00",
+            "image": ""
+          },
+          "14": {
+            "pn": "up00",
+            "pt": 1,
+            "x": 312,
+            "y": 64,
+            "tm": 100000000,
+            "tn": "in03"
+          },
+          "15": {
+            "pn": "gm00",
+            "pt": 1,
+            "x": 3572,
+            "y": 120,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "16": {
+            "pn": "gm01",
+            "pt": 1,
+            "x": 5469,
+            "y": 450,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "17": {
+            "pn": "gm02",
+            "pt": 1,
+            "x": 5907,
+            "y": -183,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "18": {
+            "pn": "gm03",
+            "pt": 1,
+            "x": 1700,
+            "y": 329,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "19": {
+            "pn": "gm04",
+            "pt": 1,
+            "x": 646,
+            "y": 269,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "20": {
+            "pn": "west00",
+            "pt": 2,
+            "x": -922,
+            "y": 272,
+            "tm": 104040000,
+            "tn": "east00"
+          },
+          "21": {
+            "pn": "east00",
+            "pt": 2,
+            "x": 5907,
+            "y": 455,
+            "tm": 100010000,
+            "tn": "west00"
+          },
+          "22": {
+            "pn": "east10",
+            "pt": 2,
+            "x": 6073,
+            "y": -176,
+            "tm": 106010000,
+            "tn": "west00"
+          },
+          "23": {
+            "pn": "in00",
+            "pt": 2,
+            "x": 3026,
+            "y": 335,
+            "tm": 100000100,
+            "tn": "out00"
+          },
+          "24": {
+            "pn": "in01",
+            "pt": 2,
+            "x": 3848,
+            "y": 124,
+            "tm": 100000200,
+            "tn": "out00"
+          },
+          "25": {
+            "pn": "in02",
+            "pt": 2,
+            "x": 5136,
+            "y": 453,
+            "tm": 100000001,
+            "tn": "out02"
+          },
+          "26": {
+            "pn": "hp01",
+            "pt": 10,
+            "x": -377,
+            "y": 273,
+            "tm": 100000000,
+            "tn": "hp01_1"
+          },
+          "27": {
+            "pn": "hp01_1",
+            "pt": 10,
+            "x": 5801,
+            "y": 454,
+            "tm": 100000000,
+            "tn": "hp01"
+          },
+          "28": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 2786,
+            "y": 333,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "29": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 3148,
+            "y": 333,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "30": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 3219,
+            "y": 334,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "31": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 3290,
+            "y": 335,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "32": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 3360,
+            "y": 333,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "33": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 2864,
+            "y": 333,
+            "tm": 999999999,
+            "tn": ""
+          }
+        },
+        "$objectPhysics": {},
+        "$unrecognized": {}
+      }
+    },
+    {
+      "id": "100000001",
+      "entities": 110,
+      "regions": 8,
+      "textures": 122,
+      "physics": {
+        "version": 10,
+        "cloud": 0,
+        "town": 1,
+        "mobRate": 1,
+        "bgm": "Bgm00/FloralLife",
+        "returnMap": 100000001,
+        "mapDesc": "",
+        "forcedReturn": 999999999,
+        "hideMinimap": 0,
+        "moveLimit": 0,
+        "mapMark": "Henesys",
+        "$portalProperties": {
+          "0": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 364,
+            "y": 204,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "1": {
+            "pn": "out02",
+            "pt": 2,
+            "x": 202,
+            "y": 242,
+            "tm": 100000000,
+            "tn": "in02"
+          }
+        },
+        "$objectPhysics": {},
+        "$unrecognized": {}
+      }
+    },
+    {
+      "id": "103040000",
+      "entities": 142,
+      "regions": 12,
+      "textures": 164,
+      "physics": {
+        "version": 10,
+        "cloud": 0,
+        "town": 1,
+        "swim": 0,
+        "returnMap": 103040000,
+        "forcedReturn": 999999999,
+        "mobRate": 1,
+        "bgm": "Bgm21/KerningSquare",
+        "mapMark": "101Building",
+        "fly": 0,
+        "noMapCmd": 0,
+        "hideMinimap": 0,
+        "fieldLimit": 0,
+        "VRTop": -258,
+        "VRLeft": -1240,
+        "VRBottom": 555,
+        "VRRight": 1263,
+        "onFirstUserEnter": "",
+        "onUserEnter": "",
+        "$portalProperties": {
+          "0": {
+            "pn": "sp",
+            "pt": 0,
+            "x": -809,
+            "y": 410,
+            "tm": 999999999,
+            "tn": "",
+            "horizontalImpact": 0
+          },
+          "1": {
+            "pn": "fromUp",
+            "pt": 1,
+            "x": -594,
+            "y": -143,
+            "tm": 999999999,
+            "tn": "fromUp",
+            "horizontalImpact": 0,
+            "script": "",
+            "hideTooltip": 0,
+            "onlyOnce": 0,
+            "delay": 0
+          },
+          "2": {
+            "pn": "enter00",
+            "pt": 2,
+            "x": -891,
+            "y": 415,
+            "tm": 103000310,
+            "tn": "enter00",
+            "horizontalImpact": 0
+          },
+          "3": {
+            "pn": "upStair",
+            "pt": 3,
+            "x": 833,
+            "y": -151,
+            "tm": 103040100,
+            "tn": "fromDown",
+            "horizontalImpact": 0,
+            "script": "",
+            "hideTooltip": 0,
+            "onlyOnce": 0,
+            "delay": 0
+          }
+        },
+        "$objectPhysics": {
+          "1/obj/1": {
+            "oS": "Tdungeon3",
+            "l0": "ani",
+            "l1": "escalator",
+            "l2": "0",
+            "x": 804,
+            "y": -75,
+            "z": 9,
+            "f": 0,
+            "zM": 36,
+            "r": 0,
+            "force": "-120"
+          },
+          "1/obj/3": {
+            "oS": "Tdungeon3",
+            "l0": "ani",
+            "l1": "escalator",
+            "l2": "1",
+            "x": -599,
+            "y": -75,
+            "z": 20,
+            "f": 1,
+            "zM": 34,
+            "r": 0,
+            "force": "-100"
+          },
+          "2/obj/3": {
+            "oS": "Tdungeon3",
+            "l0": "ani",
+            "l1": "escalator",
+            "l2": "1",
+            "x": -663,
+            "y": 250,
+            "z": 11,
+            "f": 0,
+            "zM": 12,
+            "r": 0,
+            "force": "100"
+          },
+          "2/obj/5": {
+            "oS": "Tdungeon3",
+            "l0": "ani",
+            "l1": "escalator",
+            "l2": "0",
+            "x": 984,
+            "y": 250,
+            "z": 10,
+            "f": 1,
+            "zM": 11,
+            "r": 0,
+            "force": "120"
+          }
+        },
+        "$unrecognized": {}
+      }
+    },
+    {
+      "id": "108000500",
+      "entities": 102,
+      "regions": 10,
+      "textures": 115,
+      "physics": {
+        "version": 10,
+        "cloud": 0,
+        "town": 0,
+        "swim": 0,
+        "returnMap": 120000101,
+        "forcedReturn": 120000101,
+        "mobRate": 1,
+        "bgm": "Bgm15/inNautilus",
+        "mapMark": "Nautilus",
+        "hideMinimap": 0,
+        "fieldLimit": 8568,
+        "VRTop": -300,
+        "VRLeft": -402,
+        "VRBottom": 298,
+        "VRRight": 3795,
+        "$portalProperties": {
+          "0": {
+            "pn": "sp",
+            "pt": 0,
+            "x": -133,
+            "y": 122,
+            "tm": 999999999,
+            "tn": ""
+          }
+        },
+        "$objectPhysics": {
+          "5/obj/29": {
+            "oS": "guild",
+            "l0": "syarenian",
+            "l1": "foot4",
+            "l2": "29",
+            "x": 1415,
+            "y": -11,
+            "z": 9,
+            "f": 0,
+            "zM": 24,
+            "r": 0,
+            "force": "-180"
+          },
+          "5/obj/31": {
+            "oS": "guild",
+            "l0": "syarenian",
+            "l1": "foot4",
+            "l2": "30",
+            "x": 1128,
+            "y": 126,
+            "z": 9,
+            "f": 0,
+            "zM": 0,
+            "r": 0,
+            "force": "-180"
+          },
+          "5/obj/34": {
+            "oS": "guild",
+            "l0": "syarenian",
+            "l1": "foot4",
+            "l2": "28",
+            "x": 1270,
+            "y": 55,
+            "z": 9,
+            "f": 0,
+            "zM": 0,
+            "r": 0,
+            "force": "180"
+          },
+          "5/obj/43": {
+            "oS": "guild",
+            "l0": "syarenian",
+            "l1": "foot4",
+            "l2": "28",
+            "x": 2179,
+            "y": 35,
+            "z": 9,
+            "f": 0,
+            "zM": 0,
+            "r": 0,
+            "force": "180"
+          },
+          "5/obj/46": {
+            "oS": "guild",
+            "l0": "syarenian",
+            "l1": "foot4",
+            "l2": "30",
+            "x": 107,
+            "y": 60,
+            "z": 9,
+            "f": 0,
+            "zM": 0,
+            "r": 0,
+            "force": "-180"
+          }
+        },
+        "$unrecognized": {
+          "weather": {
+            "0": {
+              "time": 20,
+              "item": "05120014",
+              "msg": "Remember, these Octopirates can only be attacked with 'Double Shot'.",
+              "option": 1
+            },
+            "1": {
+              "time": 60,
+              "item": "05120014",
+              "msg": "Remember, these Octopirates can only be attacked with 'Double Shot'.",
+              "option": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "120000000",
+      "entities": 388,
+      "regions": 25,
+      "textures": 260,
+      "physics": {
+        "version": 10,
+        "cloud": 0,
+        "town": 1,
+        "swim": 0,
+        "returnMap": 120000000,
+        "forcedReturn": 999999999,
+        "mobRate": 1,
+        "bgm": "Bgm15/Nautilus",
+        "VRTop": -1200,
+        "VRLeft": -610,
+        "VRBottom": 357,
+        "VRRight": 5200,
+        "mapMark": "Nautilus",
+        "hideMinimap": 0,
+        "fieldLimit": 4,
+        "$portalProperties": {
+          "0": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 2156,
+            "y": -406,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "1": {
+            "pn": "st00",
+            "pt": 1,
+            "x": -418,
+            "y": 88,
+            "tm": 120010000,
+            "tn": "hp00"
+          },
+          "2": {
+            "pn": "nt00",
+            "pt": 10,
+            "x": -388,
+            "y": -44,
+            "tm": 120000000,
+            "tn": "nt01",
+            "image": ""
+          },
+          "3": {
+            "pn": "nt01",
+            "pt": 10,
+            "x": 4061,
+            "y": -620,
+            "tm": 120000000,
+            "tn": "nt00",
+            "image": ""
+          },
+          "4": {
+            "pn": "cp00",
+            "pt": 10,
+            "x": 2588,
+            "y": -256,
+            "tm": 120000000,
+            "tn": "cp01",
+            "image": ""
+          },
+          "5": {
+            "pn": "cp01",
+            "pt": 10,
+            "x": 1621,
+            "y": -684,
+            "tm": 120000000,
+            "tn": "cp00",
+            "image": ""
+          },
+          "6": {
+            "pn": "pt00",
+            "pt": 1,
+            "x": 4693,
+            "y": -888,
+            "tm": 120000000,
+            "tn": "pt01"
+          },
+          "7": {
+            "pn": "pt01",
+            "pt": 1,
+            "x": 4486,
+            "y": -808,
+            "tm": 120000000,
+            "tn": "pt02"
+          },
+          "8": {
+            "pn": "pt02",
+            "pt": 1,
+            "x": 4225,
+            "y": -777,
+            "tm": 120000000,
+            "tn": "pt00"
+          },
+          "9": {
+            "pn": "in00",
+            "pt": 2,
+            "x": 2334,
+            "y": 141,
+            "tm": 120000200,
+            "tn": "out00"
+          },
+          "10": {
+            "pn": "highposition",
+            "pt": 9,
+            "x": 4561,
+            "y": -985,
+            "tm": 999999999,
+            "tn": "",
+            "delay": 500,
+            "horizontalImpact": 0,
+            "script": "highposition",
+            "hideTooltip": 0,
+            "onlyOnce": 1
+          },
+          "11": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 3501,
+            "y": -185,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "12": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 3622,
+            "y": -184,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "13": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 3740,
+            "y": -184,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "14": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 3151,
+            "y": -186,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "15": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 3271,
+            "y": -185,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "16": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 3387,
+            "y": -186,
+            "tm": 999999999,
+            "tn": ""
+          }
+        },
+        "$objectPhysics": {},
+        "$unrecognized": {
+          "swimArea": {
+            "nt": {
+              "x1": -606,
+              "y1": 207,
+              "x2": 5318,
+              "y2": 302
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "200090500",
+      "entities": 93,
+      "regions": 13,
+      "textures": 95,
+      "physics": {
+        "version": 10,
+        "cloud": 0,
+        "town": 0,
+        "swim": 0,
+        "returnMap": 240000110,
+        "forcedReturn": 240000110,
+        "mobRate": 1,
+        "bgm": "Bgm13/Leafre",
+        "mapMark": "Leafre",
+        "hideMinimap": 1,
+        "fieldLimit": 369406,
+        "VRTop": -633,
+        "VRLeft": -809,
+        "VRBottom": 179,
+        "VRRight": 2765,
+        "fly": 1,
+        "fieldType": 6,
+        "timeLimit": 900,
+        "onFirstUserEnter": "",
+        "$portalProperties": {
+          "0": {
+            "pn": "sp",
+            "pt": 0,
+            "x": -581,
+            "y": -276,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "1": {
+            "pn": "st00",
+            "pt": 1,
+            "x": 2613,
+            "y": -381,
+            "tm": 200090500,
+            "tn": "st00"
+          },
+          "2": {
+            "pn": "east07",
+            "pt": 3,
+            "x": 2764,
+            "y": 42,
+            "tm": 200090510,
+            "tn": "st00"
+          },
+          "3": {
+            "pn": "east05",
+            "pt": 3,
+            "x": 2765,
+            "y": -46,
+            "tm": 200090510,
+            "tn": "st00"
+          },
+          "4": {
+            "pn": "east08",
+            "pt": 3,
+            "x": 2766,
+            "y": -621,
+            "tm": 200090510,
+            "tn": "st00"
+          },
+          "5": {
+            "pn": "minar00",
+            "pt": 7,
+            "x": -700,
+            "y": -214,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "6": {
+            "pn": "east00",
+            "pt": 3,
+            "x": 2766,
+            "y": -526,
+            "tm": 200090510,
+            "tn": "st00"
+          },
+          "7": {
+            "pn": "east01",
+            "pt": 3,
+            "x": 2766,
+            "y": -432,
+            "tm": 200090510,
+            "tn": "st00"
+          },
+          "8": {
+            "pn": "east02",
+            "pt": 3,
+            "x": 2765,
+            "y": -337,
+            "tm": 200090510,
+            "tn": "st00"
+          },
+          "9": {
+            "pn": "east03",
+            "pt": 3,
+            "x": 2765,
+            "y": -239,
+            "tm": 200090510,
+            "tn": "st00"
+          },
+          "10": {
+            "pn": "east04",
+            "pt": 3,
+            "x": 2765,
+            "y": -143,
+            "tm": 200090510,
+            "tn": "st00"
+          },
+          "11": {
+            "pn": "down00",
+            "pt": 9,
+            "x": -763,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "12": {
+            "pn": "down01",
+            "pt": 9,
+            "x": -665,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "13": {
+            "pn": "down02",
+            "pt": 9,
+            "x": -568,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "14": {
+            "pn": "down03",
+            "pt": 9,
+            "x": -471,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "15": {
+            "pn": "down04",
+            "pt": 9,
+            "x": -373,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "16": {
+            "pn": "down05",
+            "pt": 9,
+            "x": -275,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "17": {
+            "pn": "down06",
+            "pt": 9,
+            "x": -179,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "18": {
+            "pn": "down07",
+            "pt": 9,
+            "x": -82,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "19": {
+            "pn": "down08",
+            "pt": 9,
+            "x": 16,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "20": {
+            "pn": "down09",
+            "pt": 9,
+            "x": 114,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "21": {
+            "pn": "down10",
+            "pt": 9,
+            "x": 213,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "22": {
+            "pn": "down11",
+            "pt": 9,
+            "x": 311,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "23": {
+            "pn": "down12",
+            "pt": 9,
+            "x": 410,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "24": {
+            "pn": "down13",
+            "pt": 9,
+            "x": 508,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "25": {
+            "pn": "down14",
+            "pt": 9,
+            "x": 606,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "26": {
+            "pn": "down15",
+            "pt": 9,
+            "x": 704,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "27": {
+            "pn": "down16",
+            "pt": 9,
+            "x": 802,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "28": {
+            "pn": "down17",
+            "pt": 9,
+            "x": 902,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "29": {
+            "pn": "down18",
+            "pt": 9,
+            "x": 1001,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "30": {
+            "pn": "down19",
+            "pt": 9,
+            "x": 1101,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "31": {
+            "pn": "down20",
+            "pt": 9,
+            "x": 1200,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "32": {
+            "pn": "down21",
+            "pt": 9,
+            "x": 1298,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "33": {
+            "pn": "down22",
+            "pt": 9,
+            "x": 1395,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "34": {
+            "pn": "down23",
+            "pt": 9,
+            "x": 1492,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "35": {
+            "pn": "down24",
+            "pt": 9,
+            "x": 1591,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "36": {
+            "pn": "down25",
+            "pt": 9,
+            "x": 1690,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "37": {
+            "pn": "down26",
+            "pt": 9,
+            "x": 1787,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "38": {
+            "pn": "down27",
+            "pt": 9,
+            "x": 1885,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "39": {
+            "pn": "down28",
+            "pt": 9,
+            "x": 1981,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "40": {
+            "pn": "down29",
+            "pt": 9,
+            "x": 2079,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "41": {
+            "pn": "down30",
+            "pt": 9,
+            "x": 2177,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "42": {
+            "pn": "down31",
+            "pt": 9,
+            "x": 2275,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "43": {
+            "pn": "down32",
+            "pt": 9,
+            "x": 2372,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "44": {
+            "pn": "down33",
+            "pt": 9,
+            "x": 2471,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "45": {
+            "pn": "down34",
+            "pt": 9,
+            "x": 2567,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "46": {
+            "pn": "down35",
+            "pt": 9,
+            "x": 2666,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          },
+          "47": {
+            "pn": "down36",
+            "pt": 9,
+            "x": 2764,
+            "y": 142,
+            "tm": 999999999,
+            "tn": "",
+            "script": "undodraco"
+          }
+        },
+        "$objectPhysics": {},
+        "$unrecognized": {}
+      }
+    },
+    {
+      "id": "211040000",
+      "entities": 448,
+      "regions": 15,
+      "textures": 143,
+      "physics": {
+        "version": 10,
+        "cloud": 0,
+        "town": 0,
+        "returnMap": 211000000,
+        "forcedReturn": 999999999,
+        "mobRate": 1.2000000476837158,
+        "bgm": "Bgm04/WarmRegard",
+        "mapMark": "ElNath",
+        "hideMinimap": 0,
+        "fieldLimit": 0,
+        "fs": 0.20000000298023224,
+        "decHP": 10,
+        "swim": 0,
+        "protectItem": 1102109,
+        "$portalProperties": {
+          "0": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 1558,
+            "y": -825,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "1": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 1676,
+            "y": -829,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "2": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 1785,
+            "y": -833,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "3": {
+            "pn": "in00",
+            "pt": 1,
+            "x": 187,
+            "y": -760,
+            "tm": 211040001,
+            "tn": "out00"
+          },
+          "4": {
+            "pn": "west00",
+            "pt": 2,
+            "x": -901,
+            "y": 31,
+            "tm": 211030000,
+            "tn": "east00"
+          },
+          "5": {
+            "pn": "top00",
+            "pt": 2,
+            "x": 1752,
+            "y": -757,
+            "tm": 211040100,
+            "tn": "under00"
+          },
+          "6": {
+            "pn": "east00",
+            "pt": 2,
+            "x": 1973,
+            "y": -86,
+            "tm": 211050000,
+            "tn": "west00"
+          }
+        },
+        "$objectPhysics": {},
+        "$unrecognized": {}
+      }
+    },
+    {
+      "id": "230000000",
+      "entities": 365,
+      "regions": 42,
+      "textures": 273,
+      "physics": {
+        "version": 10,
+        "cloud": 0,
+        "town": 1,
+        "swim": 1,
+        "returnMap": 230000000,
+        "forcedReturn": 999999999,
+        "mobRate": 1.100000023841858,
+        "bgm": "Bgm11/Aquarium",
+        "mapMark": "AquaRoad",
+        "hideMinimap": 0,
+        "fieldLimit": 0,
+        "effect": "Bubbling",
+        "onUserEnter": "explorationPoint",
+        "$portalProperties": {
+          "0": {
+            "pn": "sp",
+            "pt": 0,
+            "x": -800,
+            "y": 421,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "1": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 146,
+            "y": 278,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "2": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 1121,
+            "y": 342,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "3": {
+            "pn": "sp",
+            "pt": 0,
+            "x": 1820,
+            "y": 393,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "4": {
+            "pn": "market00",
+            "pt": 1,
+            "x": 191,
+            "y": 7,
+            "tm": 230000002,
+            "tn": "out01",
+            "script": ""
+          },
+          "5": {
+            "pn": "zoo00",
+            "pt": 1,
+            "x": 621,
+            "y": 143,
+            "tm": 230000003,
+            "tn": "out01"
+          },
+          "6": {
+            "pn": "st00",
+            "pt": 1,
+            "x": 1384,
+            "y": 24,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "7": {
+            "pn": "wd00",
+            "pt": 1,
+            "x": 1259,
+            "y": 103,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "8": {
+            "pn": "west00",
+            "pt": 2,
+            "x": -948,
+            "y": 472,
+            "tm": 230010400,
+            "tn": "east00",
+            "script": ""
+          },
+          "9": {
+            "pn": "east00",
+            "pt": 2,
+            "x": 1947,
+            "y": 468,
+            "tm": 230020000,
+            "tn": "west00"
+          },
+          "10": {
+            "pn": "in00",
+            "pt": 2,
+            "x": 265,
+            "y": 339,
+            "tm": 230000001,
+            "tn": "out00"
+          },
+          "11": {
+            "pn": "market01",
+            "pt": 7,
+            "x": 1511,
+            "y": 38,
+            "tm": 999999999,
+            "tn": "",
+            "script": "market05"
+          },
+          "12": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 674,
+            "y": 319,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "13": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 775,
+            "y": 322,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "14": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 979,
+            "y": 323,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "15": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 879,
+            "y": 321,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "16": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 134,
+            "y": 331,
+            "tm": 999999999,
+            "tn": ""
+          },
+          "17": {
+            "pn": "tp",
+            "pt": 6,
+            "x": 31,
+            "y": 330,
+            "tm": 999999999,
+            "tn": ""
+          }
+        },
+        "$objectPhysics": {},
+        "$unrecognized": {}
+      }
+    }
+  ],
+  "policy": {
+    "atlasLimit": 2048,
+    "padding": 1,
+    "regionSize": 1024,
+    "maxMaps": 32
+  },
+  "counts": {
+    "textures": 822,
+    "atlases": 120,
+    "images": 52,
+    "regions": 145
+  },
+  "bytes": {
+    "originalRGBA": 114330256,
+    "roundTripCompared": 114330256,
+    "atlasPNG": 13852706,
+    "tileReconstructionCompared": 3390480,
+    "mapJSON": 948891,
+    "hitboxReferencesJSON": 5005,
+    "catalogJSON": 2061,
+    "regionJSON": 870886,
+    "atlasDecodedRGBA": 188386944
+  },
+  "pixelRoundTrip": {
+    "passed": true,
+    "method": "PNG IDAT independently inflated and each RGBA subrect row compared byte-for-byte"
+  },
   "formats": {
-    "1/0": 270
+    "1/0": 814,
+    "2/0": 7
   },
   "images": [
+    "Base.wz:zmap.img",
+    "Character.wz:00002000.img",
+    "Character.wz:00012000.img",
+    "Character.wz:Hair/00030000.img",
+    "Character.wz:Face/00020000.img",
+    "Character.wz:Coat/01040002.img",
+    "Character.wz:Pants/01060002.img",
+    "Character.wz:Shoes/01072001.img",
     "Map.wz:Map/Map1/100000000.img",
     "Map.wz:Obj/houseGS.img",
     "Map.wz:Obj/acc1.img",
@@ -22,31 +1528,591 @@
     "Map.wz:Obj/StoreGL.img",
     "Map.wz:Obj/connect.img",
     "Map.wz:Back/grassySoil.img",
-    "Base.wz:zmap.img",
-    "Character.wz:00002000.img",
-    "Character.wz:00012000.img",
-    "Character.wz:Hair/00030000.img",
-    "Character.wz:Face/00020000.img",
-    "Character.wz:Coat/01040002.img",
-    "Character.wz:Pants/01060002.img",
-    "Character.wz:Shoes/01072001.img"
+    "Map.wz:Physics.img",
+    "Map.wz:Map/Map1/100000001.img",
+    "Map.wz:Obj/prop.img",
+    "Map.wz:Obj/insideGS.img",
+    "Map.wz:Map/Map1/103040000.img",
+    "Map.wz:Obj/Tdungeon3.img",
+    "Map.wz:Back/department.img",
+    "Map.wz:Map/Map1/108000500.img",
+    "Map.wz:Obj/acc9.img",
+    "Map.wz:Obj/guild.img",
+    "Map.wz:Map/Map1/120000000.img",
+    "Map.wz:Tile/blackTile.img",
+    "Map.wz:Back/nautilusPort.img",
+    "Map.wz:Map/Map2/200090500.img",
+    "Map.wz:Obj/acc10.img",
+    "Map.wz:Back/minar.img",
+    "Map.wz:Back/timeTemple.img",
+    "Map.wz:Map/Map2/211040000.img",
+    "Map.wz:Obj/acc3.img",
+    "Map.wz:Tile/snowyLightrock2.img",
+    "Map.wz:Tile/snowyLightrock.img",
+    "Map.wz:Back/snowyLightrock.img",
+    "Map.wz:Map/Map2/230000000.img",
+    "Map.wz:Obj/acc5.img",
+    "Map.wz:Obj/houseAR.img",
+    "Map.wz:Tile/sandySeaFloor.img",
+    "Map.wz:Back/aquaRoad.img",
+    "Character.wz:Afterimage/swordOS.img",
+    "Skill.wz:310.img",
+    "Mob.wz:9500332.img",
+    "Mob.wz:0100101.img",
+    "Morph.wz:0001.img"
   ],
-  "archiveEntries": {
-    "Map": 5616,
-    "Base": 18,
-    "Character": 7218
-  },
-  "durationMs": 527.040542,
-  "memory": {
-    "rss": 203669504,
-    "heapTotal": 49528832,
-    "heapUsed": 84732554,
-    "external": 66950397,
-    "arrayBuffers": 65655867
-  },
-  "observations": [],
+  "durationMs": 2310.180292,
   "limitations": [
-    "Gameplay, NPC/mob simulation, portals and audio intentionally not implemented; map visual resources and composed avatar are the demo scope.",
-    "Camera bounds derived from footholds when VR fields absent; exact original fallback formula pending evidence."
-  ]
+    "Camera fallback derived from footholds; exact original fallback remains unverified.",
+    "Map metadata retains active unsupported physics in physics.unsupported.",
+    "Background effect IMG and NPC/mob artwork are not reconstructed."
+  ],
+  "inputs": {
+    "Base.wz:zmap.img": {
+      "path": "zmap.img",
+      "name": "zmap.img",
+      "type": 4,
+      "size": 2378,
+      "checksum": 275132,
+      "offset": 3130,
+      "sha256": "f9ae7b5fec4119f82289cf51e94e72966fe6462d944ed653f4a89651a270c9da",
+      "bytes": 2378
+    },
+    "Character.wz:00002000.img": {
+      "path": "00002000.img",
+      "name": "00002000.img",
+      "type": 4,
+      "size": 136666,
+      "checksum": 11709407,
+      "offset": 202089,
+      "sha256": "99114322b106c361114a9a68a154ef84d411cb52619552ad82440e343267d596",
+      "bytes": 136666
+    },
+    "Character.wz:00012000.img": {
+      "path": "00012000.img",
+      "name": "00012000.img",
+      "type": 4,
+      "size": 5559,
+      "checksum": 385038,
+      "offset": 1233043,
+      "sha256": "1b3659a59658f7c881b7c48fa657a1dcc9705aa2b4895e8c339c8a236ff83275",
+      "bytes": 5559
+    },
+    "Character.wz:Hair/00030000.img": {
+      "path": "Hair/00030000.img",
+      "name": "00030000.img",
+      "type": 4,
+      "size": 10976,
+      "checksum": 745469,
+      "offset": 132454755,
+      "sha256": "5d22fdf209fb336977b675abcfe49c66b2dd66ac7fb321faf8747cde1337d7e4",
+      "bytes": 10976
+    },
+    "Character.wz:Face/00020000.img": {
+      "path": "Face/00020000.img",
+      "name": "00020000.img",
+      "type": 4,
+      "size": 13123,
+      "checksum": 1273147,
+      "offset": 185478269,
+      "sha256": "11493d1539f7fc1e5665bcd64bb5c208038391f90ce66efe35c285c43980b19a",
+      "bytes": 13123
+    },
+    "Character.wz:Coat/01040002.img": {
+      "path": "Coat/01040002.img",
+      "name": "01040002.img",
+      "type": 4,
+      "size": 29464,
+      "checksum": 1982407,
+      "offset": 173319264,
+      "sha256": "97ad79081bdca213ba458d7a234dfe37be39cb89ff7343b8c94a9e332f799f13",
+      "bytes": 29464
+    },
+    "Character.wz:Pants/01060002.img": {
+      "path": "Pants/01060002.img",
+      "name": "01060002.img",
+      "type": 4,
+      "size": 20201,
+      "checksum": 1612582,
+      "offset": 90470147,
+      "sha256": "aa596c4179b5cb8b029146161d64c196762169e923e2e41841d3f73fc0335f41",
+      "bytes": 20201
+    },
+    "Character.wz:Shoes/01072001.img": {
+      "path": "Shoes/01072001.img",
+      "name": "01072001.img",
+      "type": 4,
+      "size": 17034,
+      "checksum": 1185245,
+      "offset": 78581966,
+      "sha256": "b47692f33a030d22a42f0d71be9815345e23dda9577f299e7bf1dd691dee371b",
+      "bytes": 17034
+    },
+    "Map.wz:Map/Map1/100000000.img": {
+      "path": "Map/Map1/100000000.img",
+      "name": "100000000.img",
+      "type": 4,
+      "size": 128506,
+      "checksum": 9999153,
+      "offset": 573147253,
+      "sha256": "a6c529f21d2e6792ea9fa7aeb935b9336c69b37aa583c0a8f6793831faf5fee1",
+      "bytes": 128506
+    },
+    "Map.wz:Obj/houseGS.img": {
+      "path": "Obj/houseGS.img",
+      "name": "houseGS.img",
+      "type": 4,
+      "size": 2003193,
+      "checksum": 264315876,
+      "offset": 184581129,
+      "sha256": "08210b0b8be17cd3198f6dd0b2d23b22c6199b79f781734de3678512ea9cbaad",
+      "bytes": 2003193
+    },
+    "Map.wz:Obj/acc1.img": {
+      "path": "Obj/acc1.img",
+      "name": "acc1.img",
+      "type": 4,
+      "size": 8027503,
+      "checksum": 1063197116,
+      "offset": 294217266,
+      "sha256": "1ccc74720043a1691e9fbf046a21ee96e01b96de6171dd7b707127899d9fd037",
+      "bytes": 8027503
+    },
+    "Map.wz:Obj/door.img": {
+      "path": "Obj/door.img",
+      "name": "door.img",
+      "type": 4,
+      "size": 219779,
+      "checksum": 28731058,
+      "offset": 110043516,
+      "sha256": "b54e05db307246bd8b4749ca128117fae230d5766b3e451f8998a4cf1d9cb7cd",
+      "bytes": 219779
+    },
+    "Map.wz:Obj/house.img": {
+      "path": "Obj/house.img",
+      "name": "house.img",
+      "type": 4,
+      "size": 125375,
+      "checksum": 16237413,
+      "offset": 150099475,
+      "sha256": "17967bc279efed8a5f4fb631b8bd82ba49e1b4717a3a207ef87241819726b413",
+      "bytes": 125375
+    },
+    "Map.wz:Obj/guide.img": {
+      "path": "Obj/guide.img",
+      "name": "guide.img",
+      "type": 4,
+      "size": 1210581,
+      "checksum": 157391768,
+      "offset": 378819928,
+      "sha256": "6f974301ea5e4002697e449e1511410ffb59e05f8c59328295f8afc710109ff7",
+      "bytes": 1210581
+    },
+    "Map.wz:Obj/Tdungeon.img": {
+      "path": "Obj/Tdungeon.img",
+      "name": "Tdungeon.img",
+      "type": 4,
+      "size": 6377945,
+      "checksum": 846230131,
+      "offset": 31474972,
+      "sha256": "b4540e804f82e20ee079b8636c88c079df75c3b73919d65b43adff04fe845c24",
+      "bytes": 6377945
+    },
+    "Map.wz:Obj/signboard.img": {
+      "path": "Obj/signboard.img",
+      "name": "signboard.img",
+      "type": 4,
+      "size": 791026,
+      "checksum": 103296388,
+      "offset": 352539826,
+      "sha256": "7912f2063fc0de692effcc2bf3d78597fb85b6ffeab05f94530e5b31a512cbcc",
+      "bytes": 791026
+    },
+    "Map.wz:Tile/woodMarble.img": {
+      "path": "Tile/woodMarble.img",
+      "name": "woodMarble.img",
+      "type": 4,
+      "size": 84376,
+      "checksum": 10942214,
+      "offset": 26345822,
+      "sha256": "c979cf2b53c4873730da0066e50b2f3175474a061f0c7ef26419c646857466f2",
+      "bytes": 84376
+    },
+    "Map.wz:Obj/StoreGL.img": {
+      "path": "Obj/StoreGL.img",
+      "name": "StoreGL.img",
+      "type": 4,
+      "size": 438701,
+      "checksum": 58137545,
+      "offset": 194887965,
+      "sha256": "08d631cfafc2f5cffe39b7a56d43b1599c5e48703598d479c5971f9f8d9a5425",
+      "bytes": 438701
+    },
+    "Map.wz:Obj/connect.img": {
+      "path": "Obj/connect.img",
+      "name": "connect.img",
+      "type": 4,
+      "size": 627903,
+      "checksum": 78183821,
+      "offset": 359753447,
+      "sha256": "90d8271e29037c3f2190bc1ceed2b0cb50eef8ca5df19b891eeb0b15d09d5062",
+      "bytes": 627903
+    },
+    "Map.wz:Back/grassySoil.img": {
+      "path": "Back/grassySoil.img",
+      "name": "grassySoil.img",
+      "type": 4,
+      "size": 1653764,
+      "checksum": 224372051,
+      "offset": 502659068,
+      "sha256": "ecd46396066487b3571d9c6542524c9d8ed3b8b0a94ce4cc9238582263502634",
+      "bytes": 1653764
+    },
+    "Map.wz:Physics.img": {
+      "path": "Physics.img",
+      "name": "Physics.img",
+      "type": 4,
+      "size": 405,
+      "checksum": 35742,
+      "offset": 162502,
+      "sha256": "2988db96b2cf1bb189441220d493836d327b188026a8d01b62635acb3f14770a",
+      "bytes": 405
+    },
+    "Map.wz:Map/Map1/100000001.img": {
+      "path": "Map/Map1/100000001.img",
+      "name": "100000001.img",
+      "type": 4,
+      "size": 13858,
+      "checksum": 1142480,
+      "offset": 570169770,
+      "sha256": "81bc46003de2ed59b561c871825babd4589e33c8cbff3b9961082bb10a1831e7",
+      "bytes": 13858
+    },
+    "Map.wz:Obj/prop.img": {
+      "path": "Obj/prop.img",
+      "name": "prop.img",
+      "type": 4,
+      "size": 32277,
+      "checksum": 4219831,
+      "offset": 195326666,
+      "sha256": "17737f5c0e1b6e5dedd141bc9e049428533fc135fda0a02acf4c206f62e08d47",
+      "bytes": 32277
+    },
+    "Map.wz:Obj/insideGS.img": {
+      "path": "Obj/insideGS.img",
+      "name": "insideGS.img",
+      "type": 4,
+      "size": 1646370,
+      "checksum": 218596031,
+      "offset": 354642816,
+      "sha256": "75cdd3a8c4b66f5ec814d838cc16a226d341749f078daf2f3797fe8689c251d7",
+      "bytes": 1646370
+    },
+    "Map.wz:Map/Map1/103040000.img": {
+      "path": "Map/Map1/103040000.img",
+      "name": "103040000.img",
+      "type": 4,
+      "size": 26524,
+      "checksum": 2281764,
+      "offset": 552352376,
+      "sha256": "ccfeb8dadfdb9cf778557257706e3ac4c6f8b99911c73c045fe40e4bdcf13d7c",
+      "bytes": 26524
+    },
+    "Map.wz:Obj/Tdungeon3.img": {
+      "path": "Obj/Tdungeon3.img",
+      "name": "Tdungeon3.img",
+      "type": 4,
+      "size": 5682024,
+      "checksum": 750921394,
+      "offset": 237320722,
+      "sha256": "2e1691f2c17060ef826e94466f19034e5a93e0abed99936e883fedda474fc9ea",
+      "bytes": 5682024
+    },
+    "Map.wz:Back/department.img": {
+      "path": "Back/department.img",
+      "name": "department.img",
+      "type": 4,
+      "size": 1720499,
+      "checksum": 233372176,
+      "offset": 424936493,
+      "sha256": "64657ec63930b2e8e40806408a5ed0f392a94bc606528393bd09be38a660e4d1",
+      "bytes": 1720499
+    },
+    "Map.wz:Map/Map1/108000500.img": {
+      "path": "Map/Map1/108000500.img",
+      "name": "108000500.img",
+      "type": 4,
+      "size": 24337,
+      "checksum": 2003222,
+      "offset": 551850817,
+      "sha256": "e4bd4cf602a601b54b59ae9a920225c95fc971a0ab7e9c5fd74f49fdaffacb36",
+      "bytes": 24337
+    },
+    "Map.wz:Obj/acc9.img": {
+      "path": "Obj/acc9.img",
+      "name": "acc9.img",
+      "type": 4,
+      "size": 8870240,
+      "checksum": 1175497183,
+      "offset": 386133129,
+      "sha256": "70516ccbc1d3510aa353efd218c5bca35cf7b3e3e0074012ef8a5bd572471422",
+      "bytes": 8870240
+    },
+    "Map.wz:Obj/guild.img": {
+      "path": "Obj/guild.img",
+      "name": "guild.img",
+      "type": 4,
+      "size": 5668548,
+      "checksum": 751279774,
+      "offset": 215788463,
+      "sha256": "d9de9317049ad0616e5714d76d625ea656d5e36581615b014b9298a7b3aebd8b",
+      "bytes": 5668548
+    },
+    "Map.wz:Map/Map1/120000000.img": {
+      "path": "Map/Map1/120000000.img",
+      "name": "120000000.img",
+      "type": 4,
+      "size": 134444,
+      "checksum": 11060105,
+      "offset": 566303753,
+      "sha256": "92a719fd8cdefba59a1ffb9430eb1f68cfd22aa6229b714f4f27321168ed57e3",
+      "bytes": 134444
+    },
+    "Map.wz:Tile/blackTile.img": {
+      "path": "Tile/blackTile.img",
+      "name": "blackTile.img",
+      "type": 4,
+      "size": 2207,
+      "checksum": 190841,
+      "offset": 21267209,
+      "sha256": "4eab3f4be249036b9926f42606493f1e01f4a2d648308ed3bd2e3d4809304661",
+      "bytes": 2207
+    },
+    "Map.wz:Back/nautilusPort.img": {
+      "path": "Back/nautilusPort.img",
+      "name": "nautilusPort.img",
+      "type": 4,
+      "size": 609177,
+      "checksum": 81448355,
+      "offset": 411380642,
+      "sha256": "7731cdf4c7ef1f7510a453fbdd871e4bf28fbc8b78a657b06ca2d59215b47b0f",
+      "bytes": 609177
+    },
+    "Map.wz:Map/Map2/200090500.img": {
+      "path": "Map/Map2/200090500.img",
+      "name": "200090500.img",
+      "type": 4,
+      "size": 15920,
+      "checksum": 1221778,
+      "offset": 612202531,
+      "sha256": "ff7babc39b1c86d81e598ca321cb143af3d4526bc0ab644ea23c9f47af354285",
+      "bytes": 15920
+    },
+    "Map.wz:Obj/acc10.img": {
+      "path": "Obj/acc10.img",
+      "name": "acc10.img",
+      "type": 4,
+      "size": 10997436,
+      "checksum": 1455378818,
+      "offset": 37852917,
+      "sha256": "f59274c034c856e567108cfab8fae3ba4ba9b58009f24d27c388637cbff9822b",
+      "bytes": 10997436
+    },
+    "Map.wz:Back/minar.img": {
+      "path": "Back/minar.img",
+      "name": "minar.img",
+      "type": 4,
+      "size": 3351522,
+      "checksum": 446160186,
+      "offset": 463236263,
+      "sha256": "2a24ecbc7adc490c426f39cccafc29c5b7d9fb102b10a80ebb564f67d6a3fd73",
+      "bytes": 3351522
+    },
+    "Map.wz:Back/timeTemple.img": {
+      "path": "Back/timeTemple.img",
+      "name": "timeTemple.img",
+      "type": 4,
+      "size": 6393836,
+      "checksum": 847821554,
+      "offset": 396392919,
+      "sha256": "54dc8276117529c7c2894c90e3c7b1d47607405d85cd54af12f0267341a6d55f",
+      "bytes": 6393836
+    },
+    "Map.wz:Map/Map2/211040000.img": {
+      "path": "Map/Map2/211040000.img",
+      "name": "211040000.img",
+      "type": 4,
+      "size": 55173,
+      "checksum": 4743286,
+      "offset": 613001741,
+      "sha256": "1c8c75a33e7af2006cede8d019c1c9f1d6a7191d6adfda238446324f5aac6afb",
+      "bytes": 55173
+    },
+    "Map.wz:Obj/acc3.img": {
+      "path": "Obj/acc3.img",
+      "name": "acc3.img",
+      "type": 4,
+      "size": 6619189,
+      "checksum": 872615594,
+      "offset": 361792033,
+      "sha256": "a8f356c55a891cda9aa5d2e6631b0803a87cff163bb87a9752b3a18b58ea5958",
+      "bytes": 6619189
+    },
+    "Map.wz:Tile/snowyLightrock2.img": {
+      "path": "Tile/snowyLightrock2.img",
+      "name": "snowyLightrock2.img",
+      "type": 4,
+      "size": 201228,
+      "checksum": 26655134,
+      "offset": 25956318,
+      "sha256": "c5f73c19745f901c706cdf4b4431c6607c6092a7d94cba97cc16898c0baf36ec",
+      "bytes": 201228
+    },
+    "Map.wz:Tile/snowyLightrock.img": {
+      "path": "Tile/snowyLightrock.img",
+      "name": "snowyLightrock.img",
+      "type": 4,
+      "size": 63565,
+      "checksum": 8210171,
+      "offset": 22472703,
+      "sha256": "b2824d928e23bf8b14bc23707990cf53c65cc48a94e745ed341c55b7a32693d1",
+      "bytes": 63565
+    },
+    "Map.wz:Back/snowyLightrock.img": {
+      "path": "Back/snowyLightrock.img",
+      "name": "snowyLightrock.img",
+      "type": 4,
+      "size": 226016,
+      "checksum": 30506928,
+      "offset": 517346921,
+      "sha256": "07fc7609056b17364a4be8d44dd83270dd88631101d57dadebeff6a91ab9dc5f",
+      "bytes": 226016
+    },
+    "Map.wz:Map/Map2/230000000.img": {
+      "path": "Map/Map2/230000000.img",
+      "name": "230000000.img",
+      "type": 4,
+      "size": 57657,
+      "checksum": 4790983,
+      "offset": 619069433,
+      "sha256": "c545030c7a1dce039584c162df4a56b643041c488d8863deb73942bdafb500aa",
+      "bytes": 57657
+    },
+    "Map.wz:Obj/acc5.img": {
+      "path": "Obj/acc5.img",
+      "name": "acc5.img",
+      "type": 4,
+      "size": 6375326,
+      "checksum": 839876190,
+      "offset": 344950394,
+      "sha256": "e11d70b877123ff4b00e86da31393a84ea770f734e55b7bcfa56f91b8f8a715e",
+      "bytes": 6375326
+    },
+    "Map.wz:Obj/houseAR.img": {
+      "path": "Obj/houseAR.img",
+      "name": "houseAR.img",
+      "type": 4,
+      "size": 798504,
+      "checksum": 104309776,
+      "offset": 150224850,
+      "sha256": "46991fb610df529a7fd7d5d31ddba5947dc7d540432ec9b463d8aca3b0347c95",
+      "bytes": 798504
+    },
+    "Map.wz:Tile/sandySeaFloor.img": {
+      "path": "Tile/sandySeaFloor.img",
+      "name": "sandySeaFloor.img",
+      "type": 4,
+      "size": 75952,
+      "checksum": 9856935,
+      "offset": 21489641,
+      "sha256": "9b98e261ff89b5e72023c1ef8ac57bfc896854db410afb338783a1bf7e5041f3",
+      "bytes": 75952
+    },
+    "Map.wz:Back/aquaRoad.img": {
+      "path": "Back/aquaRoad.img",
+      "name": "aquaRoad.img",
+      "type": 4,
+      "size": 1228876,
+      "checksum": 161945163,
+      "offset": 533477227,
+      "sha256": "e17fbd10f298bca0224b3489ce2d9e4eee25af0431921f22de002c86f3ed16a2",
+      "bytes": 1228876
+    },
+    "Character.wz:Afterimage/swordOS.img": {
+      "path": "Afterimage/swordOS.img",
+      "name": "swordOS.img",
+      "type": 4,
+      "size": 229887,
+      "checksum": 28457100,
+      "offset": 154297515,
+      "sha256": "547cf721c92c7e1f084c7e35d3d9c981a5c2928b19ebbbf8434f3de9ab5e1ea0",
+      "bytes": 229887
+    },
+    "Skill.wz:310.img": {
+      "path": "310.img",
+      "name": "310.img",
+      "type": 4,
+      "size": 181944,
+      "checksum": 23106850,
+      "offset": 49701057,
+      "sha256": "ae941ac8150ca9c38bb58bf5d1110808f02285b15434fbc32bcf01b5f0d67a2f",
+      "bytes": 181944
+    },
+    "Mob.wz:9500332.img": {
+      "path": "9500332.img",
+      "name": "9500332.img",
+      "type": 4,
+      "size": 2335691,
+      "checksum": 296556195,
+      "offset": 905554,
+      "sha256": "656d448c428f02a144073f094a82fe80a76e2ce2a42fe253c40d71b0915e9ce1",
+      "bytes": 2335691
+    },
+    "Mob.wz:0100101.img": {
+      "path": "0100101.img",
+      "name": "0100101.img",
+      "type": 4,
+      "size": 6911,
+      "checksum": 790027,
+      "offset": 332696091,
+      "sha256": "4f2480e893f6118210d7c2ee147c3f38086e9767d9b36c89a0066fa23eb1d297",
+      "bytes": 6911
+    },
+    "Morph.wz:0001.img": {
+      "path": "0001.img",
+      "name": "0001.img",
+      "type": 4,
+      "size": 24185,
+      "checksum": 3090707,
+      "offset": 1071,
+      "sha256": "6f210d8545765debccb713ef026396f278f6755785f8a6cfc7afb8067a7a2d6c",
+      "bytes": 24185
+    }
+  },
+  "tiledCanvases": {
+    "6fc71e8e08a82360a9009ebcc8596f5524c43ed3deeabbd79f0c33406665037a": {
+      "width": 2493,
+      "height": 340,
+      "source": "Map.wz:Back/grassySoil.img/back/2",
+      "format": 1,
+      "scale": 0,
+      "comparedBytes": 3390480,
+      "tiles": [
+        {
+          "texture": "5e81195a0d754a6a5e9de51826345e78af7516118ed7e635d3e7de45dbd91922",
+          "x": 0,
+          "y": 0,
+          "width": 2046,
+          "height": 340
+        },
+        {
+          "texture": "8822d1d17979a8a70bfea959eb9b5a23dcc13c384cdcd29d81fcfbd1f8e2594f",
+          "x": 2046,
+          "y": 0,
+          "width": 447,
+          "height": 340
+        }
+      ]
+    }
+  }
 }

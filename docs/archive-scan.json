@@ -63,8 +63,8 @@
     }
   },
   "failures": [],
-  "startedAt": "2026-09-08T03:45:54.069Z",
-  "durationMs": 7989.39225,
-  "peakSampledRSS": 270712832,
+  "startedAt": "2026-09-08T06:35:32.063Z",
+  "peakSampledRSS": 314458112,
+  "durationMs": 9147.496917,
   "scope": "Every IMG payload in the named original archives checksum-checked and parsing attempted; unsupported entries are failures. Canvas metadata from parsed images counted; first original canvas per format/scale/compression envelope inflated and pixel-decoded. Not all canvases pixel-decoded; no original-client screenshot comparison."
 }

@@ -1,0 +1,240 @@
+import { test, expect } from "bun:test";
+import original from "../../docs/ghidra-physics-motion/wz-globals.json";
+import {
+  createSimulation,
+  advanceSimulation,
+} from "../src/physics/simulation.js";
+import { compareRefreshRates } from "../tools/physics-reference.js";
+import { attachGround } from "../src/physics/geometry.js";
+
+// Synthetic isolating geometry and controlled velocities; not original-game recordings.
+// Constants are the independently decoded original Map.wz:Physics.img values.
+function floor(id, y, properties = {}) {
+  return {
+    id,
+    layer: 1,
+    group: 0,
+    x1: -1000,
+    y1: y,
+    x2: 1000,
+    y2: y,
+    prev: 0,
+    next: 0,
+    properties,
+  };
+}
+function world(footholds = [floor(1, 0)], map = {}) {
+  return {
+    schemaVersion: 1,
+    globals: original.globals,
+    footholds,
+    ladders: [],
+    map,
+  };
+}
+function input(overrides = {}) {
+  return {
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+    jump: false,
+    attack: false,
+    jumpPressed: false,
+    ...overrides,
+  };
+}
+
+/** Explicitly seed a standing contact for isolated force tests, not map entry. */
+function standing(terrain, spawn) {
+  const sim = createSimulation(terrain, spawn);
+  attachGround(sim, sim.geometry.byId.get(1));
+  return sim;
+}
+
+test("a jump before the first real contact does not invent a standing foothold", () => {
+  const sim = createSimulation(world(), { x: 0, y: 0 });
+  advanceSimulation(sim, input({ jump: true, jumpPressed: true }), 30);
+  expect(sim.y).toBeCloseTo(0.9, 10);
+  expect(sim.vy).toBe(60);
+});
+
+test("a sub-quantum jump edge survives until the original30ms boundary, without auto-repeat", () => {
+  const sim = standing(world(), { x: 0, y: 0 });
+  const held = input({ jump: true, jumpPressed: true });
+  advanceSimulation(sim, held, 29);
+  expect(sim.y).toBe(0);
+  advanceSimulation(sim, held, 1);
+  expect(sim.y).toBeCloseTo(-16.75, 10);
+  expect(sim.vy).toBe(-495);
+  for (let tick = 0; tick < 20; tick++) advanceSimulation(sim, held, 30);
+  expect({ y: sim.y, vy: sim.vy, state: sim.state }).toEqual({
+    y: 0,
+    vy: 0,
+    state: "ground",
+  });
+});
+
+test("refresh partitions preserve actual moving and jumping outcomes", () => {
+  const result = compareRefreshRates(world(), {
+    spawn: { x: 0, y: 0 },
+    durationMs: 3000,
+    events: [
+      { atMs: 17, key: "right", down: true },
+      { atMs: 611, key: "jump", down: true },
+      { atMs: 623, key: "jump", down: false },
+      { atMs: 1811, key: "right", down: false },
+    ],
+  });
+  expect(result.pass).toBe(true);
+  expect(result.runs[0].snapshot.x).toBeGreaterThan(200);
+  expect(result.runs[0].minimumY).toBeLessThan(-70);
+  expect(result.runs[0].snapshot.state).toBe("ground");
+});
+
+test("bounded catch-up retains elapsed movement rather than discarding a stalled frame", () => {
+  const bulk = standing(world(), { x: 0, y: 0 });
+  const regular = standing(world(), { x: 0, y: 0 });
+  const held = input({ right: true });
+  advanceSimulation(bulk, held, 1000);
+  expect(bulk.x).toBeCloseTo(24.405, 9);
+  for (let pass = 0; pass < 4; pass++) advanceSimulation(bulk, held, 0);
+  for (let tick = 0; tick < 33; tick++) advanceSimulation(regular, held, 30);
+  expect(bulk.x).toBe(regular.x);
+  expect(bulk.vx).toBe(125);
+  expect(bulk.accumulatorMs).toBe(10);
+});
+
+test("drop eligibility does not restrict landing to the queried lower candidate", () => {
+  const sim = standing(world([floor(1, 0), floor(2, 100), floor(3, 300)]), {
+    x: 0,
+    y: 0,
+  });
+  const held = input({ down: true, jump: true, jumpPressed: true });
+  for (let tick = 0; tick < 40; tick++) advanceSimulation(sim, held, 30);
+  expect({ y: sim.y, foothold: sim.footholdId }).toEqual({
+    y: 100,
+    foothold: 2,
+  });
+});
+
+test("the300pixel first query can override a near-floor rejection, but301cannot", () => {
+  for (const [distance, accepted] of [
+    [300, true],
+    [301, false],
+  ]) {
+    const sim = standing(
+      world([floor(1, 0), floor(2, 4), floor(3, distance)]),
+      { x: 0, y: 0 },
+    );
+    advanceSimulation(
+      sim,
+      input({ down: true, jump: true, jumpPressed: true }),
+      30,
+    );
+    expect(sim.ignoredFootholdId === 1).toBe(accepted);
+  }
+});
+
+test("drop support excludes600pixels and rejects less than5pixels", () => {
+  for (const [distance, accepted] of [
+    [599, true],
+    [600, false],
+    [4, false],
+    [5, true],
+  ]) {
+    const sim = standing(world([floor(1, 0), floor(2, distance)]), {
+      x: 0,
+      y: 0,
+    });
+    advanceSimulation(
+      sim,
+      input({ down: true, jump: true, jumpPressed: true }),
+      30,
+    );
+    expect(sim.state === "air").toBe(accepted);
+  }
+});
+
+test("conveyor neutral, aligned and opposing branches use integer magnitude", () => {
+  for (const [held, velocity] of [
+    [{ left: true }, -84],
+    [{}, -75.6],
+    [{ right: true }, 8.4],
+  ]) {
+    const sim = standing(world([floor(1, 0, { force: -180 })]), { x: 0, y: 0 });
+    advanceSimulation(sim, input(held), 30);
+    expect(sim.vx).toBeCloseTo(velocity, 10);
+    expect(sim.x).toBeCloseTo(velocity * 0.015, 10);
+  }
+  const unsupported = standing(world([floor(1, 0, { force: -50 })]), {
+    x: 0,
+    y: 0,
+  });
+  advanceSimulation(unsupported, input({ right: true }), 30);
+  expect(unsupported.diagnostics.fault).toBe(
+    "original-conveyor-division-by-zero",
+  );
+  expect(Number.isFinite(unsupported.x)).toBe(true);
+});
+
+test("friction clamps preserve the original below-one half multiplier", () => {
+  for (const [fs, expectedVelocity] of [
+    [0.001, 99.4],
+    [10, 52],
+  ]) {
+    const sim = standing(world(undefined, { fs }), { x: 0, y: 0 });
+    sim.speed = sim.vx = 100;
+    advanceSimulation(sim, input(), 30);
+    expect(sim.vx).toBeCloseTo(expectedVelocity, 10);
+  }
+});
+
+test("steep natural slip reaches its own limit and uphill input halves it", () => {
+  const slope = { ...floor(1, 0), x1: 0, x2: 280, y2: 960 };
+  for (const [held, limit] of [
+    [{}, 115.2],
+    [{ left: true }, 57.6],
+  ]) {
+    const sim = standing(world([slope, floor(2, 2000)]), { x: 140, y: 480 });
+    const keys = input(held);
+    for (let tick = 0; tick < 10; tick++) advanceSimulation(sim, keys, 30);
+    expect(sim.vx).toBeCloseTo(limit * 0.28, 10);
+    expect(sim.vy).toBeCloseTo(limit * 0.96, 10);
+  }
+});
+
+test("physical clipping stops horizontal and ceiling motion without inventing a bottom floor", () => {
+  const grounded = standing(world(), { x: 969, y: 0 });
+  grounded.speed = grounded.vx = 125;
+  advanceSimulation(grounded, input({ right: true }), 30);
+  expect({ x: grounded.x, vx: grounded.vx }).toEqual({ x: 970, vx: 0 });
+  const rising = createSimulation(world(), { x: 0, y: -299 });
+  rising.vy = -1000;
+  advanceSimulation(rising, input(), 30);
+  expect({ y: rising.y, vy: rising.vy }).toEqual({ y: -300, vy: 0 });
+  const below = createSimulation(world(), { x: 1000, y: 9999 });
+  expect({ x: below.x, y: below.y }).toEqual({ x: 970, y: 10 });
+  advanceSimulation(below, input(), 30);
+  expect(below.y).toBeGreaterThan(10);
+  expect(below.state).toBe("air");
+});
+
+test("VRLimit gates viewport restrictions and zero edges remain unspecified", () => {
+  const map = { VRLeft: -500, VRRight: 500, VRTop: -200, VRBottom: 100 };
+  const unrestricted = createSimulation(world(undefined, map), {
+    x: 600,
+    y: -199,
+  });
+  expect({ x: unrestricted.x, y: unrestricted.y }).toEqual({ x: 600, y: -199 });
+  const restricted = createSimulation(
+    world(undefined, { ...map, VRLimit: 1 }),
+    { x: 600, y: -199 },
+  );
+  expect({ x: restricted.x, y: restricted.y }).toEqual({ x: 480, y: -135 });
+  const zeroLeft = createSimulation(
+    world(undefined, { ...map, VRLeft: 0, VRLimit: 1 }),
+    { x: -500, y: 0 },
+  );
+  expect(zeroLeft.x).toBe(-500);
+});

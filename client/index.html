@@ -38,6 +38,27 @@
       <aside>
         <fieldset id="scene-controls" disabled>
           <legend>Scene controls</legend>
+          <label for="map">Packaged map</label>
+          <select id="map" aria-label="Packaged map"></select>
+          <label class="check"
+            ><input id="debug" type="checkbox" /> Physics debug overlay</label
+          >
+          <label for="hitbox-reference">Original geometry preview</label>
+          <select
+            id="hitbox-reference"
+            disabled
+            aria-label="Original hitbox geometry"
+          >
+            <option value="">Enable debug to load references</option>
+          </select>
+          <p class="hint">
+            Preview bounds are recovered geometry, not verified attack timing or
+            active combat.
+          </p>
+          <label class="check"
+            ><input id="follow" type="checkbox" checked /> Follow player
+            (browser policy)</label
+          >
           <label for="entity">Entity</label>
           <select id="entity" disabled aria-label="Entity"></select>
           <label for="action">Action</label>
@@ -81,10 +102,19 @@
             </button>
           </div>
           <p class="hint">
-            Drag the scene to pan, or focus it and use arrow keys. Step pauses
-            and advances by the selected milliseconds.
+            Click the map to play: arrows or WASD move and climb, Space jumps,
+            Down + Space drops, X or left Control attacks. Camera buttons
+            inspect independently. Deterministic stepping requires Pause and
+            advances by the selected milliseconds.
           </p>
         </fieldset>
+        <p id="physics-status" class="hint" role="status">
+          Waiting for physics coverage…
+        </p>
+        <details>
+          <summary>Effective settings and streaming limits</summary>
+          <pre id="settings">Waiting for original map physics…</pre>
+        </details>
       </aside>
     </main>
     <footer>

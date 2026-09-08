@@ -8,18 +8,26 @@ export class Reader {
       position < 0 ||
       end < position ||
       end > bytes.length
-    )
+    ) {
       throw new RangeError("Invalid reader range");
+    }
     this.bytes = bytes;
     this.pos = position;
     this.end = end;
   }
   /** @param {number} size */
   require(size) {
-    if (!Number.isSafeInteger(size) || size < 0 || this.pos + size > this.end)
+    if (
+      !Number.isSafeInteger(this.pos) ||
+      this.pos < 0 ||
+      !Number.isSafeInteger(size) ||
+      size < 0 ||
+      this.pos + size > this.end
+    ) {
       throw new RangeError(
         `Truncated input at 0x${this.pos.toString(16)}: need ${size}, end 0x${this.end.toString(16)}`,
       );
+    }
   }
   u8() {
     this.require(1);

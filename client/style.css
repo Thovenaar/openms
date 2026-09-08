@@ -231,3 +231,34 @@ footer {
     display: none;
   }
 }
+
+.physics-debug-readout {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  max-width: min(620px, calc(100% - 16px));
+  max-height: 45%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  margin: 0;
+  background: #081018df;
+  color: #d9f4fa;
+  font: 11px/1.4 monospace;
+  pointer-events: none;
+  z-index: 2;
+}
+
+#settings {
+  max-width: 100%;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+details {
+  margin-top: 16px;
+}

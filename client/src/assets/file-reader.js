@@ -19,10 +19,11 @@ export class FileReader {
       !Number.isSafeInteger(size) ||
       size < 0 ||
       this.pos + size > this.end
-    )
+    ) {
       throw new RangeError(
         `Truncated archive at 0x${this.pos.toString(16)}: need ${size}, size ${this.end}`,
       );
+    }
   }
   /** @param {number} size @returns {Buffer} */
   take(size) {
