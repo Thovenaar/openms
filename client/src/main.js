@@ -13,6 +13,7 @@ import { createControls } from "./scene-controls.js";
 import { createDebugOverlay } from "./debug-overlay.js";
 import { advanceSimulation, snapshotSimulation } from "./physics/simulation.js";
 import { HitboxInspector } from "./hitbox-inspector.js";
+import { InGameSystems } from "./ingame.js";
 
 const app = new Application();
 const viewport = document.querySelector("#viewport");
@@ -34,12 +35,14 @@ let current = null,
   input = null,
   controls = null,
   overlay = null,
-  observer = null;
+  observer = null,
+  inGame = null;
 let paused = false,
   debug = false,
   follow = true,
   destroyed = false,
-  initialized = false;
+  initialized = false,
+  presentationVisible = true;
 let transition = null,
   neighbors = null,
   generation = 0,
@@ -67,6 +70,8 @@ function entityById(id) {
 /** Actor-centered, unclamped camera follow is explicitly a browser inspection policy. */
 function updatePlayer(ms) {
   if (!current) return;
+  current.fieldSystems.beforePhysics(input.state);
+  const jumpSequence = current.simulation.groundJumpSequence;
   advanceSimulation(current.simulation, input.state, ms);
   const sim = current.simulation;
   if (sim.diagnostics.fault) {
@@ -79,6 +84,10 @@ function updatePlayer(ms) {
     current.camera.y = current.presentation.y - app.screen.height * 0.65;
   }
   for (const entity of current.entities) entity.advance(ms);
+  if (current.simulation.groundJumpSequence !== jumpSequence) {
+    inGame.playSound("Game", "Jump");
+  }
+  current.fieldSystems.update(ms, input.state);
 }
 /** Browser presentation interpolation; raw original 30ms physics remains untouched. */
 function updatePresentation(scene) {
@@ -123,6 +132,7 @@ function tick() {
   metrics.frameDeltas[metrics.sampleIndex] = elapsed;
   const started = now;
   try {
+    if (!document.hidden) inGame.updateInterface(elapsed);
     if (!paused && !document.hidden) updatePlayer(elapsed);
     render();
   } catch (error) {
@@ -144,6 +154,7 @@ function resize() {
       entity.prepareBackground(app.screen);
     }
   }
+  inGame?.resize(app.screen.width, app.screen.height);
   render();
 }
 function visibilityChanged() {
@@ -182,11 +193,17 @@ async function initialize() {
   app.canvas.tabIndex = 0;
   app.canvas.setAttribute(
     "aria-label",
-    "Playable original asset map. Arrows or WASD move; Space jumps; X attacks.",
+    "Playable original asset map. Arrows move and climb; Space jumps; Up enters supported portals; I E S K open UI windows.",
   );
   viewport.prepend(app.canvas);
   services.atlases = new AtlasStore(app.renderer, network);
   input = createPlayerInput(app.canvas);
+  inGame = new InGameSystems(app, services, {
+    clearInput: input.clear,
+    focusGame: () => app.canvas.focus(),
+    onError: showError,
+    travel: travelPortal,
+  });
   controls = createControls(api);
   overlay = createDebugOverlay(app);
   observer = new ResizeObserver(resize);
@@ -214,7 +231,26 @@ async function prefetchNeighbors(id) {
     if (error.name !== "AbortError") showError(error);
   }
 }
-async function prepareCandidate(id, signal) {
+/** Named arrival is explicit offline traversal, never server authorization. */
+function arrivalPosition(manifest, name) {
+  if (name === null) return null;
+  if (typeof name !== "string" || !name || name.length > 128) {
+    throw new Error("Invalid destination portal name");
+  }
+  let selected = null;
+  for (const portal of manifest.physics.portals) {
+    if (portal.name !== name) continue;
+    if (selected) throw new Error(`Ambiguous destination portal ${name}`);
+    selected = portal;
+  }
+  if (!selected) throw new Error(`Destination portal ${name} unavailable`);
+  // Original field entry 0094969d subtracts ten pixels from portal feet y.
+  finite(selected.x);
+  finite(selected.y);
+  return { x: selected.x, y: selected.y - 10 };
+}
+
+async function prepareCandidate(id, signal, portalName) {
   const info = catalog.maps[id];
   if (!info) {
     throw new Error(`Map ${id} is not packaged; traversal unavailable`);
@@ -222,17 +258,37 @@ async function prepareCandidate(id, signal) {
   const manifest = validateManifest(await network.json(info, signal));
   check(signal);
   if (manifest.id !== id) throw new Error("Catalog/map identity mismatch");
+  const arrival = arrivalPosition(manifest, portalName);
   const scene = new StreamScene(manifest, services, app.screen);
-  await scene.prepare(signal);
-  scene.presentation = {
-    x: scene.simulation.x,
-    y: scene.simulation.y,
-    facing: scene.simulation.facing,
-    state: scene.simulation.state,
-    crouching: false,
-  };
-  scene.hitboxPreview = hitboxInspector.context;
-  return scene;
+  try {
+    await scene.prepare(signal, arrival);
+    scene.presentation = {
+      x: scene.simulation.x,
+      y: scene.simulation.y,
+      facing: scene.simulation.facing,
+      state: scene.simulation.state,
+      crouching: false,
+    };
+    scene.hitboxPreview = hitboxInspector.context;
+    inGame.prepareScene(scene);
+    return scene;
+  } catch (error) {
+    scene.destroy();
+    throw error;
+  }
+}
+
+function travelPortal(id, portalName) {
+  const loading = loadMap(String(id), false, portalName);
+  const request = generation;
+  const promise = loading.then((result) => {
+    if (!destroyed && request === generation) {
+      inGame.playSound("Game", "Portal");
+    }
+    return result;
+  });
+  api.ready = promise;
+  return promise;
 }
 function commitCandidate(candidate) {
   const previous = current;
@@ -240,11 +296,14 @@ function commitCandidate(candidate) {
   app.stage.addChild(candidate.container);
   if (previous) previous.container.visible = false;
   try {
+    inGame.setScene(candidate);
+    candidate.overlays.visible = presentationVisible;
     render();
   } catch (error) {
     current = previous;
     candidate.container.visible = false;
     if (previous) previous.container.visible = true;
+    if (previous) inGame.setScene(previous);
     render();
     throw error;
   }
@@ -259,12 +318,13 @@ async function resolveMapId(id, refreshCatalog, signal) {
   check(signal);
   if (!catalog || refreshCatalog) {
     catalog = validateCatalog(await network.catalog(signal));
+    await inGame.prepare(catalog, signal);
   }
   check(signal);
   return id || current?.manifest.id || catalog.defaultMap;
 }
 
-async function loadMap(id, refreshCatalog = false) {
+async function loadMap(id, refreshCatalog, portalName) {
   if (destroyed) throw aborted();
   const request = ++generation;
   transition?.abort();
@@ -276,7 +336,7 @@ async function loadMap(id, refreshCatalog = false) {
   let candidate = null;
   try {
     id = await resolveMapId(id, refreshCatalog, signal);
-    candidate = await prepareCandidate(id, signal);
+    candidate = await prepareCandidate(id, signal, portalName);
     check(signal);
     if (request !== generation || destroyed) throw aborted();
     commitCandidate(candidate);
@@ -321,6 +381,7 @@ function sceneSnapshot() {
     })),
     pendingLoads: current.pendingLoads,
     residentSprites: current.spriteCount,
+    field: current.fieldSystems.snapshot(),
   };
 }
 function snapshot() {
@@ -331,12 +392,14 @@ function snapshot() {
     paused,
     debug,
     follow,
+    presentationVisible,
     loading,
     lastError,
     ...sceneSnapshot(),
     input: input ? { ...input.state } : null,
     hitboxReference: hitboxInspector.selected,
     hitboxes: overlay?.snapshot() ?? null,
+    inGame: inGame?.snapshot() ?? null,
     streaming: {
       ...network.snapshot(),
       ...services.atlases?.snapshot(),
@@ -363,6 +426,7 @@ function destroy() {
   document.removeEventListener("visibilitychange", visibilityChanged);
   input?.destroy();
   controls?.destroy();
+  inGame?.destroy();
   current?.destroy();
   current = null;
   overlay?.destroy();
@@ -375,12 +439,22 @@ const api = {
   snapshot,
   destroy,
   switchMap(id) {
-    const promise = loadMap(String(id));
+    const promise = loadMap(String(id), false, null);
     api.ready = promise;
     return promise;
   },
+  captureAudio(seconds) {
+    return inGame.audio.capturePCM(seconds);
+  },
+  /** Isolate world artwork for the independent atlas oracle; not original UI behavior. */
+  setPresentationVisible(value) {
+    presentationVisible = Boolean(value);
+    inGame.ui.setVisible(presentationVisible);
+    if (current) current.overlays.visible = presentationVisible;
+    render();
+  },
   reload() {
-    const promise = loadMap(null, true);
+    const promise = loadMap(null, true, null);
     api.ready = promise;
     return promise;
   },

@@ -115,6 +115,8 @@ export async function packageMap(scene, state) {
     regions,
     evidence: scene.evidence,
     equipment: scene.equipment,
+    portalPresentation: scene.portalPresentation,
+    life: scene.life,
   };
   const descriptor = await resource(
     state.output,
@@ -123,4 +125,33 @@ export async function packageMap(scene, state) {
     Buffer.from(JSON.stringify(manifest)),
   );
   return { descriptor, manifest };
+}
+
+/** UI/effect bundles share exact texture identities, atlas packing and byte verification. */
+export async function packageVisualBundle(bundle, state) {
+  if (bundle.entities.length > MAX_ENTITIES) {
+    throw new Error("Visual bundle entity policy exceeded");
+  }
+  expandCanvasParts(bundle.entities, state);
+  const ids = textureIds(bundle.entities);
+  const atlasIds = await packageAtlases(state, ids);
+  const textures = Object.create(null),
+    atlases = Object.create(null);
+  for (const id of [...ids].sort()) textures[id] = state.textures[id];
+  for (const id of [...atlasIds].sort()) atlases[id] = state.atlases[id];
+  return resource(
+    state.output,
+    "bundles",
+    "json",
+    Buffer.from(
+      JSON.stringify({
+        schemaVersion: 1,
+        id: bundle.id,
+        entities: bundle.entities,
+        metadata: bundle.metadata,
+        textures,
+        atlases,
+      }),
+    ),
+  );
 }

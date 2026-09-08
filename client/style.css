@@ -119,6 +119,25 @@ aside {
   background: #17232e;
   overflow-y: auto;
 }
+#inspection-controls > details {
+  margin: 0 0 12px;
+  padding: 8px;
+  border: 1px solid #607080;
+  border-radius: 4px;
+  background: #15202b;
+  color: #fff;
+  font:
+    12px/1.45 system-ui,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+#inspection-controls button,
+#inspection-controls select {
+  max-width: 100%;
+}
+#inspection-controls button {
+  white-space: normal;
+}
 fieldset {
   margin: 0;
   padding: 0;

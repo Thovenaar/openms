@@ -2,15 +2,13 @@
 
 Engineering interfaces below are our browser interchange, **not original WZ or original-client APIs**. Coding agents must read and follow [coding-style.md](coding-style.md). Original behavior requires address-bearing evidence; unresolved behavior is reported explicitly.
 
-## Ownership during implementation
+## Subsystem boundaries
 
-- Asset packaging: `client/tools/extract.js`, new `client/tools/atlas.js` and packaging helpers; `docs/asset-delivery.md` and conversion reports.
-- Streaming/rendering: `client/src/main.js`, `animation.js`, new streaming/worker modules, `client/index.html`, `client/style.css`; streaming documentation. Do not edit physics modules.
-- Physics inventory: `client/tools/physics-data.js`, `docs/physics-options.md`, `docs/physics-options.json`, inventory tools and its own Ghidra output directory.
-- Physics motion: `client/src/physics/` except `hitboxes.js`; `docs/physics-evidence.md` and its own Ghidra output directory.
-- Hitboxes: `client/src/physics/hitboxes.js`, `docs/hitboxes.md`, its own extraction/research tools and Ghidra output directory.
-- Decoder/style migration: existing `client/src/assets/`, `client/tools/scan.js`, `client/tools/dev.js`, existing decoder tests. Parent owns package/lint configuration, integration, validation tooling and final checks.
-- Do not run formatters, linters, builds or test suites during concurrent mutation. Read-only original-file/Ghidra experiments are research, not integration validation. Parent verifies the integrated implementation once edits settle.
+- Shared original decoding and packaging: `client/src/assets/`, `client/tools/extract.js`, `atlas.js`, `canvas-tiles.js`, `packaging.js`.
+- Streaming/rendering and integration: `main.js`, `animation.js`, `stream-*.js`, `visual-resources.js`, `ingame.js`, worker modules and browser controls.
+- Fixed-step motion: `client/src/physics/`; original option extraction in `client/tools/physics-data.js`. Field presentation must not introduce a second physics clock.
+- UI, portals, life, audio/effects: domain extractors and runtime modules documented in [ingame-ui.md](ingame-ui.md), [ingame-portals.md](ingame-portals.md), [ingame-life.md](ingame-life.md), [ingame-audiovisual.md](ingame-audiovisual.md).
+- Concurrent work must assign nonoverlapping file ownership and isolated Ghidra projects. Skip project validation while mutations overlap; the integration owner verifies the settled runtime.
 
 ## Physics data
 
@@ -45,13 +43,14 @@ Observable state: `x,y,vx,vy,state,footholdId,ladderId,facing,action,effectiveSe
 
 ```
 { schemaVersion: 2, buildId, defaultMap,
-  maps: { mapId: { url, sha256, bytes, neighbors: [mapId] } } }
+  maps: { mapId: { url, sha256, bytes, neighbors: [mapId] } },
+  hitboxes: descriptor, ui: UiIndex, audiovisual: AudiovisualIndex }
 ```
 
 Per-map manifest:
 
 ```
-{ schemaVersion: 2, id, source, bounds, camera, physics,
+{ schemaVersion: 2, id, source, bounds, camera, physics, portalPresentation, life,
   textures: { textureId: { atlas, x, y, width, height } },
   atlases: { atlasId: { url, sha256, bytes, width, height } },
   actors: [Entity],
@@ -71,3 +70,13 @@ Existing all-at-once scene loading is replaced, not retained as a second support
 - Optional frame `sourceSize:{width,height}` retains an oversized original canvas's logical size after lossless tiling. Default background repeat periods use this size, not tile or atlas size. Tile parts preserve provenance through `sourceCanvas` and `sourceRect`.
 - Optional catalog `hitboxes` is an immutable resource descriptor for `extractHitboxReferences(image)` output: versioned, explicitly labeled geometry previews. Recovered geometry does not prove activation timing or damage application.
 - Hitbox context may include explicitly resolved `attack`, `damage` or `body` descriptors; supported families and required fields are defined in `client/tools/hitbox-data.js` and `docs/hitboxes.md`. Preview shapes report geometry validity separately from `activationKnown`/`damaging`.
+
+## In-game ownership and input
+
+The shared extraction context is `{image,part,frames,bundle,output,mapIds}`. Domain extractors must use the existing WZ parser/lossless decoder and atlas publisher. Original missing timing requires a consumer-derived default or explicit unsupported status, not a convenient browser fallback.
+
+`loadVisualBundle(descriptor,{network,atlases},signal)` returns `{manifest,textures,destroy()}` with a schema-v1 bundle `{id,entities,metadata,textures,atlases}`. Its pending caller cancellation ends when loading succeeds; the returned owner controls resident lifetime. Instantiate consumers from the shared textures, destroy consumers before their resource owner, and never create a second atlas/network cache.
+
+`InGameSystems` owns persistent UI/audio; each `StreamScene.fieldSystems` owns portals/life. Portal Up handling runs before `advanceSimulation`; world animation advances before portal graphics and life overlays update. UI/audio update separately from paused physics. `input.upPressed` is a latched native-key edge consumed by portals, not a new force/integration input. Accepted ordinary grounded jumps increment the simulation's observable sequence for the local sound binding; no extra jump acceptance path is created.
+
+Atomic portal replacement validates the packaged destination and exactly one named target, enters at `(x,y-10)`, retains the old scene on failure, and invalidates stale callbacks. Offline routing is not server authorization. NPC interaction reaches an explicit unavailable-server UI boundary; mob clicks remain nondamaging metadata inspection. Audio/effect previews cannot mutate character/server state.

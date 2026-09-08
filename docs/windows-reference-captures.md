@@ -14,22 +14,55 @@ Prefer lossless or high-quality 60 FPS or faster footage with the entire charact
 
 ## Required scenarios
 
-| Scenario | Input and setup | Compare |
-|---|---|---|
-| Flat movement | Start at rest; hold right, release; repeat left and immediate reversal | Acceleration, terminal speed, distance, braking distance/time |
-| Jump | Rest and running jumps; short tap versus held key; repeated jump presses | Takeoff, apex height/time, airtime, horizontal travel, landing position |
-| Slopes | Walk/brake/reverse uphill and downhill on identified segments | Tangential speed, drag, height, exact connection crossing |
-| Edges and walls | Walk and jump into segment endpoints, vertical connections, gaps | Attachment/detachment choice and timing; wall clamping |
-| Landing | Fall through multiple candidate platforms; approach endpoints from both sides | Chosen foothold, equality boundary, snap and remaining-step motion |
-| Drop-through | Down+jump from eligible and ineligible platforms; hold/release rapidly | Eligibility, ignored foothold(s), exclusion duration and next landing |
-| Ladder and rope | Enter from ground/air, climb, release, reverse, exit at both ends, jump away | Attachment range, velocity reset, top/bottom behavior, jump vector |
-| Swimming | Original swim map, idle sink, horizontal/vertical movement, jump pulses | Drag, gravity/fall caps, swim speed reduction and transition timing |
-| Movement modifiers | Identified original low-friction/slippery/conveyor/force maps and stat/buff combinations | Effective precedence, acceleration, clamps, grounded/air differences |
-| Body/damage bounds | Standing, walking, jumping, prone, ladder/rope, facing both ways | State-dependent contact/damage boundaries, independently of artwork |
-| Attacks | Exact weapon/skill/action, facing, frame and target position | Area activation/deactivation, reach, target inclusion/exclusion |
-| Refresh independence | Same timed inputs at two original display rates if supported | Distances, apex, landing, and transitions in simulation time |
+| Scenario             | Input and setup                                                                          | Compare                                                                 |
+| -------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Flat movement        | Start at rest; hold right, release; repeat left and immediate reversal                   | Acceleration, terminal speed, distance, braking distance/time           |
+| Jump                 | Rest and running jumps; short tap versus held key; repeated jump presses                 | Takeoff, apex height/time, airtime, horizontal travel, landing position |
+| Slopes               | Walk/brake/reverse uphill and downhill on identified segments                            | Tangential speed, drag, height, exact connection crossing               |
+| Edges and walls      | Walk and jump into segment endpoints, vertical connections, gaps                         | Attachment/detachment choice and timing; wall clamping                  |
+| Landing              | Fall through multiple candidate platforms; approach endpoints from both sides            | Chosen foothold, equality boundary, snap and remaining-step motion      |
+| Drop-through         | Down+jump from eligible and ineligible platforms; hold/release rapidly                   | Eligibility, ignored foothold(s), exclusion duration and next landing   |
+| Ladder and rope      | Enter from ground/air, climb, release, reverse, exit at both ends, jump away             | Attachment range, velocity reset, top/bottom behavior, jump vector      |
+| Swimming             | Original swim map, idle sink, horizontal/vertical movement, jump pulses                  | Drag, gravity/fall caps, swim speed reduction and transition timing     |
+| Movement modifiers   | Identified original low-friction/slippery/conveyor/force maps and stat/buff combinations | Effective precedence, acceleration, clamps, grounded/air differences    |
+| Body/damage bounds   | Standing, walking, jumping, prone, ladder/rope, facing both ways                         | State-dependent contact/damage boundaries, independently of artwork     |
+| Attacks              | Exact weapon/skill/action, facing, frame and target position                             | Area activation/deactivation, reach, target inclusion/exclusion         |
+| Refresh independence | Same timed inputs at two original display rates if supported                             | Distances, apex, landing, and transitions in simulation time            |
 
 The machine-readable option inventory and recovered-code notes refine which original map IDs, modifiers and attack families need captures. An unexplained option is not validated merely because an ordinary flat-map run passes.
+
+## In-game UI, portals, life and audiovisual references
+
+The metadata inventory and retained consumers in `ingame-inventory/` and
+`ghidra-ingame-{ui,portals,life,audiovisual}/` do not replace these captures.
+Record original executable/WZ identities, server context and exact inputs.
+Keep original audio in the recording and provide a separate lossless WAV track
+when possible; do not normalize loudness, denoise, resample, or time-stretch it.
+Include sample rate, channels, original BGM/SE settings, mute state, output device,
+capture method, and any known audio/video clock offset.
+
+| Priority | Original scenario                                                         | Required observations                                                                                                                  |
+| -------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | 800×600 in-game HUD, idle then HP/MP/EXP changes                          | Gauge endpoints/fill/clipping, numerical glyphs, text metrics, flash timing, opacity, bottom anchoring                                 |
+| P0       | Inventory, equipment, stat and skill windows opened by mouse and keyboard | Initial positions, tabs, slot geometry, original hotkeys, focus, key-repeat handling, overlapping windows, close/restore               |
+| P0       | Button hover, press, drag outside/release, keyboard focus                 | Exact normal/hover/pressed/disabled/focused art and sound onset; no compressed-image comparison                                        |
+| P0       | Walk to `100000000/in02`, press Up, enter `100000001/out02`, return       | Activation rectangle/grounded predicate, request/permission delay, arrival feet, fade, animation, sound and held-key bounce prevention |
+| P0       | Hidden reciprocal portals in 100000000 and 120000000                      | Start/Continue/Exit timing on approach/departure, visibility boundaries, cooldown and same-map repositioning                           |
+| P0       | Maya, Thompson, Rina and Kyrin                                            | Feet/origin, facing, name/function font/color/z, expressive-action transitions, interaction range and dialog geometry                  |
+| P0       | Hector/White Fang in 211040000 and OctoPirate in 108000500                | Live spawn/controller context, authored versus live positions, stand/move/hit/death transitions, facing, body bounds and sound timing  |
+| P0       | Enable/mute/change BGM and SE volume, then change maps                    | Original volume curve, loop boundary/gap, same-track continuity, stop/fade/overlap and channel mixing                                  |
+| P0       | Aquarium map entry and Bubbling effect                                    | Screen/world anchoring, positions, repeat counts, alpha, timing, depth and replacement cleanup                                         |
+| P1       | NPC dialogue with choices, text entry and continuation                    | Server-provided text/choices, portrait placement, clipping, focus/capture and exact continuation packets if legitimately available     |
+| P1       | Key configuration, quick slots, menus, minimap and tooltips               | Default scan codes, remap/drag restrictions, persistence, stacking, hit rectangles, tooltip delay/clipping                             |
+| P1       | Original jump, portal, level-up and quest-clear sound/effects             | Accepted event time, visual onset/frame delays/alpha, sound onset and completion; server rejection behavior                            |
+| P1       | Scripted/sentinel portals, limitedname/hide/mobTime life records          | Actual activation/gating and server decisions; never infer them from archive names or editor placements                                |
+| P2       | Alternate resolutions and display rates                                   | UI anchoring/scaling, minimum viewport, focus behavior, text sampling and timing independent of display cadence                        |
+
+Capture a quiet baseline and isolated short effects before mixed BGM/SE runs.
+For every alignment report both visual and audio uncertainty. A browser live PCM
+capture proves output of its actual audio graph, not original waveform parity or
+physical-speaker audibility. Original-reference audio timing and perceptual parity
+remain blocked until the original tracks are supplied.
 
 ## Reporting comparisons
 

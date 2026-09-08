@@ -1,6 +1,6 @@
 # Deterministic original-asset delivery
 
-`bun run extract` packages the original WZ inputs into schema v2. Reproduce the default selection explicitly with:
+`bun run extract` packages the original WZ inputs into schema v2. A smaller explicit selection is:
 
 ```sh
 bun run extract --maps 100000000,100000001,230000000
@@ -14,11 +14,13 @@ Read-only extraction of `Map.wz:Map/Map1/100000000.img` found Henesys, `info.map
 
 ## Publication and ownership
 
-`/generated/catalog.json` is the sole mutable runtime entry point. Its build ID is SHA-256 of the deterministic map descriptor table. Each map descriptor records its immutable URL, SHA-256, exact encoded byte length, and neighbors that are actually packaged. Original unbundled portal targets remain in map physics; they are not advertised as fetchable neighbors.
+`/generated/catalog.json` is the sole mutable runtime entry point. Its build ID is SHA-256 of the deterministic `{maps,hitboxes,ui,audiovisual}` descriptor/index object. Each map descriptor records its immutable URL, SHA-256, exact encoded byte length, and neighbors that are actually packaged. Original unbundled portal targets remain in map physics; they are not advertised as fetchable neighbors.
 
-Maps, regions, and atlases are stored in shared `maps/`, `regions/`, and `atlases/` directories, with SHA-256 filenames derived from their complete encoded bytes. Every immutable resource is completely written before the catalog is atomically renamed. Failed conversion leaves the prior catalog intact. Old unreachable resources may remain cache-addressed; consumers must follow the catalog rather than enumerate the directory. Concurrent extractor processes targeting the same output directory are not supported.
+Maps, regions, atlases, visual bundles, reference JSON and audio are stored under their shared `maps/`, `regions/`, `atlases/`, `bundles/`, `references/` and `audio/` directories, with SHA-256 filenames derived from complete encoded bytes. Every immutable resource is completely written before the catalog is atomically renamed. Failed conversion leaves the prior catalog intact. Old unreachable resources may remain cache-addressed; consumers follow the catalog rather than enumerate the directory. Concurrent extractor processes targeting the same output directory are unsupported.
 
 Map manifests contain complete modest collision metadata, actors, texture subrects, atlas descriptors, and independently fetchable region descriptors. Region JSON contains only its owned entities. All original canvas origins, straight alpha (including transparent RGB), animation delays/alpha endpoints, object/tile depth, avatar anchors/equipment depth, flip flags, and camera-relative background metadata retain the existing scene semantics. Texture IDs remain SHA-256 over `width + "x" + height + ":"` followed by decoded original RGBA, not PNG encoding identity.
+
+UI windows/minimaps and selected effect sequences use independent schema-v1 visual bundles through the same `packageVisualBundle` atlas packer. Portals and NPC/mob artwork are ordinary spatial map entities; `portalPresentation` and `life` retain their metadata separately. UI/effect canvas identity is shared with world artwork by the existing original-RGBA hash. Sound publishing copies exact original MP3 payloads without transcoding, with original envelopes and map BGM/effect bindings in `catalog.audiovisual`. A resource descriptor proves bytes, not gameplay activation or server permission.
 
 ## Browser engineering limits
 
@@ -46,4 +48,4 @@ The default reconstruction selection contains eight maps: `100000000`, `10000000
 
 ## Fidelity boundaries
 
-Original camera fallback is not recovered: when VR fields are absent, the existing foothold-envelope margin remains explicit evidence debt. NPC/mob artwork and global background-effect IMG rendering are not implemented by this packaging slice. Active unsupported physics remains visible in each manifest's inventory; a packaged swim map is not itself proof of swim-motion fidelity. Browser residency/cancellation/upload behavior belongs to the streaming runtime, not this offline converter.
+Original camera fallback is not recovered: absent VR fields retain an explicit foothold-derived inspection rectangle. NPC/mob artwork is packaged as authored metadata previews, not live spawn/AI. Selected Effect.wz sequences are separately demand-loaded previews; unresolved global/automatic map effect behavior is not synthesized. Active unsupported physics remains visible in each manifest's inventory; packaging a swim map is not proof of swim-motion fidelity. Browser residency, cancellation, uploads and native audio belong to the runtime, not this offline converter.

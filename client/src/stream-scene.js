@@ -1,8 +1,9 @@
-import { Container, Rectangle, Texture } from "pixi.js";
+import { Container } from "pixi.js";
 import { EntityAnimation } from "./animation.js";
 import { createSimulation } from "./physics/simulation.js";
 import { check, aborted } from "./stream-network.js";
 import { entities, LIMITS } from "./stream-validation.js";
+import { VisualTextures } from "./visual-resources.js";
 
 /** Viewport intersection and one-half viewport near-prefetch are browser policies. */
 function intersects(bounds, camera, viewport, margin) {
@@ -13,19 +14,6 @@ function intersects(bounds, camera, viewport, margin) {
     bounds.top <= camera.y + (1 + margin) * viewport.height
   );
 }
-function requiredAtlases(values, manifest) {
-  const result = new Set();
-  for (const entity of values) {
-    for (const frames of Object.values(entity.actions)) {
-      for (const frame of frames) {
-        for (const part of frame.parts) {
-          result.add(manifest.textures[part.texture].atlas);
-        }
-      }
-    }
-  }
-  return result;
-}
 
 /** Region owns subtextures/display objects; atlas sources are shared/refcounted. */
 class Region {
@@ -33,8 +21,8 @@ class Region {
     this.scene = scene;
     this.descriptor = descriptor;
     this.controller = new AbortController();
-    this.leases = [];
-    this.textures = new Map();
+    this.resources = new VisualTextures(scene.manifest, scene.atlases);
+    this.textures = this.resources.textures;
     this.entities = [];
     this.ready = false;
     this.destroyed = false;
@@ -51,7 +39,7 @@ class Region {
         }
         values = entities(data.entities, this.scene.manifest);
       }
-      await this.loadTextures(values, signal);
+      await this.resources.load(values, signal, this.descriptor?.atlases);
       check(signal);
       this.instantiate(values);
       check(signal);
@@ -61,42 +49,6 @@ class Region {
     } catch (error) {
       this.destroy();
       throw error;
-    }
-  }
-  async loadTextures(values, signal) {
-    const map = this.scene.manifest;
-    const sources = new Map();
-    const needed = requiredAtlases(values, map);
-    for (const id of needed) {
-      if (this.descriptor && !this.descriptor.atlases.includes(id)) {
-        throw new Error("Region atlas dependency omitted");
-      }
-      const lease = this.scene.atlases.acquire(map.atlases[id], signal);
-      this.leases.push(lease);
-      sources.set(id, await lease.ready);
-      check(signal);
-    }
-    for (const entity of values) {
-      for (const frames of Object.values(entity.actions)) {
-        this.buildTextures(frames, sources);
-      }
-    }
-  }
-  /** Frames are validated and bounded before their shared-source subtextures are built. */
-  buildTextures(frames, sources) {
-    const map = this.scene.manifest;
-    for (const frame of frames) {
-      for (const part of frame.parts) {
-        if (this.textures.has(part.texture)) continue;
-        const info = map.textures[part.texture];
-        this.textures.set(
-          part.texture,
-          new Texture({
-            source: sources.get(info.atlas),
-            frame: new Rectangle(info.x, info.y, info.width, info.height),
-          }),
-        );
-      }
     }
   }
   instantiate(values) {
@@ -128,11 +80,8 @@ class Region {
     for (const entity of this.entities) {
       entity.container.destroy({ children: true });
     }
-    for (const texture of this.textures.values()) texture.destroy(false);
-    for (const lease of this.leases) lease.release();
+    this.resources.destroy();
     this.entities.length = 0;
-    this.textures.clear();
-    this.leases.length = 0;
   }
 }
 
@@ -145,6 +94,8 @@ export class StreamScene {
     this.viewport = viewport;
     this.camera = { ...manifest.camera };
     this.container = new Container();
+    // Pixi enables parent sorting when actor depth changes; previews stay above world art.
+    this.overlays = new Container({ zIndex: Number.MAX_SAFE_INTEGER });
     this.regions = new Map();
     this.entities = [];
     this.backgrounds = [];
@@ -159,7 +110,7 @@ export class StreamScene {
     this.failures = new Set();
     this.spriteCount = 0;
   }
-  async prepare(signal) {
+  async prepare(signal, arrival = null) {
     const cancel = () => this.destroy();
     signal.addEventListener("abort", cancel, { once: true });
     try {
@@ -169,10 +120,10 @@ export class StreamScene {
         (entity) => entity.kind === "character",
       );
       if (!this.actor) throw new Error("Map has no original character actor");
-      this.simulation = createSimulation(this.manifest.physics, {
-        x: this.actor.baseX,
-        y: this.actor.baseY,
-      });
+      const spawn = arrival ?? { x: this.actor.baseX, y: this.actor.baseY };
+      this.camera.x += spawn.x - this.actor.baseX;
+      this.camera.y += spawn.y - this.actor.baseY;
+      this.simulation = createSimulation(this.manifest.physics, spawn);
       this.updateActor(this.simulation);
       for (let index = 0; index < this.manifest.regions.length; index++) {
         const region = this.manifest.regions[index];
@@ -228,6 +179,8 @@ export class StreamScene {
     for (const entity of this.entities) {
       this.container.addChild(entity.container);
     }
+    this.container.addChild(this.overlays);
+    this.fieldSystems?.refresh();
   }
   /** Initialize and update the same pose contract, including paused map entry. */
   updateActor(pose) {
@@ -329,6 +282,7 @@ export class StreamScene {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.fieldSystems?.destroy();
     this.actorRegion.destroy();
     for (const region of this.regions.values()) region.destroy();
     this.regions.clear();

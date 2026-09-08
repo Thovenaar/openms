@@ -102,6 +102,7 @@ export function createSimulation(world, spawn) {
     bounds,
     accumulatorMs: 0,
     accumulatorError: 0,
+    groundJumpSequence: 0,
     movementMode: "air",
     baseMode: world.map.swim ? "swim" : world.map.fly ? "fly" : "air",
     waterAreas: prepareWaterAreas(world.map),
@@ -223,6 +224,10 @@ function acceptJump(sim, input, direction) {
   const scale = sim.movementMode === "air" ? 1 : 0.7;
   sim.vy = -sim.effectiveSettings.jumpSpeed * scale;
   sim.crouching = false;
+  // Accepted normal ground jumps notify presentation without changing integration.
+  if (sim.movementMode === "air") {
+    sim.groundJumpSequence = (sim.groundJumpSequence + 1) >>> 0;
+  }
   detachGround(sim);
 }
 

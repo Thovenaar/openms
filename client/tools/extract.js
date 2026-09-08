@@ -8,8 +8,12 @@ import { decodeCanvas } from "../src/assets/canvas.js";
 import { readPhysicsData } from "./physics-data.js";
 import { extractHitboxReferences } from "./hitbox-data.js";
 import { hash, resource, ATLAS_LIMIT, PADDING } from "./atlas.js";
-import { packageMap, REGION_SIZE } from "./packaging.js";
+import { packageMap, packageVisualBundle, REGION_SIZE } from "./packaging.js";
 import { prepareCanvasTiles } from "./canvas-tiles.js";
+import { extractGameUI } from "./ui-data.js";
+import { extractPortals } from "./portal-data.js";
+import { extractLife } from "./life-data.js";
+import { extractAudiovisual } from "./audiovisual-data.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
@@ -40,7 +44,14 @@ if (
 const mapIds = [...new Set(selected)].sort();
 const started = performance.now();
 const output = resolve(root, "client/public/generated");
-for (const directory of ["atlases", "regions", "maps", "references"]) {
+for (const directory of [
+  "atlases",
+  "regions",
+  "maps",
+  "references",
+  "bundles",
+  "audio",
+]) {
   mkdirSync(resolve(output, directory), { recursive: true });
 }
 // This conversion process owns these caches; no runtime shares mutable data.
@@ -61,6 +72,14 @@ const state = {
 };
 state.regions = Object.create(null);
 state.tiledCanvases = Object.create(null);
+const extractionContext = {
+  image,
+  part,
+  frames,
+  output,
+  mapIds,
+  bundle: (value) => packageVisualBundle(value, state),
+};
 /** @param {string} name */
 function archive(name) {
   if (!archives.has(name)) {
@@ -449,6 +468,9 @@ async function extractMap(mapId, character) {
     await tiles(layer, l);
   }
   await backgrounds(map);
+  const portals = await extractPortals(extractionContext, map, mapId);
+  const life = await extractLife(extractionContext, map, mapId);
+  state.entities.push(...portals.entities, ...life.entities);
   const actions = character.actions;
   const portal = Object.values(at(map, "portal").children).find(
     (p) => value(p, "pn") === "sp",
@@ -479,6 +501,8 @@ async function extractMap(mapId, character) {
     entities: state.entities,
     physics: readPhysicsData(map, image("Map", "Physics.img")),
     equipment: character.equipment,
+    portalPresentation: portals.presentation,
+    life: life.life,
     evidence: [
       "docs/asset-evidence.md",
       "docs/client-evidence.md",
@@ -561,6 +585,8 @@ async function publishReport(catalog, reports) {
 /** Atomic catalog is the only mutable entry point. */
 async function run() {
   const character = await avatar();
+  const ui = await extractGameUI(extractionContext);
+  const audiovisual = await extractAudiovisual(extractionContext, mapIds);
   const maps = Object.create(null),
     reports = [];
   for (const id of mapIds) {
@@ -591,13 +617,17 @@ async function run() {
     "json",
     Buffer.from(JSON.stringify(references)),
   );
-  const buildId = hash(Buffer.from(JSON.stringify({ maps, hitboxes })));
+  const buildId = hash(
+    Buffer.from(JSON.stringify({ maps, hitboxes, ui, audiovisual })),
+  );
   const catalog = {
     schemaVersion: 2,
     buildId,
     defaultMap: mapIds.includes("100000000") ? "100000000" : mapIds[0],
     maps,
     hitboxes,
+    ui,
+    audiovisual,
   };
   await Bun.write(resolve(output, "catalog.json.tmp"), JSON.stringify(catalog));
   renameSync(

@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
-  "buildId": "c311a390000ad9b182b2a78892972c5a7e9f6b161ed11b7e76f0cc41780b0592",
+  "buildId": "ef4595994967efd8449d5e7b151e8f5acfb501f8aa742f189e9e156396e02f71",
   "inputDirectory": "/Users/k/Development/tensorfish/Maplestory-Client",
   "maps": [
     {
       "id": "100000000",
-      "entities": 1112,
+      "entities": 1153,
       "regions": 20,
-      "textures": 271,
+      "textures": 585,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -306,9 +306,9 @@
     },
     {
       "id": "100000001",
-      "entities": 110,
+      "entities": 112,
       "regions": 8,
-      "textures": 122,
+      "textures": 131,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -345,9 +345,9 @@
     },
     {
       "id": "103040000",
-      "entities": 142,
+      "entities": 150,
       "regions": 12,
-      "textures": 164,
+      "textures": 271,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -473,9 +473,9 @@
     },
     {
       "id": "108000500",
-      "entities": 102,
+      "entities": 118,
       "regions": 10,
-      "textures": 115,
+      "textures": 140,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -589,9 +589,9 @@
     },
     {
       "id": "120000000",
-      "entities": 388,
+      "entities": 408,
       "regions": 25,
-      "textures": 260,
+      "textures": 402,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -770,9 +770,9 @@
     },
     {
       "id": "200090500",
-      "entities": 93,
+      "entities": 94,
       "regions": 13,
-      "textures": 95,
+      "textures": 103,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1223,9 +1223,9 @@
     },
     {
       "id": "211040000",
-      "entities": 448,
+      "entities": 485,
       "regions": 15,
-      "textures": 143,
+      "textures": 187,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1305,9 +1305,9 @@
     },
     {
       "id": "230000000",
-      "entities": 365,
+      "entities": 378,
       "regions": 42,
-      "textures": 273,
+      "textures": 372,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1483,28 +1483,28 @@
     "maxMaps": 32
   },
   "counts": {
-    "textures": 822,
-    "atlases": 120,
-    "images": 52,
+    "textures": 2317,
+    "atlases": 157,
+    "images": 126,
     "regions": 145
   },
   "bytes": {
-    "originalRGBA": 114330256,
-    "roundTripCompared": 114330256,
-    "atlasPNG": 13852706,
+    "originalRGBA": 158032432,
+    "roundTripCompared": 158032432,
+    "atlasPNG": 17664156,
     "tileReconstructionCompared": 3390480,
-    "mapJSON": 948891,
+    "mapJSON": 1626831,
     "hitboxReferencesJSON": 5005,
-    "catalogJSON": 2061,
-    "regionJSON": 870886,
-    "atlasDecodedRGBA": 188386944
+    "catalogJSON": 53086,
+    "regionJSON": 1240582,
+    "atlasDecodedRGBA": 283804508
   },
   "pixelRoundTrip": {
     "passed": true,
     "method": "PNG IDAT independently inflated and each RGBA subrect row compared byte-for-byte"
   },
   "formats": {
-    "1/0": 814,
+    "1/0": 2309,
     "2/0": 7
   },
   "images": [
@@ -1516,7 +1516,29 @@
     "Character.wz:Coat/01040002.img",
     "Character.wz:Pants/01060002.img",
     "Character.wz:Shoes/01072001.img",
+    "UI.wz:StatusBar.img",
+    "UI.wz:Basic.img",
+    "UI.wz:UIWindow.img",
+    "String.wz:Eqp.img",
     "Map.wz:Map/Map1/100000000.img",
+    "Map.wz:Map/Map1/100000001.img",
+    "Map.wz:Map/Map1/103040000.img",
+    "Map.wz:Map/Map1/108000500.img",
+    "Map.wz:Map/Map1/120000000.img",
+    "Map.wz:Map/Map2/200090500.img",
+    "Map.wz:Map/Map2/211040000.img",
+    "Map.wz:Map/Map2/230000000.img",
+    "String.wz:ToolTipHelp.img",
+    "Sound.wz:Bgm00.img",
+    "Sound.wz:Bgm21.img",
+    "Sound.wz:Bgm15.img",
+    "Sound.wz:Bgm13.img",
+    "Sound.wz:Bgm04.img",
+    "Sound.wz:Bgm11.img",
+    "Sound.wz:UI.img",
+    "Sound.wz:Game.img",
+    "Effect.wz:BasicEff.img",
+    "Effect.wz:MapEff.img",
     "Map.wz:Obj/houseGS.img",
     "Map.wz:Obj/acc1.img",
     "Map.wz:Obj/door.img",
@@ -1528,40 +1550,92 @@
     "Map.wz:Obj/StoreGL.img",
     "Map.wz:Obj/connect.img",
     "Map.wz:Back/grassySoil.img",
+    "Map.wz:MapHelper.img",
+    "Npc.wz:9000036.img",
+    "String.wz:Npc.img",
+    "Npc.wz:9209000.img",
+    "Npc.wz:1012000.img",
+    "Npc.wz:1010100.img",
+    "Npc.wz:1012003.img",
+    "Npc.wz:1012106.img",
+    "Npc.wz:1012108.img",
+    "Npc.wz:1012109.img",
+    "Npc.wz:9010002.img",
+    "Npc.wz:9010000.img",
+    "Npc.wz:1012111.img",
+    "Npc.wz:9200000.img",
+    "Npc.wz:9209008.img",
+    "Npc.wz:9209001.img",
+    "Npc.wz:9000021.img",
+    "Npc.wz:9010010.img",
+    "Npc.wz:9201001.img",
+    "Npc.wz:9201022.img",
+    "Npc.wz:9010009.img",
+    "Npc.wz:9000020.img",
+    "Npc.wz:9250042.img",
+    "Npc.wz:9201088.img",
+    "Npc.wz:9000017.img",
+    "Npc.wz:1103001.img",
+    "Npc.wz:9010022.img",
+    "Npc.wz:9201118.img",
+    "Npc.wz:1022101.img",
+    "Npc.wz:9250052.img",
+    "Npc.wz:2041017.img",
+    "Npc.wz:9000069.img",
     "Map.wz:Physics.img",
-    "Map.wz:Map/Map1/100000001.img",
     "Map.wz:Obj/prop.img",
     "Map.wz:Obj/insideGS.img",
-    "Map.wz:Map/Map1/103040000.img",
+    "Npc.wz:1012101.img",
     "Map.wz:Obj/Tdungeon3.img",
     "Map.wz:Back/department.img",
-    "Map.wz:Map/Map1/108000500.img",
+    "Npc.wz:1052116.img",
+    "Npc.wz:1052122.img",
+    "Npc.wz:1052121.img",
+    "Npc.wz:1052119.img",
+    "Npc.wz:1052124.img",
+    "Npc.wz:1052123.img",
+    "Npc.wz:1052120.img",
     "Map.wz:Obj/acc9.img",
     "Map.wz:Obj/guild.img",
-    "Map.wz:Map/Map1/120000000.img",
+    "Mob.wz:9001005.img",
+    "String.wz:Mob.img",
+    "Npc.wz:1072008.img",
     "Map.wz:Tile/blackTile.img",
     "Map.wz:Back/nautilusPort.img",
-    "Map.wz:Map/Map2/200090500.img",
+    "Npc.wz:1094000.img",
+    "Npc.wz:1094006.img",
+    "Npc.wz:1092014.img",
+    "Npc.wz:1094002.img",
+    "Npc.wz:1094003.img",
+    "Npc.wz:1094004.img",
+    "Npc.wz:1094005.img",
+    "Npc.wz:1093000.img",
+    "Npc.wz:1094001.img",
+    "Npc.wz:9000040.img",
+    "Npc.wz:9000041.img",
     "Map.wz:Obj/acc10.img",
     "Map.wz:Back/minar.img",
     "Map.wz:Back/timeTemple.img",
-    "Map.wz:Map/Map2/211040000.img",
     "Map.wz:Obj/acc3.img",
     "Map.wz:Tile/snowyLightrock2.img",
     "Map.wz:Tile/snowyLightrock.img",
     "Map.wz:Back/snowyLightrock.img",
-    "Map.wz:Map/Map2/230000000.img",
+    "Mob.wz:5130104.img",
+    "Mob.wz:5140000.img",
     "Map.wz:Obj/acc5.img",
     "Map.wz:Obj/houseAR.img",
     "Map.wz:Tile/sandySeaFloor.img",
     "Map.wz:Back/aquaRoad.img",
+    "Npc.wz:2060009.img",
+    "Npc.wz:9250023.img",
+    "Npc.wz:9000068.img",
     "Character.wz:Afterimage/swordOS.img",
     "Skill.wz:310.img",
     "Mob.wz:9500332.img",
     "Mob.wz:0100101.img",
     "Morph.wz:0001.img"
   ],
-  "durationMs": 2310.180292,
+  "durationMs": 3318.1793749999997,
   "limitations": [
     "Camera fallback derived from footholds; exact original fallback remains unverified.",
     "Map metadata retains active unsupported physics in physics.unsupported.",
@@ -1648,6 +1722,46 @@
       "sha256": "b47692f33a030d22a42f0d71be9815345e23dda9577f299e7bf1dd691dee371b",
       "bytes": 17034
     },
+    "UI.wz:StatusBar.img": {
+      "path": "StatusBar.img",
+      "name": "StatusBar.img",
+      "type": 4,
+      "size": 61267,
+      "checksum": 7280558,
+      "offset": 13775297,
+      "sha256": "7dc5bb3a3e18cdbf2ba86f6d84e7a2f454d6d03fb431d2815c0684d606c85abc",
+      "bytes": 61267
+    },
+    "UI.wz:Basic.img": {
+      "path": "Basic.img",
+      "name": "Basic.img",
+      "type": 4,
+      "size": 141219,
+      "checksum": 14381238,
+      "offset": 13843665,
+      "sha256": "23f7df3521526503eb6a068d17c9a4a5e49bf0d96c1983d1cb211b767b29f399",
+      "bytes": 141219
+    },
+    "UI.wz:UIWindow.img": {
+      "path": "UIWindow.img",
+      "name": "UIWindow.img",
+      "type": 4,
+      "size": 8038940,
+      "checksum": 1041585943,
+      "offset": 20220993,
+      "sha256": "84c2ca7c1136172d2e65ca2adae3b93e980c9025615ac9548dfdc080fb6c9998",
+      "bytes": 8038940
+    },
+    "String.wz:Eqp.img": {
+      "path": "Eqp.img",
+      "name": "Eqp.img",
+      "type": 4,
+      "size": 372586,
+      "checksum": 34078951,
+      "offset": 1512019,
+      "sha256": "4f1844bd047e3059d3519725d72f18b06a2480a624cc13ff43c0a3e4afd8e983",
+      "bytes": 372586
+    },
     "Map.wz:Map/Map1/100000000.img": {
       "path": "Map/Map1/100000000.img",
       "name": "100000000.img",
@@ -1657,6 +1771,186 @@
       "offset": 573147253,
       "sha256": "a6c529f21d2e6792ea9fa7aeb935b9336c69b37aa583c0a8f6793831faf5fee1",
       "bytes": 128506
+    },
+    "Map.wz:Map/Map1/100000001.img": {
+      "path": "Map/Map1/100000001.img",
+      "name": "100000001.img",
+      "type": 4,
+      "size": 13858,
+      "checksum": 1142480,
+      "offset": 570169770,
+      "sha256": "81bc46003de2ed59b561c871825babd4589e33c8cbff3b9961082bb10a1831e7",
+      "bytes": 13858
+    },
+    "Map.wz:Map/Map1/103040000.img": {
+      "path": "Map/Map1/103040000.img",
+      "name": "103040000.img",
+      "type": 4,
+      "size": 26524,
+      "checksum": 2281764,
+      "offset": 552352376,
+      "sha256": "ccfeb8dadfdb9cf778557257706e3ac4c6f8b99911c73c045fe40e4bdcf13d7c",
+      "bytes": 26524
+    },
+    "Map.wz:Map/Map1/108000500.img": {
+      "path": "Map/Map1/108000500.img",
+      "name": "108000500.img",
+      "type": 4,
+      "size": 24337,
+      "checksum": 2003222,
+      "offset": 551850817,
+      "sha256": "e4bd4cf602a601b54b59ae9a920225c95fc971a0ab7e9c5fd74f49fdaffacb36",
+      "bytes": 24337
+    },
+    "Map.wz:Map/Map1/120000000.img": {
+      "path": "Map/Map1/120000000.img",
+      "name": "120000000.img",
+      "type": 4,
+      "size": 134444,
+      "checksum": 11060105,
+      "offset": 566303753,
+      "sha256": "92a719fd8cdefba59a1ffb9430eb1f68cfd22aa6229b714f4f27321168ed57e3",
+      "bytes": 134444
+    },
+    "Map.wz:Map/Map2/200090500.img": {
+      "path": "Map/Map2/200090500.img",
+      "name": "200090500.img",
+      "type": 4,
+      "size": 15920,
+      "checksum": 1221778,
+      "offset": 612202531,
+      "sha256": "ff7babc39b1c86d81e598ca321cb143af3d4526bc0ab644ea23c9f47af354285",
+      "bytes": 15920
+    },
+    "Map.wz:Map/Map2/211040000.img": {
+      "path": "Map/Map2/211040000.img",
+      "name": "211040000.img",
+      "type": 4,
+      "size": 55173,
+      "checksum": 4743286,
+      "offset": 613001741,
+      "sha256": "1c8c75a33e7af2006cede8d019c1c9f1d6a7191d6adfda238446324f5aac6afb",
+      "bytes": 55173
+    },
+    "Map.wz:Map/Map2/230000000.img": {
+      "path": "Map/Map2/230000000.img",
+      "name": "230000000.img",
+      "type": 4,
+      "size": 57657,
+      "checksum": 4790983,
+      "offset": 619069433,
+      "sha256": "c545030c7a1dce039584c162df4a56b643041c488d8863deb73942bdafb500aa",
+      "bytes": 57657
+    },
+    "String.wz:ToolTipHelp.img": {
+      "path": "ToolTipHelp.img",
+      "name": "ToolTipHelp.img",
+      "type": 4,
+      "size": 58169,
+      "checksum": 4243881,
+      "offset": 2287028,
+      "sha256": "034f146c428e01e018f501c295dd1f6c2b22fd7fb738d23bada307bf47a26418",
+      "bytes": 58169
+    },
+    "Sound.wz:Bgm00.img": {
+      "path": "Bgm00.img",
+      "name": "Bgm00.img",
+      "type": 4,
+      "size": 7430599,
+      "checksum": 951903244,
+      "offset": 1176,
+      "sha256": "714802afe8348d183f8669d0dafefae4830118316f9f20a53532cf0fa2bf7f37",
+      "bytes": 7430599
+    },
+    "Sound.wz:Bgm21.img": {
+      "path": "Bgm21.img",
+      "name": "Bgm21.img",
+      "type": 4,
+      "size": 27389931,
+      "checksum": -691284782,
+      "offset": 242761894,
+      "sha256": "78142400df94a83b38418b44f9f6941358f2649a859496849dbeecf265f0eb10",
+      "bytes": 27389931
+    },
+    "Sound.wz:Bgm15.img": {
+      "path": "Bgm15.img",
+      "name": "Bgm15.img",
+      "type": 4,
+      "size": 24289391,
+      "checksum": -1201032190,
+      "offset": 7431775,
+      "sha256": "a3c67aec8dbe8e72b9a36502d12c6fcd8b1d902edb7c8c3d7ffb720cfbc11e00",
+      "bytes": 24289391
+    },
+    "Sound.wz:Bgm13.img": {
+      "path": "Bgm13.img",
+      "name": "Bgm13.img",
+      "type": 4,
+      "size": 10937865,
+      "checksum": 1472370074,
+      "offset": 158757447,
+      "sha256": "556220199b35f7eec75946b89a210678027d46ae41a7c2f21af40469c08d302f",
+      "bytes": 10937865
+    },
+    "Sound.wz:Bgm04.img": {
+      "path": "Bgm04.img",
+      "name": "Bgm04.img",
+      "type": 4,
+      "size": 10950465,
+      "checksum": 1440163911,
+      "offset": 87276043,
+      "sha256": "a40f5a15819b19be20e2e82754f3b487eb7c4ff14ce6f1bec7696a2b8a0a12c6",
+      "bytes": 10950465
+    },
+    "Sound.wz:Bgm11.img": {
+      "path": "Bgm11.img",
+      "name": "Bgm11.img",
+      "type": 4,
+      "size": 10045770,
+      "checksum": 1295490911,
+      "offset": 59103613,
+      "sha256": "46d3110c670f77585ba30a8aea9c84a269d7840b641a8c7ab3b284d27d524c78",
+      "bytes": 10045770
+    },
+    "Sound.wz:UI.img": {
+      "path": "UI.img",
+      "name": "UI.img",
+      "type": 4,
+      "size": 154654,
+      "checksum": 21521753,
+      "offset": 106220301,
+      "sha256": "03146d7062c80e24fcc5d76b8025f063df3aade9609bf2ce327d1da09bb15745",
+      "bytes": 154654
+    },
+    "Sound.wz:Game.img": {
+      "path": "Game.img",
+      "name": "Game.img",
+      "type": 4,
+      "size": 209577,
+      "checksum": 29419875,
+      "offset": 287925849,
+      "sha256": "44b8a6746229bb6b7362acb4ef70635bdf86cc5e22ce9cba0a1c3ab369278e25",
+      "bytes": 209577
+    },
+    "Effect.wz:BasicEff.img": {
+      "path": "BasicEff.img",
+      "name": "BasicEff.img",
+      "type": 4,
+      "size": 3992670,
+      "checksum": 521718692,
+      "offset": 7440730,
+      "sha256": "407f65c9e081992d840d9bf1b9f95c08877126286355db1fd48da78f2d348c12",
+      "bytes": 3992670
+    },
+    "Effect.wz:MapEff.img": {
+      "path": "MapEff.img",
+      "name": "MapEff.img",
+      "type": 4,
+      "size": 83401,
+      "checksum": 11179007,
+      "offset": 546,
+      "sha256": "007e1b716f0cab240426a065315ac6390ac7224b98d62d8a64508d74b5a02cbb",
+      "bytes": 83401
     },
     "Map.wz:Obj/houseGS.img": {
       "path": "Obj/houseGS.img",
@@ -1768,6 +2062,326 @@
       "sha256": "ecd46396066487b3571d9c6542524c9d8ed3b8b0a94ce4cc9238582263502634",
       "bytes": 1653764
     },
+    "Map.wz:MapHelper.img": {
+      "path": "MapHelper.img",
+      "name": "MapHelper.img",
+      "type": 4,
+      "size": 2358480,
+      "checksum": 309176473,
+      "offset": 18769595,
+      "sha256": "ea1cf9eeaf6b35809cfca421337e1d6f49ac1f4b2d6852a59f67063653cdf013",
+      "bytes": 2358480
+    },
+    "Npc.wz:9000036.img": {
+      "path": "9000036.img",
+      "name": "9000036.img",
+      "type": 4,
+      "size": 48439,
+      "checksum": 6054084,
+      "offset": 8361816,
+      "sha256": "7c9c07bc262d57ac02bd0c2e08cd5626eb80f6ab63081bc14b8d3ce8a9f87e64",
+      "bytes": 48439
+    },
+    "String.wz:Npc.img": {
+      "path": "Npc.img",
+      "name": "Npc.img",
+      "type": 4,
+      "size": 281322,
+      "checksum": 31371900,
+      "offset": 2970242,
+      "sha256": "c5b664a1450e881f592381c7ade001f98fb6d7577fcc493eef2dd0750c2b15dd",
+      "bytes": 281322
+    },
+    "Npc.wz:9209000.img": {
+      "path": "9209000.img",
+      "name": "9209000.img",
+      "type": 4,
+      "size": 66153,
+      "checksum": 8855959,
+      "offset": 41016134,
+      "sha256": "7ebb1302931ab6789d4e3de297bc989ca6b68d70f56036b95dadc00c53bb5a48",
+      "bytes": 66153
+    },
+    "Npc.wz:1012000.img": {
+      "path": "1012000.img",
+      "name": "1012000.img",
+      "type": 4,
+      "size": 2835,
+      "checksum": 369435,
+      "offset": 48699560,
+      "sha256": "bf0a2db864d728bd89378ebc82c51d747e6440fd2f11130a137e219d9223e88d",
+      "bytes": 2835
+    },
+    "Npc.wz:1010100.img": {
+      "path": "1010100.img",
+      "name": "1010100.img",
+      "type": 4,
+      "size": 33103,
+      "checksum": 4178133,
+      "offset": 41132767,
+      "sha256": "9d1aae66bd9fee77714afa776ff7ba13caecb2b0f4e2c4b27e736ee80f8edb00",
+      "bytes": 33103
+    },
+    "Npc.wz:1012003.img": {
+      "path": "1012003.img",
+      "name": "1012003.img",
+      "type": 4,
+      "size": 18981,
+      "checksum": 2387682,
+      "offset": 1740624,
+      "sha256": "45b31e7860495dfa6fa2fc4fbcd0a094af9e9671542966acb27e1d1eb811f0d9",
+      "bytes": 18981
+    },
+    "Npc.wz:1012106.img": {
+      "path": "1012106.img",
+      "name": "1012106.img",
+      "type": 4,
+      "size": 28897,
+      "checksum": 3882615,
+      "offset": 5905407,
+      "sha256": "8bf4c6914ce95913a965d64cee3df9d168c85e1eea6b743bf8aba1d33c71196a",
+      "bytes": 28897
+    },
+    "Npc.wz:1012108.img": {
+      "path": "1012108.img",
+      "name": "1012108.img",
+      "type": 4,
+      "size": 22456,
+      "checksum": 2943767,
+      "offset": 21372666,
+      "sha256": "95bdb156a18a64879db245e8a3168e5f5f8cb2a87c32e6050a3fa621a46b2fe2",
+      "bytes": 22456
+    },
+    "Npc.wz:1012109.img": {
+      "path": "1012109.img",
+      "name": "1012109.img",
+      "type": 4,
+      "size": 18523,
+      "checksum": 2388462,
+      "offset": 45416917,
+      "sha256": "a17e749ca245e0ada54d071dbd20dde4c8d1ee0fea6c7fc4729b4c79c28ac38e",
+      "bytes": 18523
+    },
+    "Npc.wz:9010002.img": {
+      "path": "9010002.img",
+      "name": "9010002.img",
+      "type": 4,
+      "size": 89757,
+      "checksum": 11254829,
+      "offset": 42991502,
+      "sha256": "bb27a60d369a87fce15c9442eae230616be6366cad53e2f257311030aa0e7371",
+      "bytes": 89757
+    },
+    "Npc.wz:9010000.img": {
+      "path": "9010000.img",
+      "name": "9010000.img",
+      "type": 4,
+      "size": 35034,
+      "checksum": 4495790,
+      "offset": 28036181,
+      "sha256": "ebaa5a7acc6732bd939a3dc9b95d5b8598bdae5ba4c5ccef892ff0213a5b8315",
+      "bytes": 35034
+    },
+    "Npc.wz:1012111.img": {
+      "path": "1012111.img",
+      "name": "1012111.img",
+      "type": 4,
+      "size": 24035,
+      "checksum": 3017996,
+      "offset": 32665214,
+      "sha256": "32e4400fc6663db3761c39a0291b38facdcb9ae13f3e00f0a4c7c0e2fd467312",
+      "bytes": 24035
+    },
+    "Npc.wz:9200000.img": {
+      "path": "9200000.img",
+      "name": "9200000.img",
+      "type": 4,
+      "size": 31072,
+      "checksum": 4006582,
+      "offset": 37071056,
+      "sha256": "f130967a464a868e3ecc694467e51e9f047597f9da25b82af852649e1cf8c1b7",
+      "bytes": 31072
+    },
+    "Npc.wz:9209008.img": {
+      "path": "9209008.img",
+      "name": "9209008.img",
+      "type": 4,
+      "size": 39317,
+      "checksum": 5078128,
+      "offset": 21395122,
+      "sha256": "03d5174c6b3872e2a4aec45e8b7e9588bd041401a96d1da181f5a70bd9874b4d",
+      "bytes": 39317
+    },
+    "Npc.wz:9209001.img": {
+      "path": "9209001.img",
+      "name": "9209001.img",
+      "type": 4,
+      "size": 46911,
+      "checksum": 5886064,
+      "offset": 41601803,
+      "sha256": "a85956b97a8db653c0571b9918bada2adefefbdac213048f604e707087549f5e",
+      "bytes": 46911
+    },
+    "Npc.wz:9000021.img": {
+      "path": "9000021.img",
+      "name": "9000021.img",
+      "type": 4,
+      "size": 60238,
+      "checksum": 8041460,
+      "offset": 47628914,
+      "sha256": "0395b9d1862dcba111c2a539852e655c0b9912ce69f4cc17b005ec4204593f60",
+      "bytes": 60238
+    },
+    "Npc.wz:9010010.img": {
+      "path": "9010010.img",
+      "name": "9010010.img",
+      "type": 4,
+      "size": 36567,
+      "checksum": 4759021,
+      "offset": 32757365,
+      "sha256": "aa5238f5d73aa756d6809de7fed7de89dfedd476ba9fd605b5e0b99c2b06cba6",
+      "bytes": 36567
+    },
+    "Npc.wz:9201001.img": {
+      "path": "9201001.img",
+      "name": "9201001.img",
+      "type": 4,
+      "size": 71842,
+      "checksum": 9072970,
+      "offset": 21764109,
+      "sha256": "241384ee9c0a530f58b6ad7e19dcd30c0e243b201f6749283f30a55c5a987fd1",
+      "bytes": 71842
+    },
+    "Npc.wz:9201022.img": {
+      "path": "9201022.img",
+      "name": "9201022.img",
+      "type": 4,
+      "size": 44338,
+      "checksum": 5694055,
+      "offset": 41658127,
+      "sha256": "edec18425d3161a1ee24410851d8240a157f51f61651d465e4bbf735a51a043c",
+      "bytes": 44338
+    },
+    "Npc.wz:9010009.img": {
+      "path": "9010009.img",
+      "name": "9010009.img",
+      "type": 4,
+      "size": 9457,
+      "checksum": 1202540,
+      "offset": 34996702,
+      "sha256": "4516fdb63d2d03473d807b218c644f55a9f28ecb407429988010e6c49eddff45",
+      "bytes": 9457
+    },
+    "Npc.wz:9000020.img": {
+      "path": "9000020.img",
+      "name": "9000020.img",
+      "type": 4,
+      "size": 14196,
+      "checksum": 1751667,
+      "offset": 47905770,
+      "sha256": "e98070a0cdbf8c5a0457e5fc4441573532ebe1af0b062d8ba0ae3e5cdd1be534",
+      "bytes": 14196
+    },
+    "Npc.wz:9250042.img": {
+      "path": "9250042.img",
+      "name": "9250042.img",
+      "type": 4,
+      "size": 83101,
+      "checksum": 11166251,
+      "offset": 17607261,
+      "sha256": "ed3ac2519530812b9cc2e767210f33a33b168212e807814c9e95f20233c7b1f4",
+      "bytes": 83101
+    },
+    "Npc.wz:9201088.img": {
+      "path": "9201088.img",
+      "name": "9201088.img",
+      "type": 4,
+      "size": 25974,
+      "checksum": 3262798,
+      "offset": 6587731,
+      "sha256": "de5b261bad5fec3d876166604754ebe55962cb12546889be96a089f28229ff68",
+      "bytes": 25974
+    },
+    "Npc.wz:9000017.img": {
+      "path": "9000017.img",
+      "name": "9000017.img",
+      "type": 4,
+      "size": 11172,
+      "checksum": 1384888,
+      "offset": 23781708,
+      "sha256": "5711cd26a5fb8f4d4e697e84f4f6cc7f0663aa939b45fb0d54cbd3d7cf875075",
+      "bytes": 11172
+    },
+    "Npc.wz:1103001.img": {
+      "path": "1103001.img",
+      "name": "1103001.img",
+      "type": 4,
+      "size": 41555,
+      "checksum": 5388211,
+      "offset": 30359020,
+      "sha256": "94cf6a838cb79ecb4b9acf10561aa6d5339ab0a970e5d715d410b411ae7a6eaf",
+      "bytes": 41555
+    },
+    "Npc.wz:9010022.img": {
+      "path": "9010022.img",
+      "name": "9010022.img",
+      "type": 4,
+      "size": 134395,
+      "checksum": 17402495,
+      "offset": 43242738,
+      "sha256": "59955b78dd57c8c079ce79fe59db004c8b8f1c7b1ac2b448eb50e069d804aecf",
+      "bytes": 134395
+    },
+    "Npc.wz:9201118.img": {
+      "path": "9201118.img",
+      "name": "9201118.img",
+      "type": 4,
+      "size": 60900,
+      "checksum": 8253646,
+      "offset": 45355521,
+      "sha256": "581807b056e8444b0392d0adac493e9f0352ddd4288dbe377fc0a9f7b59aaa2c",
+      "bytes": 60900
+    },
+    "Npc.wz:1022101.img": {
+      "path": "1022101.img",
+      "name": "1022101.img",
+      "type": 4,
+      "size": 42963,
+      "checksum": 5539555,
+      "offset": 47792603,
+      "sha256": "cbaf0ffffee0ba3b9e114ec5d26bd94ea5bc157db137795fc27388fc60c77d73",
+      "bytes": 42963
+    },
+    "Npc.wz:9250052.img": {
+      "path": "9250052.img",
+      "name": "9250052.img",
+      "type": 4,
+      "size": 54778,
+      "checksum": 7344375,
+      "offset": 41923592,
+      "sha256": "dfe1910145ba6942e372e51a5a02710bc82f424ac9bb50a2f67f1fae661202e2",
+      "bytes": 54778
+    },
+    "Npc.wz:2041017.img": {
+      "path": "2041017.img",
+      "name": "2041017.img",
+      "type": 4,
+      "size": 41638,
+      "checksum": 5622483,
+      "offset": 32498003,
+      "sha256": "b7ac20868174bab9c4a4792bf5f422e3f6f6583edb404317a453a1de6997d33f",
+      "bytes": 41638
+    },
+    "Npc.wz:9000069.img": {
+      "path": "9000069.img",
+      "name": "9000069.img",
+      "type": 4,
+      "size": 37548,
+      "checksum": 4825162,
+      "offset": 33188262,
+      "sha256": "a8f7116fb7e6ff6a12210a4dc84eab3f91696d4c378094bbc17042f8bd20f56c",
+      "bytes": 37548
+    },
     "Map.wz:Physics.img": {
       "path": "Physics.img",
       "name": "Physics.img",
@@ -1777,16 +2391,6 @@
       "offset": 162502,
       "sha256": "2988db96b2cf1bb189441220d493836d327b188026a8d01b62635acb3f14770a",
       "bytes": 405
-    },
-    "Map.wz:Map/Map1/100000001.img": {
-      "path": "Map/Map1/100000001.img",
-      "name": "100000001.img",
-      "type": 4,
-      "size": 13858,
-      "checksum": 1142480,
-      "offset": 570169770,
-      "sha256": "81bc46003de2ed59b561c871825babd4589e33c8cbff3b9961082bb10a1831e7",
-      "bytes": 13858
     },
     "Map.wz:Obj/prop.img": {
       "path": "Obj/prop.img",
@@ -1808,15 +2412,15 @@
       "sha256": "75cdd3a8c4b66f5ec814d838cc16a226d341749f078daf2f3797fe8689c251d7",
       "bytes": 1646370
     },
-    "Map.wz:Map/Map1/103040000.img": {
-      "path": "Map/Map1/103040000.img",
-      "name": "103040000.img",
+    "Npc.wz:1012101.img": {
+      "path": "1012101.img",
+      "name": "1012101.img",
       "type": 4,
-      "size": 26524,
-      "checksum": 2281764,
-      "offset": 552352376,
-      "sha256": "ccfeb8dadfdb9cf778557257706e3ac4c6f8b99911c73c045fe40e4bdcf13d7c",
-      "bytes": 26524
+      "size": 1906,
+      "checksum": 243176,
+      "offset": 6066662,
+      "sha256": "87cd86fc79935c6c47fdc18f1e1e86b0ef5ba1dd255a241a826123e96c1b6e5e",
+      "bytes": 1906
     },
     "Map.wz:Obj/Tdungeon3.img": {
       "path": "Obj/Tdungeon3.img",
@@ -1838,15 +2442,75 @@
       "sha256": "64657ec63930b2e8e40806408a5ed0f392a94bc606528393bd09be38a660e4d1",
       "bytes": 1720499
     },
-    "Map.wz:Map/Map1/108000500.img": {
-      "path": "Map/Map1/108000500.img",
-      "name": "108000500.img",
+    "Npc.wz:1052116.img": {
+      "path": "1052116.img",
+      "name": "1052116.img",
       "type": 4,
-      "size": 24337,
-      "checksum": 2003222,
-      "offset": 551850817,
-      "sha256": "e4bd4cf602a601b54b59ae9a920225c95fc971a0ab7e9c5fd74f49fdaffacb36",
-      "bytes": 24337
+      "size": 12036,
+      "checksum": 1540579,
+      "offset": 37230631,
+      "sha256": "d4b6159c0cd3507ff5c86d95477e0b0ae3a7151a3dab35f46a79244f3792ccae",
+      "bytes": 12036
+    },
+    "Npc.wz:1052122.img": {
+      "path": "1052122.img",
+      "name": "1052122.img",
+      "type": 4,
+      "size": 28301,
+      "checksum": 3486358,
+      "offset": 31962305,
+      "sha256": "33cd7c205da3472bd916fd2fd8824113643cca56d704ebc70d0bc6f7dc56ab70",
+      "bytes": 28301
+    },
+    "Npc.wz:1052121.img": {
+      "path": "1052121.img",
+      "name": "1052121.img",
+      "type": 4,
+      "size": 26268,
+      "checksum": 3359780,
+      "offset": 15497754,
+      "sha256": "efbd260c1bc94c2eccdbfdf29dd2129f7466cd28876d04bd304792b598988873",
+      "bytes": 26268
+    },
+    "Npc.wz:1052119.img": {
+      "path": "1052119.img",
+      "name": "1052119.img",
+      "type": 4,
+      "size": 35544,
+      "checksum": 4547088,
+      "offset": 17468673,
+      "sha256": "ea0c64eff1e850c9268d28b1525960cf64393ef964196c5574573dc0ea383461",
+      "bytes": 35544
+    },
+    "Npc.wz:1052124.img": {
+      "path": "1052124.img",
+      "name": "1052124.img",
+      "type": 4,
+      "size": 52940,
+      "checksum": 6823212,
+      "offset": 50746989,
+      "sha256": "3a2e5d9cad57df48cac24f7bb0d118a7e510b5c7da7f9ca42a18143282a49fac",
+      "bytes": 52940
+    },
+    "Npc.wz:1052123.img": {
+      "path": "1052123.img",
+      "name": "1052123.img",
+      "type": 4,
+      "size": 35295,
+      "checksum": 4588666,
+      "offset": 39706476,
+      "sha256": "10acc7ffbb2a03f2937295308c6d61235cabd025d8cfa83f0835e031c81dbd1e",
+      "bytes": 35295
+    },
+    "Npc.wz:1052120.img": {
+      "path": "1052120.img",
+      "name": "1052120.img",
+      "type": 4,
+      "size": 55933,
+      "checksum": 7237743,
+      "offset": 873994,
+      "sha256": "461f6a076f078d609f498eac214cf48aae50dfb09521a55986248f30011d1f12",
+      "bytes": 55933
     },
     "Map.wz:Obj/acc9.img": {
       "path": "Obj/acc9.img",
@@ -1868,15 +2532,35 @@
       "sha256": "d9de9317049ad0616e5714d76d625ea656d5e36581615b014b9298a7b3aebd8b",
       "bytes": 5668548
     },
-    "Map.wz:Map/Map1/120000000.img": {
-      "path": "Map/Map1/120000000.img",
-      "name": "120000000.img",
+    "Mob.wz:9001005.img": {
+      "path": "9001005.img",
+      "name": "9001005.img",
       "type": 4,
-      "size": 134444,
-      "checksum": 11060105,
-      "offset": 566303753,
-      "sha256": "92a719fd8cdefba59a1ffb9430eb1f68cfd22aa6229b714f4f27321168ed57e3",
-      "bytes": 134444
+      "size": 39190,
+      "checksum": 4947408,
+      "offset": 211297706,
+      "sha256": "f69754c99340b9fe1188087f7ec5126e438230b5276c2e9374fbf9bb5ba5dd00",
+      "bytes": 39190
+    },
+    "String.wz:Mob.img": {
+      "path": "Mob.img",
+      "name": "Mob.img",
+      "type": 4,
+      "size": 65924,
+      "checksum": 5161695,
+      "offset": 1930373,
+      "sha256": "76b1f63c79bd6eba80d8f1789d135cdfabd26b3a3749ddd00b8fcc238e9684eb",
+      "bytes": 65924
+    },
+    "Npc.wz:1072008.img": {
+      "path": "1072008.img",
+      "name": "1072008.img",
+      "type": 4,
+      "size": 17213,
+      "checksum": 2108322,
+      "offset": 31028119,
+      "sha256": "dcb7fea8c8958197c30f175f2242d032ea91251bdcbbc4228bfb47e9db259f12",
+      "bytes": 17213
     },
     "Map.wz:Tile/blackTile.img": {
       "path": "Tile/blackTile.img",
@@ -1898,15 +2582,115 @@
       "sha256": "7731cdf4c7ef1f7510a453fbdd871e4bf28fbc8b78a657b06ca2d59215b47b0f",
       "bytes": 609177
     },
-    "Map.wz:Map/Map2/200090500.img": {
-      "path": "Map/Map2/200090500.img",
-      "name": "200090500.img",
+    "Npc.wz:1094000.img": {
+      "path": "1094000.img",
+      "name": "1094000.img",
       "type": 4,
-      "size": 15920,
-      "checksum": 1221778,
-      "offset": 612202531,
-      "sha256": "ff7babc39b1c86d81e598ca321cb143af3d4526bc0ab644ea23c9f47af354285",
-      "bytes": 15920
+      "size": 26581,
+      "checksum": 3296190,
+      "offset": 10309824,
+      "sha256": "986b47f9620d3b386ce47aa8127aca84ccda819e18ac7cdadcf262619162ea47",
+      "bytes": 26581
+    },
+    "Npc.wz:1094006.img": {
+      "path": "1094006.img",
+      "name": "1094006.img",
+      "type": 4,
+      "size": 261,
+      "checksum": 20269,
+      "offset": 14351173,
+      "sha256": "20107ee64c4078e70435e81cae0c6d36a9988240fa8f6f15bbd692588cc79d62",
+      "bytes": 261
+    },
+    "Npc.wz:1092014.img": {
+      "path": "1092014.img",
+      "name": "1092014.img",
+      "type": 4,
+      "size": 2835,
+      "checksum": 369434,
+      "offset": 51116676,
+      "sha256": "cb3ca9974bf4ee6bcb39d9fcac9b48f2625e6173fba9667d3b13bcdf05cf6193",
+      "bytes": 2835
+    },
+    "Npc.wz:1094002.img": {
+      "path": "1094002.img",
+      "name": "1094002.img",
+      "type": 4,
+      "size": 261,
+      "checksum": 20269,
+      "offset": 21098974,
+      "sha256": "20107ee64c4078e70435e81cae0c6d36a9988240fa8f6f15bbd692588cc79d62",
+      "bytes": 261
+    },
+    "Npc.wz:1094003.img": {
+      "path": "1094003.img",
+      "name": "1094003.img",
+      "type": 4,
+      "size": 261,
+      "checksum": 20269,
+      "offset": 21706500,
+      "sha256": "20107ee64c4078e70435e81cae0c6d36a9988240fa8f6f15bbd692588cc79d62",
+      "bytes": 261
+    },
+    "Npc.wz:1094004.img": {
+      "path": "1094004.img",
+      "name": "1094004.img",
+      "type": 4,
+      "size": 261,
+      "checksum": 20269,
+      "offset": 43087088,
+      "sha256": "20107ee64c4078e70435e81cae0c6d36a9988240fa8f6f15bbd692588cc79d62",
+      "bytes": 261
+    },
+    "Npc.wz:1094005.img": {
+      "path": "1094005.img",
+      "name": "1094005.img",
+      "type": 4,
+      "size": 261,
+      "checksum": 20269,
+      "offset": 35006159,
+      "sha256": "20107ee64c4078e70435e81cae0c6d36a9988240fa8f6f15bbd692588cc79d62",
+      "bytes": 261
+    },
+    "Npc.wz:1093000.img": {
+      "path": "1093000.img",
+      "name": "1093000.img",
+      "type": 4,
+      "size": 32937,
+      "checksum": 4289091,
+      "offset": 45632844,
+      "sha256": "fbfa27e8ec874a99b69b75bab639ee78be1a3a1802ee1fa5da4d04804c9b5550",
+      "bytes": 32937
+    },
+    "Npc.wz:1094001.img": {
+      "path": "1094001.img",
+      "name": "1094001.img",
+      "type": 4,
+      "size": 62558,
+      "checksum": 8099681,
+      "offset": 48465535,
+      "sha256": "6225458750a766734303d55e5970ee1dbc85d289c036da1c547b10ab4a5c3094",
+      "bytes": 62558
+    },
+    "Npc.wz:9000040.img": {
+      "path": "9000040.img",
+      "name": "9000040.img",
+      "type": 4,
+      "size": 77125,
+      "checksum": 10039907,
+      "offset": 39144987,
+      "sha256": "de5044bbdad7edca61f22ff79a6d07b42004f6a66cd94fa23e20214866175089",
+      "bytes": 77125
+    },
+    "Npc.wz:9000041.img": {
+      "path": "9000041.img",
+      "name": "9000041.img",
+      "type": 4,
+      "size": 1434,
+      "checksum": 182162,
+      "offset": 32191059,
+      "sha256": "93dc36c4deb709872e22940bd0da0353db0cb6f071bdc4430013e780d718f32c",
+      "bytes": 1434
     },
     "Map.wz:Obj/acc10.img": {
       "path": "Obj/acc10.img",
@@ -1937,16 +2721,6 @@
       "offset": 396392919,
       "sha256": "54dc8276117529c7c2894c90e3c7b1d47607405d85cd54af12f0267341a6d55f",
       "bytes": 6393836
-    },
-    "Map.wz:Map/Map2/211040000.img": {
-      "path": "Map/Map2/211040000.img",
-      "name": "211040000.img",
-      "type": 4,
-      "size": 55173,
-      "checksum": 4743286,
-      "offset": 613001741,
-      "sha256": "1c8c75a33e7af2006cede8d019c1c9f1d6a7191d6adfda238446324f5aac6afb",
-      "bytes": 55173
     },
     "Map.wz:Obj/acc3.img": {
       "path": "Obj/acc3.img",
@@ -1988,15 +2762,25 @@
       "sha256": "07fc7609056b17364a4be8d44dd83270dd88631101d57dadebeff6a91ab9dc5f",
       "bytes": 226016
     },
-    "Map.wz:Map/Map2/230000000.img": {
-      "path": "Map/Map2/230000000.img",
-      "name": "230000000.img",
+    "Mob.wz:5130104.img": {
+      "path": "5130104.img",
+      "name": "5130104.img",
       "type": 4,
-      "size": 57657,
-      "checksum": 4790983,
-      "offset": 619069433,
-      "sha256": "c545030c7a1dce039584c162df4a56b643041c488d8863deb73942bdafb500aa",
-      "bytes": 57657
+      "size": 30653,
+      "checksum": 3648736,
+      "offset": 66632678,
+      "sha256": "b293b628caadd4fc787a6715208dabeef58dc1b4cb62fc3a4697e85ae47e15b9",
+      "bytes": 30653
+    },
+    "Mob.wz:5140000.img": {
+      "path": "5140000.img",
+      "name": "5140000.img",
+      "type": 4,
+      "size": 30665,
+      "checksum": 3636756,
+      "offset": 46965447,
+      "sha256": "109b87dff90ce130973bb2e010565865d5237617093694aa5d2d9339efa14d32",
+      "bytes": 30665
     },
     "Map.wz:Obj/acc5.img": {
       "path": "Obj/acc5.img",
@@ -2037,6 +2821,36 @@
       "offset": 533477227,
       "sha256": "e17fbd10f298bca0224b3489ce2d9e4eee25af0431921f22de002c86f3ed16a2",
       "bytes": 1228876
+    },
+    "Npc.wz:2060009.img": {
+      "path": "2060009.img",
+      "name": "2060009.img",
+      "type": 4,
+      "size": 7931,
+      "checksum": 978159,
+      "offset": 33176889,
+      "sha256": "49644cee883a381636d05097dab200990d5903af7551a5b61a5e1a01ef941560",
+      "bytes": 7931
+    },
+    "Npc.wz:9250023.img": {
+      "path": "9250023.img",
+      "name": "9250023.img",
+      "type": 4,
+      "size": 899397,
+      "checksum": 118227596,
+      "offset": 33324142,
+      "sha256": "3a7d9739fd237471fccab1bca921561d631a28045559b67a95c3231bd403a21d",
+      "bytes": 899397
+    },
+    "Npc.wz:9000068.img": {
+      "path": "9000068.img",
+      "name": "9000068.img",
+      "type": 4,
+      "size": 464,
+      "checksum": 51029,
+      "offset": 44628277,
+      "sha256": "95f8535f36eb0dcfec6068371abcc1b8a05df459069c4c8dcfd35b5d21558114",
+      "bytes": 464
     },
     "Character.wz:Afterimage/swordOS.img": {
       "path": "Afterimage/swordOS.img",

@@ -36,6 +36,7 @@
         <div id="error" role="alert" hidden></div>
       </section>
       <aside>
+        <div id="inspection-controls"></div>
         <fieldset id="scene-controls" disabled>
           <legend>Scene controls</legend>
           <label for="map">Packaged map</label>
@@ -102,10 +103,11 @@
             </button>
           </div>
           <p class="hint">
-            Click the map to play: arrows or WASD move and climb, Space jumps,
-            Down + Space drops, X or left Control attacks. Camera buttons
-            inspect independently. Deterministic stepping requires Pause and
-            advances by the selected milliseconds.
+            Click the map to play: arrows move and climb, Space jumps, Down +
+            Space drops. Up requests supported offline portal traversal. I/E/S/K
+            open UI windows; attacks and server state remain unavailable. Camera
+            buttons inspect independently. Deterministic stepping requires Pause
+            and advances by the selected milliseconds.
           </p>
         </fieldset>
         <p id="physics-status" class="hint" role="status">

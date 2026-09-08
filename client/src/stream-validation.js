@@ -145,6 +145,23 @@ export function manifest(value) {
   entities(value.actors, value);
   return value;
 }
+
+/** Independent UI/effect resources retain the existing entity and atlas contracts. */
+export function visualBundle(value) {
+  if (
+    value?.schemaVersion !== 1 ||
+    typeof value.id !== "string" ||
+    !value.metadata ||
+    typeof value.metadata !== "object" ||
+    Array.isArray(value.metadata)
+  ) {
+    throw new Error("Invalid visual bundle");
+  }
+  atlasDictionary(value);
+  textureDictionary(value);
+  entities(value.entities, value);
+  return value;
+}
 function alpha(value) {
   if (value === undefined) return;
   finite(value);
@@ -222,7 +239,11 @@ export function entities(values, map) {
     if (!Number.isSafeInteger(entity.order) || entity.order < 0) {
       throw new Error("Missing global entity draw order");
     }
-    if (entity.kind !== "map" && entity.kind !== "character") {
+    if (
+      !["map", "character", "ui", "portal", "mob", "npc", "effect"].includes(
+        entity.kind,
+      )
+    ) {
       throw new Error("Unsupported entity kind");
     }
     for (const key of ["x", "y", "z"]) finite(entity[key]);

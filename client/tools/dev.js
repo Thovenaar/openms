@@ -38,7 +38,7 @@ async function serveFile(resource, method) {
   }
   const file = Bun.file(filename);
   const immutable =
-    /[/\\](atlases|regions|maps|references)[/\\][a-f0-9]{64}\.(png|json)$/.test(
+    /[/\\](atlases|regions|maps|references|bundles|audio)[/\\][a-f0-9]{64}\.(png|json|mp3|wav)$/.test(
       filename,
     );
   return new Response(method === "HEAD" ? null : file, {
@@ -70,6 +70,7 @@ const result = await Bun.build({
   entrypoints: [
     resolve(root, "src/main.js"),
     resolve(root, "src/atlas-worker.js"),
+    resolve(root, "src/audio-capture-worklet.js"),
     resolve(root, "tools/browser-oracle.js"),
   ],
   target: "browser",
