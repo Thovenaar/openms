@@ -2,6 +2,7 @@ import { EntityAnimation } from "./animation.js";
 import { VisualTextures } from "./visual-resources.js";
 import { entities } from "./stream-validation.js";
 import { check } from "./stream-network.js";
+import { mobFlipped } from "./offline-mobs.js";
 
 const MAX_PENDING_TEMPLATES = 2;
 const PREFETCH_VIEWPORTS = 0.5;
@@ -168,7 +169,7 @@ export class OfflineMobRenderer {
     const entity = mob.presentation;
     if (!entity) return;
     entity.setPosition(mob.x, mob.y);
-    entity.container.scale.x = mob.facing > 0 ? -1 : 1;
+    entity.container.scale.x = mobFlipped(mob) ? -1 : 1;
     entity.container.visible = mob.visible;
     const once = !mob.alive || mob.state === "hit" || mob.state === "attack";
     entity.setAction(mob.action, once ? "once" : "loop");

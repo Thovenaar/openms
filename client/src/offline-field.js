@@ -1,6 +1,8 @@
 import { createHitboxState, updateHitboxes } from "./physics/hitboxes.js";
-import { detachGround } from "./physics/geometry.js";
-import { relocateSimulation } from "./physics/simulation.js";
+import {
+  applyExternalImpulse,
+  relocateSimulation,
+} from "./physics/simulation.js";
 import { placeBody } from "./life-geometry.js";
 import { OfflineMobRenderer } from "./offline-mob-renderer.js";
 import {
@@ -10,6 +12,7 @@ import {
   overlaps,
   rectangleState,
   setMobAction,
+  mobFlipped,
   MOB_POLICY,
 } from "./offline-mobs.js";
 import {
@@ -26,15 +29,22 @@ export const COMBAT_POLICY = Object.freeze({
   incomingDamage: "max(1, ceil(original PADamage or MADamage / 20))",
   impact: "first fixed tick at/after half original equipped action duration",
   attackMP: 0,
-  hitInvulnerabilityMs: 1200,
-  hitStunMs: 300,
   recoverAfterDeathMs: 3000,
   passiveRecoveryMs: 3000,
   regeneration: "after 3s without damage: +1 HP/+1 MP, sitting +5 HP/+3 MP",
-  playerKnockbackX: 140,
-  playerKnockbackY: -150,
   respawn:
     "full HP/MP at field-entry position after recovery input; no EXP loss",
+});
+
+/** Original 009581a9 outcome / 00930b27 local-avatar update, not damage policy. */
+export const PLAYER_HIT = Object.freeze({
+  timerMs: 1500,
+  tickMs: 30,
+  horizontalImpulse: 200,
+  verticalImpulse: -200,
+  noDirection: 0x7fffffff,
+  normalTint: 0xffffff,
+  hitTint: 0x808080,
 });
 
 /** All authority lives here and in plain mob records, never in a Pixi entity. */
@@ -58,7 +68,15 @@ export class OfflineField {
     this.attackName = null;
     this.attackDurationMs = 0;
     this.attackFired = false;
-    this.invulnerableMs = 0;
+    this.hitTimerMs = 0;
+    this.blinkCounter = 0;
+    this.blinkTint = PLAYER_HIT.normalTint;
+    this.localHit = {
+      amount: 0,
+      direction: 0,
+      locallyInitiated: true,
+      source: null,
+    };
     this.recoveryMs = 0;
     this.wasAttack = false;
     this.wasJump = false;
@@ -68,7 +86,6 @@ export class OfflineField {
     this.lastStatus = "offline-local-policy";
     this.lastDamage = 0;
     this.spawn = { x: this.simulation.x, y: this.simulation.y };
-    this.hitAction = scene.actor.actions.has("hit1") ? "hit1" : null;
     this.deathAction = scene.actor.actions.has("dead") ? "dead" : null;
     this.simulation.movementLocked = this.blocksMovement;
     scene.offlineField = this;
@@ -78,14 +95,13 @@ export class OfflineField {
     return this.phase === "dead";
   }
   get blocksMovement() {
-    return this.phase !== "idle";
+    return this.phase === "attack" || this.dead;
   }
   get playback() {
     return this.phase === "idle" ? "loop" : "once";
   }
   get action() {
     if (this.phase === "attack") return this.attackName;
-    if (this.phase === "hit") return this.hitAction;
     return this.dead ? this.deathAction : null;
   }
 
@@ -112,7 +128,6 @@ export class OfflineField {
     this.wasAttack = !!input.attack;
     this.wasJump = !!input.jump;
     this.phaseMs += ms;
-    this.invulnerableMs = Math.max(0, this.invulnerableMs - ms);
     updateHitboxes(this.hitboxes, this.simulation, this.receiverContext);
     for (const mob of this.mobs) stepMob(mob, ms);
     this.stepPlayer(ms, attackEdge, jumpEdge);
@@ -120,6 +135,7 @@ export class OfflineField {
       for (const mob of this.mobs) this.stepMobAttack(mob);
       this.contactDamage();
     }
+    this.advanceHitPresentation();
     this.simulation.movementLocked = this.blocksMovement;
     this.renderer.synchronize();
   }
@@ -147,11 +163,6 @@ export class OfflineField {
         this.playerImpact();
       }
       if (this.phaseMs >= this.attackDurationMs) this.phase = "idle";
-    } else if (
-      this.phase === "hit" &&
-      this.phaseMs >= COMBAT_POLICY.hitStunMs
-    ) {
-      this.phase = "idle";
     }
   }
 
@@ -255,7 +266,7 @@ export class OfflineField {
       if (!attack.supported || (attack.properties.conMP ?? 0) > mob.mp) {
         continue;
       }
-      placeBody(mob.attackBody, attack.rectangle, mob, mob.facing > 0);
+      placeBody(mob.attackBody, attack.rectangle, mob, mobFlipped(mob));
       if (!overlaps(mob.attackBody, this.hitboxes.body)) continue;
       this.beginMobAttack(mob, attack, index);
       return;
@@ -267,9 +278,9 @@ export class OfflineField {
     const attack = mob.pendingAttack;
     if (mob.attackFired || mob.stateMs < attack.properties.attackAfter) return;
     mob.attackFired = true;
-    placeBody(mob.attackBody, attack.rectangle, mob, mob.facing > 0);
+    placeBody(mob.attackBody, attack.rectangle, mob, mobFlipped(mob));
     if (overlaps(mob.attackBody, this.hitboxes.body)) {
-      this.receiveDamage(mob, attack.properties.magic === 1);
+      this.proposeMobHit(mob, attack.properties.magic === 1);
     }
   }
 
@@ -286,49 +297,86 @@ export class OfflineField {
   }
 
   contactDamage() {
-    if (this.invulnerableMs > 0 || this.dead) return;
     for (const mob of this.mobs) {
       if (
-        mob.alive &&
-        mob.active &&
         mob.template.info.bodyAttack === 1 &&
         overlaps(mob.sweptBody, this.hitboxes.body)
       ) {
-        this.receiveDamage(mob, false);
-        return;
+        if (this.proposeMobHit(mob, false)) return;
       }
     }
   }
 
-  receiveDamage(mob, magic) {
-    if (this.dead || this.invulnerableMs > 0) return;
+  /** Damage magnitude and geometry-derived side remain explicit offline policy. */
+  proposeMobHit(mob, magic) {
     const base = magic
       ? mob.template.info.MADamage
       : mob.template.info.PADamage;
     if (!Number.isFinite(base) || base < 0) {
       this.lastStatus = "mob damage unavailable: original stat missing";
-      return;
+      return false;
     }
-    const amount = Math.max(1, Math.ceil(base / 20));
+    const hit = this.localHit;
+    hit.amount = Math.max(1, Math.ceil(base / 20));
+    hit.direction = this.simulation.x >= mob.x ? 1 : -1;
+    hit.source = mob;
+    return this.tryReceiveHit(hit);
+  }
+
+  /** One outcome boundary for contact/authored attacks and already-authorized hits.
+   * 009581a9 bypasses timer/death in authorized mode. Its separate status/action
+   * deadlines are not equivalent to every ordinary attack being invulnerable. */
+  tryReceiveHit(hit) {
+    validatePlayerHit(hit);
+    if (this.rejectsHit(hit)) return false;
+    const noDirection = hit.direction === PLAYER_HIT.noDirection;
+    applyExternalImpulse(
+      this.simulation,
+      noDirection
+        ? 0
+        : (hit.direction < 0 ? -1 : 1) * PLAYER_HIT.horizontalImpulse,
+      noDirection ? 0 : PLAYER_HIT.verticalImpulse,
+    );
     const profile = this.store.profile;
-    profile.hp = Math.max(0, profile.hp - amount);
-    this.lastDamage = amount;
-    this.invulnerableMs = COMBAT_POLICY.hitInvulnerabilityMs;
+    if (hit.amount > 0) profile.hp = Math.max(0, profile.hp - hit.amount);
+    this.lastDamage = hit.amount;
+    this.hitTimerMs = hit.amount > 0 ? PLAYER_HIT.timerMs : -PLAYER_HIT.timerMs;
     this.recoveryMs = 0;
-    this.phaseMs = 0;
-    this.phase = profile.hp === 0 ? "dead" : "hit";
+    if (profile.hp === 0 && !this.dead) {
+      this.phase = "dead";
+      this.phaseMs = 0;
+    }
+    if (hit.amount <= 0 || this.dead) this.blinkTint = PLAYER_HIT.normalTint;
+    this.simulation.movementLocked = this.blocksMovement;
     this.lastStatus = this.dead
       ? "local player dead; jump/attack to recover after 3s"
-      : "local player hit";
-    const sim = this.simulation;
-    sim.ladder = null;
-    sim.ladderId = 0;
-    detachGround(sim);
-    sim.vx = this.dead
-      ? 0
-      : (sim.x >= mob.x ? 1 : -1) * COMBAT_POLICY.playerKnockbackX;
-    sim.vy = this.dead ? 0 : COMBAT_POLICY.playerKnockbackY;
+      : "player hit outcome admitted";
     this.changed();
+    return true;
+  }
+
+  rejectsHit(hit) {
+    if (this.destroyed) return true;
+    if (hit.locallyInitiated && (this.hitTimerMs !== 0 || this.dead)) {
+      return true;
+    }
+    const source = hit.source;
+    return !!source && (!source.alive || !source.active || !!source.fault);
+  }
+
+  /** 00930b27 decrements before tint selection, once on the existing actor clock.
+   * The persistent blink phase is not restarted by another admitted outcome. */
+  advanceHitPresentation() {
+    if (this.hitTimerMs > 0) {
+      this.hitTimerMs = Math.max(0, this.hitTimerMs - PLAYER_HIT.tickMs);
+    } else if (this.hitTimerMs < 0) {
+      this.hitTimerMs = Math.min(0, this.hitTimerMs + PLAYER_HIT.tickMs);
+    }
+    this.blinkTint = PLAYER_HIT.normalTint;
+    if (!this.dead && this.hitTimerMs > 0) {
+      this.blinkCounter = (this.blinkCounter + 1) >>> 0;
+      if ((this.blinkCounter & 3) < 2) this.blinkTint = PLAYER_HIT.hitTint;
+    }
   }
 
   passiveRecovery(ms) {
@@ -370,7 +418,8 @@ export class OfflineField {
     this.store.profile.mp = this.store.profile.maxMP;
     this.phase = "idle";
     this.phaseMs = 0;
-    this.invulnerableMs = COMBAT_POLICY.hitInvulnerabilityMs;
+    this.hitTimerMs = 0;
+    this.blinkTint = PLAYER_HIT.normalTint;
     this.recoveryRequested = false;
     this.lastStatus = "local full recovery at field entry";
     updateHitboxes(this.hitboxes, sim, this.receiverContext);
@@ -391,6 +440,7 @@ export class OfflineField {
     return structuredClone({
       authority: COMBAT_POLICY.authority,
       policy: COMBAT_POLICY,
+      playerHit: PLAYER_HIT,
       mobPolicy: MOB_POLICY,
       progressionPolicy: PROGRESSION_POLICY,
       prepared: this.prepared,
@@ -401,7 +451,8 @@ export class OfflineField {
       dead: this.dead,
       blocksMovement: this.blocksMovement,
       status: this.lastStatus,
-      invulnerableMs: this.invulnerableMs,
+      hitTimerMs: this.hitTimerMs,
+      blinkTint: this.blinkTint,
       lastDamage: this.lastDamage,
       player: {
         ...this.store.profile,
@@ -416,9 +467,27 @@ export class OfflineField {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.hitTimerMs = 0;
+    this.blinkTint = PLAYER_HIT.normalTint;
     this.renderer.destroy();
     if (this.scene.offlineField === this) this.scene.offlineField = null;
     this.simulation.movementLocked = false;
+  }
+}
+
+/** Signed original integer outcome; authorized mode must be explicitly selected. */
+function validatePlayerHit(hit) {
+  if (
+    !hit ||
+    !Number.isSafeInteger(hit.amount) ||
+    hit.amount < -0x80000000 ||
+    hit.amount > 0x7fffffff ||
+    !Number.isSafeInteger(hit.direction) ||
+    hit.direction < -0x80000000 ||
+    hit.direction > 0x7fffffff ||
+    typeof hit.locallyInitiated !== "boolean"
+  ) {
+    throw new Error("Invalid player hit outcome");
   }
 }
 

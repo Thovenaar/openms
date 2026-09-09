@@ -201,6 +201,8 @@ export class StreamScene {
     actor.setPosition(pose.x, pose.y);
     // Original extracted artwork faces left; positive direction mirrors it.
     actor.container.scale.x = pose.facing > 0 ? -1 : 1;
+    // 00930b27 modulates RGB, not alpha; parent tint covers every resident/future part.
+    actor.container.tint = pose.tint ?? 0xffffff;
     const playback =
       pose.playback ?? (actor.action === action ? actor.playback : "loop");
     actor.setAction(action, playback);

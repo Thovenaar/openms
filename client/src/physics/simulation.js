@@ -165,6 +165,37 @@ export function relocateSimulation(sim, arrival) {
   return sim;
 }
 
+/** Original 007a6353: detach contact, enter air, merge requested px/s components.
+ * Grounded motion starts from zero; airborne motion keeps stronger aligned speed.
+ * Clearing the separate browser ladder reference maps the same air transition. */
+export function applyExternalImpulse(sim, vx, vy) {
+  if (!Number.isFinite(vx) || !Number.isFinite(vy)) {
+    throw new Error("Invalid external motion impulse");
+  }
+  if (sim.state === "ground") {
+    sim.vx = 0;
+    sim.vy = 0;
+  }
+  detachGround(sim);
+  sim.ladder = null;
+  sim.ladderId = 0;
+  sim.crouching = false;
+  sim.vx = mergeImpulse(sim.vx, vx);
+  sim.vy = mergeImpulse(sim.vy, vy);
+  updateAction(sim);
+}
+
+/** 007a6353 comparisons: opposing velocity adds, never blindly overwrites. */
+function mergeImpulse(current, requested) {
+  if (requested < 0 && current > requested) {
+    return Math.max(requested, requested + current);
+  }
+  if (requested > 0 && current < requested) {
+    return Math.min(requested, requested + current);
+  }
+  return current;
+}
+
 /** Mutate reusable state/input; retain overload backlog for subsequent calls.
  * onStep receives each executed quantum, never RAF elapsed; reentry is forbidden.
  * Held-key repeat scheduling is local policy, distinct from the immediate edge. */

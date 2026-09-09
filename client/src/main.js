@@ -87,6 +87,7 @@ function advancePlayerTick(ms) {
   scene.presentation.action =
     scene.fieldSystems.gameplay.action ?? scene.simulation.action;
   scene.presentation.playback = scene.fieldSystems.gameplay.playback ?? "loop";
+  scene.presentation.tint = scene.fieldSystems.gameplay.blinkTint;
   scene.updateActor(scene.presentation);
   scene.actor.advance(ms);
 }
@@ -377,6 +378,7 @@ async function prepareCandidate(id, signal, portalName) {
       state: scene.simulation.state,
       crouching: false,
       action: scene.simulation.action,
+      tint: 0xffffff,
     };
     scene.hitboxPreview = hitboxInspector.context;
     followCamera(

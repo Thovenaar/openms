@@ -33,6 +33,17 @@ Original inputs are `/Users/k/Development/tensorfish/Maplestory-Client`: executa
 
 Worker artifacts precede Main's replay fixes. Their original failures are retained as findings, not represented as final passes. The old waiting-worker update warning is likewise historical; the activated worker's normal update and final install have no hash-warning error.
 
+## Original hit and Shroom correction milestone
+
+[Native proof](client-corrections-validation/hit-shroom.json), [sample trace](client-corrections-validation/hit-shroom-trace.json), and [original consumer provenance](ghidra-client-corrections/provenance.json) supersede the former guessed player hit response and the `mobType`/`noFlip` stationary classification.
+
+- Map104040000: all ten original Shrooms patrol authored contiguous floor links, with original move frames and no motion faults. Their `mobType=4` does not prevent grounded motion; `noFlip` affects mirroring only.
+- Ordinary incoming hits use the recovered signed ±1500-ms admission timer, ±200/−200 impulse, and positive-only two-of-four gray/normal RGB modulation. No invented hit stun or blanket ordinary-attack immunity.
+- Native samples show two accepted positive hits1500 simulated ms apart, both with (+200,−200) velocity and movement unlocked. Native pause captures retain both tint states during protection. Scoped lint and45 tests/298 assertions passed.
+- Damage equations, continuous patrol decisions and unrecovered special status/controller behavior remain local or unavailable. See [the exact hit contract](offline-combat.md#recovered-ordinary-player-hit-response).
+
+The following release/performance sections are the retained **earlier integration baseline**, not a new full-release measurement for this correction.
+
 ## Final release and server-stopped proof
 
 - Build: `2a08e4020a9770693c2f5ec422eb3e333d92f82819596288fed537e89cddf455`.

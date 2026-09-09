@@ -3,6 +3,7 @@ import original from "../../docs/ghidra-physics-motion/wz-globals.json";
 import {
   createSimulation,
   advanceSimulation,
+  applyExternalImpulse,
 } from "../src/physics/simulation.js";
 import { compareRefreshRates } from "../tools/physics-reference.js";
 import { attachGround } from "../src/physics/geometry.js";
@@ -263,4 +264,43 @@ test("grounded downward ladder entry is restricted to its top endpoint", () => {
   expect(sim.state).toBe("ground");
   advanceSimulation(sim, input({ up: true }), 30);
   expect({ state: sim.state, y: sim.y }).toEqual({ state: "ladder", y: 50 });
+});
+
+test("external hits detach moving ground contact before applying the ordinary impulse", () => {
+  const sim = standing(world(), { x: 0, y: 0 });
+  sim.speed = sim.vx = 125;
+  applyExternalImpulse(sim, -200, -200);
+  advanceSimulation(sim, input({ right: true }), 30);
+  expect(sim.x).toBeLessThan(-5);
+  expect(sim.y).toBeCloseTo(-5.1, 10);
+  expect(sim.state).toBe("air");
+  expect(sim.footholdId).toBe(0);
+});
+
+test("airborne hit components retain stronger aligned motion and combine opposing motion", () => {
+  const sim = createSimulation(world(), { x: 0, y: -100 });
+  sim.vx = -350;
+  sim.vy = 80;
+  applyExternalImpulse(sim, -200, -200);
+  expect({ vx: sim.vx, vy: sim.vy }).toEqual({ vx: -350, vy: -120 });
+  applyExternalImpulse(sim, 200, 200);
+  expect({ vx: sim.vx, vy: sim.vy }).toEqual({ vx: -150, vy: 80 });
+  applyExternalImpulse(sim, 0, 0);
+  expect({ vx: sim.vx, vy: sim.vy }).toEqual({ vx: -150, vy: 80 });
+});
+
+test("a ladder hit enters ordinary airborne integration rather than continuing to climb", () => {
+  const terrain = world([floor(1, 50)]);
+  terrain.ladders = [
+    { id: 1, x: 0, y1: 0, y2: 100, ladder: 1, uf: 1, page: 0 },
+  ];
+  const sim = standing(terrain, { x: 0, y: 50 });
+  advanceSimulation(sim, input({ up: true }), 30);
+  expect(sim.state).toBe("ladder");
+  applyExternalImpulse(sim, 200, -200);
+  advanceSimulation(sim, input({ up: true }), 30);
+  expect(sim.state).toBe("air");
+  expect(sim.ladderId).toBe(0);
+  expect(sim.x).toBeGreaterThan(5);
+  expect(sim.y).toBeCloseTo(44.9, 10);
 });

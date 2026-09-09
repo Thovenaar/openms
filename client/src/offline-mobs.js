@@ -9,7 +9,8 @@ export const MOB_POLICY = Object.freeze({
   attackCooldownMs: 2400,
   recoveryMs: 5000,
   maxTransitions: 32,
-  specialMovement: "stationary: fly/jump/controller rules unavailable",
+  specialMovement:
+    "stationary: no grounded move artwork or unsupported flying controller",
   mobTime: "preserved, not interpreted as respawn seconds",
 });
 const MAX_MOBS = 4096;
@@ -157,9 +158,10 @@ function mobContact(authored, info, actions, geometry) {
     foothold &&
     foothold.dx > 0 &&
     Number.isFinite(authored.rx0) &&
-    Number.isFinite(authored.rx1);
+    Number.isFinite(authored.rx1) &&
+    authored.rx0 <= authored.rx1;
   const movement =
-    ground && !actions.fly && !info.flySpeed && !info.mobType && !info.noFlip
+    ground && actions.move && !actions.fly && !info.flySpeed
       ? "ground-patrol"
       : "stationary-special";
   return { foothold, movement };
@@ -181,7 +183,7 @@ function mobInactiveReason(record, template, definition) {
 }
 
 /** Ground patrol starts on its original segment; special movement stays authored. */
-function mobSpawn(authored, info, contact) {
+function mobSpawn(authored, contact) {
   const { foothold, movement } = contact;
   let x = authored.x;
   let y = authored.y;
@@ -189,7 +191,7 @@ function mobSpawn(authored, info, contact) {
     x = Math.max(foothold.x1, Math.min(foothold.x2, x));
     y = groundY(foothold, x);
   }
-  const facing = info.noFlip ? -1 : authored.f === 0 ? 1 : -1;
+  const facing = authored.f === 0 ? 1 : -1;
   return {
     x,
     y,
@@ -253,7 +255,7 @@ function createMob(record, template, definition, simulation) {
     record,
     template,
     ...definition,
-    ...mobSpawn(record.authored, template.info, contact),
+    ...mobSpawn(record.authored, contact),
     ...mobInitialState(definition, inactiveReason),
   };
   updateMobBody(mob);
@@ -291,11 +293,16 @@ function advanceMobAction(mob, ms) {
   }
 }
 
+/** noFlip locks artwork/body mirroring, not the grounded controller's heading. */
+export function mobFlipped(mob) {
+  return mob.facing > 0 && !mob.template.info.noFlip;
+}
+
 export function updateMobBody(mob) {
   const local = mob.alive
     ? mob.actions[mob.action]?.frames[mob.frame]?.body
     : null;
-  placeBody(mob.body, local, mob, mob.facing > 0);
+  placeBody(mob.body, local, mob, mobFlipped(mob));
   mob.delta.x = mob.previousX - mob.x;
   mob.delta.y = mob.previousY - mob.y;
   sweepBody(mob.sweptBody, mob.body, mob.delta);
