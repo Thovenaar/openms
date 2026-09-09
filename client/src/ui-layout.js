@@ -1,7 +1,7 @@
-import { layoutGauges } from "./ui-hud.js";
+import { HUD_CLIENT_Y, layoutGauges } from "./ui-hud.js";
 import { layoutKeys } from "./ui-keyconfig.js";
-/** First original status-bar control row; windows must leave it unobstructed. */
-export const HUD_TOP = 515;
+/** Original status control row translated from CWnd client space (008cfd43..60). */
+export const HUD_TOP = 515 + HUD_CLIENT_Y;
 
 // Recovered 008d2fc3..008d36ab control-create calls, reference screen coordinates (800 x 600).
 const HUD_BUTTONS = [
@@ -11,10 +11,10 @@ const HUD_BUTTONS = [
   ["StatKey", 678, HUD_TOP, "Stat"],
   ["SkillKey", 708, HUD_TOP, "Skill"],
   ["KeySet", 738, HUD_TOP, "KeyConfig"],
-  ["BtShop", 573, 543, "shop"],
-  ["BtNPT", 629, 543, "NPT"],
-  ["BtMenu", 685, 543, "GameMenu"],
-  ["BtShort", 741, 543, "ShortCut"],
+  ["BtShop", 573, 543 + HUD_CLIENT_Y, "shop"],
+  ["BtNPT", 629, 543 + HUD_CLIENT_Y, "NPT"],
+  ["BtMenu", 685, 543 + HUD_CLIENT_Y, "GameMenu"],
+  ["BtShort", 741, 543 + HUD_CLIENT_Y, "ShortCut"],
 ];
 // 00849f3e and 0084a6bc: x=6, y=24+26*n. Only controls actually constructed there.
 const MENUS = {

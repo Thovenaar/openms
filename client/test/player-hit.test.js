@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import original from "../../docs/ghidra-physics-motion/wz-globals.json";
 import { OfflineField, PLAYER_HIT } from "../src/offline-field.js";
+import { AudiovisualSystem } from "../src/audiovisual-system.js";
 import {
   createSimulation,
   advanceSimulation,
@@ -205,5 +206,47 @@ test("contact and authored attack impacts share signed admission and source elig
   field.mobImpact(mob);
   field.contactDamage();
   expect(field.store.profile.hp).toBe(90);
+  field.destroy();
+});
+
+test("contact during an authored attack does not inherit its impact sound", async () => {
+  const field = await fieldFixture();
+  const sounds = [];
+  const audio = Object.create(AudiovisualSystem.prototype);
+  audio.combatSound = (_group, _id, name) => sounds.push(name);
+  field.hooks.onPlayerHit = (outcome, simulation) =>
+    audio.onPlayerHit(outcome, simulation);
+  const rectangle = { left: -1, top: -1, right: 1, bottom: 1 };
+  const mob = {
+    x: 0,
+    alive: true,
+    active: true,
+    y: 0,
+    facing: 1,
+    templateId: 1,
+    template: { info: { bodyAttack: 1, PADamage: 20 } },
+    action: "attack1",
+    pendingAttack: {
+      action: "attack1",
+      rectangle,
+      properties: { attackAfter: 0, magic: 0 },
+    },
+    attackBody: {},
+    stateMs: 0,
+    sweptBody: { active: true, ...rectangle },
+  };
+  field.mobs.push(mob);
+  Object.assign(field.hitboxes.body, { active: true, ...rectangle });
+  field.contactDamage();
+  expect(field.store.profile.hp).toBe(99);
+  expect(sounds).toEqual([]);
+  field.hitTimerMs = 0; // Isolate three separately admitted outcomes without advancing AI.
+  field.mobImpact(mob);
+  expect(field.store.profile.hp).toBe(98);
+  expect(sounds).toEqual(["CharDam1"]);
+  field.hitTimerMs = 0;
+  field.contactDamage();
+  expect(field.store.profile.hp).toBe(97);
+  expect(sounds).toEqual(["CharDam1"]);
   field.destroy();
 });

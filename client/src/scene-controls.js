@@ -33,6 +33,9 @@ class Controls {
   bindPlayer() {
     const api = this.api;
     this.listen("#pause", "click", () => api.pause(!api.snapshot().paused));
+    this.listen("#input-config", "click", () =>
+      this.invoke(() => api.onKeyConfig()),
+    );
     this.listen("#step", "click", () =>
       this.invoke(() => {
         api.pause(true);
@@ -140,6 +143,9 @@ export function createControls(api) {
 
 function updateReadouts(snapshot) {
   document.querySelector("#scene-controls").disabled = !snapshot.currentMap;
+  document.querySelector("#input-config").disabled = !snapshot.currentMap;
+  document.querySelector("#step").disabled =
+    !snapshot.currentMap || snapshot.loading;
   for (const id of ["entity", "action", "visible"]) {
     document.querySelector(`#${id}`).disabled = !snapshot.currentMap;
   }
@@ -156,14 +162,12 @@ function updateReadouts(snapshot) {
   updateSettings(snapshot);
   document.querySelector("#status").value = snapshot.loading
     ? "Streaming map replacement; current scene retained, gameplay paused…"
-    : `${snapshot.currentMap || "No map"} · ${snapshot.entities.length} entities · ${snapshot.pendingLoads} region loads · ${snapshot.streaming.gpuEstimatedBytes || 0} GPU bytes`;
+    : `${snapshot.currentMap || "No map"} · ${snapshot.entities.length} entities · ${snapshot.pendingLoads} region loads`;
 }
 function updateSettings(snapshot) {
   const settings = {
     effective: snapshot.simulation?.effectiveSettings,
-    blocked: snapshot.simulation?.blocked,
     diagnostics: snapshot.simulation?.diagnostics,
-    artworkUnsupported: snapshot.actorArtworkUnsupported,
     streaming: snapshot.streaming,
   };
   document.querySelector("#settings").textContent = JSON.stringify(
@@ -172,6 +176,6 @@ function updateSettings(snapshot) {
     2,
   );
   document.querySelector("#physics-status").textContent = snapshot.simulation
-    ? `Physics coverage: ${JSON.stringify(settings.blocked)}. Artwork unavailable: ${settings.artworkUnsupported || "none for current action"}.`
+    ? `Physics coverage: ${JSON.stringify(snapshot.simulation.blocked)}. Artwork unavailable: ${snapshot.actorArtworkUnsupported || "none for current action"}.`
     : "Waiting for physics coverage…";
 }

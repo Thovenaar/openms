@@ -77,6 +77,7 @@ const sidebar = [
     text: "Browser validation",
     items: [
       { text: "Validation method", link: "/validation-method" },
+      { text: "Systematic client audit", link: "/client-audit" },
       {
         text: "Integrated in-game results",
         link: "/ingame-validation/results",

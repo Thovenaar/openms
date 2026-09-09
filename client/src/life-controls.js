@@ -11,7 +11,7 @@ export class LifeControls {
     this.system = system;
     this.root = document.createElement("details");
     this.root.dataset.lifePreview = "";
-    element("summary", "Life metadata preview · no server", this.root);
+    element("summary", "Life metadata and previews", this.root);
     element(
       "p",
       "Original life metadata. Mobs use explicit offline-local combat policy; NPC actions are inspection previews.",
@@ -38,18 +38,17 @@ export class LifeControls {
     this.action.disabled = records.length === 0;
     this.placement.disabled = records.length === 0;
     const label = element("label", "", this.root);
+    label.className = "check";
     this.geometry = element("input", "", label);
     this.geometry.type = "checkbox";
-    label.append(" Show original body / interaction / fh geometry");
+    label.append(" Body, interaction and foothold geometry");
     const hiddenLabel = element("label", "", this.root);
+    hiddenLabel.className = "check";
     this.hidden = element("input", "", hiddenLabel);
     this.hidden.type = "checkbox";
-    hiddenLabel.append(" Reveal authored hide=1 (preview override)");
-    this.status = element(
-      "p",
-      "Select a placement for authored metadata.",
-      this.root,
-    );
+    hiddenLabel.append(" Reveal authored hidden placements");
+    this.status = element("p", "", this.root);
+    this.status.setAttribute("role", "status");
     this.listen();
     document.querySelector("#inspection-controls").append(this.root);
     if (records.length) this.select();

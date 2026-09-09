@@ -8,13 +8,15 @@ class RuntimePCMTap extends globalThis.AudioWorkletProcessor {
     this.port.onmessage = this.receive.bind(this);
   }
   receive(event) {
-    const frames = event.data.frames;
+    const frames = event?.data?.frames;
     if (
       !Number.isInteger(frames) ||
       frames < 1 ||
       frames > globalThis.sampleRate * MAX_CAPTURE_SECONDS ||
       this.capture
     ) {
+      this.capture = null;
+      this.offset = 0;
       this.port.postMessage({ error: "Invalid or overlapping PCM capture" });
       return;
     }

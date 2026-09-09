@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "buildId": "bd0c97cf6114873a795934177a66c25995166dc7c9ebcbc192a9c2d34f7dd78f",
+  "buildId": "58390faf12e68f44b9d6de9f7835ae6a912652de28c037894b8a4faf7886e56c",
   "inputDirectory": "/Users/k/Development/tensorfish/Maplestory-Client",
   "maps": [
     {
@@ -39242,28 +39242,28 @@
     "maxMaps": 512
   },
   "counts": {
-    "textures": 12927,
-    "atlases": 2734,
-    "images": 1348,
+    "textures": 13020,
+    "atlases": 2736,
+    "images": 1351,
     "regions": 7013
   },
   "bytes": {
-    "originalRGBA": 1110727932,
-    "roundTripCompared": 1109469160,
-    "atlasPNG": 123719465,
+    "originalRGBA": 1111168820,
+    "roundTripCompared": 1109910048,
+    "atlasPNG": 123774509,
     "tileReconstructionCompared": 5200920,
     "mapJSON": 143301100,
     "hitboxReferencesJSON": 5005,
-    "catalogJSON": 12230913,
-    "regionJSON": 44447209,
-    "atlasDecodedRGBA": 1677962036
+    "catalogJSON": 12483859,
+    "regionJSON": 44451811,
+    "atlasDecodedRGBA": 1678848168
   },
   "pixelRoundTrip": {
     "passed": true,
     "method": "PNG IDAT independently inflated and each RGBA subrect row compared byte-for-byte"
   },
   "formats": {
-    "1/0": 12948,
+    "1/0": 13041,
     "513/4": 2,
     "2/0": 18
   },
@@ -39929,6 +39929,7 @@
     "String.wz:Skill.img",
     "Skill.wz:000.img",
     "Skill.wz:310.img",
+    "UI.wz:ChatBalloon.img",
     "Sound.wz:Bgm00.img",
     "Sound.wz:Bgm01.img",
     "Sound.wz:Bgm02.img",
@@ -39945,6 +39946,8 @@
     "Sound.wz:UI.img",
     "Sound.wz:Game.img",
     "Effect.wz:BasicEff.img",
+    "Sound.wz:Mob.img",
+    "Sound.wz:Weapon.img",
     "Effect.wz:MapEff.img",
     "Map.wz:Obj/houseGS.img",
     "Map.wz:Obj/acc1.img",
@@ -40617,7 +40620,7 @@
     "Mob.wz:9500332.img",
     "Morph.wz:0001.img"
   ],
-  "durationMs": 22158.503958999998,
+  "durationMs": 21782.781792,
   "limitations": [
     "Camera fallback derived from footholds; exact original fallback remains unverified.",
     "Map metadata retains active unsupported physics in physics.unsupported.",
@@ -47234,6 +47237,16 @@
       "sha256": "ae941ac8150ca9c38bb58bf5d1110808f02285b15434fbc32bcf01b5f0d67a2f",
       "bytes": 181944
     },
+    "UI.wz:ChatBalloon.img": {
+      "path": "ChatBalloon.img",
+      "name": "ChatBalloon.img",
+      "type": 4,
+      "size": 148409,
+      "checksum": 14192367,
+      "offset": 19689143,
+      "sha256": "44d764eebe53399011a54dbabf24eafff0b019de7ff46f94dd3159c79c894169",
+      "bytes": 148409
+    },
     "Sound.wz:Bgm00.img": {
       "path": "Bgm00.img",
       "name": "Bgm00.img",
@@ -47393,6 +47406,26 @@
       "offset": 7440730,
       "sha256": "407f65c9e081992d840d9bf1b9f95c08877126286355db1fd48da78f2d348c12",
       "bytes": 3992670
+    },
+    "Sound.wz:Mob.img": {
+      "path": "Mob.img",
+      "name": "Mob.img",
+      "type": 4,
+      "size": 16460529,
+      "checksum": -2109137230,
+      "offset": 346778846,
+      "sha256": "bde2aea6c3168727e51a25517e9cd14872d94237a07da1b8fae5f769fa07c2a9",
+      "bytes": 16460529
+    },
+    "Sound.wz:Weapon.img": {
+      "path": "Weapon.img",
+      "name": "Weapon.img",
+      "type": 4,
+      "size": 22589,
+      "checksum": 2832830,
+      "offset": 363239375,
+      "sha256": "416c2f52cc7c69d2d18f69d40af150a29cadeba36d9ff65b9ffec4549c3be02c",
+      "bytes": 22589
     },
     "Effect.wz:MapEff.img": {
       "path": "MapEff.img",

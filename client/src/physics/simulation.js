@@ -261,7 +261,11 @@ function step(sim, input) {
     ? 0
     : Number(input.down) - Number(input.up);
   if (horizontal !== 0) sim.facing = horizontal;
-  sim.crouching = !sim.movementLocked && sim.state === "ground" && input.down;
+  sim.crouching =
+    !sim.movementLocked &&
+    sim.state === "ground" &&
+    input.down &&
+    horizontal === 0;
   scheduleJump(sim, input, horizontal);
   if (sim.state === "ladder") climb(sim, vertical);
   else integrate(sim, sim.crouching ? 0 : horizontal, vertical);
@@ -370,7 +374,9 @@ function updateAction(sim) {
   } else if (sim.state === "swim" || sim.state === "fly") sim.action = "fly";
   else if (sim.state !== "ground") sim.action = "jump";
   else if (sim.crouching) sim.action = "prone";
-  else sim.action = sim.speed === 0 ? "stand1" : "walk1";
+  // 00950555 → 00936d99 selects grounded walk from horizontal intent, not
+  // collision-resolved speed; an idle sliding avatar likewise keeps its idle pose.
+  else sim.action = sim.horizontalInput === 0 ? "stand1" : "walk1";
 }
 
 /** Allocate only on explicit inspection, never from the fixed-step loop. */

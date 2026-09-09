@@ -9,8 +9,9 @@ const MAX_ENTRIES = 100000;
  * unusual options and exact maps, not name-derived claims about behavior.
  * @param {string} source @param {string} output */
 export async function probePhysicsMaps(source, output) {
-  const archive = new WzArchive(resolve(source, "Map.wz"));
+  let archive;
   const report = {
+    complete: false,
     maps: 0,
     extracted: 0,
     footholds: 0,
@@ -22,21 +23,24 @@ export async function probePhysicsMaps(source, output) {
     active: [],
     sections: new Map(),
   };
+  let path = "Map.wz";
   try {
+    archive = new WzArchive(resolve(source, "Map.wz"));
     if (archive.entries.size > MAX_ENTRIES) {
       throw new Error("Archive exceeds probe entry bound");
     }
+    path = "Physics.img";
     const physics = parseImage(archive.imageReader("Physics.img"));
     for (const entry of archive.entries.values()) {
       if (entry.type !== 4 || !/^Map\/Map\d\/\d+\.img$/.test(entry.path)) {
         continue;
       }
       report.maps++;
-      const map = parseImage(archive.imageReader(entry.path));
-      for (const key of Object.keys(map.children)) {
-        report.sections.set(key, (report.sections.get(key) ?? 0) + 1);
-      }
       try {
+        const map = parseImage(archive.imageReader(entry.path));
+        for (const key of Object.keys(map.children)) {
+          report.sections.set(key, (report.sections.get(key) ?? 0) + 1);
+        }
         const data = readPhysicsData(map, physics);
         report.extracted++;
         report.footholds += data.footholds.length;
@@ -49,15 +53,21 @@ export async function probePhysicsMaps(source, output) {
         report.failures.push({ path: entry.path, error: String(error) });
       }
     }
+  } catch (error) {
+    report.failures.push({ path, error: String(error) });
   } finally {
-    archive.close();
+    archive?.close();
   }
   report.sections = Object.fromEntries(report.sections);
+  report.complete = report.failures.length === 0;
   await Bun.write(output, JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ ...report, active: report.active.length }));
+  if (!report.complete) {
+    throw new Error(`Incomplete map probe; see failures in ${output}`);
+  }
 }
 
-/** Collect nonzero field flags and uninterpreted map sections.
+/** Collect authored field flags (including zero) and uninterpreted map sections.
  * @param {any} data */
 function activeFlags(data) {
   const flags = Object.create(null);
@@ -71,7 +81,7 @@ function activeFlags(data) {
     "VRLimit",
     "allMoveCheck",
   ]) {
-    if (data.map[key]) flags[key] = data.map[key];
+    if (Object.hasOwn(data.map, key)) flags[key] = data.map[key];
   }
   for (const [key, value] of Object.entries(data.map.$unrecognized)) {
     flags[key] = value;

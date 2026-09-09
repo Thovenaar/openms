@@ -48,6 +48,14 @@ export function originalVolumeGain(volume) {
   return Math.pow(10, attenuation / 2000);
 }
 
+/** 0043fdab: truncate backend master * spatial percentage / 100 before DX8 curve. */
+function eventGain(volume, percent) {
+  return (
+    originalVolumeGain(Math.trunc((volume * percent) / 100)) /
+    originalVolumeGain(volume)
+  );
+}
+
 /** Validate every native decoded sample outside rendering, retaining source duration separately. */
 async function validatePCM(buffer, descriptor, signal) {
   const bytes = buffer.length * buffer.numberOfChannels * 4;
@@ -171,6 +179,11 @@ export class AudioEngine {
       setting.mute ? 0 : originalVolumeGain(setting.volume),
       this.context.currentTime,
     );
+    for (const voice of this.sources) {
+      if (voice.category === category) {
+        voice.gain.gain.value = eventGain(setting.volume, voice.percent);
+      }
+    }
   }
   evict(incoming) {
     for (const [key, entry] of this.cache) {
@@ -258,7 +271,7 @@ export class AudioEngine {
     };
     return entry;
   }
-  start(entry, category, loop) {
+  start(entry, category, loop, percent = 100) {
     if (this.sources.size >= MAX_SOURCES) {
       throw new Error("Audio voice budget exhausted");
     }
@@ -266,9 +279,10 @@ export class AudioEngine {
     source.buffer = entry.buffer;
     source.loop = loop;
     const gain = this.context.createGain();
+    gain.gain.value = eventGain(this.settings[category].volume, percent);
     source.connect(gain);
     gain.connect(this.masters[category]);
-    const voice = { source, gain, entry, ended: false };
+    const voice = { source, gain, entry, category, percent, ended: false };
     source.onended = () => this.releaseVoice(voice);
     this.sources.add(voice);
     source.start();
@@ -290,14 +304,17 @@ export class AudioEngine {
     voice.source.stop();
     this.releaseVoice(voice);
   }
-  async playSound(descriptor, signal) {
+  async playSound(descriptor, signal, percent = 100) {
+    if (!Number.isInteger(percent) || percent < 0 || percent > 100) {
+      throw new Error("Sound event percentage must be within 0..100");
+    }
     if (!this.context || this.context.state !== "running" || !this.masters) {
       return { status: "gesture-required" };
     }
     const entry = await this.acquire(descriptor, signal);
     try {
       check(signal);
-      this.start(entry, "SE", false);
+      this.start(entry, "SE", false, percent);
       return { status: "playing", source: descriptor.source };
     } catch (error) {
       entry.users--;

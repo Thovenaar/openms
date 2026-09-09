@@ -31,7 +31,7 @@ function actionForCode(context, code) {
 }
 
 function press(context, event) {
-  if (event.defaultPrevented) return;
+  if (event.defaultPrevented || event.metaKey) return;
   const index = PHYSICAL_CODES.indexOf(event.code);
   if (index < 0) return;
   const action = actionForCode(context, event.code);
@@ -79,7 +79,10 @@ export function createPlayerInput(canvas) {
     context.held[index] = 0;
     recompute(context);
   }
-  function clear() {
+  function clear(event) {
+    if (event?.type === "visibilitychange" && !globalThis.document?.hidden) {
+      return;
+    }
     context.held.fill(0);
     context.tappedJump = false;
     context.tappedAttack = false;
@@ -125,12 +128,17 @@ function attachInput(canvas, handlers, attach) {
     window.addEventListener("keyup", handlers.keyup);
     window.addEventListener("blur", handlers.clear);
     canvas.addEventListener("blur", handlers.clear);
+    globalThis.document?.addEventListener("visibilitychange", handlers.clear);
     canvas.addEventListener("pointerdown", focusCanvas);
   } else {
     canvas.removeEventListener("keydown", handlers.keydown);
     window.removeEventListener("keyup", handlers.keyup);
     window.removeEventListener("blur", handlers.clear);
     canvas.removeEventListener("blur", handlers.clear);
+    globalThis.document?.removeEventListener(
+      "visibilitychange",
+      handlers.clear,
+    );
     canvas.removeEventListener("pointerdown", focusCanvas);
   }
 }

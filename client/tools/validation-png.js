@@ -3,27 +3,120 @@ import { inflateSync } from "node:zlib";
 const SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const CHANNELS = { 0: 1, 2: 3, 4: 2, 6: 4 };
 const MAX_PIXELS = 16777216;
+const MAX_INPUT_BYTES = 128 * 1024 * 1024;
+const MAX_CHUNKS = 100000;
+
+/** PNG authenticates the chunk type and payload, excluding its length. */
+function chunkCRC(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/** Read one fully framed, CRC-authenticated chunk at a bounded input offset. */
+function readChunk(bytes, offset) {
+  const length = bytes.readUInt32BE(offset);
+  const type = bytes.toString("latin1", offset + 4, offset + 8);
+  if (!/^[A-Za-z]{4}$/.test(type) || (bytes[offset + 6] & 32) !== 0) {
+    throw new Error("Invalid PNG chunk type");
+  }
+  if (offset + length + 12 > bytes.length) {
+    throw new Error("Truncated PNG chunk");
+  }
+  const data = bytes.subarray(offset + 8, offset + length + 8);
+  const crc = chunkCRC(bytes.subarray(offset + 4, offset + length + 8));
+  if (crc !== bytes.readUInt32BE(offset + length + 8)) {
+    throw new Error(`PNG CRC mismatch: ${type}`);
+  }
+  return { type, data, critical: (bytes[offset + 4] & 32) === 0 };
+}
+
+/** Admit optional palettes only before image data in supported color formats. */
+function admitPalette(info, state, length) {
+  if (
+    state.palette ||
+    state.endedData ||
+    info.color === 0 ||
+    info.color === 4 ||
+    length === 0 ||
+    length > 768 ||
+    length % 3 !== 0
+  ) {
+    throw new Error("Invalid PNG palette");
+  }
+  state.palette = true;
+}
+
+/** Enforce chunk ordering after framing and CRC validation. */
+function admitChunk(info, state, chunk, count) {
+  const { type, data } = chunk;
+  if (count === 0 && type !== "IHDR") {
+    throw new Error("PNG header must be first");
+  }
+  if (type === "IHDR") {
+    if (count !== 0) throw new Error("Duplicate PNG header");
+    readHeader(info, data);
+  } else if (type === "IDAT") {
+    if (state.endedData) throw new Error("Noncontiguous PNG image data");
+    info.chunks.push(data);
+  } else {
+    if (info.chunks.length) state.endedData = true;
+    admitNonImageChunk(info, state, chunk);
+  }
+}
+
+/** Reject unsupported screenshot extensions and unknown critical chunks. */
+function admitNonImageChunk(info, state, chunk) {
+  const { type, data } = chunk;
+  if (type === "PLTE") {
+    admitPalette(info, state, data.length);
+  } else if (
+    type === "tRNS" ||
+    type === "acTL" ||
+    type === "fcTL" ||
+    type === "fdAT"
+  ) {
+    throw new Error(`Unsupported screenshot PNG chunk: ${type}`);
+  } else if (type !== "IEND" && chunk.critical) {
+    throw new Error(`Unknown critical PNG chunk: ${type}`);
+  }
+}
+
+/** Require an empty terminal chunk and at least one admitted image-data chunk. */
+function validateEnd(info, chunk, offset, byteLength) {
+  if (chunk.data.length !== 0 || offset !== byteLength) {
+    throw new Error("Invalid PNG end");
+  }
+  if (!info.channels || !info.chunks.length) {
+    throw new Error("Missing PNG image data");
+  }
+}
 
 /** Screenshot formats only; bounded output prevents inflated payload surprises. */
 function inspectPNG(input) {
-  const bytes = Buffer.from(input);
+  if (!(input instanceof Uint8Array) || input.byteLength > MAX_INPUT_BYTES) {
+    throw new Error("Invalid or oversized PNG input");
+  }
+  const bytes = Buffer.from(input.buffer, input.byteOffset, input.byteLength);
   if (!bytes.subarray(0, 8).equals(SIGNATURE)) throw new Error("Not PNG");
   const info = { width: 0, height: 0, color: -1, channels: 0, chunks: [] };
+  const state = { endedData: false, palette: false };
   let offset = 8;
-  for (let count = 0; count < 100000 && offset + 12 <= bytes.length; count++) {
-    const length = bytes.readUInt32BE(offset);
-    const type = bytes.toString("ascii", offset + 4, offset + 8);
-    if (offset + length + 12 > bytes.length) {
-      throw new Error("Truncated PNG chunk");
-    }
-    const data = bytes.subarray(offset + 8, offset + length + 8);
-    if (type === "IHDR") readHeader(info, data);
-    if (type === "IDAT") info.chunks.push(data);
-    offset += length + 12;
-    if (type === "IEND") {
-      if (!info.channels || !info.chunks.length) {
-        throw new Error("Missing PNG image data");
-      }
+  for (
+    let count = 0;
+    count < MAX_CHUNKS && offset + 12 <= bytes.length;
+    count++
+  ) {
+    const chunk = readChunk(bytes, offset);
+    admitChunk(info, state, chunk, count);
+    offset += chunk.data.length + 12;
+    if (chunk.type === "IEND") {
+      validateEnd(info, chunk, offset, bytes.length);
       return info;
     }
   }
@@ -120,8 +213,31 @@ export function decodePNG(input) {
   return { width: info.width, height: info.height, pixels };
 }
 
+/** Only complete byte RGBA surfaces can be compared. */
+function validatePixels(image) {
+  if (
+    !Number.isSafeInteger(image.width) ||
+    !Number.isSafeInteger(image.height) ||
+    image.width <= 0 ||
+    image.height <= 0 ||
+    image.width * image.height > MAX_PIXELS ||
+    !(
+      image.pixels instanceof Uint8Array ||
+      image.pixels instanceof Uint8ClampedArray
+    ) ||
+    image.pixels.length !== image.width * image.height * 4
+  ) {
+    throw new Error("Invalid RGBA pixel surface");
+  }
+}
+
 /** Compare decoded pixels, never encoded PNG size. */
 export function comparePixels(actual, expected, tolerance = 0) {
+  validatePixels(actual);
+  validatePixels(expected);
+  if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > 255) {
+    throw new Error("Invalid pixel tolerance");
+  }
   if (actual.width !== expected.width || actual.height !== expected.height) {
     throw new Error("Pixel comparison dimensions differ");
   }

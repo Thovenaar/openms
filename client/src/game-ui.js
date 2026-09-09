@@ -23,6 +23,7 @@ import {
 } from "./ui-quickslots.js";
 
 const MAX_OPEN_WINDOWS = 4;
+const MAX_WINDOWS_WITH_MODALS = MAX_OPEN_WINDOWS + 2;
 const WINDOWS = new Set([
   "Item",
   "Equip",
@@ -142,10 +143,17 @@ export class GameUI {
     this.layoutGeneration = 0;
     this.bindings = null;
     this.bindingDrag = null;
+    this.suppressBindingClick = false;
     this.confirmAction = null;
     this.quickCapture = null;
     this.pointerPoint = { x: 0, y: 0 };
     this.layoutFrame = null;
+    this.listenForInput();
+    this.resize(app.screen.width, app.screen.height);
+    this.observeLayout();
+  }
+
+  listenForInput() {
     this.keyHandler = this.onKey.bind(this);
     this.pointerHandler = this.onPointer.bind(this);
     this.focusHandler = this.onFocus.bind(this);
@@ -158,9 +166,13 @@ export class GameUI {
     window.addEventListener("pointerup", this.releaseHandler, true);
     window.addEventListener("pointercancel", this.releaseHandler, true);
     window.addEventListener("blur", this.releaseHandler);
+    this.captureLostHandler = this.onCaptureLost.bind(this);
+    window.addEventListener(
+      "lostpointercapture",
+      this.captureLostHandler,
+      true,
+    );
     document.addEventListener("visibilitychange", this.releaseHandler);
-    this.resize(app.screen.width, app.screen.height);
-    this.observeLayout();
   }
 
   validateIndex(index) {
@@ -375,7 +387,8 @@ export class GameUI {
       return;
     }
     if (WINDOWS.has(name)) {
-      this.open(name).catch((error) => this.report(error));
+      if (this.windows.has(name) || this.pending.has(name)) this.close(name);
+      else this.open(name).catch((error) => this.report(error));
       return;
     }
     this.status(
@@ -394,7 +407,11 @@ export class GameUI {
       return existing;
     }
     if (this.pending.has(name)) return this.pending.get(name).promise;
-    if (this.windows.size + this.pending.size >= MAX_OPEN_WINDOWS) {
+    const limit =
+      name === "UtilDlgEx" || name === "QuickSlotConfig"
+        ? MAX_WINDOWS_WITH_MODALS
+        : MAX_OPEN_WINDOWS;
+    if (this.windows.size + this.pending.size >= limit) {
       throw new Error(
         "Close a UI window before opening another (four-window residency bound).",
       );
@@ -432,6 +449,7 @@ export class GameUI {
       signal.throwIfAborted();
       this.windows.set(name, panel);
       this.front(panel);
+      this.positionWindow(panel, panel.x, panel.y);
       this.hooks.clearInput();
       if (name === "QuickSlotConfig") {
         panel.element.focus({ preventScroll: true });
@@ -460,6 +478,7 @@ export class GameUI {
     this.positionWindow(panel, (800 - panel.width) / 2 + offset, 70 + offset);
     const strip = document.createElement("div");
     strip.className = "maple-ui-drag";
+    strip.dataset.cursorState = "5";
     strip.style.width = `${panel.width - 24}px`;
     panel.listen(strip, "pointerdown", (event) => this.beginDrag(event, panel));
     panel.element.prepend(strip);
@@ -472,28 +491,44 @@ export class GameUI {
   }
 
   positionWindow(panel, x, y) {
+    const left = -this.offsetX / this.scale;
+    const top = -this.offsetY / this.scale;
+    const right = left + this.viewportWidth / this.scale;
+    const bottom = top + this.viewportHeight / this.scale;
     panel.position(
-      Math.max(0, Math.min(800 - panel.width, x)),
-      Math.max(0, Math.min(HUD_TOP - panel.height, y)),
+      Math.max(left, Math.min(right - panel.width, x)),
+      Math.max(top, Math.min(bottom - panel.height, y)),
     );
   }
 
   front(panel) {
     this.root.setChildIndex(panel.root, this.root.children.length - 1);
+    const modal =
+      panel.name === "UtilDlgEx" || panel.name === "QuickSlotConfig"
+        ? panel
+        : this.modal();
+    if (modal && modal !== panel) {
+      this.root.setChildIndex(modal.root, this.root.children.length - 1);
+    }
+    this.windows.delete(panel.name);
+    this.windows.set(panel.name, panel);
+    if (modal && modal !== panel) {
+      this.windows.delete(modal.name);
+      this.windows.set(modal.name, modal);
+    }
     if (this.cursor) {
       this.root.setChildIndex(
         this.cursor.surface.root,
         this.root.children.length - 1,
       );
     }
-    this.windows.delete(panel.name);
-    this.windows.set(panel.name, panel);
     // Keep DOM nodes attached during pointerdown so native click/focus survives.
     let depth = 1;
     for (const window of this.windows.values()) {
       window.element.style.zIndex = String(depth++);
     }
     this.clipDomWindows();
+    this.syncModalState();
   }
 
   /** Pixi rasterizes every window below the DOM plane; lower DOM captions must not bleed over a higher window. */
@@ -523,20 +558,33 @@ export class GameUI {
   }
 
   close(name, committed = false) {
+    if (!this.canCloseWindow(name, committed)) return;
     this.pending.get(name)?.controller.abort();
     const panel = this.windows.get(name);
     if (name === "UtilDlgEx") this.confirmAction = null;
     if (name === "QuickSlotConfig") closeQuickSlotConfig(this, committed);
     if (!panel) return;
-    if (name === "KeyConfig" && !committed && this.bindings) {
-      if (this.bindings.hasChanges()) {
-        cancelKeys(panel);
-        return;
-      }
-      this.bindings.cancel();
+    if (name === "KeyConfig" && !this.prepareKeyConfigClose(panel, committed)) {
+      return;
     }
     if (name === "KeyConfig") this.closeQuickCapture(committed);
     this.removeWindow(panel);
+  }
+
+  canCloseWindow(name, committed) {
+    const modal = this.modal();
+    if (modal && modal.name !== name && !committed) return false;
+    return !(name === "KeyConfig" && this.bindings?.saving);
+  }
+
+  prepareKeyConfigClose(panel, committed) {
+    if (committed || !this.bindings) return true;
+    if (this.bindings.hasChanges()) {
+      cancelKeys(panel);
+      return false;
+    }
+    this.bindings.cancel();
+    return true;
   }
 
   closeQuickCapture(committed) {
@@ -550,9 +598,10 @@ export class GameUI {
   removeWindow(panel) {
     if (this.bindingDrag) this.endBindingDrag();
     panel.mapController?.abort();
-    if (this.drag?.panel === panel) this.drag = null;
+    if (this.drag?.panel === panel) this.releaseWindowDrag();
     this.windows.delete(panel.name);
     panel.destroy();
+    this.syncModalState();
     this.clipDomWindows();
     this.hideTooltip();
     this.hooks.clearInput();
@@ -562,10 +611,11 @@ export class GameUI {
   }
 
   closeAll() {
+    this.releaseWindowDrag();
     this.endBindingDrag();
     this.bindings?.cancel();
     this.quickCapture = null;
-    this.quickCaptureChanges = [];
+    this.quickCaptureOriginal = null;
     this.confirmAction = null;
     for (const task of this.pending.values()) task.controller.abort();
     this.pending.clear();
@@ -577,6 +627,7 @@ export class GameUI {
     this.clipDomWindows();
     this.hideTooltip();
     this.drag = null;
+    this.syncModalState();
   }
 
   notice(text) {
@@ -612,7 +663,7 @@ export class GameUI {
       this.mountDialog(panel);
       this.front(panel);
       panel.element.querySelector(FOCUSABLE)?.focus();
-    } else this.activate("UtilDlgEx");
+    } else this.open("UtilDlgEx").catch((error) => this.report(error));
   }
 
   mountDialog(panel) {
@@ -668,11 +719,11 @@ export class GameUI {
   openQuickSlotCapture() {
     if (!this.bindings || this.quickCapture !== null) return;
     this.quickCapture = -1;
-    const changes = [];
-    this.quickCaptureChanges = changes;
+    const original = this.bindings.active.quickSlots.slice();
+    this.quickCaptureOriginal = original;
     this.hooks.clearInput();
     this.open("QuickSlotConfig").catch((error) => {
-      if (this.quickCaptureChanges === changes) this.close("QuickSlotConfig");
+      if (this.quickCaptureOriginal === original) this.close("QuickSlotConfig");
       this.report(error);
     });
   }
@@ -710,8 +761,12 @@ export class GameUI {
     this.tooltip.style.overflow = "hidden";
     const width = this.tooltip.offsetWidth,
       height = this.tooltip.offsetHeight;
-    this.tooltip.style.left = `${Math.max(0, Math.min(800 - width, x))}px`;
-    this.tooltip.style.top = `${Math.max(0, Math.min(600 - height, y - height - 6))}px`;
+    const left = -this.offsetX / this.scale;
+    const top = -this.offsetY / this.scale;
+    const right = left + this.viewportWidth / this.scale;
+    const bottom = top + this.viewportHeight / this.scale;
+    this.tooltip.style.left = `${Math.max(left, Math.min(right - width, x))}px`;
+    this.tooltip.style.top = `${Math.max(top, Math.min(bottom - height, y - height - 6))}px`;
   }
 
   hideTooltip() {
@@ -773,9 +828,10 @@ export class GameUI {
     this.visible = visible;
     this.root.visible = visible;
     this.host.hidden = !visible;
-    this.drag = null;
+    this.endDrag();
     this.endBindingDrag();
     if (this.cursor) this.cursor.surface.root.visible = false;
+    this.cursor?.setVisible(visible);
     this.hooks.clearInput();
     if (!visible) this.hooks.focusGame();
   }
@@ -807,6 +863,10 @@ export class GameUI {
     this.root.position.set(this.offsetX, this.offsetY);
     this.viewportWidth = width;
     this.viewportHeight = height;
+    this.releaseWindowDrag();
+    for (const panel of this.windows.values()) {
+      this.positionWindow(panel, panel.x, panel.y);
+    }
     this.syncDomLayout();
     this.clipDomWindows();
   }
@@ -884,16 +944,23 @@ export class GameUI {
 
   onKey(event) {
     if (!this.acceptsKey(event)) return;
-    if (captureQuickKey(this, event)) return;
-    if (this.chat?.handle(event)) return;
     const modal = this.modal();
-    if (modal && this.captureModalKey(event, modal)) return;
+    if (this.capturePriorityKey(event, modal)) return;
     if (this.captureControlInput(event, modal)) return;
     if (this.captureWindowKey(event)) return;
     if (!event.repeat && this.bindings?.activateCode(event.code)) {
       event.preventDefault();
       event.stopImmediatePropagation();
     }
+  }
+
+  capturePriorityKey(event, modal) {
+    if (modal?.name === "QuickSlotConfig" && captureQuickKey(this, event)) {
+      return true;
+    }
+    if (modal) return this.captureModalKey(event, modal);
+    if (captureQuickKey(this, event)) return true;
+    return this.chat?.handle(event);
   }
 
   captureWindowKey(event) {
@@ -916,6 +983,15 @@ export class GameUI {
   }
   captureControlInput(event, modal) {
     if (!this.host.contains(event.target)) return false;
+    if (
+      event.target.matches("button") &&
+      (event.key === "Enter" ||
+        event.key === " " ||
+        (event.target.dataset.keyIndex !== undefined &&
+          (event.key === "Delete" || event.key === "Backspace")))
+    ) {
+      return true;
+    }
     const editing =
       event.target.isContentEditable ||
       event.target.matches("input,select,textarea");
@@ -926,19 +1002,33 @@ export class GameUI {
   }
 
   acceptsKey(event) {
-    if (
-      !this.visible ||
-      !this.index ||
-      event.metaKey ||
-      (event.altKey && this.quickCapture === null)
-    ) {
+    if (!this.visible || !this.index || event.metaKey) {
       return false;
     }
     return this.host.contains(event.target) || event.target === this.app.canvas;
   }
 
   modal() {
-    return this.windows.get("QuickSlotConfig") || this.windows.get("UtilDlgEx");
+    let modal = null;
+    for (const panel of this.windows.values()) {
+      if (panel.name === "QuickSlotConfig" || panel.name === "UtilDlgEx") {
+        modal = panel;
+      }
+    }
+    return modal;
+  }
+
+  syncModalState() {
+    const modal = this.modal();
+    if (this.hud) this.hud.element.inert = Boolean(modal);
+    for (const panel of this.windows.values()) {
+      panel.element.inert = Boolean(modal && panel !== modal);
+      if (panel.name === "QuickSlotConfig" || panel.name === "UtilDlgEx") {
+        panel.element.tabIndex = -1;
+        panel.element.setAttribute("role", "dialog");
+        panel.element.setAttribute("aria-modal", String(panel === modal));
+      }
+    }
   }
 
   blocksGameplay() {
@@ -980,8 +1070,8 @@ export class GameUI {
     this.cursor?.move(event);
     const canvas = event.target === this.app.canvas;
     if (!canvas && !this.host.contains(event.target)) return;
-    if (event.button === 0) this.cursor?.press();
     if (this.captureModalPointer(event)) return;
+    if (event.button === 0) this.cursor?.press(event);
     if (canvas) {
       this.hooks.focusGame();
       return;
@@ -1011,13 +1101,23 @@ export class GameUI {
   }
 
   beginDrag(event, panel) {
-    if (event.button !== 0) return;
+    if (
+      event.button !== 0 ||
+      this.drag ||
+      this.bindingDrag ||
+      this.pressedControl
+    ) {
+      return;
+    }
     if (!this.screenScaleX || !this.screenScaleY) return;
     event.preventDefault();
     this.front(panel);
     this.hooks.clearInput();
+    event.currentTarget.setPointerCapture(event.pointerId);
     this.drag = {
       panel,
+      capture: event.currentTarget,
+      pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
       startX: panel.x,
@@ -1027,12 +1127,13 @@ export class GameUI {
 
   onDrag(event) {
     this.cursor?.move(event);
+    if (!this.visible) return;
     this.chat?.move(event);
     if (this.bindingDrag) {
       event.preventDefault();
       return;
     }
-    if (!this.drag) return;
+    if (!this.drag || this.drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     const drag = this.drag;
     this.positionWindow(
@@ -1044,21 +1145,51 @@ export class GameUI {
   }
 
   endDrag(event) {
-    if (
-      this.bindingDrag &&
-      event?.pointerId !== undefined &&
-      event.pointerId !== this.bindingDrag.pointerId
-    ) {
-      return;
-    }
-    this.drag = null;
+    if (!this.acceptsDragRelease(event)) return;
+    this.releaseWindowDrag();
+    if (event?.type !== "pointerup") this.pressedControl?.cancelPointer();
     this.chat?.endResize();
+    this.finishBindingDrag(event);
+    this.releaseCursor(event);
+  }
+
+  acceptsDragRelease(event) {
+    if (event?.pointerId === undefined) return true;
+    return !(
+      (this.bindingDrag && event.pointerId !== this.bindingDrag.pointerId) ||
+      (this.drag && event.pointerId !== this.drag.pointerId) ||
+      (this.pressedControl && event.pointerId !== this.pressedControl.pointerId)
+    );
+  }
+
+  finishBindingDrag(event) {
     if (this.bindingDrag && event?.type === "pointerup") {
       this.dropBinding(event);
     } else if (this.bindingDrag) this.endBindingDrag();
-    this.cursor?.release();
   }
 
+  releaseCursor(event) {
+    this.cursor?.release(event);
+    if (event?.type === "pointerup") this.cursor?.move(event);
+    else if (this.cursor) this.cursor.surface.root.visible = false;
+  }
+
+  releaseWindowDrag() {
+    const drag = this.drag;
+    this.drag = null;
+    if (drag?.capture.hasPointerCapture(drag.pointerId)) {
+      drag.capture.releasePointerCapture(drag.pointerId);
+    }
+  }
+
+  onCaptureLost(event) {
+    if (
+      this.drag?.pointerId === event.pointerId ||
+      this.bindingDrag?.pointerId === event.pointerId
+    ) {
+      this.endDrag(event);
+    }
+  }
   logicalPointer(event) {
     const rect = this.host.getBoundingClientRect();
     this.pointerPoint.x = (event.clientX - rect.left) / this.screenScaleX;
@@ -1069,6 +1200,8 @@ export class GameUI {
     if (
       event.button !== 0 ||
       this.blocksGameplay() ||
+      this.drag ||
+      this.pressedControl ||
       !this.bindings ||
       !binding.type
     ) {
@@ -1079,6 +1212,7 @@ export class GameUI {
     this.endBindingDrag();
     this.hooks.clearInput();
     const capture = event.currentTarget;
+    this.suppressBindingClick = false;
     capture.setPointerCapture(event.pointerId);
     this.bindingDrag = {
       binding: { type: binding.type, id: binding.id },
@@ -1086,12 +1220,21 @@ export class GameUI {
       source,
       capture,
       pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
     };
     this.cursor?.drag(source, path);
   }
 
   dropBinding(event) {
     const drag = this.bindingDrag;
+    this.suppressBindingClick =
+      Math.abs(event.clientX - drag.x) > 3 ||
+      Math.abs(event.clientY - drag.y) > 3;
+    if (!this.suppressBindingClick) {
+      this.endBindingDrag();
+      return;
+    }
     const panel = this.windows.get("KeyConfig");
     const point = this.logicalPointer(event);
     const target = keyAtPoint(panel, point);
@@ -1115,10 +1258,10 @@ export class GameUI {
   endBindingDrag() {
     const drag = this.bindingDrag;
     const source = drag?.source;
+    this.bindingDrag = null;
     if (drag?.capture.hasPointerCapture(drag.pointerId)) {
       drag.capture.releasePointerCapture(drag.pointerId);
     }
-    this.bindingDrag = null;
     this.cursor?.clearGhost();
     if (source?.retainedForDrag) source.destroy();
   }
@@ -1148,6 +1291,13 @@ export class GameUI {
       offsetX: this.offsetX,
       offsetY: this.offsetY,
       localProfile: this.store?.snapshot() || null,
+      windowBounds: Array.from(this.windows.values(), (panel) => ({
+        name: panel.name,
+        x: panel.x,
+        y: panel.y,
+        width: panel.width,
+        height: panel.height,
+      })),
       originalTiming:
         "Only explicitly authored frame delays advance; missing timing is static/unsupported.",
     };
@@ -1195,6 +1345,11 @@ export class GameUI {
     window.removeEventListener("pointerup", this.releaseHandler, true);
     window.removeEventListener("pointercancel", this.releaseHandler, true);
     window.removeEventListener("blur", this.releaseHandler);
+    window.removeEventListener(
+      "lostpointercapture",
+      this.captureLostHandler,
+      true,
+    );
     document.removeEventListener("visibilitychange", this.releaseHandler);
     this.hooks.clearInput();
   }

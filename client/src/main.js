@@ -93,8 +93,13 @@ function advancePlayerTick(ms) {
   scene.actor.advance(ms);
 }
 function updatePlayer(ms) {
-  if (!current) return;
-  current.fieldSystems.beforePhysics(input.state);
+  const scene = current;
+  if (!scene || loading) return;
+  scene.fieldSystems.beforePhysics(input.state);
+  if (loading || current !== scene) return;
+  scene.simulation.movementLocked =
+    scene.fieldSystems.gameplay.blocksMovement ||
+    scene.fieldSystems.portals.blocksMovement;
   const jumpSequence = current.simulation.groundJumpSequence;
   advanceSimulation(current.simulation, input.state, ms, advancePlayerTick);
   const sim = current.simulation;
@@ -295,6 +300,19 @@ async function initialize() {
     "Playable original asset map. Arrows move and climb. Other actions follow your KeyConfig. Enter opens chat.",
   );
   viewport.prepend(app.canvas);
+  initializeInterface();
+  observer = new ResizeObserver(resize);
+  observer.observe(viewport);
+  resize();
+  document.addEventListener("visibilitychange", visibilityChanged);
+  window.addEventListener("pagehide", pageLeaving);
+  demandTimer = setInterval(demand, 200);
+  inspectionTimer = setInterval(inspect, 500);
+  lastNow = performance.now();
+  frameHandle = requestAnimationFrame(tick);
+}
+
+function initializeInterface() {
   services.atlases = new AtlasStore(app.renderer, network);
   input = createPlayerInput(app.canvas);
   inGame = new InGameSystems(app, services, {
@@ -311,20 +329,14 @@ async function initialize() {
     onSave: checkpointProfile,
     onRecover: input.clear,
   });
-  controls = createControls(api);
+  controls = createControls({
+    ...api,
+    onKeyConfig: () => inGame.activateBinding("KeyConfig"),
+  });
   overlay = createDebugOverlay(
     app,
-    document.querySelector("#scene-inspection"),
+    document.querySelector("#geometry-readout"),
   );
-  observer = new ResizeObserver(resize);
-  observer.observe(viewport);
-  resize();
-  document.addEventListener("visibilitychange", visibilityChanged);
-  window.addEventListener("pagehide", pageLeaving);
-  demandTimer = setInterval(demand, 200);
-  inspectionTimer = setInterval(inspect, 500);
-  lastNow = performance.now();
-  frameHandle = requestAnimationFrame(tick);
 }
 async function prefetchNeighbors(id) {
   neighbors?.abort();
@@ -670,6 +682,7 @@ const api = {
       throw new Error("Step must be 0–10000 milliseconds");
     }
     if (!paused) throw new Error("Pause before deterministic stepping");
+    if (loading) throw new Error("Cannot step during field replacement");
     updatePlayer(ms);
     render();
     return snapshot();
@@ -688,6 +701,15 @@ const api = {
   },
   setFollow(value) {
     follow = Boolean(value);
+    if (follow && current) {
+      followCamera(
+        current.camera,
+        current.presentation,
+        current.manifest.physics,
+        app.screen,
+      );
+    }
+    render();
   },
   setCamera(x, y) {
     finite(x);

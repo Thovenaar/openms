@@ -66,6 +66,9 @@ export function replayTrace(world, trace, refreshHz) {
   let elapsed = 0;
   let eventIndex = 0;
   let minimumY = sim.y;
+  function observeStep() {
+    minimumY = Math.min(minimumY, sim.y);
+  }
   for (
     let iteration = 0;
     iteration < frameLimit && elapsed < trace.durationMs;
@@ -82,8 +85,7 @@ export function replayTrace(world, trace, refreshHz) {
     const nextEvent = trace.events[eventIndex]?.atMs ?? trace.durationMs;
     const end = Math.min(trace.durationMs, elapsed + frameMs, nextEvent);
     if (end <= elapsed) throw new Error("Input trace made no progress");
-    advanceSimulation(sim, input, end - elapsed);
-    minimumY = Math.min(minimumY, sim.y);
+    advanceSimulation(sim, input, end - elapsed, observeStep);
     elapsed = end;
   }
   if (elapsed !== trace.durationMs) {
@@ -101,6 +103,14 @@ export function compareRefreshRates(world, trace) {
   const fields = ["x", "y", "vx", "vy", "state", "footholdId", "ladderId"];
   const differences = [];
   for (const run of runs) {
+    if (run.minimumY !== runs[0].minimumY) {
+      differences.push({
+        refreshHz: run.refreshHz,
+        field: "minimumY",
+        actual: run.minimumY,
+        expected: runs[0].minimumY,
+      });
+    }
     for (const field of fields) {
       if (run.snapshot[field] !== reference[field]) {
         differences.push({
@@ -114,7 +124,7 @@ export function compareRefreshRates(world, trace) {
   }
   return {
     method:
-      "Deterministic exact-time input trace; not physical refresh or original Windows parity",
+      "Deterministic exact-time input trace: final state and per-step minimumY; not full trajectory, physical refresh or original Windows parity",
     pass: differences.length === 0,
     trace,
     runs,

@@ -221,6 +221,15 @@ export class KeyBindings {
     return true;
   }
 
+  /** Restore an eight-key nested-dialog checkpoint atomically, including permutations. */
+  restoreQuickSlots(quickSlots) {
+    if (!this._canEdit()) return false;
+    validateKeyBindings({ keys: this.active.keys, quickSlots });
+    this.active.quickSlots = quickSlots.slice();
+    this._notify();
+    return true;
+  }
+
   hasChanges() {
     return !sameMap(this.active, this.store.profile.keyBindings);
   }

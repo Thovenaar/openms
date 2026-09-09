@@ -2,7 +2,10 @@ import { Graphics } from "pixi.js";
 import { experienceRequired } from "./offline-progression.js";
 import { JOB_LABELS } from "./ui-job-labels.js";
 
-// 008d2494: bar (218,567); 008d850b: graduation (218,544), gray suffix y581.
+// 008cfd43..60: CreateWnd(0,22,800,578). Canvas/child coordinates are window-local.
+export const HUD_CLIENT_Y = 22;
+
+// 008d2494: independent bar screen (218,567); 008da3d4: graduation local (218,544).
 export function layoutGauges(panel) {
   panel.image("gauge/bar", 218, 567);
   panel.gauges = [
@@ -18,7 +21,7 @@ export function layoutGauges(panel) {
     sprite.container.scale.x = width;
     return { sprite, x, width, extent: -1 };
   });
-  panel.image("gauge/graduation", 218, 544);
+  panel.image("gauge/graduation", 218, 544 + HUD_CLIENT_Y);
   panel.hudValues = null;
   // 0049c441: soHPFlash/soMPFlash default10, range0..19; HUD multiplies by5.
   panel.gaugeWarnings = [
@@ -128,33 +131,33 @@ function updateIdentity(panel, profile) {
   let x = 50 - 6 * (level.length - 1);
   for (const digit of level) {
     const path = `LevelNo/${digit}`;
-    layer.image(path, x, 554);
+    layer.image(path, x, 554 + HUD_CLIENT_Y);
     x += layer.assets[path].width + 1;
   }
-  layer.text(JOB_LABELS[profile.job] || "", 87, 545, 126);
-  layer.text(profile.name, 87, 560, 126);
+  layer.text(JOB_LABELS[profile.job] || "", 87, 545 + HUD_CLIENT_Y, 126);
+  layer.text(profile.name, 87, 560 + HUD_CLIENT_Y, 126);
 }
 
 function digits(panel, value, x) {
   const text = String(value);
   for (const digit of text) {
-    panel.image(`number/${digit}`, x, 549);
+    panel.image(`number/${digit}`, x, 549 + HUD_CLIENT_Y);
     x += 6;
   }
   return x;
 }
 
 function resourceNumbers(panel, current, maximum, x) {
-  panel.image("number/Lbracket", x, 548);
+  panel.image("number/Lbracket", x, 548 + HUD_CLIENT_Y);
   x = digits(panel, current, x + 4);
-  panel.image("number/slash", x, 548);
+  panel.image("number/slash", x, 549 + HUD_CLIENT_Y);
   x = digits(panel, maximum, x + 8);
-  panel.image("number/Rbracket", x + 1, 548);
+  panel.image("number/Rbracket", x + 1, 548 + HUD_CLIENT_Y);
 }
 
 function experienceNumbers(panel, experience, required) {
   let x = digits(panel, experience, 466);
-  panel.image("number/Lbracket", x, 548);
+  panel.image("number/Lbracket", x, 548 + HUD_CLIENT_Y);
   x += 4;
   const hundredths =
     required > 0
@@ -162,11 +165,11 @@ function experienceNumbers(panel, experience, required) {
       : 0;
   x = digits(panel, Math.trunc(hundredths / 100), x);
   // The native consumer uses a font-rendered period rather than a number canvas.
-  const dot = panel.text(".", x, 544, 4);
+  const dot = panel.text(".", x, 544 + HUD_CLIENT_Y, 4);
   dot.style.cssText += "color:#000;font:12px/12px Arial,sans-serif;";
   x = digits(panel, String(hundredths % 100).padStart(2, "0"), x + 4);
-  panel.image("number/percent", x, 549);
-  panel.image("number/Rbracket", x + 8, 548);
+  panel.image("number/percent", x, 549 + HUD_CLIENT_Y);
+  panel.image("number/Rbracket", x + 8, 548 + HUD_CLIENT_Y);
 }
 
 function updateWarning(panel, warning, current, maximum) {

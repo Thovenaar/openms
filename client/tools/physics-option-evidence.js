@@ -27,12 +27,14 @@ const GLOBAL_KEYS = [
 export function annotatePhysicsOption(option) {
   const key = option.path.split("/").at(-1);
   if (option.path.startsWith("Map.wz/Physics.img/")) {
+    const globalIndex = GLOBAL_KEYS.indexOf(key);
+    if (globalIndex < 0 || option.path !== `Map.wz/Physics.img/${key}`) return;
     option.consumers = ["00a43433", "00440d21"];
     option.default = 0;
     option.precedence =
       "WZ value converted to double; EMPTY/ERROR/failed conversion uses zero";
     option.status = "supported";
-    option.structOffset = GLOBAL_KEYS.indexOf(key) * 8;
+    option.structOffset = globalIndex * 8;
     return;
   }
   annotateGeometry(option, key);

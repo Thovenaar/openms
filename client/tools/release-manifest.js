@@ -1,5 +1,6 @@
 import { resolve, sep } from "node:path";
-import { mkdir, realpath, rename } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
+import { publishFile } from "./atlas.js";
 import {
   DELIVERY_LIMITS,
   SHELL_URLS,
@@ -30,8 +31,7 @@ async function sourceFile(root, url) {
 
 async function publish(root, path, bytes) {
   const filename = resolve(root, "public", `.${path}`);
-  await Bun.write(`${filename}.tmp`, bytes);
-  await rename(`${filename}.tmp`, filename);
+  await publishFile(filename, bytes);
 }
 
 async function snapshot(root, url) {

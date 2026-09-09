@@ -325,16 +325,16 @@ export function heldActionForCode(code, bindings) {
   return null;
 }
 
-// Original WZ KeyConfig/icon labels + ToolTipHelp: Stat is "Ability Window(S)",
-// which identifies type4/ID2; the separate ID9 icon is not this window.
+// 00a0773d dispatches type4 IDs to window indices; ID9 ->5 constructs
+// KeyConfig at 00a05bb5 (00832586). Captions are not action identifiers.
 const WINDOW_ACTIONS = Object.freeze({
   0: "Equip",
   1: "Item",
   3: "Skill",
-  6: "KeyConfig",
+  9: "KeyConfig",
   8: "Quest",
   2: "Stat",
-  11: "MiniMap",
+  14: "ShortCut", // 00a078da ->00a06cbc constructs0084a560 shortcut menu.
   15: "QuickSlot",
 });
 const CHARACTER_ACTIONS = Object.freeze({

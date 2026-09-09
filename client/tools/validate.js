@@ -98,6 +98,7 @@ function compactState(state) {
     residentSprites: state.residentSprites,
     lastError: state.lastError,
     entities: state.entities,
+    metrics: state.metrics,
   };
 }
 /** The atlas oracle covers world sprites, not UI text/nameplate composition. */
@@ -232,11 +233,17 @@ async function livePerformance() {
     measurement: await measureProbe(page),
     state: compactState(await snapshot()),
   };
-  check(
-    "Performance probe stayed within sample bounds",
-    report.live.measurement.overflow === 0 &&
-      report.live.measurement.longTaskOverflow === 0,
-  );
+  report.performance = {
+    status: "measured-not-graded",
+    acceptanceThreshold: null,
+    reason:
+      "No original-runtime or approved browser smoothness threshold is available",
+    measurementComplete:
+      report.live.measurement.overflow === 0 &&
+      report.live.measurement.longTaskOverflow === 0 &&
+      report.live.measurement.frames.samples > 0 &&
+      report.live.measurement.runtimeCPU.frame.samples > 0,
+  };
 }
 async function transition(id) {
   await page.evaluate(() => window.maple.pause(false));
@@ -310,10 +317,17 @@ async function geometryPreviews() {
   await page.select("#hitbox-reference", "");
   await page.click("#debug");
 }
+/** Preserve URL/status diagnostics rather than parsing HTTP errors as evidence. */
+async function fetchJSON(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Validation HTTP ${response.status}: ${url}`);
+  }
+  return response.json();
+}
+
 async function deterministicPhysics() {
-  const catalog = await (
-    await fetch(`${values.url}/generated/catalog.json`)
-  ).json();
+  const catalog = await fetchJSON(`${values.url}/generated/catalog.json`);
   const events = [
     { atMs: 600, key: "right", down: true },
     { atMs: 1200, key: "jump", down: true },
@@ -321,9 +335,7 @@ async function deterministicPhysics() {
     { atMs: 1800, key: "right", down: false },
   ];
   for (const descriptor of Object.values(catalog.maps)) {
-    const manifest = await (
-      await fetch(new URL(descriptor.url, values.url))
-    ).json();
+    const manifest = await fetchJSON(new URL(descriptor.url, values.url));
     const actor = manifest.actors.find((entity) => entity.kind === "character");
     const comparison = compareRefreshRates(manifest.physics, {
       durationMs: 3000,
@@ -332,7 +344,7 @@ async function deterministicPhysics() {
     });
     report.refreshComparisons.push({ map: manifest.id, ...comparison });
     check(
-      `Identical physics at60/120/144/240Hz ${manifest.id}`,
+      `Final physics state and per-step jump extremum at 60/120/144/240Hz ${manifest.id}`,
       comparison.pass,
       { differences: comparison.differences },
     );
@@ -398,6 +410,7 @@ async function run() {
   report.status = report.checks.every((item) => item.pass)
     ? "browser-checks-pass"
     : "failed";
+  report.correctnessStatus = report.status;
 }
 try {
   await run();

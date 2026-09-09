@@ -1,3 +1,4 @@
+import { Text } from "pixi.js";
 import { EntityAnimation } from "./animation.js";
 import { VisualTextures } from "./visual-resources.js";
 import { entities } from "./stream-validation.js";
@@ -153,12 +154,28 @@ export class OfflineMobRenderer {
       const presentation = new EntityAnimation(source, slot.resources.textures);
       presentation.gameplayOwned = true;
       mob.presentation = presentation;
+      const label = new Text({
+        text: mob.template.name ?? "",
+        style: {
+          fontFamily: "sans-serif",
+          fontSize: 12,
+          fill: 0xffffa0,
+          align: "center",
+          stroke: { color: 0x15202b, width: 3 },
+        },
+      });
+      label.anchor.set(0.5, 0);
+      label.eventMode = "none";
+      this.scene.overlays.addChild(label);
+      mob.nameLabel = label;
       this.synchronizeMob(mob);
       try {
         this.scene.addDynamicEntity(presentation);
       } catch (error) {
         mob.presentation = null;
         presentation.container.destroy({ children: true });
+        label.destroy();
+        mob.nameLabel = null;
         throw error;
       }
     }
@@ -174,6 +191,17 @@ export class OfflineMobRenderer {
     const once = !mob.alive || mob.state === "hit" || mob.state === "attack";
     entity.setAction(mob.action, once ? "once" : "loop");
     entity.seek(mob.actionMs);
+    const label = mob.nameLabel;
+    if (label) {
+      label.position.set(mob.x, mob.y + 4);
+      label.visible =
+        mob.visible &&
+        mob.nameRemainingMs > 0 &&
+        !mob.template.info.hideName &&
+        !mob.template.info.HPgaugeHide &&
+        !mob.template.info.damagedByMob &&
+        Boolean(mob.template.name);
+    }
   }
 
   synchronize() {
@@ -182,6 +210,8 @@ export class OfflineMobRenderer {
 
   remove(mob) {
     if (!mob.presentation) return;
+    mob.nameLabel?.destroy();
+    mob.nameLabel = null;
     this.scene.removeDynamicEntity(mob.id);
     mob.presentation.container.destroy({ children: true });
     mob.presentation = null;

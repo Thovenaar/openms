@@ -116,7 +116,7 @@ function drawBoundIcon(icons, entry) {
       inventory.find((item) => item.id === entry.binding.id)?.count || 0;
     drawItemCount(icons, count, rect);
   }
-  icons.hit(entry.template.name, rect, {
+  const button = icons.hit(entry.template.name, rect, {
     pointerdown: (event) =>
       panel.owner.beginBindingDrag(
         event,
@@ -128,7 +128,13 @@ function drawBoundIcon(icons, entry) {
       event.preventDefault();
       panel.owner.bindings.remove(entry.key.index);
     },
+    keydown: (event) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      event.preventDefault();
+      panel.owner.bindings.remove(entry.key.index);
+    },
   });
+  button.dataset.keyIndex = String(entry.key.index);
 }
 
 function drawKey(layer, panel, key, active) {

@@ -15,6 +15,7 @@ const MAX_ACTIONS = 128;
 const MAX_FRAMES = 1024;
 const LOCAL_NPC_REACH_X = 120;
 const LOCAL_NPC_REACH_Y = 100;
+const MAX_TARGET_ANCESTORS = 32;
 
 /** Validate the independent metadata boundary before allocating preview graphics. */
 function validateLife(life) {
@@ -122,7 +123,7 @@ export class LifeSystem {
   createSlot(record) {
     const template = this.scene.manifest.life.templates[record.template];
     const segment = this.scene.simulation.geometry.byId.get(record.authored.fh);
-    const label = createLabel(template);
+    const label = record.kind === "npc" ? createLabel(template) : null;
     const slot = {
       record,
       template,
@@ -163,8 +164,8 @@ export class LifeSystem {
       slot.sweep.graphic,
       slot.body.graphic,
       slot.interaction.graphic,
-      label,
     );
+    if (label) this.root.addChild(label);
     return slot;
   }
 
@@ -214,12 +215,11 @@ export class LifeSystem {
     } else slot.elapsedMs += ms;
     slot.resident = !!entity;
     const visible = slotVisible(slot, this.revealHidden);
-    slot.label.visible = visible && slot.template.info.hideName !== 1;
+    if (slot.label) this.updateLabel(slot, visible, entity);
     slot.contact.visible =
       visible && this.showGeometry && this.selected === slot;
     if (entity) {
       if (!entity.gameplayOwned) entity.container.visible = visible;
-      slot.label.position.set(entity.container.x, entity.container.y + 5);
       this.updateGeometry(slot, entity);
     } else {
       slot.body.active = false;
@@ -233,6 +233,13 @@ export class LifeSystem {
       visible && this.showGeometry && this.selected === slot,
     );
     showRectangle(slot.interaction, visible && this.showGeometry);
+  }
+
+  updateLabel(slot, visible, entity) {
+    slot.label.visible = visible && slot.template.info.hideName !== 1;
+    if (entity) {
+      slot.label.position.set(entity.container.x, entity.container.y + 5);
+    }
   }
 
   updateGeometry(slot, entity) {
@@ -325,6 +332,18 @@ export class LifeSystem {
       Math.abs(sim.x - entity.container.x) <= LOCAL_NPC_REACH_X &&
       Math.abs(sim.y - entity.container.y) <= LOCAL_NPC_REACH_Y
     );
+  }
+
+  /** Use the renderer's actual hit target, then apply the same live NPC admission as clicks. */
+  isInteractiveTarget(target) {
+    for (let depth = 0; target && depth < MAX_TARGET_ANCESTORS; depth++) {
+      const slot = this.byId.get(target.label);
+      if (slot && slot.entity?.container === target) {
+        return this.canInteract(slot.record.id);
+      }
+      target = target.parent;
+    }
+    return false;
   }
 
   select(id) {

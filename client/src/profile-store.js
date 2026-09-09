@@ -111,7 +111,9 @@ function transactProfile(database, transform) {
       try {
         transaction.abort();
       } catch (error) {
-        reject(storageError(error));
+        // A finished transaction can have its terminal event queued behind this timer.
+        // Only that event determines whether the durable write committed or aborted.
+        if (error.name !== "InvalidStateError") failure = storageError(error);
       }
     }
     request.onsuccess = function onRead() {

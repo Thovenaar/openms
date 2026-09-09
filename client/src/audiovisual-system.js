@@ -6,6 +6,25 @@ import { AudioEngine } from "./audio-engine.js";
 const MAX_EFFECTS = 32;
 const MAX_SOUND_NAMES = 512;
 const DESTROY_DISPLAY = Object.freeze({ children: true });
+const MOB_ATTACK_SOUNDS = Object.freeze({
+  attack1: "Attack1",
+  attack2: "Attack2",
+  attack3: "Attack3",
+  attack4: "Attack4",
+  attack5: "Attack5",
+  attack6: "Attack6",
+  attack7: "Attack7",
+  attack8: "Attack8",
+});
+
+/** 009894f3: distance scalar (not stereo pan); exact doubles retained in combat evidence. */
+export function combatSoundVolume(source, listener) {
+  const dx = source.x - listener.x,
+    dy = source.y - listener.y;
+  const distance = Math.sqrt(dx * dx + dy * dy + 0.001);
+  if (distance < 250) return 100;
+  return distance > 1000 ? 40 : Math.trunc(120 - distance * 0.08);
+}
 
 function validateIndex(index) {
   if (
@@ -57,11 +76,9 @@ function button(text, action) {
 
 /** Browser controls are clearly reconstruction controls, not fabricated original UI artwork. */
 function makeControls() {
-  const root = document.createElement("details");
+  const root = document.createElement("section");
   root.dataset.audiovisualControls = "true";
-  const summary = document.createElement("summary");
-  summary.textContent = "Audio / original effect previews";
-  root.append(summary, button("Enable audio (user gesture)", "enable"));
+  root.append(button("Enable audio (user gesture)", "enable"));
   for (const category of ["BGM", "SE"]) {
     const label = document.createElement("label");
     label.style.cssText = "display:block;margin:6px 0";
@@ -81,20 +98,25 @@ function makeControls() {
     label.append(range, mute, "Mute");
     root.append(label);
   }
+  const advanced = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = "Original effect previews / live audio capture";
+  advanced.append(summary);
   const select = document.createElement("select");
   select.setAttribute("aria-label", "Original effect preview");
-  root.append(
+  advanced.append(
     select,
     button("Preview once (not a server event)", "effect"),
     button("Preview map effect", "map-effect"),
     button("Capture 2 s live PCM", "capture"),
   );
+  root.append(advanced);
   const status = document.createElement("p");
   status.setAttribute("role", "status");
   status.textContent =
     "Audio requires a gesture. Effect activation/placement previews are non-authoritative.";
   root.append(status);
-  document.querySelector("#inspection-controls").append(root);
+  document.querySelector("#audio-controls").append(root);
   return { root, select, status };
 }
 
@@ -224,6 +246,61 @@ export class AudiovisualSystem {
       throw new Error(`Unpackaged original sound ${category}/${name}`);
     }
     return this.audio.playSound(descriptor, this.controller.signal);
+  }
+  /** Missing authored nodes are silence; accepted events never queue across an audio gesture. */
+  combatSound(category, id, name, percent = 100) {
+    const record = this.index?.combat?.sounds[category]?.[id]?.[name];
+    if (!record || this.destroyed) return;
+    if (!record.available) {
+      this.report(new Error(`${record.source}: ${record.reason}`));
+      return;
+    }
+    this.audio
+      .playSound(record.descriptor, this.controller.signal, percent)
+      .catch(this.reportBound);
+  }
+  onPlayerAttack(sfx) {
+    this.combatSound("Weapon", sfx, "Attack");
+  }
+  onMobHit(mob, damage, simulation) {
+    if (damage <= 0) return;
+    this.combatSound(
+      "Mob",
+      mob.templateId,
+      mob.alive ? "Damage" : "Die",
+      combatSoundVolume(mob, simulation),
+    );
+  }
+  onMobAttack(mob, simulation) {
+    const name = MOB_ATTACK_SOUNDS[mob.action];
+    if (name) {
+      this.combatSound(
+        "Mob",
+        mob.templateId,
+        name,
+        combatSoundVolume(mob, simulation),
+      );
+    }
+  }
+  onPlayerHit(hit, simulation) {
+    if (hit.amount <= 0 || !hit.source) return;
+    const name =
+      hit.attackAction === "attack1"
+        ? "CharDam1"
+        : hit.attackAction === "attack2"
+          ? "CharDam2"
+          : null;
+    if (name) {
+      this.combatSound(
+        "Mob",
+        hit.source.templateId,
+        name,
+        combatSoundVolume(hit.source, simulation),
+      );
+    }
+  }
+  onPlayerDeath() {
+    this.playSound("Game", "Tombstone").catch(this.reportBound);
   }
   /** One bounded effect slot; gameplay and inspection triggers share resource ownership. */
   async playEffect(name, trigger = "inspection") {

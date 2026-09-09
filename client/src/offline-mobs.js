@@ -236,6 +236,9 @@ function mobInitialState(definition, inactiveReason) {
     delta: { x: 0, y: 0 },
     deaths: 0,
     lastDamage: 0,
+    // Local-player attack timestamp: 0066b05e; expiry gate 006675a8/006689e3.
+    nameRemainingMs: 0,
+    nameLabel: null,
     presentation: null,
     fault: null,
   };
@@ -314,6 +317,7 @@ export function stepMob(mob, ms) {
   mob.previousY = mob.y;
   if (!mob.active || mob.fault) return;
   mob.stateMs += ms;
+  mob.nameRemainingMs = Math.max(0, mob.nameRemainingMs - ms);
   if (!mob.alive) {
     stepDeadMob(mob, ms);
     return;
@@ -443,6 +447,7 @@ function stepDeadMob(mob, ms) {
   mob.state = "idle";
   mob.stateMs = 0;
   mob.respawnMs = 0;
+  mob.nameRemainingMs = 0;
   mob.cooldownMs = MOB_POLICY.attackCooldownMs;
   mob.recoveryMs = 0;
   mob.knockbackMs = 0;
@@ -453,6 +458,9 @@ function stepDeadMob(mob, ms) {
 
 /** Returns true exactly for the lethal transition, never for repeated dead hits. */
 export function damageMob(mob, amount, facing) {
+  if (!Number.isSafeInteger(amount) || amount < 0) {
+    throw new Error("Mob damage must be a nonnegative safe integer");
+  }
   if (
     !mob.alive ||
     !mob.active ||
@@ -461,6 +469,8 @@ export function damageMob(mob, amount, facing) {
   ) {
     return false;
   }
+  mob.nameRemainingMs = 5000;
+  if (amount === 0) return false;
   mob.lastDamage = amount;
   mob.hp = Math.max(0, mob.hp - amount);
   mob.stateMs = 0;

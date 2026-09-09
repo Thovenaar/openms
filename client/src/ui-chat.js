@@ -1,5 +1,11 @@
-const HISTORY_LIMIT = 64;
-const CHAT_LIMIT = 255;
+import { HUD_CLIENT_Y } from "./ui-hud.js";
+
+// 00490701 bounds history to eight; 008d379a selects 70 for ordinary users.
+const HISTORY_LIMIT = 8;
+const CHAT_LIMIT = 70;
+const REPEAT_WINDOW_MS = 30000;
+const FLOOD_WINDOW_MS = 2000;
+const FLOOD_COOLDOWN_MS = 2800;
 const CHANNELS = [
   "To a buddy",
   "To Group",
@@ -10,6 +16,8 @@ const CHANNELS = [
   "Whisper",
   "To All",
 ];
+// 008d57aa jump table / 008d53cd..008d542b; no remote target selection offline.
+const NEXT_CHANNEL = [5, 2, 3, 4, 6, 1, 7, 0];
 
 /** 008d536c and 008dfb36: edit child is distinct from the log child. No offline server echo. */
 export class UIChat {
@@ -20,44 +28,49 @@ export class UIChat {
     this.height = 70;
     this.history = [];
     this.historyIndex = 0;
-    this.draft = "";
-    this.log = panel.contentArea(4, 513, 566, 25);
+    this.recalledSubmission = false;
+    this.recent = [];
+    this.recentStarted = -Infinity;
+    this.submitTimes = new Float64Array(4).fill(-Infinity);
+    this.submitIndex = 0;
+    this.blockedUntil = -Infinity;
+    this.composing = false;
+    this.log = panel.contentArea(4, HUD_CLIENT_Y + 513, 566, 25);
     this.log.className = "maple-ui-chat-log";
     this.log.setAttribute("role", "log");
     this.log.setAttribute("aria-label", "Chat messages");
     this.log.style.pointerEvents = "none";
     this.layer = panel.layer("Chat input");
-    this.layer.image("base/chatTarget", 1, 515);
+    this.layer.image("base/chatTarget", 1, HUD_CLIENT_Y + 515);
     this.createInput();
     this.createSelector();
-    this.maximum = panel.button("BtMax", 536, 519, {
+    this.maximum = panel.button("BtMax", 536, HUD_CLIENT_Y + 519, {
       label: "Expand chat",
       action: () => {
         this.setState(3);
         this.input.focus();
       },
     });
-    this.minimum = panel.button("BtMin", 536, 519, {
+    this.minimum = panel.button("BtMin", 536, HUD_CLIENT_Y + 519, {
       label: "Minimize chat",
       action: () => this.close(),
     });
-    this.resizeHighlight = panel.image("base/chat", 0, 434);
+    this.resizeHighlight = panel.image("base/chat", 0, HUD_CLIENT_Y + 434);
     this.resizeHighlight.container.visible = false;
     this.grip = panel.hit(
       "Resize chat",
-      { x: 0, y: 435, width: 580, height: 10 },
+      { x: 0, y: HUD_CLIENT_Y + 435, width: 580, height: 10 },
       {
         pointerdown: (event) => this.beginResize(event),
         pointerenter: () => {
           this.resizeHighlight.container.visible = true;
-          this.owner.cursor?.set(7);
         },
         pointerleave: () => {
           if (!this.resizeStart) this.resizeHighlight.container.visible = false;
         },
       },
     );
-    panel.listen(this.grip, "pointerenter", () => this.owner.cursor?.set(7));
+    this.grip.dataset.cursorState = "7";
     this.grip.hidden = true;
     this.setState(1);
   }
@@ -69,9 +82,14 @@ export class UIChat {
     this.input.autocomplete = "off";
     this.input.spellcheck = false;
     this.input.setAttribute("aria-label", "Chat message");
-    this.input.style.cssText =
-      "position:absolute;left:85px;top:520px;width:440px;height:12px;padding:0;border:0;outline:0;background:transparent;color:#000;font:11px Arial,sans-serif;line-height:12px;pointer-events:auto;user-select:text;";
+    this.input.style.cssText = `position:absolute;left:85px;top:${HUD_CLIENT_Y + 520}px;width:440px;height:12px;padding:0;border:0;outline:0;background:transparent;color:#000;font:12px Arial,sans-serif;line-height:12px;pointer-events:auto;user-select:text;`;
     this.layer.element.append(this.input);
+    this.layer.listen(this.input, "compositionstart", () => {
+      this.composing = true;
+    });
+    this.layer.listen(this.input, "compositionend", () => {
+      this.composing = false;
+    });
     this.layer.listen(this.input, "blur", () => {
       this.owner.hooks.clearInput();
     });
@@ -80,14 +98,13 @@ export class UIChat {
   createSelector() {
     this.selector = document.createElement("select");
     this.selector.setAttribute("aria-label", "Chat channel");
-    this.selector.style.cssText =
-      "position:absolute;left:1px;top:515px;width:80px;height:20px;border:0;background:transparent;font:11px Arial,sans-serif;color:#000;";
+    this.selector.style.cssText = `position:absolute;left:1px;top:${HUD_CLIENT_Y + 515}px;width:80px;height:20px;border:0;background:transparent;font:11px Arial,sans-serif;color:#000;`;
     for (const name of CHANNELS) {
       const option = document.createElement("option");
       option.textContent = name;
       this.selector.append(option);
     }
-    this.selector.selectedIndex = -1;
+    this.selector.selectedIndex = 7;
     this.layer.element.append(this.selector);
     this.layer.listen(this.selector, "change", () => this.input.focus());
   }
@@ -101,19 +118,18 @@ export class UIChat {
     this.maximum.setVisible(state !== 3);
     this.minimum.setVisible(state === 3);
     this.resizeHighlight.container.visible = false;
-    this.resizeHighlight.setPosition(0, 504 - this.height);
+    this.resizeHighlight.setPosition(0, HUD_CLIENT_Y + 504 - this.height);
     const top = state === 1 ? 513 : state === 2 ? 486 : 510 - this.height;
     const height = state === 3 ? this.height - 2 : 25;
-    this.log.style.top = `${top}px`;
+    this.log.style.top = `${HUD_CLIENT_Y + top}px`;
     this.log.style.height = `${height}px`;
     this.log.style.background = state === 3 ? "rgba(0,0,0,.45)" : "transparent";
-    this.grip.style.top = `${504 - this.height}px`;
+    this.grip.style.top = `${HUD_CLIENT_Y + 504 - this.height}px`;
     this.owner.hooks.clearInput();
   }
 
   open() {
     this.setState(this.state === 3 ? 3 : 2);
-    this.historyIndex = this.history.length;
     this.input.focus();
   }
 
@@ -123,52 +139,133 @@ export class UIChat {
     this.owner.hooks.focusGame();
   }
 
+  /** 008d5aaf releases edit focus without minimizing an expanded log. */
+  exitEdit(clear = false) {
+    if (clear) this.input.value = "";
+    if (this.state === 2) this.setState(1);
+    this.input.blur();
+    this.owner.hooks.focusGame();
+  }
+
   handle(event) {
     if (event.target !== this.input) return false;
     event.stopImmediatePropagation();
-    if (event.isComposing) return true;
+    // keyCode 229 covers browser IME Enter delivery with isComposing already false.
+    if (event.isComposing || this.composing || event.keyCode === 229) {
+      return true;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      this.selector.selectedIndex = NEXT_CHANNEL[this.selector.selectedIndex];
+      return true;
+    }
     if (event.key === "Enter") {
       event.preventDefault();
+      if (event.repeat) return true;
       if (this.input.value) this.submit();
-      else this.close();
+      else this.exitEdit();
     } else if (event.key === "Escape") {
       event.preventDefault();
-      this.close(true);
-    } else if (
-      (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
-      !this.input.value
-    ) {
-      event.preventDefault();
-      this.close();
-    } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      event.preventDefault();
-      this.recall(event.key === "ArrowUp" ? -1 : 1);
+      this.exitEdit(true);
+    } else {
+      this.handleNavigationKey(event);
     }
     return true;
   }
 
+  /** Empty horizontal movement leaves the edit; vertical movement recalls history. */
+  handleNavigationKey(event) {
+    if (
+      (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+      !this.input.value
+    ) {
+      event.preventDefault();
+      this.exitEdit();
+    } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      this.recall(event.key === "ArrowUp" ? -1 : 1);
+    }
+  }
+
   submit() {
-    if (this.history.length === HISTORY_LIMIT) this.history.shift();
-    this.history.push(this.input.value);
-    this.historyIndex = this.history.length;
-    this.draft = "";
+    // 008d549f sanitizes non-ASCII bytes; trim helpers are 00474414/004744c9.
+    const text = this.input.value.replace(/[^\x20-\x7e]/g, " ").trim();
     this.input.value = "";
-    this.owner.status("Chat was not sent: the original server is unavailable.");
+    if (!text) {
+      this.exitEdit();
+      return;
+    }
+    if (text.length > CHAT_LIMIT) {
+      this.owner.status("Chat is limited to 70 characters.");
+    } else if (this.selector.selectedIndex !== 7 || text.startsWith("/")) {
+      this.owner.status(
+        "Private channels and chat commands require the original server.",
+      );
+    } else if (this.admit(text, performance.now())) {
+      if (this.owner.hooks.onChatSubmit?.(text) === true) {
+        this.remember(text);
+        this.owner.status("Local speech displayed; not sent to a server.");
+      } else {
+        this.owner.status("Local speech is unavailable; nothing was sent.");
+      }
+    }
     this.input.focus();
   }
 
+  /** 004904be: four equal messages / 30 s or four submissions / 2 s block for 2800 ms. */
+  admit(text, now) {
+    if (now < this.blockedUntil) return false;
+    if (now - this.recentStarted > REPEAT_WINDOW_MS) {
+      this.recent.length = 0;
+      this.recentStarted = now;
+    }
+    if (this.recent.length === 4) this.recent.shift();
+    this.recent.push(text);
+    let repeated = this.recent.length === 4;
+    for (const previous of this.recent) {
+      repeated = repeated && previous === text;
+    }
+    if (!repeated) {
+      this.submitTimes[this.submitIndex] = now;
+      this.submitIndex = (this.submitIndex + 1) % this.submitTimes.length;
+    }
+    if (
+      repeated ||
+      now - this.submitTimes[this.submitIndex] < FLOOD_WINDOW_MS
+    ) {
+      this.blockedUntil = now + FLOOD_COOLDOWN_MS;
+      this.owner.status(
+        "Chat is too frequent; wait 2.8 seconds before speaking again.",
+      );
+      return false;
+    }
+    return true;
+  }
+
+  remember(text) {
+    if (this.history[this.history.length - 1] !== text) {
+      if (this.history.length === HISTORY_LIMIT) {
+        this.history.shift();
+        this.historyIndex--;
+      }
+      this.history.push(text);
+    }
+    this.recalledSubmission = this.history[this.historyIndex] === text;
+    if (!this.recalledSubmission) this.historyIndex = this.history.length;
+  }
+
   recall(direction) {
-    if (this.historyIndex === this.history.length) {
-      this.draft = this.input.value;
+    if (!this.history.length) return;
+    // 0049081b/004908a4 clamp to first/last history entry, not an invented saved draft.
+    if (direction < 0 && this.recalledSubmission) {
+      this.historyIndex++;
+      this.recalledSubmission = false;
     }
     this.historyIndex = Math.max(
       0,
-      Math.min(this.history.length, this.historyIndex + direction),
+      Math.min(this.history.length - 1, this.historyIndex + direction),
     );
-    this.input.value =
-      this.historyIndex === this.history.length
-        ? this.draft
-        : this.history[this.historyIndex];
+    this.input.value = this.history[this.historyIndex];
     this.input.setSelectionRange(
       this.input.value.length,
       this.input.value.length,

@@ -8,6 +8,8 @@ export const DELIVERY_LIMITS = Object.freeze({
   maps: 512,
   releases: 64,
   clients: 256,
+  // At most eight request buffers, one status scan and one installer scan at once.
+  responses: 8,
 });
 export const SHELL_URLS = Object.freeze([
   "/index.html",

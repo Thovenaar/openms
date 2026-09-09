@@ -111,6 +111,15 @@ function footholds(tree) {
   return output;
 }
 
+/** Original l/uf are integer flags; preserve authored values, reject unsupported types. */
+function ladderFlag(fields, key, path) {
+  const flag = fields[key] === undefined ? 0 : fields[key];
+  if (!Number.isSafeInteger(flag) || flag < -2147483648 || flag > 2147483647) {
+    throw new Error(`Invalid ladder flag ${path}/${key}`);
+  }
+  return flag;
+}
+
 /** Original 00a43e7b reads l/uf/page with zero defaults; properties retain omissions.
  * @param {Record<string, any>} tree */
 function ladders(tree) {
@@ -122,8 +131,8 @@ function ladders(tree) {
       x: number(fields, "x", path),
       y1: number(fields, "y1", path),
       y2: number(fields, "y2", path),
-      ladder: fields.l ?? 0,
-      uf: fields.uf ?? 0,
+      ladder: ladderFlag(fields, "l", path),
+      uf: ladderFlag(fields, "uf", path),
       page: fields.page ?? 0,
       properties: fields,
     });
@@ -134,10 +143,14 @@ function ladders(tree) {
 /** @param {Record<string, any>} tree */
 function portals(tree) {
   const output = [];
+  const ids = new Set();
   for (const [key, fields] of Object.entries(tree)) {
     const path = `portal/${key}`;
+    const id = identifier(key, path);
+    if (ids.has(id)) throw new Error(`Duplicate portal ${id}`);
+    ids.add(id);
     output.push({
-      id: identifier(key, path),
+      id,
       x: number(fields, "x", path),
       y: number(fields, "y", path),
       name: fields.pn ?? null,

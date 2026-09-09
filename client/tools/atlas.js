@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { renameSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtemp, rename, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { inflateSync } from "node:zlib";
 import { encodePNG } from "../src/assets/png.js";
 
@@ -9,6 +9,17 @@ export const PADDING = 1;
 /** Content identity includes every byte, including transparent RGB. */
 export function hash(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+/** Each writer owns its staging directory; rename exposes only complete bytes. */
+export async function publishFile(path, bytes) {
+  const directory = await mkdtemp(`${path}.tmp-`);
+  const temporary = join(directory, "content");
+  try {
+    await Bun.write(temporary, bytes);
+    await rename(temporary, path);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 /** Publish immutable resources before the catalog is committed. */
 export async function resource(output, directory, extension, bytes) {
@@ -22,8 +33,7 @@ export async function resource(output, directory, extension, bytes) {
       return { url: `/generated/${name}`, sha256, bytes: bytes.length };
     }
   }
-  await Bun.write(`${path}.tmp`, bytes);
-  renameSync(`${path}.tmp`, path);
+  await publishFile(path, bytes);
   return { url: `/generated/${name}`, sha256, bytes: bytes.length };
 }
 /** Independent PNG scanline reader: validates the actual encoded payload. */

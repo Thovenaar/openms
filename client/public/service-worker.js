@@ -161,6 +161,7 @@ async function collectCaches(jobName = null) {
     const record = await readRecord(`client-${client.id}`);
     if (record) protectedNames.add(record.cacheName);
   }
+  await collectClientBindings(clients, protectedNames);
   const keys = await caches.keys();
   const releases = keys.filter((name) => name.startsWith(RELEASE_PREFIX));
   if (releases.length > DELIVERY_LIMITS.releases) {
@@ -169,11 +170,10 @@ async function collectCaches(jobName = null) {
   for (const name of releases) {
     if (!protectedNames.has(name)) await caches.delete(name);
   }
-  await collectClientBindings(clients);
 }
 
-/** Remove stale client pointers only after live-client releases have been protected. */
-async function collectClientBindings(clients) {
+/** matchAll omits reserved navigation clients; get waits until ready or discarded. */
+async function collectClientBindings(clients, protectedNames) {
   const meta = await caches.open(META_CACHE);
   const bindings = await meta.keys();
   if (bindings.length > DELIVERY_LIMITS.clients * DELIVERY_LIMITS.releases) {
@@ -184,9 +184,13 @@ async function collectClientBindings(clients) {
   );
   for (const key of bindings) {
     const path = new URL(key.url).pathname;
-    if (path.startsWith(`${META_PATH}client-`) && !live.has(path)) {
-      await meta.delete(key);
-    }
+    if (!path.startsWith(`${META_PATH}client-`) || live.has(path)) continue;
+    const id = path.slice(`${META_PATH}client-`.length);
+    const client = await self.clients.get(id);
+    if (client) {
+      const record = await readRecord(`client-${id}`);
+      if (record) protectedNames.add(record.cacheName);
+    } else await meta.delete(key);
   }
 }
 
@@ -223,6 +227,10 @@ class OfflineService {
   constructor() {
     this.job = null;
     this.activating = false;
+    this.cancelling = false;
+    this.responding = 0;
+    this.checking = false;
+    this.collecting = false;
     this.error = null;
     this.missing = new Set();
     this.records = new Map();
@@ -235,25 +243,33 @@ class OfflineService {
     event.waitUntil(self.clients.claim());
   }
   async status(port, clientId) {
-    const active = projection(
-      await verifiedRecord(await readRecord("active"), port),
-    );
-    const staged = projection(
-      await verifiedRecord(await readRecord("staged"), port),
-    );
-    const partial = this.job
-      ? null
-      : projection(await verifiedRecord(await readRecord("partial"), port));
-    const pinned = await readRecord(`client-${clientId}`, this.records);
-    return {
-      active,
-      staged,
-      partial,
-      pinnedReleaseId: pinned?.manifest.releaseId ?? null,
-      job: this.job?.progress ?? null,
-      error: this.error,
-      uncached: [...this.missing],
-    };
+    if (this.checking || this.collecting) {
+      throw new Error("Offline status backpressure; wait for current work");
+    }
+    this.checking = true;
+    try {
+      const active = projection(
+        await verifiedRecord(await readRecord("active"), port),
+      );
+      const staged = projection(
+        await verifiedRecord(await readRecord("staged"), port),
+      );
+      const partial = this.job
+        ? null
+        : projection(await verifiedRecord(await readRecord("partial"), port));
+      const pinned = await readRecord(`client-${clientId}`, this.records);
+      return {
+        active,
+        staged,
+        partial,
+        pinnedReleaseId: pinned?.manifest.releaseId ?? null,
+        job: this.job?.progress ?? null,
+        error: this.error,
+        uncached: [...this.missing],
+      };
+    } finally {
+      this.checking = false;
+    }
   }
   message(event) {
     if (
@@ -293,12 +309,20 @@ class OfflineService {
       this.job.controller.abort();
       return { cancelled: true };
     }
-    const partial = await readRecord("partial");
-    if (!partial) return { cancelled: false };
-    await removeRecord("partial");
-    await caches.delete(partial.cacheName);
-    this.error = null;
-    return { cancelled: true };
+    if (this.cancelling || this.activating) {
+      throw new Error("An offline installation operation is already running");
+    }
+    this.cancelling = true;
+    try {
+      const partial = await readRecord("partial");
+      if (!partial) return { cancelled: false };
+      await removeRecord("partial");
+      await caches.delete(partial.cacheName);
+      this.error = null;
+      return { cancelled: true };
+    } finally {
+      this.cancelling = false;
+    }
   }
   async target(id, port) {
     const partial = await readRecord("partial");
@@ -334,8 +358,20 @@ class OfflineService {
     await writeRecord("partial", record);
     return record;
   }
+  /** Exclude pointer readers/publishers throughout the collection snapshot and deletes. */
+  async collect(jobName) {
+    if (this.collecting || this.responding || this.checking) {
+      throw new Error("Offline collection backpressure; wait for current work");
+    }
+    this.collecting = true;
+    try {
+      await collectCaches(jobName);
+    } finally {
+      this.collecting = false;
+    }
+  }
   async download(id, port) {
-    if (this.job || this.activating) {
+    if (this.job || this.activating || this.cancelling) {
       throw new Error("An offline installation operation is already running");
     }
     if (!HASH.test(id)) throw new Error("Invalid requested offline release");
@@ -354,7 +390,7 @@ class OfflineService {
     let record = null;
     try {
       record = await this.target(id, port);
-      await collectCaches(record.cacheName);
+      await this.collect(record.cacheName);
       await this.stage(record, port);
       cancellation(controller.signal);
       this.job.committing = true;
@@ -490,7 +526,7 @@ class OfflineService {
     }
   }
   async activate(id, port) {
-    if (this.job || this.activating) {
+    if (this.job || this.activating || this.cancelling) {
       throw new Error(
         "Wait for the current installation operation before activation",
       );
@@ -536,6 +572,14 @@ class OfflineService {
     return index;
   }
   async respond(event, path) {
+    if (this.collecting || this.responding >= DELIVERY_LIMITS.responses) {
+      this.error = "Offline request backpressure; wait for current work";
+      return new Response(this.error, {
+        status: 503,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+    this.responding++;
     try {
       const navigation = event.request.mode === "navigate";
       const name = navigation ? "active" : `client-${event.clientId}`;
@@ -550,7 +594,9 @@ class OfflineService {
       }
       return response;
     } catch (error) {
-      return this.unavailable(path, error.message);
+      return await this.unavailable(path, error.message);
+    } finally {
+      this.responding--;
     }
   }
   async pinnedResponse(record, info) {

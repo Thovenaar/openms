@@ -22,7 +22,10 @@ export class WzArchive {
       if (r.take(4).toString("ascii") !== "PKG1") {
         throw new Error(`${path}: not a PKG1 archive`);
       }
-      const size = r.u32() + r.u32() * 4294967296;
+      const size = r.u32();
+      if (r.u32() !== 0) {
+        throw new Error(`${path}: unsupported PKG1 high size word`);
+      }
       this.base = r.u32();
       if (this.base < 16 || size + this.base !== r.end) {
         throw new Error(`${path}: inconsistent header size`);

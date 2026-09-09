@@ -98,6 +98,7 @@ export class EntityAnimation {
     this.action = "";
     this.frame = -1;
     this.actionTimeMs = 0;
+    this.holdFrame = false;
     this.setAction(entity.action);
   }
 
@@ -134,6 +135,15 @@ export class EntityAnimation {
     this.elapsedMs += ms;
     const current = this.current;
     if (current.duration === 0 || this.completed) return;
+    // 004522a6: stationary climb consumes the remaining delay but holds the
+    // current authored frame at expiry; movement resumes without a phase reset.
+    if (this.holdFrame) {
+      this.actionTimeMs = Math.min(
+        current.ends[this.frame],
+        this.actionTimeMs + ms,
+      );
+      return;
+    }
     if (this.playback === "once") {
       this.actionTimeMs = Math.min(current.duration, this.actionTimeMs + ms);
       this.completed = this.actionTimeMs === current.duration;

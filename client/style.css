@@ -98,12 +98,13 @@ canvas {
   touch-action: none;
 }
 aside {
-  width: 246px;
+  width: 280px;
   flex-shrink: 0;
   padding: 18px;
   border-left: 1px solid #344554;
   background: #17232e;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 aside h2 {
   margin: 0;
@@ -112,7 +113,7 @@ aside h2 {
 aside > .hint {
   margin: 8px 0 14px;
 }
-#inspection-controls > details {
+aside details {
   margin: 0 0 12px;
   padding: 8px;
   border: 1px solid #607080;
@@ -124,11 +125,12 @@ aside > .hint {
     sans-serif;
   overflow-wrap: anywhere;
 }
-#inspection-controls button,
-#inspection-controls select {
+aside button,
+aside select,
+aside input {
   max-width: 100%;
 }
-#inspection-controls button {
+aside button {
   white-space: normal;
 }
 fieldset {
@@ -138,11 +140,11 @@ fieldset {
   min-width: 0;
 }
 legend {
-  margin-bottom: 16px;
+  margin-bottom: 8px;
   font-weight: 650;
   font-size: 15px;
 }
-aside fieldset label:not(.check) {
+aside label:not(.check):not(.sr-only) {
   display: block;
   margin: 14px 0 5px;
   color: #a5b7c9;
@@ -206,18 +208,26 @@ output {
 [hidden] {
   display: none !important;
 }
-@media (max-width: 780px) {
-  header {
-    flex-wrap: wrap;
-    padding: 10px 12px;
-    gap: 10px;
+@media (max-width: 900px) {
+  body {
+    height: auto;
+    min-height: 100dvh;
+  }
+  main {
+    flex-direction: column;
+  }
+  #viewport {
+    flex: none;
+    width: 100%;
+    height: min(75vw, 600px);
+    min-height: 240px;
   }
   aside {
-    width: 196px;
-    padding: 12px;
-  }
-  .camera-buttons button {
-    padding-inline: 5px;
+    width: 100%;
+    padding: 16px;
+    overflow: visible;
+    border-left: 0;
+    border-top: 1px solid #344554;
   }
 }
 
@@ -231,6 +241,50 @@ output {
   font-size: 11px;
 }
 
-details {
+aside summary {
+  cursor: pointer;
+  font-weight: 650;
+  padding: 4px 0;
+}
+
+aside details {
+  margin-top: 14px;
+}
+
+aside details > details,
+#inspection-controls > details {
+  margin-bottom: 0;
+}
+
+#audio-controls:not(:empty) {
   margin-top: 16px;
+}
+
+#audio-controls input[type="range"] {
+  width: 100%;
+}
+
+aside button + button {
+  margin-left: 4px;
+}
+
+aside .transport button + button,
+aside .button-row button + button {
+  margin-left: 0;
+}
+
+aside p {
+  overflow-wrap: anywhere;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }

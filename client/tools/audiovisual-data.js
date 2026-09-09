@@ -5,6 +5,10 @@ import { resource } from "./atlas.js";
 
 const MAX_SOUNDS = 512;
 const MAX_EFFECT_FRAMES = 256;
+const COMBAT_SOUND_NAMES = Object.freeze({
+  Mob: /^(Damage|Die|Attack[1-8]|CharDam[12])$/,
+  Weapon: /^Attack$/,
+});
 const BASIC_EFFECTS = [
   "Teleport",
   "LevelUp",
@@ -64,7 +68,10 @@ function soundFormat(node, source) {
 }
 
 export async function publishSound(context, node, source) {
-  node = resolveNode(node);
+  return publishResolvedSound(context, resolveNode(node), source);
+}
+
+async function publishResolvedSound(context, node, source) {
   const format = soundFormat(node, source);
   return {
     ...(await resource(context.output, "audio", "mp3", node.data)),
@@ -156,10 +163,132 @@ async function publishEffect(context, imageName, name) {
   return { bundle, ...metadata };
 }
 
+/** Exact digit canvases consumed by 00435444/00437d0f; no rasterized text substitute. */
+async function combatDigits(context) {
+  const actions = {};
+  const root = context.image("Effect", "BasicEff.img");
+  for (const family of [
+    "NoRed0",
+    "NoRed1",
+    "NoBlue0",
+    "NoBlue1",
+    "NoViolet0",
+    "NoViolet1",
+    "NoCri0",
+    "NoCri1",
+  ]) {
+    for (const [name, canvas] of Object.entries(at(root, family).children)) {
+      actions[`${family}/${name}`] = [
+        { delay: 1000, parts: [await context.part(canvas)] },
+      ];
+    }
+  }
+  return context.bundle({
+    id: "combat-digits",
+    entities: [
+      {
+        id: "combat-digits",
+        kind: "effect",
+        order: 0,
+        x: 0,
+        y: 0,
+        z: 0,
+        visible: true,
+        flip: false,
+        opacity: 1,
+        action: "NoRed0/0",
+        actions,
+      },
+    ],
+    metadata: { source: "Effect.wz:BasicEff.img/No*", consumer: "00437d0f" },
+  });
+}
+
+/** Publish only authored map mobs; absent sound nodes mean silence, never substitute audio. */
+async function combatSounds(context, mapIds, weaponSfx) {
+  const result = { Mob: {}, Weapon: {} };
+  const ids = new Set();
+  for (const mapId of mapIds) {
+    const map = context.image("Map", `Map/Map${mapId[0]}/${mapId}.img`);
+    const life = map.children.life;
+    if (!life) continue;
+    const records = Object.values(life.children);
+    if (records.length > 4096) {
+      throw new Error("Combat life sound budget exceeded");
+    }
+    for (const record of records) {
+      if (value(record, "type", "") === "m") {
+        ids.add(String(value(record, "id", "")).padStart(7, "0"));
+      }
+    }
+  }
+  const mobs = context.image("Sound", "Mob.img");
+  for (const id of ids) {
+    if (mobs.children[id]) {
+      result.Mob[Number(id)] = await soundChildren(
+        context,
+        "Mob",
+        id,
+        at(mobs, id),
+      );
+    }
+  }
+  const weapons = context.image("Sound", "Weapon.img");
+  const weapon = weapons.children[weaponSfx];
+  if (weapon) {
+    result.Weapon[weaponSfx] = await soundChildren(
+      context,
+      "Weapon",
+      weaponSfx,
+      weapon,
+    );
+  }
+  return result;
+}
+
+async function soundChildren(context, category, id, root) {
+  const result = {};
+  const entries = Object.entries(resolveNode(root).children);
+  if (entries.length > MAX_SOUNDS) {
+    throw new Error("Combat sound family budget exceeded");
+  }
+  for (const [name, node] of entries) {
+    if (!COMBAT_SOUND_NAMES[category].test(name)) continue;
+    result[name] = await retainedCombatSound(
+      context,
+      node,
+      `Sound.wz:${category}.img/${id}/${name}`,
+    );
+  }
+  return result;
+}
+
+/** Preserve unresolved original aliases as explicit unavailable records, never repaired audio. */
+async function retainedCombatSound(context, node, source) {
+  let resolved;
+  try {
+    resolved = resolveNode(node);
+  } catch (error) {
+    return {
+      available: false,
+      source,
+      alias: node.value,
+      reason: error.message,
+    };
+  }
+  return {
+    available: true,
+    descriptor: await publishResolvedSound(context, resolved, source),
+  };
+}
+
 /** Immutable catalog metadata; audio and visual payloads remain separately demand-loaded. */
-export async function extractAudiovisual(context, mapIds) {
+export async function extractAudiovisual(context, mapIds, weaponSfx) {
   if (!Array.isArray(mapIds) || mapIds.length > 512) {
     throw new Error("Invalid audiovisual map selection");
+  }
+  if (typeof weaponSfx !== "string" || weaponSfx.length > 128) {
+    throw new Error("Invalid equipped weapon sound family");
   }
   mkdirSync(resolve(context.output, "audio"), { recursive: true });
   const index = { schemaVersion: 1, maps: {}, sounds: {}, effects: {} };
@@ -192,6 +321,10 @@ export async function extractAudiovisual(context, mapIds) {
   for (const category of ["UI", "Game"]) {
     index.sounds[category] = await soundFamily(context, category);
   }
+  index.combat = {
+    digits: await combatDigits(context),
+    sounds: await combatSounds(context, mapIds, weaponSfx),
+  };
   for (const name of BASIC_EFFECTS) {
     index.effects[name] = await publishEffect(context, "BasicEff.img", name);
   }

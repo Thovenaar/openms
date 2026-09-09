@@ -1,7 +1,7 @@
 import { Container } from "pixi.js";
 import { EntityAnimation } from "./animation.js";
 
-const MAX_PANEL_SPRITES = 1536; // 96 visible stacks, up to ten validated count digits each.
+const MAX_PANEL_SPRITES = 1632; // 96 visible stacks: one icon plus up to 16 safe-integer count digits.
 const MAX_PANEL_CONTROLS = 128;
 
 /** Original raster resources with a bounded accessible DOM interaction plane. No independent image/atlas decoding. */
@@ -87,17 +87,16 @@ export class UISurface {
     element.type = "button";
     element.className = "maple-ui-hit";
     element.setAttribute("aria-label", label);
+    element.dataset.cursorState = Object.keys(handlers).length ? "5" : "0";
     element.style.cssText = `position:absolute;left:${rect.x}px;top:${rect.y}px;width:${rect.width}px;height:${rect.height}px;touch-action:none;`;
     for (const [type, handler] of Object.entries(handlers)) {
       this.listen(element, type, handler);
     }
     this.listen(element, "pointerenter", (event) => {
-      if (!this.owner.bindingDrag) this.owner.cursor?.set(5);
       const point = this.owner.logicalPointer(event);
       this.owner.showTooltip(label, point.x, point.y);
     });
     this.listen(element, "pointerleave", () => {
-      if (!this.owner.bindingDrag) this.owner.cursor?.set(0);
       this.owner.hideTooltip();
     });
     this.element.append(element);
@@ -216,6 +215,7 @@ export class UISurface {
   destroy() {
     if (this.disposed) return;
     this.disposed = true;
+    for (const control of this.controls) control.releasePointer();
     for (const layer of this.layers) layer.destroy();
     for (const cleanup of this.cleanups) cleanup();
     this.cleanups.length = 0;
@@ -280,12 +280,16 @@ class UIControl {
     this.visible = visible;
     this.element.hidden = !visible;
     this.render();
+    if (!visible) this.releasePointer();
   }
 
   setDisabled(disabled) {
     this.options.disabled = disabled;
     this.element.setAttribute("aria-disabled", String(disabled));
     if (disabled) this.pressed = false;
+    if (disabled) this.releasePointer();
+    this.element.dataset.cursorState =
+      !disabled && typeof this.options.action === "function" ? "4" : "0";
     this.render();
   }
 
@@ -296,6 +300,8 @@ class UIControl {
     this.element.className = "maple-ui-hit";
     this.element.setAttribute("aria-label", options.label);
     this.element.setAttribute("aria-disabled", String(options.disabled));
+    this.element.dataset.cursorState =
+      !options.disabled && typeof options.action === "function" ? "4" : "0";
     this.element.style.cssText = `position:absolute;left:${options.x}px;top:${options.y}px;width:${normal.width}px;height:${normal.height}px;`;
     const handler = this.handle.bind(this);
     for (const type of [
@@ -304,6 +310,7 @@ class UIControl {
       "pointerdown",
       "pointerup",
       "pointercancel",
+      "lostpointercapture",
       "focus",
       "blur",
       "click",
@@ -323,11 +330,10 @@ class UIControl {
   }
 
   handle(event) {
+    if (!this.acceptsPointerEvent(event)) return;
     this.updateFlags(event);
-    this.updateCursor(event);
-    if (event.type === "click" && this.options.disabled) return;
-    if (event.type === "click" && !this.visible) return;
     if (event.type === "click") {
+      if (!this.acceptsClick(event)) return;
       this.panel.owner.sound("BtMouseClick");
       this.options.action?.();
     }
@@ -340,30 +346,98 @@ class UIControl {
     if (event.type === "blur") this.panel.owner.hideTooltip();
     this.render();
   }
-  updateCursor(event) {
-    const owner = this.panel.owner;
-    if (event.type === "pointerenter" && !owner.bindingDrag) {
-      owner.cursor?.set(4);
+
+  acceptsPointerEvent(event) {
+    if (event.type === "pointerdown" && this.panel.owner.pressedControl) {
+      return false;
     }
-    if (event.type === "pointerleave" && !owner.bindingDrag) {
-      owner.cursor?.set(0);
+    if (
+      (event.type === "pointerup" || event.type === "pointercancel") &&
+      this.pointerId !== undefined &&
+      event.pointerId !== this.pointerId
+    ) {
+      return false;
     }
-    if (event.type === "pointerup" || event.type === "pointercancel") {
-      owner.cursor?.release();
+    return true;
+  }
+
+  acceptsClick(event) {
+    if (this.options.disabled) return false;
+    if (event.detail > 0 && this.cancelClick) return false;
+    return this.visible;
+  }
+  releasePointer() {
+    if (this.panel.owner.pressedControl === this) {
+      this.panel.owner.pressedControl = null;
+    }
+    if (this.pointerId === undefined) return;
+    const id = this.pointerId;
+    this.pointerId = undefined;
+    if (this.element.hasPointerCapture(id)) {
+      this.element.releasePointerCapture(id);
     }
   }
+
+  cancelPointer() {
+    this.cancelClick = true;
+    this.hover = false;
+    this.pressed = false;
+    this.releasePointer();
+    this.render();
+  }
   updateFlags(event) {
+    this.updatePointerFlags(event);
+    this.updateFocusFlags(event);
+  }
+
+  updatePointerFlags(event) {
     if (event.type === "pointerenter") this.hover = true;
     if (event.type === "pointerleave") {
       this.hover = false;
       this.pressed = false;
     }
-    if (event.type === "pointerdown" && event.button === 0) this.pressed = true;
-    if (["pointerup", "pointercancel", "blur"].includes(event.type)) {
-      this.pressed = false;
+    this.capturePointer(event);
+    if (event.type === "pointerup" && this.pointerId === event.pointerId) {
+      this.cancelOffTargetClick(event);
     }
-    if (event.type === "focus") this.focused = true;
+    if (
+      event.type === "pointerup" ||
+      event.type === "pointercancel" ||
+      event.type === "lostpointercapture" ||
+      event.type === "blur"
+    ) {
+      this.pressed = false;
+      this.releasePointer();
+    }
     if (event.type === "pointercancel") this.hover = false;
+  }
+
+  capturePointer(event) {
+    if (
+      event.type !== "pointerdown" ||
+      event.button !== 0 ||
+      this.options.disabled
+    ) {
+      return;
+    }
+    this.pressed = true;
+    this.cancelClick = false;
+    this.panel.owner.pressedControl = this;
+    this.pointerId = event.pointerId;
+    this.element.setPointerCapture(event.pointerId);
+  }
+
+  cancelOffTargetClick(event) {
+    const rect = this.element.getBoundingClientRect();
+    this.cancelClick =
+      event.clientX < rect.left ||
+      event.clientX >= rect.right ||
+      event.clientY < rect.top ||
+      event.clientY >= rect.bottom;
+  }
+
+  updateFocusFlags(event) {
+    if (event.type === "focus") this.focused = true;
     if (event.type === "blur") this.focused = false;
     if (event.type === "keydown" && ["Enter", " "].includes(event.key)) {
       this.pressed = true;

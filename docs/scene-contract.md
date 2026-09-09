@@ -40,15 +40,13 @@ portal graphics update after animation. Duplicate/stale requests are guarded.
 Successful local traversal is not original server authorization. Scripted/conditioned
 portals are explicitly unsupported where their activation cannot be established.
 
-Screen-space UI/audio owners survive map replacement. Field portal/life systems
-belong to their candidate scene; a persistent world overlay holds nameplates and
-non-authoritative preview geometry/effects across region refresh. Display objects
-are destroyed before their shared subtextures/leases. UI focus clears held gameplay
-input; ordinary canvas blur also clears it when browser controls take focus.
+Screen-space UI/audio owners survive map replacement. Field portal/life/gameplay/reactor, speech-bubble and combat-number owners belong to their candidate scene. The world overlay survives region refresh, but not field replacement; it holds names, local speech, combat digits and preview geometry/effects. Displays die before their subtextures/leases. Failed or cancelled candidates cannot attach late resources. UI focus and ordinary canvas blur clear held gameplay input.
 
 `KeyBindings` survives field replacement with the screen-owned UI and profile. `keymap.js` maps browser physical `event.code` to recovered records; movement/action owners consume that shared active map, not separate hardcoded aliases. The KeyConfig draft is live and nonmodal, while its quick-key popup and UtilDlgEx are modal. Focused chat/native text controls capture input and clear gameplay state. Committed bindings persist in schema2; edit drafts, cursor state, chat history and item-use throttle timestamps do not.
 
 Candidate initialization and subsequent updates use the same actor-pose synchronization: position, original left-authored facing, action and contact-dependent depth are correct before the first draw, even when the scene is paused. A paused reload does not wait for a simulation tick to correct the avatar.
+
+All retained gameplay authority freezes while replacement is loading, including a portal request begun inside `beforePhysics`. The loop rechecks loading/current-scene ownership before advancing. The old scene remains visible, not keyboard-playable. `step(ms)` also rejects while loading. Enabling camera follow recomputes and renders immediately even when paused.
 
 The animation driver samples `performance.now()` at callback entry, consistently with pause/focus clock resets. It must not subtract a newer reset from rAF's earlier frame-start timestamp: that produced a negative elapsed value and stopped cached-map transitions. Negative public simulation input still fails; the fix does not clamp or conceal an invalid delta. The executed lifecycle reproduction and corrected pixel comparison are in [physics-validation/lifecycle-smoke.json](physics-validation/lifecycle-smoke.json).
 
@@ -58,8 +56,8 @@ The animation driver samples `performance.now()` at callback entry, consistently
 
 - `ready`: latest map-load promise; `reload()` refreshes the catalog; `switchMap(id)` loads a packaged map.
 - `snapshot()`: version/build, current map, packaged map IDs, pause/debug/follow/loading/error state, presentation-layer visibility, camera, held input, physics snapshot, resident entities/regions, field portal/life observations, UI/audio observations, bounded streaming/resource counters and frame/draw metrics. `actorArtworkUnsupported` names an action without reconstructed artwork.
-- `pause(boolean)` and `step(ms)`: deterministic stepping requires pause, accepts finite 0–10000 ms, and remains subject to the simulation's explicit catch-up bound.
-- `setDebug(boolean)` toggles physics geometry/labels/settings; `setFollow(boolean)` toggles the browser camera policy.
+- `pause(boolean)` and `step(ms)`: deterministic stepping requires pause and no pending field replacement, accepts finite0–10000ms and retains the simulation's explicit catch-up bound.
+- `setDebug(boolean)` toggles physics geometry/labels/settings; `setFollow(boolean)` toggles the browser camera policy and immediately restores following while paused.
 - `setCamera(x,y)` enters manual inspection; `setAction(id,action)`, `setVisible(id,bool)` and `setLayer(id,z)` inspect entities. Simulation resumes ownership of the character's action and contact-dependent depth on its next update; pause for persistent manual inspection.
 - `setPosition(id,x,y)` moves non-player entities only; player teleportation is rejected because movement belongs to simulation.
 - `setPresentationVisible(boolean)`: explicitly isolate world artwork by hiding UI and the separate world presentation overlay. Used only for scoped interchange-oracle captures, not to claim UI/effect parity.
@@ -68,6 +66,6 @@ The animation driver samples `performance.now()` at callback entry, consistently
 
 ## Human controls and evidence
 
-Click empty map space to focus gameplay. Arrows move/climb; recovered defaults bind Alt to Jump and Control to Attack. Down+the bound Jump requests eligible drop-through; Up requests supported local portal traversal. I/E/S/K open Item/Equip/Stat/Skill, C KeyConfig, H MiniMap, Q Quest and ] quick slots. Enter opens chat without granting message delivery; typing is not gameplay input. Space/Talk, X/Sit and Z/Pickup are not legacy jump/attack aliases and currently report unavailable actions. Nearby NPC artwork invokes the data-backed quest owner. Browser camera/debug/pause/step controls remain inspection; diagnostics and unsupported-operation messages stay in the sidebar rather than the original HUD or chat log. Audio requires a native enable gesture. See [UI/input contracts and pending native acceptance](ingame-ui.md).
+Click empty map space to focus gameplay. Arrows move/climb; Alt Jump and Control Attack are recovered defaults. Down+bound Jump requests eligible drop-through; Up requests supported portal traversal. I/E/S/K open Item/Equip/Stat/Skill; Backslash opens Set Key, Q Quest, [ ShortCut and ] quick slots. Enter opens chat without granting delivery; admitted All-channel text displays local speech and typing never becomes gameplay input. Space/Talk, X/Sit, Z/Pickup and other unimplemented categories report unavailable actions. Nearby NPC artwork uses live admission before original-data quest dialogue. C/H are not KeyConfig/MiniMap aliases.
 
 Receiver geometry remains distinct from the foothold contact point. Geometry previews do not establish damaging phases: the separate [offline combat authority](offline-combat.md) explicitly supplies local impact timing and equations. Whole world compositions/camera vectors use signed integer projection before GPU submission; simulation remains binary64. External parity requires [original Windows references](windows-reference-captures.md), not browser self-consistency.

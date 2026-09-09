@@ -70,7 +70,6 @@ function updateReadout(overlay, scene) {
     `position=${sim.x.toFixed(3)},${sim.y.toFixed(3)} velocity=${sim.vx.toFixed(3)},${sim.vy.toFixed(3)} px/s`,
     "body=cyan attack=amber damage=pink; white cross=feet; green=footholds",
     `blocked=${JSON.stringify(sim.blocked)} original attack activation=unverified; geometry unresolved=${overlay.shapes.unknown}`,
-    `effective physics=${JSON.stringify(sim.effectiveSettings)}`,
   ].join("\n");
 }
 

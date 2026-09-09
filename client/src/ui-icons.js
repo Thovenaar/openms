@@ -1,7 +1,8 @@
 import { loadVisualBundle } from "./visual-resources.js";
 import { itemBindingType } from "./keymap.js";
+import { PROFILE_LIMITS } from "./profile-validation.js";
 
-const MAX_VISIBLE_ICONS = 96;
+const MAX_VISIBLE_ICONS = Math.max(96, PROFILE_LIMITS.equipment);
 const ICON_CONCURRENCY = 4;
 
 /** Event-driven replacement retains the last complete raster until every demand load succeeds. */
@@ -42,10 +43,6 @@ export async function replaceIcons(panel, records, compose) {
       panel.skillSignature = null;
       panel.keySignature = null;
       panel.quickSignature = null;
-      if (panel.iconLayer) {
-        panel.iconLayer.root.visible = false;
-        panel.iconLayer.element.hidden = true;
-      }
     }
     panel.owner.report(error);
   } finally {

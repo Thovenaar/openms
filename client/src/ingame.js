@@ -7,10 +7,15 @@ import { QuestSystem } from "./quest-system.js";
 import { mountNpcDialogue, mountQuestJournal } from "./quest-ui.js";
 import { ReactorSystem } from "./reactor-system.js";
 import { KeyBindings } from "./key-bindings.js";
+import { SpeechBubbles } from "./speech-bubbles.js";
+import { CombatPresentation } from "./combat-presentation.js";
 
 /** Candidate fields own resources independently; only committed fields advance. */
 class FieldSystems {
   constructor(scene, owner) {
+    this.scene = scene;
+    this.owner = owner;
+    this.speechPose = { x: 0, headY: 0 };
     try {
       this.portals = new PortalSystem(scene, owner.fieldHooks);
       this.reactors = new ReactorSystem(scene, owner.store, {
@@ -24,15 +29,37 @@ class FieldSystems {
       this.gameplay = new OfflineField(scene, owner.store, {
         ...owner.gameplayHooks,
         onStrike: this.reactors.strike.bind(this.reactors),
+        onAttack: () =>
+          owner.audio.onPlayerAttack(scene.manifest.combat.equipment.sfx),
+        onPlayerHit: this.playerHit.bind(this),
+        onMobHit: this.mobHit.bind(this),
+        onMobAttack: (mob) => owner.audio.onMobAttack(mob, scene.simulation),
+        onPlayerDeath: owner.audio.onPlayerDeath.bind(owner.audio),
       });
       this.life = new LifeSystem(scene, owner.fieldHooks);
+      this.speech = new SpeechBubbles(owner.app, owner.services);
+      this.speech.setScene(scene);
+      this.combat = new CombatPresentation(owner.app, owner.services);
+      this.combat.setScene(scene);
     } catch (error) {
       this.destroy();
       throw error;
     }
   }
   async prepare(signal) {
-    await this.gameplay.prepare(signal);
+    await Promise.all([
+      this.gameplay.prepare(signal),
+      this.speech.prepare(this.owner.catalog, signal),
+      this.combat.prepare(this.owner.catalog.audiovisual, signal),
+    ]);
+  }
+  playerHit(hit, simulation) {
+    this.combat.onPlayerHit(hit, simulation);
+    this.owner.audio.onPlayerHit(hit, simulation);
+  }
+  mobHit(mob, amount) {
+    this.combat.onMobHit(mob, amount);
+    this.owner.audio.onMobHit(mob, amount, this.scene.simulation);
   }
   refresh() {
     this.life.refresh();
@@ -44,12 +71,18 @@ class FieldSystems {
     }
   }
   step(ms, input) {
+    this.combat.update(ms);
     this.gameplay.step(ms, input);
     this.reactors.step(ms);
   }
   update(ms, input) {
     this.portals.update(ms, input);
     this.life.update(ms);
+    const pose = this.scene.presentation;
+    this.speechPose.x = pose.x;
+    this.speechPose.headY =
+      pose.y + this.scene.actor.current.geometry[this.scene.actor.frame].y;
+    this.speech.update(ms, this.speechPose, this.scene.camera);
   }
   snapshot() {
     return {
@@ -57,6 +90,8 @@ class FieldSystems {
       life: this.life.snapshot(),
       gameplay: this.gameplay.snapshot(),
       reactors: this.reactors.snapshot(),
+      speech: this.speech.snapshot(),
+      combatPresentation: this.combat.snapshot(),
     };
   }
   destroy() {
@@ -64,12 +99,18 @@ class FieldSystems {
     this.life?.destroy();
     this.gameplay?.destroy();
     this.reactors?.destroy();
+    this.speech?.destroy();
+    this.combat?.destroy();
   }
 }
 
 /** Screen-owned UI, profile, quests and travel gate survive field replacement. */
 export class InGameSystems {
   constructor(app, services, hooks) {
+    this.app = app;
+    this.services = services;
+    this.catalog = null;
+    this.worldPointer = { x: 0, y: 0 };
     this.hooks = hooks;
     this.store = null;
     this.bindings = null;
@@ -88,6 +129,8 @@ export class InGameSystems {
       onStatus: hooks.onStatus,
       onReset: hooks.onReset,
       onSave: hooks.onSave,
+      onChatSubmit: this.submitChat.bind(this),
+      isWorldInteractive: this.isWorldInteractive.bind(this),
       onRecover: () => this.scene?.fieldSystems.gameplay.recover() ?? false,
       onOfferItem: (id) =>
         this.scene?.fieldSystems.reactors.offer(id) ?? {
@@ -116,6 +159,22 @@ export class InGameSystems {
   profileChanged() {
     this.ui.refreshProfile();
   }
+  submitChat(text) {
+    if (!this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay()) {
+      return false;
+    }
+    return this.scene.fieldSystems.speech.show(text);
+  }
+  isWorldInteractive(clientX, clientY) {
+    if (!this.scene || this.hooks.isBlocked()) return false;
+    const events = this.app.renderer.events;
+    events.mapPositionToPoint(this.worldPointer, clientX, clientY);
+    const target = events.rootBoundary.hitTest(
+      this.worldPointer.x,
+      this.worldPointer.y,
+    );
+    return this.scene.fieldSystems.life.isInteractiveTarget(target);
+  }
   playSound(category, name) {
     return this.audio.playSound(category, name).catch(this.audio.reportBound);
   }
@@ -128,8 +187,6 @@ export class InGameSystems {
     if (name === "Attack" || name === "Jump") {
       this.hooks.focusGame();
       this.hooks.tap(name === "Attack" ? "attack" : "jump");
-    } else if (this.ui.windows.has(name) || this.ui.pending.has(name)) {
-      this.ui.close(name);
     } else {
       this.ui.activate(name);
     }
@@ -137,6 +194,7 @@ export class InGameSystems {
   }
   async prepare(catalog, signal, store) {
     this.store = store;
+    this.catalog = catalog;
     this.quests = new QuestSystem(catalog.quests, store, {
       onChange: this.profileChanged,
       onEffect: this.playEffect,

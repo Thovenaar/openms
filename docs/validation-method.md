@@ -52,9 +52,7 @@ The current command uses real mouse/keyboard input for movement and map selectio
 - Select requested browser maps through the real map control, retain the previous scene while loading, exercise movement/jump and capture the commit. `--maps` limits these browser selections; the report records the actual coverage.
 - Select each original hitbox preview through the real debug controls. These are
   non-authoritative geometry previews, not combat activation.
-- Replay the same timestamped input trace in Bun at 60/120/144/240-Hz elapsed-time
-  partitions for each packaged physics manifest. This checks fixed-step consistency,
-  not physical displays at those rates or original-game movement parity.
+- Replay timestamped input at60/120/144/240Hz partitions. Compare selected final-state fields and the minimum Y sampled after **every physics step**, including batched low-refresh steps. This is final-state/per-step-extremum consistency, not full trajectory equality, physical display refresh or original-runtime parity.
 
 Reports include checks, errors, captures, transitions, refresh comparisons,
 source/environment details and measured samples. The validator attempts a full-page
@@ -81,6 +79,7 @@ Both actual WebGL PNG and independently composed PNG are decoded into RGBA pixel
 Comparison permits at most four 8-bit levels per channel for raster/alpha rounding;
 no pixel outside that tolerance is allowed. This is an interchange-compositing
 criterion, not an invented tolerance against an unavailable original recording.
+Malformed pixel lengths/dimensions/tolerances fail rather than yielding NaN-based false passes. PNG evidence verifies CRCs, chunk ordering/uniqueness, bounded input/output and exact termination; unsupported transparency/APNG is rejected. The independent compositor bounds fetched bytes, surfaces, artwork and repeat work, and closes already-decoded bitmaps if a later atlas fails. It still shares generated data and captured state, so it cannot independently detect a shared extraction, animation-state or camera error.
 The old renderer-only action/asset-swap suite is historical evidence, not a claim
 about what the current `validate.js` executes.
 
@@ -146,3 +145,5 @@ cache bytes and decoded audio PCM bytes separately. GPU estimates are not driver
 allocation measurements; Chrome heap is not total browser RSS. Include viewport,
 device scale, Chrome version and reported WebGL backend. Record all threshold
 misses: a 60-Hz display or an average near 60 FPS does not establish stable 60 FPS.
+
+Performance is **measured, not graded**: sample-capacity checks establish measurement completeness, not smoothness. No original FPS threshold is invented. Full-window rAF/Long Task observations are separate from the runtime's trailing240-slot frame/draw CPU ring; reports retain only samples known to fall inside the measurement window and label that narrower coverage. Late buffered Long Tasks preceding reset are excluded. One probe owns one observer/rAF chain and tears both down.

@@ -1,13 +1,13 @@
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, renameSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { WzArchive } from "../src/assets/wz.js";
 import { parseImage, at, value, resolveNode } from "../src/assets/image.js";
 import { decodeCanvas } from "../src/assets/canvas.js";
 import { readPhysicsData } from "./physics-data.js";
 import { extractHitboxReferences } from "./hitbox-data.js";
-import { hash, resource, ATLAS_LIMIT, PADDING } from "./atlas.js";
+import { hash, resource, publishFile, ATLAS_LIMIT, PADDING } from "./atlas.js";
 import { packageMap, packageVisualBundle, REGION_SIZE } from "./packaging.js";
 import { prepareCanvasTiles } from "./canvas-tiles.js";
 import { extractGameUI } from "./ui-data.js";
@@ -24,7 +24,12 @@ const args = process.argv.slice(2);
 const explicitMaps = args.includes("--maps") || args.includes("--map");
 const option = (name, fallback) => {
   const i = args.indexOf(name);
-  return i < 0 ? fallback : args[i + 1];
+  if (i < 0) return fallback;
+  const value = args[i + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`Missing value for ${name}`);
+  }
+  return value;
 };
 const source = resolve(
   option(
@@ -164,7 +169,15 @@ function frameDelay(node) {
 async function frames(node) {
   node = resolveNode(node);
   if (node.type === "Canvas") {
-    return [{ delay: frameDelay(node), parts: [await part(node)] }];
+    const frame = { delay: frameDelay(node), parts: [await part(node)] };
+    const start = value(node, "a0", -1),
+      end = value(node, "a1", -1);
+    if (start >= 0 || end >= 0) {
+      const a0 = start < 0 ? 255 : start;
+      frame.parts[0].opacity = a0 / 255;
+      frame.alphaEnd = (end < 0 ? a0 : end) / 255;
+    }
+    return [frame];
   }
   const result = [];
   let carriedAlpha = 255;
@@ -515,7 +528,11 @@ async function run() {
     quests,
     imageEntries: (name) => archive(name).entries,
   });
-  const audiovisual = await extractAudiovisual(extractionContext, mapIds);
+  const audiovisual = await extractAudiovisual(
+    extractionContext,
+    mapIds,
+    combat.equipment.sfx,
+  );
   const { maps, reports } = await extractMaps(character, combat);
   const references = extractHitboxReferences(image);
   const hitboxes = await resource(
@@ -553,11 +570,7 @@ async function run() {
 }
 
 async function publishCatalog(catalog, reports) {
-  await Bun.write(resolve(output, "catalog.json.tmp"), JSON.stringify(catalog));
-  renameSync(
-    resolve(output, "catalog.json.tmp"),
-    resolve(output, "catalog.json"),
-  );
+  await publishFile(resolve(output, "catalog.json"), JSON.stringify(catalog));
   await publishReport(catalog, reports);
 }
 try {

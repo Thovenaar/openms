@@ -5,7 +5,10 @@ import {
   advanceSimulation,
   applyExternalImpulse,
 } from "../src/physics/simulation.js";
-import { compareRefreshRates } from "../tools/physics-reference.js";
+import {
+  compareRefreshRates,
+  replayTrace,
+} from "../tools/physics-reference.js";
 import { attachGround } from "../src/physics/geometry.js";
 
 // Synthetic isolating geometry and controlled velocities; not original-game recordings.
@@ -53,6 +56,23 @@ function standing(terrain, spawn) {
   return sim;
 }
 
+test("grounded action follows intent at a blocking boundary and during a released slide", () => {
+  const sim = standing(world(), { x: 970, y: 0 });
+  advanceSimulation(sim, input({ right: true }), 120);
+  expect(sim.x).toBe(970);
+  expect(sim.speed).toBe(0);
+  expect(sim.action).toBe("walk1");
+  advanceSimulation(sim, input({ left: true, down: true }), 120);
+  expect(sim.x).toBeLessThan(970);
+  expect(sim.action).toBe("walk1");
+  const movingX = sim.x;
+  advanceSimulation(sim, input(), 30);
+  expect(sim.x).toBeLessThan(movingX);
+  expect(sim.action).toBe("stand1");
+  advanceSimulation(sim, input({ down: true }), 30);
+  expect(sim.action).toBe("prone");
+});
+
 test("a jump before the first real contact does not invent a standing foothold", () => {
   const sim = createSimulation(world(), { x: 0, y: 0 });
   advanceSimulation(sim, input({ jump: true, jumpPressed: true }), 30);
@@ -89,6 +109,22 @@ test("refresh partitions preserve actual moving and jumping outcomes", () => {
   expect(result.runs[0].snapshot.x).toBeGreaterThan(200);
   expect(result.runs[0].minimumY).toBeLessThan(-70);
   expect(result.runs[0].snapshot.state).toBe("ground");
+});
+
+test("reference extrema include intermediate physics steps in batched frames", () => {
+  const trace = {
+    spawn: { x: 0, y: 0 },
+    durationMs: 3000,
+    events: [
+      { atMs: 600, key: "jump", down: true },
+      { atMs: 630, key: "jump", down: false },
+    ],
+  };
+  const fine = replayTrace(world(), trace, 60);
+  const batched = replayTrace(world(), trace, 5);
+  expect(batched.minimumY).toBe(fine.minimumY);
+  expect(batched.minimumY).toBeLessThan(-70);
+  expect(batched.snapshot.y).toBe(fine.snapshot.y);
 });
 
 test("bounded catch-up retains elapsed movement rather than discarding a stalled frame", () => {

@@ -153,44 +153,63 @@ async function compressReports(directory, output) {
 
 /** Complete IMG traversal for selected domains; per-IMG JSON is losslessly archived. */
 async function archiveReport(name, source, output) {
-  const archive = new WzArchive(join(source, `${name}.wz`));
-  archive.domain = name;
   const directory = await mkdtemp(join(tmpdir(), "maple-ingame-inventory-"));
   const report = {
     archive: `${name}.wz`,
-    metadataArchive: `${name}.tar.gz`,
+    metadataArchive: null,
+    complete: false,
     images: [],
     omittedImages: [],
     failures: [],
   };
+  let archive;
+  let failurePath = report.archive;
   try {
+    archive = new WzArchive(join(source, report.archive));
+    archive.domain = name;
     for (const [path, entry] of archive.entries) {
       if (entry.type !== 4) continue;
-      if (report.images.length + report.omittedImages.length >= MAX_IMAGES) {
+      if (
+        report.images.length +
+          report.omittedImages.length +
+          report.failures.length >=
+        MAX_IMAGES
+      ) {
+        failurePath = path;
         throw new Error("Original archive exceeds image inventory bound");
       }
       if (!selectImage(name, path)) {
         report.omittedImages.push(path);
         continue;
       }
-      report.images.push(await imageReport(archive, path, directory));
+      try {
+        report.images.push(await imageReport(archive, path, directory));
+      } catch (error) {
+        report.failures.push({ path, error: String(error) });
+      }
     }
-    await compressReports(directory, join(output, report.metadataArchive));
-    await Bun.write(
-      join(output, `${name}.json`),
-      JSON.stringify(report, null, 2) + "\n",
-    );
-    return report;
+    failurePath = `${name}.tar.gz`;
+    await compressReports(directory, join(output, failurePath));
+    report.metadataArchive = failurePath;
+  } catch (error) {
+    report.failures.push({ path: failurePath, error: String(error) });
   } finally {
-    archive.close();
+    archive?.close();
     await rm(directory, { recursive: true });
   }
+  report.complete = report.failures.length === 0;
+  await Bun.write(
+    join(output, `${name}.json`),
+    JSON.stringify(report, null, 2) + "\n",
+  );
+  return report;
 }
 
 export async function inventoryInGame(source, output) {
   await mkdir(output, { recursive: true });
   const index = {
     schemaVersion: 1,
+    complete: false,
     source,
     scope:
       "All IMG in UI/Mob/Npc/Sound/Effect/String/Etc/Item/Skill/Character. Map: eight acceptance maps plus MapHelper/Effect/Physics. Every selected IMG tree visited; Character retains info metadata only, all other selected nodes retained. No canvas/audio decode. No behavioral defaults inferred from property names.",
@@ -211,16 +230,24 @@ export async function inventoryInGame(source, output) {
     );
     index.archives.push({
       archive: report.archive,
+      complete: report.complete,
+      failures: report.failures,
       images: report.images.length,
       omitted: report.omittedImages.length,
       ...counts,
     });
     console.log(JSON.stringify(index.archives.at(-1)));
   }
+  index.complete = index.archives.every((archive) => archive.complete);
   await Bun.write(
     join(output, "index.json"),
     JSON.stringify(index, null, 2) + "\n",
   );
+  if (!index.complete) {
+    throw new Error(
+      `Incomplete in-game inventory; see failures in ${join(output, "index.json")}`,
+    );
+  }
 }
 
 if (import.meta.main) {

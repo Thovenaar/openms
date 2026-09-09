@@ -243,6 +243,19 @@ function recordItemLabel(state, key, node, source) {
   state.details[id] = { name, description, source };
 }
 
+/** Original normal speech skin; layout and lifetime consumers are retained separately. */
+async function speechBubbleBundle(context) {
+  const image = await context.image("UI", "ChatBalloon.img");
+  const color = value(at(image, "0"), "clr", null);
+  if (!Number.isInteger(color)) {
+    throw new Error("Original normal speech color is missing or invalid");
+  }
+  return {
+    bundle: await branchBundle(context, "ChatBalloon.img", "0"),
+    color,
+  };
+}
+
 /** Immutable catalog.ui schema v1. Bundles load only when the corresponding window is opened. */
 export async function extractGameUI(context) {
   const bundles = Object.create(null);
@@ -292,6 +305,7 @@ export async function extractGameUI(context) {
     itemLabels: strings.labels,
     items: templates.items,
     skills: templates.skills,
+    speechBubbles: await speechBubbleBundle(context),
     coverage: templates.coverage,
     authority:
       "Original raster artwork and recovered anchors; live values and controls are explicitly provisional local-profile presentation, not original server authority.",

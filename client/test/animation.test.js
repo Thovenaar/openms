@@ -106,6 +106,27 @@ test("one-shot completion holds its last frame and repeated selection cannot res
   e.container.destroy({ children: true });
 });
 
+test("stationary climb holds its authored frame while consuming only the remaining delay", () => {
+  const e = entity();
+  e.advance(90);
+  e.holdFrame = true;
+  e.advance(30);
+  expect(e.sprites[0].x).toBe(2);
+  e.holdFrame = false;
+  e.advance(79);
+  expect(e.sprites[0].x).toBe(2);
+  e.advance(1);
+  expect(e.sprites[0].x).toBe(0);
+  e.advance(90);
+  e.holdFrame = true;
+  e.advance(900);
+  expect(e.sprites[0].x).toBe(2);
+  e.holdFrame = false;
+  e.advance(30);
+  expect(e.sprites[0].x).toBe(0);
+  e.container.destroy({ children: true });
+});
+
 test("zero-delay boundaries skip immediately and terminal alpha applies without division", () => {
   const frames = [0, 100, 0, 100, 0].map((delay, index) => ({
     delay,

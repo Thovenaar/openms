@@ -162,11 +162,17 @@ function supportedItemAction(field, node) {
 function classifySay(field, node) {
   if (/^lost(?:\/|$)/.test(field)) return "unsupported-optional-dialogue";
   if (hasPostTransactionChoice(field, node)) return "unsupported-dialogue";
-  if (/^\d+$/.test(field) && typeof node.value === "string") {
-    return "supported-dialogue";
+  if (/^(yes|no|stop(?:\/(npc|item|mob|quest|default))?)$/.test(field)) {
+    return node.type === "Property"
+      ? "supported-dialogue"
+      : "unsupported-dialogue";
   }
-  if (/^(yes|no)(?:\/\d+)?$/.test(field)) return "supported-dialogue";
-  if (/^stop(?:\/(npc|item|mob|quest|default)(?:\/\d+)?)?$/.test(field)) {
+  if (
+    /^(\d+|(yes|no)\/\d+|stop\/(npc|item|mob|quest|default)\/\d+)$/.test(
+      field,
+    ) &&
+    typeof node.value === "string"
+  ) {
     return "supported-dialogue";
   }
   if (/^stop\/\d+(?:\/(\d+|answer))?$/.test(field)) return "supported-choice";

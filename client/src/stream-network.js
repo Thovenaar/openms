@@ -137,6 +137,17 @@ export class Network {
       this.disableCache(error);
     }
   }
+  /** Evict corruption through the same writer as insertion; the failed demand still rejects. */
+  async invalidate(url) {
+    if (!this.cache) return;
+    try {
+      await this.cache.delete(url);
+      this.cacheBytes -= this.cacheEntries.get(url) ?? 0;
+      this.cacheEntries.delete(url);
+    } catch (error) {
+      this.disableCache(error);
+    }
+  }
   async verify(buffer, info) {
     if (buffer.byteLength !== info.bytes) {
       throw new Error(`Asset byte mismatch: ${info.url}`);
@@ -191,10 +202,19 @@ export class Network {
           : null;
       let buffer;
       if (cached) {
-        buffer = await cached.arrayBuffer();
+        try {
+          buffer = await cached.arrayBuffer();
+          await this.verify(buffer, info);
+        } catch (error) {
+          this.writes = this.writes.then(() => this.invalidate(url));
+          await this.writes;
+          throw error;
+        }
         this.hits++;
-      } else buffer = await this.fetchBytes(url, signal, info.bytes);
-      await this.verify(buffer, info);
+      } else {
+        buffer = await this.fetchBytes(url, signal, info.bytes);
+        await this.verify(buffer, info);
+      }
       check(signal);
       if (!cached) {
         this.writes = this.writes.then(() => this.store(url, buffer));

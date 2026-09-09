@@ -2,8 +2,9 @@ import { loadVisualBundle } from "./visual-resources.js";
 import { ACTION_PALETTE, canonicalKeyIndex } from "./keymap.js";
 import { replaceIcons, drawItemCount } from "./ui-icons.js";
 import { drawKeyLabel } from "./ui-keyconfig.js";
+import { HUD_CLIENT_Y } from "./ui-hud.js";
 
-// 008de8d5 and DAT_00be2db0: screen origin647,427; eight original32x32 hit boxes.
+// 008de8d5 / DAT_00be2db0: CWnd-local647,427; add the native window origin.
 export const QUICK_SLOT_COORDINATES = Object.freeze([
   { x: 7, y: 8 },
   { x: 42, y: 8 },
@@ -69,8 +70,9 @@ async function createQuickSlots(owner) {
     panel.height = 80;
     panel.element.style.width = "151px";
     panel.element.style.height = "80px";
-    panel.position(647, 427);
-    panel.image("base/quickSlot", 0, 0);
+    panel.position(647, 427 + HUD_CLIENT_Y);
+    // Independent +cc4 layer opens at screen y453; hit/icon origin is449.
+    panel.image("base/quickSlot", 0, 4);
     hud.quickSurface = panel;
     return panel;
   } catch (error) {
@@ -160,7 +162,10 @@ function quickHit(layer, record, path) {
     rect,
     {
       click: () => {
-        if (layer.owner.windows.has("KeyConfig")) return;
+        if (layer.owner.suppressBindingClick) {
+          layer.owner.suppressBindingClick = false;
+          return;
+        }
         layer.owner.bindings.activateKey(record.index);
         layer.owner.hooks.focusGame();
       },
@@ -175,4 +180,5 @@ function quickHit(layer, record, path) {
     },
   );
   button.dataset.quickSlot = String(record.slot);
+  if (!record.binding.type) button.dataset.cursorState = "0";
 }

@@ -206,6 +206,12 @@ export class StreamScene {
     const playback =
       pose.playback ?? (actor.action === action ? actor.playback : "loop");
     actor.setAction(action, playback);
+    // 004522a6 compares consecutive vertical positions for ladder/rope hold,
+    // including a held key at a closed endpoint; it does not replace the action.
+    actor.holdFrame =
+      action === this.simulation.action &&
+      this.simulation.state === "ladder" &&
+      this.simulation.y === this.simulation.previousY;
     this.updateActorDepth();
   }
   /** Dynamic systems own artwork/textures; this scene owns only display membership. */

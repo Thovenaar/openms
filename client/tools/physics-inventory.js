@@ -44,8 +44,20 @@ function selected(archive, image, path) {
   return /(^|\/)(info|level|common)(\/|$)/.test(path) || CANDIDATE.test(path);
 }
 
+function optionValueKey(value, source, path) {
+  const key = JSON.stringify(value);
+  if (
+    key === undefined ||
+    (typeof value === "number" && !Number.isFinite(value))
+  ) {
+    throw new Error(`Unsupported option value ${source}/${path}`);
+  }
+  return key;
+}
+
 /** @param {Map<string, any>} options @param {string} source @param {string} path @param {any} value */
 function record(options, source, path, value) {
+  const key = optionValueKey(value, source, path);
   const normalized = `${source}/${path}`.replace(
     /(^|\/)\d+(?=\/|\.img|$)/g,
     "$1#",
@@ -71,15 +83,11 @@ function record(options, source, path, value) {
     options.set(normalized, option);
   }
   option.count++;
-  const key = JSON.stringify(value);
   if (!option.values.has(key) && option.values.size >= MAX_VALUES) {
     throw new Error(`Distinct value inventory exceeds limit: ${normalized}`);
   }
   option.values.set(key, (option.values.get(key) ?? 0) + 1);
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new Error(`Nonfinite option ${source}/${path}`);
-    }
     option.minimum =
       option.minimum === null ? value : Math.min(option.minimum, value);
     option.maximum =
@@ -124,10 +132,11 @@ function inspect(root, origin, options, coverage) {
 
 /** @param {string} source @param {string} name @param {Map<string, any>} options */
 function scanArchive(source, name, options) {
-  const archive = new WzArchive(resolve(source, `${name}.wz`));
+  let archive;
   const coverage = {
+    complete: false,
     archive: `${name}.wz`,
-    entries: archive.entries.size,
+    entries: 0,
     images: 0,
     parsedImages: 0,
     nodes: 0,
@@ -136,6 +145,8 @@ function scanArchive(source, name, options) {
     failures: [],
   };
   try {
+    archive = new WzArchive(resolve(source, `${name}.wz`));
+    coverage.entries = archive.entries.size;
     if (archive.entries.size > MAX_IMAGES) {
       throw new Error("Archive entry limit exceeded");
     }
@@ -154,9 +165,12 @@ function scanArchive(source, name, options) {
         coverage.failures.push({ path: entry.path, error: String(error) });
       }
     }
+  } catch (error) {
+    coverage.failures.push({ path: `${name}.wz`, error: String(error) });
   } finally {
-    archive.close();
+    archive?.close();
   }
+  coverage.complete = coverage.failures.length === 0;
   console.log(JSON.stringify(coverage));
   return coverage;
 }
@@ -179,28 +193,30 @@ export async function inventoryPhysics(source, output) {
     rows.push(option);
   }
   rows.sort((a, b) => a.path.localeCompare(b.path));
+  const complete = coverage.every((archive) => archive.complete);
   await Bun.write(
     output,
     JSON.stringify(
       {
         schemaVersion: 1,
+        complete,
         source,
-        binaryOnlyOptions: rows.some((row) =>
-          /\/foothold\/.*\/drag$/.test(row.path),
-        )
-          ? []
-          : [
-              {
-                path: "Map.wz/Map/Map*/#.img/foothold/#/#/#/drag",
-                count: 0,
-                values: [],
-                default: 0,
-                consumers: ["00a43e7b", "009b23f2"],
-                status: "supported",
-                precedence:
-                  "No supplied instances. Nonzero input uses hundredths; zero preserves constructor drag1. Ground dynamics multiplies map drag before clamps and below-one scaling; see physics-refinements.md",
-              },
-            ],
+        binaryOnlyOptions:
+          !complete ||
+          rows.some((row) => /\/foothold\/.*\/drag$/.test(row.path))
+            ? []
+            : [
+                {
+                  path: "Map.wz/Map/Map*/#.img/foothold/#/#/#/drag",
+                  count: 0,
+                  values: [],
+                  default: 0,
+                  consumers: ["00a43e7b", "009b23f2"],
+                  status: "supported",
+                  precedence:
+                    "No supplied instances. Nonzero input uses hundredths; zero preserves constructor drag1. Ground dynamics multiplies map drag before clamps and below-one scaling; see physics-refinements.md",
+                },
+              ],
         globalPhysicsPath: "Map.wz/Physics.img",
         selection:
           "All non-art/actor map sections; all info/level/common metadata; movement-name candidates anywhere; all Morph and TamingMob metadata. All IMG trees traversed, artwork bytes not decoded. # replaces numeric path segments; samplePaths bounded to eight, values/counts untruncated.",
@@ -211,6 +227,11 @@ export async function inventoryPhysics(source, output) {
       2,
     ),
   );
+  if (!complete) {
+    throw new Error(
+      `Incomplete physics inventory; see coverage failures in ${output}`,
+    );
+  }
 }
 
 if (import.meta.main) {

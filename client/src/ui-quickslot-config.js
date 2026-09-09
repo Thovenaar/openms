@@ -81,13 +81,10 @@ export function refreshQuickSlotConfig(panel) {
 }
 
 export function closeQuickSlotConfig(owner, committed) {
-  if (!committed) {
-    for (let i = owner.quickCaptureChanges.length - 1; i >= 0; i--) {
-      const change = owner.quickCaptureChanges[i];
-      owner.bindings.setQuickSlot(change.slot, change.previous);
-    }
+  if (!committed && owner.quickCaptureOriginal) {
+    owner.bindings.restoreQuickSlots(owner.quickCaptureOriginal);
   }
-  owner.quickCaptureChanges = [];
+  owner.quickCaptureOriginal = null;
   owner.quickCapture = null;
 }
 
@@ -106,7 +103,7 @@ export function captureQuickKey(owner, event) {
   }
   if (!panel) return true;
   if (event.key === "Enter") {
-    owner.close("QuickSlotConfig", true);
+    owner.close("QuickSlotConfig", panel.captureFooter !== 1);
     return true;
   }
   if (captureFocusKey(owner, panel, event)) return true;
@@ -145,7 +142,6 @@ function captureSlotKey(owner, panel, event) {
     );
     return true;
   }
-  owner.quickCaptureChanges.push({ slot, previous });
   // 0072df55 updates the selected slot without ending its capture focus.
   refreshQuickSlotConfig(panel);
   return true;

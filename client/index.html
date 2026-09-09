@@ -15,31 +15,25 @@
     <main>
       <section id="viewport" aria-label="Scene viewport"></section>
       <aside aria-label="Development inspection">
-        <h2>Inspection</h2>
-        <p class="hint">
-          Original assets; reconstructed client and local offline rules.
-        </p>
+        <h2>Play controls</h2>
+        <p class="hint">Original assets · local offline play</p>
         <div id="error" role="alert" hidden></div>
         <div class="transport">
           <button id="pause" type="button" aria-pressed="false">Pause</button>
-          <label class="step-label"
-            ><input
-              id="step-ms"
-              type="number"
-              min="0"
-              step="1"
-              value="16"
-              aria-label="Step milliseconds"
-            />
-            ms</label
-          >
-          <button id="step" type="button">Step</button>
+          <button id="input-config" type="button" disabled>Key bindings</button>
           <button id="reload" type="button">Reload</button>
         </div>
         <fieldset id="scene-controls" disabled>
-          <legend>Field</legend>
-          <label for="map">Packaged map</label>
+          <legend>Map</legend>
+          <label class="sr-only" for="map">Packaged map</label>
           <select id="map" aria-label="Packaged map"></select>
+          <div id="input-controls">
+            <p class="hint">
+              Click the map to play. Arrows move and climb; Up enters portals.
+              Enter opens chat. Jump, attack and windows use your key bindings.
+            </p>
+          </div>
+          <p id="ui-status" class="hint" role="status"></p>
           <details id="scene-inspection">
             <summary>Scene and geometry</summary>
             <label class="check"
@@ -103,23 +97,33 @@
                 Down
               </button>
             </div>
+            <div id="geometry-readout"></div>
           </details>
-          <p class="hint">
-            Click the map to play. Arrows move and climb; Up uses supported
-            portals. Jump, attack, items and windows follow the active
-            KeyConfig. Enter opens chat; focused text input does not drive the
-            character. NPC clicks open available original quest dialogue. Pause
-            enables deterministic stepping; inspection does not grant gameplay
-            state.
-          </p>
-          <p id="ui-status" class="hint" role="status"></p>
         </fieldset>
-        <details>
-          <summary>Offline data and audio</summary>
+        <section id="audio-controls" aria-label="Audio"></section>
+        <details id="offline-inspection">
+          <summary>Offline data</summary>
           <div id="inspection-controls"></div>
         </details>
-        <details>
+        <details id="runtime-inspection">
           <summary>Runtime diagnostics</summary>
+          <div class="transport">
+            <label class="step-label">
+              <input
+                id="step-ms"
+                type="number"
+                min="0"
+                step="1"
+                value="16"
+                aria-label="Step milliseconds"
+              />
+              ms
+            </label>
+            <button id="step" type="button">Step</button>
+          </div>
+          <p class="hint">
+            Stepping pauses gameplay and advances the chosen milliseconds.
+          </p>
           <p id="physics-status" class="hint" role="status">
             Waiting for physics coverage…
           </p>

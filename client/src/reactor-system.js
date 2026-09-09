@@ -1,7 +1,8 @@
+import { PROFILE_LIMITS } from "./profile-validation.js";
+
 const MAX_REACTORS = 4096;
 const MAX_STATES = 256;
 const MAX_EVENTS = 256;
-const MAX_INVENTORY = 512;
 
 function validRectangle(rect) {
   return (
@@ -255,15 +256,22 @@ export class ReactorSystem {
   }
 
   transition(record, event) {
-    if (event.status !== "local-data-transition") return false;
-    const target =
-      event.state < 0 ? null : record.template.states.get(event.state);
+    const target = this.targetState(record, event);
     const sound = record.template.descriptor.sounds?.[record.state?.id];
-    if (event.state >= 0 && !target) return false;
+    if (target === undefined) return false;
     this.applyTransition(record, event, target);
+    this.publishTransition(sound);
+    return true;
+  }
+
+  targetState(record, event) {
+    if (event.status !== "local-data-transition") return undefined;
+    return event.state < 0 ? null : record.template.states.get(event.state);
+  }
+
+  publishTransition(sound) {
     if (sound && this.hooks.onSound) this.hooks.onSound(sound);
     if (this.hooks.onChange) this.hooks.onChange();
-    return true;
   }
 
   applyTransition(record, event, target) {
@@ -373,7 +381,10 @@ export class ReactorSystem {
       throw new Error("Invalid reactor offered item");
     }
     const inventory = this.store.profile.inventory;
-    if (!Array.isArray(inventory) || inventory.length > MAX_INVENTORY) {
+    if (
+      !Array.isArray(inventory) ||
+      inventory.length > PROFILE_LIMITS.inventory
+    ) {
       throw new Error("Invalid inventory");
     }
     const stackIndex = inventory.findIndex((stack) => stack.id === itemId);
@@ -420,13 +431,16 @@ export class ReactorSystem {
         reason: "insufficient-authored-item-count",
       };
     }
-    if (!this.transition(record, event)) {
+    const target = this.targetState(record, event);
+    if (target === undefined) {
       return { accepted: false, reason: "unavailable-target-state" };
     }
+    const sound = record.template.descriptor.sounds?.[record.state?.id];
+    this.applyTransition(record, event, target);
     inventory[stackIndex].count -= event.count;
     if (inventory[stackIndex].count === 0) inventory.splice(stackIndex, 1);
     this.store.markDirty();
-    if (this.hooks.onChange) this.hooks.onChange();
+    this.publishTransition(sound);
     return {
       accepted: true,
       reason: record.lastOutcome,

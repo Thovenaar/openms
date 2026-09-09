@@ -59,11 +59,14 @@ Fresh read-only Ghidra output is retained under `ghidra-ingame-portals/`:
 - `refresh()` after region residency changes and before draw, including initial preparation. It detects new EntityAnimation identities, marks them `gameplayOwned`, restores current action progress and retains no evicted texture/container leases.
 - `strike(rect,facing,skillId=0)` once per actual committed local combat impact. Rect uses the existing equipment attack rectangle. It never manufactures unavailable skill actions.
 - `offer(itemId)` from the native inventory **Offer nearby** button. Runtime checks current simulation feet and real inventory ownership, accepts only supported nearby event100 conditions, debits exactly the authored count only for an accepted transition and marks the profile dirty. Returns `{accepted,reason,consumed?}`. No independent caller-supplied item count/position is trusted.
+- Offering accepts the shared4096-entry inventory boundary. State transition and authored item debit finish before one change notification; an observer exception cannot expose a transitioned reactor with an undebited item. Unsupported targets/counts fail before either mutation.
 - `snapshot()` reports resident/state/event/script boundaries; `destroy()` drops state references without destroying region-owned resources.
 
 Hooks are synchronous nonthrowing `onChange()` and `onSound(descriptor)` notification boundaries. Main owns actual AudioSystems playback. State survives region eviction/reload but deliberately resets on field entry; this is a local session policy, not a claimed original server persistence lifetime. No generic spawn/summon manager is necessary for authored reactors, and no second all-map visual preload is added.
 
 Engineering bounds: 4096 placements/map, 512 cached templates/extraction context, 256 states/template, 256 events/state, 1024 frames/action, 32768 typed metadata nodes/template image, 32 link hops, 65536 footholds/map. Runtime loops iterate those prevalidated finite records without per-tick arrays, sorting, texture allocation or new containers. All actions stay region-demand-bound; only semantic state survives eviction.
+
+`activateByTouch` remains faithfully inventoried but has no recovered runtime transition consumer. It is **not playable touch activation**; preserving the flag does not authorize a guessed behavior.
 
 ## Exhaustive Morph and TamingMob schemas
 

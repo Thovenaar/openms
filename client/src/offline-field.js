@@ -47,6 +47,15 @@ export const PLAYER_HIT = Object.freeze({
   hitTint: 0x808080,
 });
 
+function applyHitImpulse(simulation, direction) {
+  const noDirection = direction === PLAYER_HIT.noDirection;
+  applyExternalImpulse(
+    simulation,
+    noDirection ? 0 : (direction < 0 ? -1 : 1) * PLAYER_HIT.horizontalImpulse,
+    noDirection ? 0 : PLAYER_HIT.verticalImpulse,
+  );
+}
+
 /** All authority lives here and in plain mob records, never in a Pixi entity. */
 export class OfflineField {
   constructor(scene, store, hooks = {}) {
@@ -76,6 +85,7 @@ export class OfflineField {
       direction: 0,
       locallyInitiated: true,
       source: null,
+      attackAction: null,
     };
     this.recoveryMs = 0;
     this.wasAttack = false;
@@ -193,6 +203,7 @@ export class OfflineField {
     this.phase = "attack";
     this.phaseMs = 0;
     this.lastStatus = "local sword attack";
+    this.hooks.onAttack?.();
   }
 
   playerImpact() {
@@ -218,6 +229,7 @@ export class OfflineField {
       ),
     );
     const killed = damageMob(target, amount, sim.facing);
+    this.hooks.onMobHit?.(target, amount);
     this.lastStatus = killed
       ? "local mob killed; WZ EXP awarded; no drops"
       : "local mob hit";
@@ -280,7 +292,7 @@ export class OfflineField {
     mob.attackFired = true;
     placeBody(mob.attackBody, attack.rectangle, mob, mobFlipped(mob));
     if (overlaps(mob.attackBody, this.hitboxes.body)) {
-      this.proposeMobHit(mob, attack.properties.magic === 1);
+      this.proposeMobHit(mob, attack.properties.magic === 1, attack.action);
     }
   }
 
@@ -294,6 +306,7 @@ export class OfflineField {
     mob.mp -= attack.properties.conMP ?? 0;
     mob.cooldownMs = MOB_POLICY.attackCooldownMs;
     setMobAction(mob, attack.action);
+    this.hooks.onMobAttack?.(mob);
   }
 
   contactDamage() {
@@ -308,7 +321,7 @@ export class OfflineField {
   }
 
   /** Damage magnitude and geometry-derived side remain explicit offline policy. */
-  proposeMobHit(mob, magic) {
+  proposeMobHit(mob, magic, attackAction = null) {
     const base = magic
       ? mob.template.info.MADamage
       : mob.template.info.PADamage;
@@ -320,6 +333,7 @@ export class OfflineField {
     hit.amount = Math.max(1, Math.ceil(base / 20));
     hit.direction = this.simulation.x >= mob.x ? 1 : -1;
     hit.source = mob;
+    hit.attackAction = attackAction;
     return this.tryReceiveHit(hit);
   }
 
@@ -329,20 +343,14 @@ export class OfflineField {
   tryReceiveHit(hit) {
     validatePlayerHit(hit);
     if (this.rejectsHit(hit)) return false;
-    const noDirection = hit.direction === PLAYER_HIT.noDirection;
-    applyExternalImpulse(
-      this.simulation,
-      noDirection
-        ? 0
-        : (hit.direction < 0 ? -1 : 1) * PLAYER_HIT.horizontalImpulse,
-      noDirection ? 0 : PLAYER_HIT.verticalImpulse,
-    );
+    applyHitImpulse(this.simulation, hit.direction);
     const profile = this.store.profile;
     if (hit.amount > 0) profile.hp = Math.max(0, profile.hp - hit.amount);
     this.lastDamage = hit.amount;
     this.hitTimerMs = hit.amount > 0 ? PLAYER_HIT.timerMs : -PLAYER_HIT.timerMs;
     this.recoveryMs = 0;
-    if (profile.hp === 0 && !this.dead) {
+    const killed = profile.hp === 0 && !this.dead;
+    if (killed) {
       this.phase = "dead";
       this.phaseMs = 0;
     }
@@ -351,6 +359,8 @@ export class OfflineField {
     this.lastStatus = this.dead
       ? "local player dead; jump/attack to recover after 3s"
       : "player hit outcome admitted";
+    this.hooks.onPlayerHit?.(hit, this.simulation);
+    if (killed) this.hooks.onPlayerDeath?.();
     this.changed();
     return true;
   }

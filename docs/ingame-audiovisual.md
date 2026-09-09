@@ -35,15 +35,17 @@ Concrete recovered behavior:
 
 ## Packaged resources
 
-`extractAudiovisual(context,mapIds)` returns JSON-compatible schema version 1:
+`extractAudiovisual(context,mapIds,weaponSfx)` returns JSON-compatible schema version1. `weaponSfx` comes from the actually selected original equipment metadata:
 
 - `maps[mapId] = {bgm, effect}`. `bgm` is a standard immutable resource descriptor plus `source`, `encoding:85`, original `channels`, original `sampleRate`, `durationMs` and full `envelope` (including original GUIDs, field30, field34, sampleSize, formatFlags and exact formatData hex).
 - `sounds.UI[name]` and `sounds.Game[name]` have the same sound descriptor shape. Names are original case-sensitive root node names, not aliases. There are 31 UI and 27 Game nodes in the supplied installation.
 - `effects[name] = {bundle,source,timingSupported:true,activation:"local-preview-only",durationMs}`. `bundle` is the shared immutable visual bundle descriptor. One EntityAnimation entity, `kind:"effect"`, action `play`, is included. No new Frame extension fields are introduced.
+- `combat.digits` is a shared visual bundle for the original NoRed/NoBlue/NoViolet/NoCri banks.
+- `combat.sounds.Mob[id][name]` and `.Weapon[weaponSfx][name]` are `{available:true,descriptor}` or `{available:false,source,alias,reason}`. Projection includes only current consumers: Damage/Die, Attack1–8, CharDam1/2, and the equipped weapon's Attack. Unresolved original UOLs are preserved as explicit unavailability; no case folding, path repair, substitute sample or swallowed publication error is introduced. An attempted unavailable event reports its source/reason. Absent authored nodes remain absent.
 
 All original MP3 bytes are published unchanged at content-hashed `/generated/audio/<sha256>.mp3` URLs with the shared `resource()` publisher. Same tracks and duplicate UI/Game payloads retain identical hashes. Sound format validation rejects unknown envelopes and non-MP3 encodings explicitly; there is no guessed decode or transcoding fallback.
 
-All eight selected map bindings:
+The eight original acceptance seeds have these BGM bindings; the default named-route closure packages356 maps:
 
 | Map       | Original Sound.wz resource | Original duration ms |
 | --------- | -------------------------- | -------------------: |
@@ -72,17 +74,23 @@ Additional public APIs:
 
 The browser AudioContext is created/resumed synchronously from the module's actual **Enable audio (user gesture)** button. Worklet support is required; failure is explicit, with no silent success fallback. Add `src/audio-capture-worklet.js` to the existing dev/build entrypoint list beside `atlas-worker.js` so relative `/dist/audio-capture-worklet.js` resolves.
 
-Accepted exact UI events dispatch BtMouseOver/BtMouseClick. Main invokes Game/Jump only on the accepted ordinary grounded jump sequence; swim, flight, ladder and drop-through sound choice remains unproved. Original `0094df9b` resolves Game/Portal for ordinary accepted requests; the offline reconstruction deliberately dispatches after successful atomic travel completion. Portal2 selection for other contexts, item pickup/drop and server/combat events remain unsupported. Canvas blur clears held gameplay input when native audio controls take focus; controls stop their own keyboard propagation.
+Accepted UI events dispatch BtMouseOver/BtMouseClick. Main invokes Game/Jump only on accepted ordinary grounded jump; other jump-family choices remain unproved. Game/Portal follows successful atomic travel. Combat hooks play original equipped `swordL/Attack` at accepted attack start, Mob Damage/Die at accepted positive outgoing outcomes, authored Attack1–8 at attack start and CharDam1/2 for supported incoming attack outcomes. Body contact receives no invented hit sample. Tombstone follows a once-only player lethal transition. Original weapon queue offsets/tomb spawn synchronization remain unproved; no server skill sound is fabricated.
+
+Incoming outcomes carry explicit `attackAction` provenance from the accepted authored impact; contact clears it even if that mob is still in an attack pose or retains `pendingAttack`. CharDam selection never infers the cause from mutable presentation state. A retained contact → authored impact → contact regression reproduced the wrong contact cue before the correction. [Current native PCM and gameplay evidence](client-audit.md#native-scenarios-and-evidence) is separate from the earlier captures below.
+
+`009894f3` gives a distance **volume scalar, not pan**: `sqrt(dx²+dy²+0.001)`, below250→100, above1000→40, otherwise `trunc(120−0.08×distance)`. `0043fdab` truncates `master×percent/100` before the recovered backend gain curve. Active voices recompute that composition when settings change. [Combat evidence](ghidra-client-corrections/combat-summary.json) retains addresses and separates recovered values from local event scheduling.
 
 ## Browser ownership policies and unsupported transitions
 
-Engineering bounds, not original constants: 160 MiB decoded PCM cache, 64 entries, one native decoder job, 32 pending audio demands, 24 simultaneous sources, five seconds maximum stereo capture, 32 effects in an index, one resident preview, 32 selected maps. Original current-track buffers are pinned by their active sources; only unpinned entries are evicted. Network bytes use the existing Network hash verification/FIFO cache and fetch gate. Effect artwork uses only `loadVisualBundle` and shared AtlasStore identities/budgets. PCM is accounted separately from atlas CPU/GPU residency.
+Engineering bounds, not original constants:160MiB decoded PCM,64 cache entries, one decoder job,32 pending demands,24 voices, five-second stereo capture,32 indexed effects, one resident preview and512 selected maps. Original current-track buffers stay pinned by voices; only unpinned entries evict. Network and artwork reuse the existing shared owners. Field combat digits use64×10 preallocated sprites and retire before their visual lease.
 
 Decode validates original channel count, finite PCM, nonzero energy, sample/frame bounds and duration against field30 with a documented browser tolerance of max(300 ms,1%) for MP3 delay/padding. Native decoding may resample; original sampleRate and decoded sampleRate are distinct. No per-frame audio allocation occurs. Source `ended` handlers release pins and disconnect nodes. Teardown aborts demand, invalidates generations, stops/disconnects sources, destroys effects before leases, empties PCM cache, removes DOM/listeners and closes the context. Failed BGM decoding retains the prior track; stale replacements cannot start audio or mutate effect state.
 
 BGM selection owns a separate cancellation signal. A newer map aborts obsolete queued/native-decode validation before it can pin a stale cache entry. Native decoding itself is not interruptible; cancelled results are rejected on return. The original playing voice remains pinned until successful replacement. The isolated native pass exposed a stale KerningSquare pin causing `Pinned PCM cache budget exhausted`; [fixed-bgm-cancellation.json](ingame-validation/fixed-bgm-cancellation.json) confirms the same pending-map sequence now reaches inNautilus, pending0, one voice,114,203,160 cache bytes and nonzero live output, without an error.
 
 Every-sample PCM validation is sliced into at most 65,536 samples per synchronous block, with abort checks and an event-loop yield between blocks. Native `scheduler.yield()` is used when available; a task timer is the scheduling-only compatibility path. This applies to both decoded audio validation and live capture statistics; no samples are omitted.
+
+Malformed or overlapping raw worklet capture requests report an error and cancel that failed capture, preventing a stale completion from settling a later host request. Valid subsequent capture and live pass-through remain functional. This protocol recovery does not claim physical-speaker output.
 
 **Unresolved original BGM transition:** the caller's 600 argument is proved, but exact gain ramp/crossfade interpolation and DLL transition ownership are not. The browser currently switches immediately after successful replacement decode. This is explicitly a browser policy, not original fade fidelity. Original settings-slider mapping, device loss/recovery, sound priority/pan and original polyphony limits are also not reconstructed. No loops/emitters or synchronization offsets were fabricated for server-controlled effects.
 
