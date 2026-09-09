@@ -21,9 +21,11 @@ import {
   refreshQuickSlots,
   quickKeyAtPoint,
 } from "./ui-quickslots.js";
+import { REVIVAL_POLICY } from "./revival.js";
 
 const MAX_OPEN_WINDOWS = 4;
 const MAX_WINDOWS_WITH_MODALS = MAX_OPEN_WINDOWS + 2;
+const MODAL_WINDOWS = new Set(["UtilDlgEx", "QuickSlotConfig", "Revive"]);
 const WINDOWS = new Set([
   "Item",
   "Equip",
@@ -34,6 +36,7 @@ const WINDOWS = new Set([
   "KeyConfig",
   "MiniMap",
   "UtilDlgEx",
+  "Revive",
   "QuickSlotConfig",
   "GameOpt",
   "Quest",
@@ -41,9 +44,7 @@ const WINDOWS = new Set([
 ]);
 /** Normal command names exclude constructing internal modal windows without their owners. */
 export const NORMAL_UI_NAMES = Object.freeze([
-  ...Array.from(WINDOWS).filter(
-    (name) => name !== "UtilDlgEx" && name !== "QuickSlotConfig",
-  ),
+  ...Array.from(WINDOWS).filter((name) => !MODAL_WINDOWS.has(name)),
   "QuickSlot",
   "focusGame",
   "close",
@@ -56,6 +57,15 @@ const SIZES = {
   UtilDlgEx: [529, 206],
   Quest: [529, 206],
   QuickSlotConfig: [266, 238],
+  Revive: [286, 146],
+  GameMenu: [93, 140],
+  ShortCut: [93, 271],
+};
+// Native 00849e31..6a / 0084a5e2: fixed reference-plane popups above their HUD controls.
+const POPUP_POSITIONS = {
+  GameMenu: [666, 423],
+  ShortCut: [707, 296],
+  Revive: [257, 227],
 };
 const STYLE = `.maple-ui-root{position:absolute;pointer-events:none;transform-origin:0 0;z-index:5;font:11px Tahoma,Arial,sans-serif;color:#222;user-select:none}.maple-ui-root button{pointer-events:auto;cursor:pointer;font:11px Tahoma,Arial,sans-serif;min-height:0;min-width:0;box-sizing:border-box;margin:0;line-height:normal}.maple-ui-root .maple-ui-hit{padding:0;border:0;background:transparent;color:transparent;box-shadow:none;border-radius:0}.maple-ui-root .maple-ui-hit:focus-visible{outline:1px solid #ffc63d;outline-offset:1px}.maple-ui-root .maple-ui-local{padding:3px 5px;background:#263442;color:white;border:1px solid #a6bed0;border-radius:2px;white-space:nowrap}.maple-ui-root .maple-ui-text{white-space:pre-wrap;line-height:1.35;overflow-wrap:anywhere;pointer-events:none}.maple-ui-root .maple-ui-unavailable{background:rgba(255,255,240,.94);padding:4px;box-sizing:border-box;border:1px solid #c6ad75}.maple-ui-root .maple-ui-status{color:white;background:#273342;padding:3px}.maple-ui-root .maple-ui-dialog-text{color:#222}.maple-ui-root .maple-ui-tooltip{position:absolute;max-width:300px;background:#20252a;color:white;padding:6px;border:1px solid #a9b6c2;white-space:pre-wrap;z-index:100;pointer-events:none}.maple-ui-root .maple-ui-drag{position:absolute;left:0;top:0;height:20px;cursor:move;background:transparent;touch-action:none}`;
 const LOCAL_STYLE = `.maple-ui-root .maple-ui-content{white-space:pre-wrap;line-height:1.35;overflow-wrap:anywhere;user-select:text}.maple-ui-root .maple-ui-profile{font-size:11px}.maple-ui-root .maple-ui-content button{position:static;white-space:normal}.maple-ui-root select,.maple-ui-root input{pointer-events:auto;max-width:100%;box-sizing:border-box}.maple-ui-root .maple-ui-status{box-sizing:border-box}.maple-ui-root .maple-ui-save-actions{display:flex;gap:8px;margin-top:8px}`;
@@ -152,10 +162,13 @@ export class GameUI {
     this.quests = null;
     this.saving = false;
     this.resetting = false;
+    this.revivalPending = null;
+    this.revivalOpenedAt = 0;
+    this.revivalAutoConfirmed = false;
     this.layoutGeneration = 0;
     this.bindings = null;
     this.bindingDrag = null;
-    this.suppressBindingClick = false;
+    this.bindingClickPointer = null;
     this.confirmAction = null;
     this.quickCapture = null;
     this.pointerPoint = { x: 0, y: 0 };
@@ -172,12 +185,18 @@ export class GameUI {
     this.focusHandler = this.onFocus.bind(this);
     this.moveHandler = this.onDrag.bind(this);
     this.releaseHandler = this.endDrag.bind(this);
+    this.bindingClickHandler = this.captureBindingClick.bind(this);
+    this.bindingMouseHandler = this.onBindingMouseDown.bind(this);
     window.addEventListener("keydown", this.keyHandler, true);
     window.addEventListener("pointerdown", this.pointerHandler, true);
     window.addEventListener("focusin", this.focusHandler, true);
     window.addEventListener("pointermove", this.moveHandler, true);
     window.addEventListener("pointerup", this.releaseHandler, true);
     window.addEventListener("pointercancel", this.releaseHandler, true);
+    window.addEventListener("click", this.bindingClickHandler, true);
+    window.addEventListener("dblclick", this.bindingClickHandler, true);
+    window.addEventListener("contextmenu", this.bindingClickHandler, true);
+    window.addEventListener("mousedown", this.bindingMouseHandler, true);
     window.addEventListener("blur", this.releaseHandler);
     this.captureLostHandler = this.onCaptureLost.bind(this);
     window.addEventListener(
@@ -288,6 +307,7 @@ export class GameUI {
       throw new Error("UI requires a subscribable ProfileStore");
     }
     this.unsubscribeProfile?.();
+    this.endBindingDrag();
     this.epoch++;
     this.saving = false;
     this.resetting = false;
@@ -309,9 +329,11 @@ export class GameUI {
   }
 
   setBindings(service) {
+    this.endBindingDrag();
     this.unsubscribeBindings?.();
     this.bindings = service;
     this.unsubscribeBindings = service.subscribe(() => {
+      this.syncBindingCarry();
       refreshKeys(this.windows.get("KeyConfig"));
       refreshQuickSlots(this);
     });
@@ -319,13 +341,21 @@ export class GameUI {
     refreshQuickSlots(this);
   }
 
-  status(message) {
+  status(message, { record = true } = {}) {
     this.lastStatus = String(message).slice(0, 1800);
+    if (record && this.lastStatus) {
+      this.chat?.receive({
+        source: "local-system",
+        text: this.lastStatus,
+        time: this.hooks.now?.() ?? performance.now(),
+      });
+    }
     this.hooks.onStatus?.(this.lastStatus);
   }
 
   refreshProfile() {
     if (this.disposed) return;
+    this.syncBindingCarry();
     this.profileControls?.refresh();
     updateProfileHud(this.hud, this.store);
     refreshQuickSlots(this);
@@ -340,19 +370,66 @@ export class GameUI {
     else updateProfilePanel(panel, this.store);
   }
 
-  /** Recovery is queued by field authority; the UI never grants HP or moves the avatar. */
+  /** Reopen the original prompt; the UI never grants HP or moves the avatar. */
   recoverProfile() {
     if (this.store?.profile?.hp !== 0 || !this.hooks.onRecover) return;
     try {
       const accepted = this.hooks.onRecover();
       this.status(
         accepted
-          ? "Local recovery queued."
-          : "Recovery is not ready. Wait for the local death animation, then try again.",
+          ? "Revival confirmation opened."
+          : "Ordinary revival is unavailable.",
       );
-      if (accepted) this.hooks.focusGame();
     } catch (error) {
       this.report(error);
+    }
+  }
+
+  async showRevival(scene) {
+    if (scene !== this.scene || this.store.profile.hp !== 0) return;
+    if (this.windows.has("Revive") || this.pending.has("Revive")) {
+      return this.open("Revive", null);
+    }
+    this.close("UtilDlgEx", true);
+    this.close("QuickSlotConfig");
+    this.revivalOpenedAt = this.hooks.now?.() ?? performance.now();
+    this.revivalAutoConfirmed = false;
+    return this.open("Revive", null);
+  }
+
+  confirmRevival() {
+    const panel = this.windows.get("Revive");
+    if (this.store.profileTransactionPending || this.hooks.isFieldBlocked?.()) {
+      return false;
+    }
+    if (
+      !panel ||
+      this.modal() !== panel ||
+      this.revivalPending ||
+      this.store.profile.hp !== 0
+    ) {
+      return false;
+    }
+    this.revivalPending = panel;
+    panel.reviveControl.setDisabled(true);
+    this.finishRevival(panel);
+    return true;
+  }
+
+  async finishRevival(panel) {
+    try {
+      await this.hooks.onRevive();
+      if (this.windows.get("Revive") === panel) this.close("Revive", true);
+    } catch (error) {
+      if (this.windows.get("Revive") === panel && error.name !== "AbortError") {
+        this.status(`Revival unavailable: ${error.message}`);
+        this.report(error);
+      }
+    } finally {
+      if (this.revivalPending === panel) this.revivalPending = null;
+      if (this.windows.get("Revive") === panel) {
+        panel.reviveControl.setDisabled(false);
+      }
     }
   }
 
@@ -388,14 +465,28 @@ export class GameUI {
   }
 
   requestReset() {
-    if (!this.store || this.saving || this.resetting) return;
+    if (
+      !this.store ||
+      this.saving ||
+      this.resetting ||
+      this.store.profileTransactionPending
+    ) {
+      return;
+    }
     this.dialogMode = "reset";
     this.dialogNpc = null;
     this.refreshDialog();
   }
 
   async resetProfile() {
-    if (!this.store || this.saving || this.resetting) return;
+    if (
+      !this.store ||
+      this.saving ||
+      this.resetting ||
+      this.store.profileTransactionPending
+    ) {
+      return;
+    }
     const store = this.store;
     const epoch = this.epoch;
     this.resetting = true;
@@ -436,7 +527,7 @@ export class GameUI {
   }
 
   /** Demand-load one window; repeated requests coalesce and closed/cancelled loads never resurrect it. */
-  async open(name) {
+  async open(name, commandSignal = this.commandSignal) {
     if (!WINDOWS.has(name) || !this.index) {
       throw new Error(`Unsupported UI window ${name}`);
     }
@@ -446,10 +537,10 @@ export class GameUI {
       return existing;
     }
     if (this.pending.has(name)) return this.pending.get(name).promise;
-    const limit =
-      name === "UtilDlgEx" || name === "QuickSlotConfig"
-        ? MAX_WINDOWS_WITH_MODALS
-        : MAX_OPEN_WINDOWS;
+    if (MODAL_WINDOWS.has(name)) this.endBindingDrag();
+    const limit = MODAL_WINDOWS.has(name)
+      ? MAX_WINDOWS_WITH_MODALS
+      : MAX_OPEN_WINDOWS;
     if (this.windows.size + this.pending.size >= limit) {
       throw new Error(
         "Close a UI window before opening another (four-window residency bound).",
@@ -457,7 +548,7 @@ export class GameUI {
     }
     const controller = new AbortController();
     const signals = [controller.signal, this.controller.signal];
-    if (this.commandSignal) signals.push(this.commandSignal);
+    if (commandSignal) signals.push(commandSignal);
     const signal = AbortSignal.any(signals);
     const task = { controller, promise: null };
     task.promise = this.loadWindow(name, signal).finally(() => {
@@ -474,7 +565,9 @@ export class GameUI {
           ? "UtilDlgEx"
           : name === "QuickSlotConfig"
             ? "KeyConfig"
-            : name
+            : name === "Revive"
+              ? "Notice"
+              : name
       ],
       this.services,
       signal,
@@ -513,8 +606,9 @@ export class GameUI {
     }
   }
 
-  /** Initial centering, drag strip and viewport clamping are browser policies, not inferred WZ origins. */
+  /** Native HUD popups have no drag/close chrome; other placement remains browser policy. */
   addWindowChrome(panel) {
+    if (POPUP_POSITIONS[panel.name]) return;
     const offset = this.windows.size * 18;
     this.positionWindow(panel, (800 - panel.width) / 2 + offset, 70 + offset);
     const strip = document.createElement("div");
@@ -532,6 +626,11 @@ export class GameUI {
   }
 
   positionWindow(panel, x, y) {
+    const fixed = POPUP_POSITIONS[panel.name];
+    if (fixed) {
+      panel.position(fixed[0], fixed[1]);
+      return;
+    }
     const left = -this.offsetX / this.scale;
     const top = -this.offsetY / this.scale;
     const right = left + this.viewportWidth / this.scale;
@@ -544,10 +643,7 @@ export class GameUI {
 
   front(panel) {
     this.root.setChildIndex(panel.root, this.root.children.length - 1);
-    const modal =
-      panel.name === "UtilDlgEx" || panel.name === "QuickSlotConfig"
-        ? panel
-        : this.modal();
+    const modal = MODAL_WINDOWS.has(panel.name) ? panel : this.modal();
     if (modal && modal !== panel) {
       this.root.setChildIndex(modal.root, this.root.children.length - 1);
     }
@@ -601,6 +697,7 @@ export class GameUI {
   close(name, committed = false) {
     if (!this.canCloseWindow(name, committed)) return;
     this.pending.get(name)?.controller.abort();
+    this.pending.delete(name);
     const panel = this.windows.get(name);
     if (name === "UtilDlgEx") this.confirmAction = null;
     if (name === "QuickSlotConfig") closeQuickSlotConfig(this, committed);
@@ -613,6 +710,7 @@ export class GameUI {
   }
 
   canCloseWindow(name, committed) {
+    if (name === "Revive" && !committed) return false;
     const modal = this.modal();
     if (modal && modal.name !== name && !committed) return false;
     return !(name === "KeyConfig" && this.bindings?.saving);
@@ -689,7 +787,7 @@ export class GameUI {
     }
     if (typeof record.canInteract !== "function" || !record.canInteract()) {
       this.notice(
-        "NPC interaction is no longer available. Approach a visible nearby NPC while alive.",
+        "NPC interaction is no longer available. Select an eligible visible NPC while alive.",
       );
       return;
     }
@@ -755,6 +853,7 @@ export class GameUI {
 
   /** Shared visible confirmation action; normal commands cannot invoke an unseen/pending dialog. */
   confirmDialog() {
+    if (this.modal()?.name === "Revive") return this.confirmRevival();
     if (this.modal()?.name !== "UtilDlgEx" || this.dialogMode !== "confirm") {
       return false;
     }
@@ -803,6 +902,7 @@ export class GameUI {
   }
 
   showTooltip(text, x, y) {
+    if (this.bindingDrag) return;
     this.tooltip.textContent = String(text).slice(0, 1800);
     this.tooltip.hidden = false;
     this.tooltip.style.maxHeight = "560px";
@@ -848,6 +948,8 @@ export class GameUI {
   }
 
   setScene(scene) {
+    if (this.scene !== scene) this.close("Revive", true);
+    this.endBindingDrag();
     this.scene = scene;
     const panel = this.windows.get("MiniMap");
     if (panel) this.refreshMinimap(panel);
@@ -888,11 +990,24 @@ export class GameUI {
     if (!Number.isFinite(ms) || ms < 0) {
       throw new Error("Invalid UI elapsed milliseconds");
     }
+    this.updateRevival();
     if (!this.visible) return;
     this.hud?.update(ms);
     finishGaugeWarnings(this.hud);
     for (const panel of this.windows.values()) panel.update(ms);
     this.cursor?.update(ms);
+  }
+
+  updateRevival() {
+    if (
+      this.windows.has("Revive") &&
+      !this.revivalPending &&
+      !this.revivalAutoConfirmed &&
+      (this.hooks.now?.() ?? performance.now()) - this.revivalOpenedAt >
+        REVIVAL_POLICY.autoConfirmMs
+    ) {
+      this.revivalAutoConfirmed = this.confirmRevival();
+    }
   }
 
   resize(width, height) {
@@ -1003,6 +1118,12 @@ export class GameUI {
   }
 
   capturePriorityKey(event, modal) {
+    if (this.bindingDrag && event.key === "Escape") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.endBindingDrag();
+      return true;
+    }
     if (modal?.name === "QuickSlotConfig" && captureQuickKey(this, event)) {
       return true;
     }
@@ -1059,7 +1180,7 @@ export class GameUI {
   modal() {
     let modal = null;
     for (const panel of this.windows.values()) {
-      if (panel.name === "QuickSlotConfig" || panel.name === "UtilDlgEx") {
+      if (MODAL_WINDOWS.has(panel.name)) {
         modal = panel;
       }
     }
@@ -1068,10 +1189,11 @@ export class GameUI {
 
   syncModalState() {
     const modal = this.modal();
+    if (modal) this.endBindingDrag();
     if (this.hud) this.hud.element.inert = Boolean(modal);
     for (const panel of this.windows.values()) {
       panel.element.inert = Boolean(modal && panel !== modal);
-      if (panel.name === "QuickSlotConfig" || panel.name === "UtilDlgEx") {
+      if (MODAL_WINDOWS.has(panel.name)) {
         panel.element.tabIndex = -1;
         panel.element.setAttribute("role", "dialog");
         panel.element.setAttribute("aria-modal", String(panel === modal));
@@ -1083,6 +1205,7 @@ export class GameUI {
     return Boolean(
       this.modal() ||
       this.pending.has("UtilDlgEx") ||
+      this.pending.has("Revive") ||
       this.quickCapture !== null,
     );
   }
@@ -1115,6 +1238,8 @@ export class GameUI {
 
   onPointer(event) {
     if (!this.visible) return;
+    if (this.captureBindingPointer(event)) return;
+    this.bindingClickPointer = null;
     this.cursor?.move(event);
     const canvas = event.target === this.app.canvas;
     if (!canvas && !this.host.contains(event.target)) return;
@@ -1131,6 +1256,63 @@ export class GameUI {
         break;
       }
     }
+  }
+
+  /** 009e3ae6: carry consumes input; only a later left down places. */
+  captureBindingPointer(event) {
+    const drag = this.bindingDrag;
+    if (!drag) return false;
+    event.stopImmediatePropagation();
+    if (
+      event.pointerId !== drag.pointerId ||
+      event.button !== 0 ||
+      drag.pressed
+    ) {
+      event.preventDefault();
+      return true;
+    }
+    this.cursor?.move(event);
+    this.bindingClickPointer = event.pointerId;
+    if (event.pointerType === "mouse") {
+      // MouseEvent.detail distinguishes native WM_LBUTTONDBLCLK before any mutation.
+      // Cancelling pointerdown would suppress this compatibility mousedown event.
+      drag.placing = true;
+    } else {
+      event.preventDefault();
+      this.dropBinding(event);
+    }
+    return true;
+  }
+
+  onBindingMouseDown(event) {
+    const drag = this.bindingDrag;
+    if (!drag?.placing) return;
+    drag.placing = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.detail < 2) {
+      this.dropBinding(event);
+      return;
+    }
+    const binding = drag.binding;
+    const skillSource =
+      this.windows.get("Skill")?.element.contains(drag.source.element) === true;
+    this.endBindingDrag();
+    // 009e37c2 vtable+8: 004efd25 uses the item; 004fb001 invokes learned skill.
+    if (binding.type === 2) this.bindings.useItem(binding.id);
+    else if (binding.type === 1 && skillSource) {
+      this.bindings.useSkill(binding.id);
+    }
+  }
+
+  /** DOM click/double-click/contextmenu must not activate the consumed source or destination. */
+  captureBindingClick(event) {
+    const pointerId = this.bindingDrag?.pointerId ?? this.bindingClickPointer;
+    if (pointerId === null || pointerId === undefined) return;
+    if (event.pointerId !== undefined && event.pointerId !== pointerId) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type === "dblclick") this.endBindingDrag();
   }
 
   captureModalPointer(event) {
@@ -1211,9 +1393,14 @@ export class GameUI {
   }
 
   finishBindingDrag(event) {
-    if (this.bindingDrag && event?.type === "pointerup") {
-      this.dropBinding(event);
-    } else if (this.bindingDrag) this.endBindingDrag();
+    const drag = this.bindingDrag;
+    if (drag && event?.type === "pointerup") {
+      drag.pressed = false;
+      this.releaseBindingCapture(drag);
+    } else if (event?.type !== "pointerup") {
+      this.endBindingDrag();
+      this.bindingClickPointer = null;
+    }
   }
 
   releaseCursor(event) {
@@ -1233,7 +1420,8 @@ export class GameUI {
   onCaptureLost(event) {
     if (
       this.drag?.pointerId === event.pointerId ||
-      this.bindingDrag?.pointerId === event.pointerId
+      (this.bindingDrag?.capture &&
+        this.bindingDrag.pointerId === event.pointerId)
     ) {
       this.endDrag(event);
     }
@@ -1244,43 +1432,49 @@ export class GameUI {
     this.pointerPoint.y = (event.clientY - rect.top) / this.screenScaleY;
     return this.pointerPoint;
   }
+  /** Native 009e353d installs a click-carried icon without a held-pointer requirement. */
   beginBindingDrag(event, binding, sourceIndex, { source, path }) {
     if (
       event.button !== 0 ||
       this.blocksGameplay() ||
       this.drag ||
+      this.bindingDrag ||
       this.pressedControl ||
-      !this.bindings ||
-      !binding.type
+      !this.bindings?.canCarry(binding, sourceIndex) ||
+      !source?.entities.has(path)
     ) {
-      return;
+      return false;
     }
-    if (!this.windows.has("KeyConfig")) return;
     event.preventDefault();
-    this.endBindingDrag();
     this.hooks.clearInput();
-    const capture = event.currentTarget;
-    this.suppressBindingClick = false;
-    capture.setPointerCapture(event.pointerId);
+    const palette =
+      sourceIndex === null && binding.type >= 4 && binding.type <= 6;
+    this.carryBinding(event, binding, sourceIndex, { source, path, palette });
+    return true;
+  }
+
+  carryBinding(event, binding, sourceIndex, { source, path, palette = false }) {
+    this.bindingClickPointer = event.pointerId ?? this.bindingClickPointer;
     this.bindingDrag = {
       binding: { type: binding.type, id: binding.id },
       sourceIndex,
       source,
-      capture,
-      pointerId: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
+      palette,
+      capture: event.target,
+      pointerId: this.bindingClickPointer,
+      pressed: true,
     };
     this.cursor?.drag(source, path);
+    this.hideTooltip();
   }
 
+  /** 009e37c2 clears carry before dispatch, including rejected destinations. */
   dropBinding(event) {
     const drag = this.bindingDrag;
-    this.suppressBindingClick =
-      Math.abs(event.clientX - drag.x) > 3 ||
-      Math.abs(event.clientY - drag.y) > 3;
-    if (!this.suppressBindingClick) {
-      this.endBindingDrag();
+    if (
+      !drag ||
+      (event.pointerId ?? this.bindingClickPointer) !== drag.pointerId
+    ) {
       return;
     }
     const panel = this.windows.get("KeyConfig");
@@ -1288,30 +1482,89 @@ export class GameUI {
     const target = keyAtPoint(panel, point);
     const element = document.elementFromPoint(event.clientX, event.clientY);
     const quickTarget = quickKeyAtPoint(this, point);
+    const admitted =
+      !this.blocksGameplay() &&
+      this.bindings.canCarry(drag.binding, drag.sourceIndex);
+    this.endBindingDrag();
+    if (!admitted) return;
     if (
       quickTarget !== null &&
       this.hud.quickSurface.element.contains(element)
     ) {
-      this.bindings.assign(quickTarget, drag.binding, drag.sourceIndex);
+      this.placeQuickBinding(event, drag, quickTarget);
     } else if (target !== null && panel.element.contains(element)) {
-      if (target > 90 && drag.sourceIndex !== null) {
-        this.bindings.remove(drag.sourceIndex);
-      } else if (target < 89) {
+      if (target > 90) this.removeCarriedBinding(drag);
+      else if (target < 89) {
         this.bindings.assign(target, drag.binding, drag.sourceIndex);
       }
     }
-    this.endBindingDrag();
+  }
+
+  /** 004f9386/004f38f4/004fb32c return the overwritten quick binding to 008d6409. */
+  placeQuickBinding(event, drag, target) {
+    const displaced = this.bindings.active.keys[target];
+    const same =
+      displaced.type === drag.binding.type && displaced.id === drag.binding.id;
+    const visual = this.quickBindingVisual(displaced);
+    if (!same && visual && this.bindings.canCarry(displaced)) {
+      this.carryBinding(event, displaced, null, visual);
+    }
+    if (!this.bindings.assignQuick(target, drag.binding, drag.sourceIndex)) {
+      this.endBindingDrag();
+    }
+  }
+
+  quickBindingVisual(binding) {
+    const panel = this.hud.quickSurface;
+    const action = binding.type >= 4 && binding.type <= 6;
+    const source = action ? panel.keyLayer : panel.iconLayer;
+    const template =
+      binding.type === 1
+        ? this.index.skills[binding.id]
+        : this.index.items[binding.id];
+    const path = action ? `KeyConfig/icon/${binding.id}` : template?.iconPath;
+    return source?.entities.has(path) ? { source, path } : null;
+  }
+
+  removeCarriedBinding(drag) {
+    // Palette actions cannot be returned to the palette; existing keys/items/skills can.
+    if (drag.palette) return;
+    const source =
+      drag.sourceIndex ??
+      this.bindings.active.keys.findIndex(
+        (binding) =>
+          binding.type === drag.binding.type && binding.id === drag.binding.id,
+      );
+    if (source >= 0) this.bindings.remove(source);
+  }
+
+  releaseBindingCapture(drag) {
+    const capture = drag.capture;
+    drag.capture = null;
+    if (capture?.hasPointerCapture?.(drag.pointerId)) {
+      capture.releasePointerCapture(drag.pointerId);
+    }
+  }
+
+  syncBindingCarry() {
+    const drag = this.bindingDrag;
+    if (
+      drag &&
+      (this.resetting ||
+        !this.bindings?.canCarry(drag.binding, drag.sourceIndex))
+    ) {
+      this.endBindingDrag();
+    }
   }
 
   endBindingDrag() {
     const drag = this.bindingDrag;
-    const source = drag?.source;
+    if (!drag) return;
     this.bindingDrag = null;
-    if (drag?.capture.hasPointerCapture(drag.pointerId)) {
-      drag.capture.releasePointerCapture(drag.pointerId);
-    }
+    this.releaseBindingCapture(drag);
+    this.cursor?.release();
     this.cursor?.clearGhost();
-    if (source?.retainedForDrag) source.destroy();
+    if (drag.source.retainedForDrag) drag.source.destroy();
   }
   report(error) {
     if (error?.name !== "AbortError") this.hooks.onError(error);
@@ -1358,6 +1611,9 @@ export class GameUI {
             state: this.chat.state,
             focused: document.activeElement === this.chat.input,
             historyCount: this.chat.history.length,
+            channel: this.chat.selector.selectedIndex,
+            height: this.chat.height,
+            log: this.chat.messages.snapshot(),
           }
         : null,
       cursor: this.cursor?.current ?? null,
@@ -1392,6 +1648,10 @@ export class GameUI {
     window.removeEventListener("pointermove", this.moveHandler, true);
     window.removeEventListener("pointerup", this.releaseHandler, true);
     window.removeEventListener("pointercancel", this.releaseHandler, true);
+    window.removeEventListener("click", this.bindingClickHandler, true);
+    window.removeEventListener("dblclick", this.bindingClickHandler, true);
+    window.removeEventListener("contextmenu", this.bindingClickHandler, true);
+    window.removeEventListener("mousedown", this.bindingMouseHandler, true);
     window.removeEventListener("blur", this.releaseHandler);
     window.removeEventListener(
       "lostpointercapture",

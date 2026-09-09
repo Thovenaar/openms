@@ -1,4 +1,4 @@
-import { Container, Rectangle, Text } from "pixi.js";
+import { Container, Point, Text } from "pixi.js";
 import { LifeControls } from "./life-controls.js";
 import {
   rectangleSlot,
@@ -13,8 +13,6 @@ import {
 const MAX_PLACEMENTS = 4096;
 const MAX_ACTIONS = 128;
 const MAX_FRAMES = 1024;
-const LOCAL_NPC_REACH_X = 120;
-const LOCAL_NPC_REACH_Y = 100;
 const MAX_TARGET_ANCESTORS = 32;
 
 /** Validate the independent metadata boundary before allocating preview graphics. */
@@ -111,6 +109,8 @@ export class LifeSystem {
     scene.overlays.addChild(this.root);
     this.slots = [];
     this.byId = new Map();
+    this.targetSlots = new Map();
+    this.pointerPoint = new Point();
     for (const record of scene.manifest.life.placements) {
       const slot = this.createSlot(record);
       this.slots.push(slot);
@@ -135,7 +135,8 @@ export class LifeSystem {
       body: rectangleSlot(0xff6868),
       sweep: rectangleSlot(0xffc45b),
       interaction: rectangleSlot(0x72cfff),
-      interactionLocal: npcRectangle(template.info),
+      interactionLocal:
+        record.kind === "npc" ? npcRectangle(template.info) : null,
       contact: contactGraphic(record, segment),
       contactStatus: segment
         ? "Authored foothold resolved"
@@ -147,18 +148,10 @@ export class LifeSystem {
       playerFootInsideBody: false,
       handler: null,
       canInteract: this.canInteract.bind(this, record.id),
-      hitArea: null,
+      target: null,
     };
     slot.handler = this.pointer.bind(this, slot);
-    if (slot.interactionLocal) {
-      const r = slot.interactionLocal;
-      slot.hitArea = new Rectangle(
-        r.left,
-        r.top,
-        r.right - r.left,
-        r.bottom - r.top,
-      );
-    }
+    if (record.kind === "npc") this.createNpcTarget(slot);
     this.root.addChild(
       slot.contact,
       slot.sweep.graphic,
@@ -167,6 +160,32 @@ export class LifeSystem {
     );
     if (label) this.root.addChild(label);
     return slot;
+  }
+
+  /** 006d92d3 picks dc, not artwork or the inspector's labels/body rectangles. */
+  createNpcTarget(slot) {
+    const target = new Container({ label: slot.record.id });
+    target.eventMode = "static";
+    target.interactiveChildren = false;
+    target.hitArea = { contains: this.containsNpcPoint.bind(this, slot) };
+    target.on("pointerup", slot.handler);
+    slot.target = target;
+    this.targetSlots.set(target, slot);
+    // Native pool iteration chooses its first hit. Authored order is the offline pool order.
+    this.root.addChildAt(target, 0);
+  }
+
+  /** Pixi supplies world-local coordinates here; PtInRect excludes right/bottom edges. */
+  containsNpcPoint(slot, x, y) {
+    if (!this.canInteract(slot.record.id, true)) return false;
+    const position = slot.entity.container.position;
+    const rectangle = slot.interactionLocal;
+    return (
+      x >= position.x + rectangle.left &&
+      x < position.x + rectangle.right &&
+      y >= position.y + rectangle.top &&
+      y < position.y + rectangle.bottom
+    );
   }
 
   /** Restore preview phase when a shared streamed entity is recreated. */
@@ -182,11 +201,10 @@ export class LifeSystem {
       entity.setAction(slot.action);
       entity.advance(slot.elapsedMs);
     }
-    entity.container.eventMode = "static";
-    entity.container.cursor = "pointer";
-    // No missing dc geometry is invented. Without dc, Pixi artwork clicks are inspection only.
-    if (slot.hitArea) entity.container.hitArea = slot.hitArea;
-    entity.container.on("pointertap", slot.handler);
+    entity.container.eventMode = slot.record.kind === "npc" ? "none" : "static";
+    if (slot.record.kind === "mob") {
+      entity.container.on("pointertap", slot.handler);
+    }
   }
   /** Region membership changes are lifecycle work, never render-loop listener allocation. */
   refresh() {
@@ -213,13 +231,15 @@ export class LifeSystem {
       slot.action = entity.action;
       slot.elapsedMs = entity.elapsedMs;
     } else slot.elapsedMs += ms;
-    slot.resident = !!entity;
+    slot.resident = !!entity && !entity.container.destroyed;
     const visible = slotVisible(slot, this.revealHidden);
     if (slot.label) this.updateLabel(slot, visible, entity);
     slot.contact.visible =
       visible && this.showGeometry && this.selected === slot;
-    if (entity) {
-      if (!entity.gameplayOwned) entity.container.visible = visible;
+    if (slot.resident) {
+      if (!entity.gameplayOwned && slot.record.authored.hide) {
+        entity.container.visible = visible;
+      }
       this.updateGeometry(slot, entity);
     } else {
       slot.body.active = false;
@@ -227,6 +247,10 @@ export class LifeSystem {
       slot.interaction.active = false;
       slot.playerFootInsideBody = false;
     }
+    this.showGeometryFor(slot, visible);
+  }
+
+  showGeometryFor(slot, visible) {
     showRectangle(slot.body, visible && this.showGeometry);
     showRectangle(
       slot.sweep,
@@ -257,37 +281,42 @@ export class LifeSystem {
       slot.body.active = false;
       slot.sweep.active = false;
     }
-    placeBody(slot.interaction, slot.interactionLocal, position, mirrored);
+    placeBody(slot.interaction, slot.interactionLocal, position, false);
     slot.previousX = position.x;
     slot.previousY = position.y;
     slot.playerFootInsideBody = containsPoint(slot.body, this.scene.simulation);
   }
 
+  /** 0094cf7a routes WM_LBUTTONUP (0x202), not double-click, to 0094fa8e. */
   pointer(slot, event) {
-    event.stopPropagation();
-    this.interact(slot.record.id, "world-pointer");
-  }
-
-  /** Normal command admission is identical to a resident NPC world click, never inspector selection. */
-  interactWorld(id) {
-    if (!this.canInteract(id)) return false;
-    return this.interact(id, "world-pointer");
-  }
-
-  /** Inspector selection cannot open gameplay. Native world clicks use local proximity admission. */
-  interact(id, source = "inspection") {
-    if (this.destroyed) return false;
-    const slot = this.byId.get(id);
-    if (!slot) throw new Error("Unknown life interaction preview");
-    this.selected = slot;
-    if (
-      slot.record.kind !== "npc" ||
-      source !== "world-pointer" ||
-      !this.canInteract(id)
-    ) {
-      this.controls.showSelection(id);
-      return false;
+    if (event.button !== 0 || event.isPrimary === false) return;
+    if (slot.record.kind === "mob") {
+      if (this.destroyed || !slot.entity || slot.entity.container.destroyed) {
+        return;
+      }
+      this.interact(slot.record.id);
+      return;
     }
+    if (
+      event.type !== "pointerup" ||
+      event.target !== slot.target ||
+      !event.global
+    ) {
+      return;
+    }
+    this.root.toLocal(event.global, undefined, this.pointerPoint);
+    if (
+      !this.containsNpcPoint(slot, this.pointerPoint.x, this.pointerPoint.y)
+    ) {
+      return;
+    }
+    if (this.interactWorld(slot.record.id)) event.stopPropagation();
+  }
+
+  /** Normal agent interaction and pointer release enter the identical live admission path. */
+  interactWorld(id) {
+    if (!this.canInteract(id, true)) return false;
+    const slot = this.byId.get(id);
     const record = {
       id,
       templateId: slot.template.originalId,
@@ -301,7 +330,7 @@ export class LifeSystem {
       mode: "npc-local-interaction",
       canInteract: slot.canInteract,
       admissionPolicy:
-        "local visible/alive world-pointer within 120px horizontal and 100px vertical; dc geometry remains separate",
+        "native dc target/defaults and left-button release; local live-pool/alive/modal admission, no invented proximity",
     };
     try {
       if (!this.hooks.onInteract) return false;
@@ -316,8 +345,18 @@ export class LifeSystem {
     }
   }
 
-  /** Provisional interaction reach is not a recovered dc-rectangle admission rule. */
-  canInteract(id) {
+  /** Metadata selection is a separate route; failed world actions never open the inspector. */
+  interact(id) {
+    if (this.destroyed) return false;
+    const slot = this.byId.get(id);
+    if (!slot) throw new Error("Unknown life interaction preview");
+    this.selected = slot;
+    this.controls.showSelection(id);
+    return false;
+  }
+
+  /** Opening blocks every modal; continuation may admit the same NPC's own dialogue. */
+  canInteract(id, opening = false) {
     const slot = this.byId.get(id);
     if (
       this.destroyed ||
@@ -327,32 +366,42 @@ export class LifeSystem {
     ) {
       return false;
     }
+    if (!this.canTalk(slot, opening ? undefined : id)) return false;
+    if (this.scene.byId.get(id) !== slot.entity) return false;
+    return this.pickableNpc(slot);
+  }
+
+  pickableNpc(slot) {
+    const rectangle = slot.interactionLocal;
     if (
-      !this.scene.offlineField?.prepared ||
-      this.scene.offlineField.dead ||
-      slot.record.authored.hide === 1
+      !rectangle ||
+      rectangle.left === rectangle.right ||
+      rectangle.top === rectangle.bottom
     ) {
       return false;
     }
-    if (!residentNpcVisible(slot)) return false;
-    const entity = slot.entity;
-    const sim = this.scene.simulation;
+    if (!renderedInScene(slot.target, this.scene.container)) return false;
+    // 006d92d3 rejects imitate templates without their separate avatar object (+0x8c).
+    // This renderer has no original imitation-avatar ownership.
+    if (slot.template.info.imitate) return false;
+    return residentNpcVisible(slot, this.scene.container);
+  }
+
+  canTalk(slot, id) {
+    const field = this.scene.offlineField;
     return (
-      Math.abs(sim.x - entity.container.x) <= LOCAL_NPC_REACH_X &&
-      Math.abs(sim.y - entity.container.y) <= LOCAL_NPC_REACH_Y
+      !!field?.prepared &&
+      !field.dead &&
+      (slot.record.authored.hide === undefined ||
+        slot.record.authored.hide === 0) &&
+      !this.hooks.isBlocked?.(id)
     );
   }
 
-  /** Use the renderer's actual hit target, then apply the same live NPC admission as clicks. */
+  /** Only the owned dc target can select the NPC cursor; ancestry never authorizes gameplay. */
   isInteractiveTarget(target) {
-    for (let depth = 0; target && depth < MAX_TARGET_ANCESTORS; depth++) {
-      const slot = this.byId.get(target.label);
-      if (slot && slot.entity?.container === target) {
-        return this.canInteract(slot.record.id);
-      }
-      target = target.parent;
-    }
-    return false;
+    const slot = this.targetSlots.get(target);
+    return !!slot && this.canInteract(slot.record.id, true);
   }
 
   select(id) {
@@ -395,6 +444,7 @@ export class LifeSystem {
         slot.entity.container.off("pointertap", slot.handler);
       }
     }
+    this.targetSlots.clear();
     this.root.destroy({ children: true });
     this.byId.clear();
     this.slots.length = 0;
@@ -405,15 +455,46 @@ export class LifeSystem {
 /** Gameplay owns mob visibility; preview reveal applies only to authored scenery. */
 function slotVisible(slot, revealHidden) {
   const entity = slot.entity;
-  if (!entity) return false;
-  return entity.gameplayOwned
-    ? entity.container.visible
-    : slot.record.authored.hide !== 1 || revealHidden;
+  if (!entity || entity.container.destroyed) return false;
+  return !entity.gameplayOwned && slot.record.authored.hide
+    ? revealHidden
+    : entity.container.visible;
 }
 
-function residentNpcVisible(slot) {
+function residentNpcVisible(slot, root) {
   const entity = slot.entity;
-  return !!entity && !entity.container.destroyed && entity.container.visible;
+  if (!entity || entity.frame < 0 || !renderedInScene(entity.container, root)) {
+    return false;
+  }
+  for (const sprite of entity.sprites) {
+    if (
+      !sprite.destroyed &&
+      sprite.visible &&
+      sprite.renderable &&
+      sprite.alpha > 0
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Local residency is not enough: detached or ancestor-hidden artwork is not rendered. */
+function renderedInScene(container, root) {
+  let resident = false;
+  for (let depth = 0; container && depth < MAX_TARGET_ANCESTORS; depth++) {
+    if (
+      container.destroyed ||
+      !container.visible ||
+      !container.renderable ||
+      container.alpha <= 0
+    ) {
+      return false;
+    }
+    if (container === root) resident = true;
+    container = container.parent;
+  }
+  return !container && resident;
 }
 
 /** Browser typography is explicitly not a reconstruction of the original font renderer. */

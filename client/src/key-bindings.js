@@ -56,6 +56,7 @@ export class KeyBindings {
     this.destroyed = false;
     this.listeners = new Set();
     this.items = new ItemUse(store, catalog, hooks);
+    this.lastSkillUse = null;
     this.onStoreChange = this._storeChanged.bind(this);
     this.unsubscribeStore = store.subscribe(this.onStoreChange);
   }
@@ -95,6 +96,7 @@ export class KeyBindings {
     const binding = this.active.keys[index];
     if (binding.type === 0) return false;
     if (binding.type === 2) return this.useItem(binding.id);
+    if (binding.type === 1) return this.useSkill(binding.id);
     const action = bindingAction(binding);
     if (action && this.hooks.onAction(action)) return true;
     this.hooks.report(
@@ -107,6 +109,32 @@ export class KeyBindings {
 
   useItem(id) {
     return !this.destroyed && this.items.use(id);
+  }
+
+  useSkill(id) {
+    if (this.destroyed || this.hooks.isBlocked()) return false;
+    if (!this._learned(id)) {
+      this.hooks.report("This skill has no learned, unexpired rank.");
+      return false;
+    }
+    if (typeof this.hooks.onSkill !== "function") {
+      this.hooks.report("The field skill authority is unavailable.");
+      return false;
+    }
+    const accepted = this.hooks.onSkill(id);
+    if (typeof accepted !== "boolean") {
+      throw new TypeError("Skill authority must report boolean admission");
+    }
+    this.lastSkillUse = { id, accepted };
+    return accepted;
+  }
+
+  _learned(id) {
+    const skill = this.store.profile.skills?.[id];
+    return Boolean(
+      skill?.level > 0 &&
+      (skill.expiresAt === null || skill.expiresAt > Date.now()),
+    );
   }
 
   beginEdit() {
@@ -133,6 +161,7 @@ export class KeyBindings {
     if (binding.type >= 4 && binding.type <= 6) {
       return ACTION_PALETTE.some((entry) => sameBinding(entry, binding));
     }
+    if (binding.type === 1) return this._learned(binding.id);
     // Original drag admission and real ownership, not whether an effect is implemented.
     return (
       itemType(binding.type) &&
@@ -143,27 +172,59 @@ export class KeyBindings {
     );
   }
 
+  /** 0083550d / 008d6409: owned items, learned nonpassive skills, or original actions. */
+  canCarry(binding, sourceIndex = null) {
+    if (this.saving || this.destroyed || this.store.profileTransactionPending) {
+      return false;
+    }
+    if (!this._available(binding)) return false;
+    if (binding.type === 1) {
+      const family = Math.floor(binding.id / 1000) % 10;
+      if (family === 0 || family === 9) return false;
+    }
+    if (sourceIndex === null) return true;
+    const source = canonicalKeyIndex(sourceIndex);
+    return source >= 0 && sameBinding(this.active.keys[source], binding);
+  }
+
   /** 004f9386 / 004f38f4: normal key drops replace, globally clear duplicate sources. */
   assign(targetIndex, binding, sourceIndex = null) {
+    if (!this._canEdit() || !this._assign(targetIndex, binding, sourceIndex)) {
+      return false;
+    }
+    this._notify();
+    return true;
+  }
+
+  /** Expanded native quickslots also accept placement outside the keyboard editor. */
+  assignQuick(targetIndex, binding, sourceIndex = null) {
+    const target = canonicalKeyIndex(targetIndex);
     if (
-      !this._canEdit() ||
-      !isAssignableKey(targetIndex) ||
-      !this._available(binding)
+      this.hooks.isBlocked() ||
+      !this.active.quickSlots.includes(target) ||
+      !this._assign(target, binding, sourceIndex)
     ) {
       return false;
     }
-    const target = canonicalKeyIndex(targetIndex);
-    if (sourceIndex !== null) {
-      const source = canonicalKeyIndex(sourceIndex);
-      if (source < 0 || !sameBinding(this.active.keys[source], binding)) {
-        return false;
-      }
+    if (!this.editing) {
+      const committed = structuredClone(this.active);
+      this.store.profile.keyBindings = committed;
+      this.committedReference = committed;
+      this.store.markDirty();
     }
+    this._notify();
+    return true;
+  }
+
+  _assign(targetIndex, binding, sourceIndex) {
+    if (!isAssignableKey(targetIndex) || !this.canCarry(binding, sourceIndex)) {
+      return false;
+    }
+    const target = canonicalKeyIndex(targetIndex);
     if (sameBinding(this.active.keys[target], binding)) return false;
     const incoming = { type: binding.type, id: binding.id };
     this._clearMatching(incoming);
     this.active.keys[target] = incoming;
-    this._notify();
     return true;
   }
 

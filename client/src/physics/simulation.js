@@ -101,6 +101,7 @@ export function createSimulation(world, spawn) {
     speed: 0,
     contactLayer: 7,
     contactGroup: 0,
+    spaceGroup: geometry.spaceGroup,
     horizontalInput: 0,
     contactScratch: createContactScratch(),
     ignoredFootholdId: 0,
@@ -151,6 +152,8 @@ export function relocateSimulation(sim, arrival) {
   sim.speed = 0;
   sim.contactLayer = 7;
   sim.contactGroup = 0;
+  // Relocation clears actor contacts, not the current field's group selection.
+  sim.spaceGroup = sim.geometry.spaceGroup;
   sim.horizontalInput = 0;
   sim.ignoredFootholdId = 0;
   sim.crouching = false;
@@ -395,6 +398,7 @@ export function snapshotSimulation(sim) {
     ignoredFootholdId: sim.ignoredFootholdId,
     contactLayer: sim.contactLayer,
     contactGroup: sim.contactGroup,
+    spaceGroup: sim.spaceGroup,
     bounds: { ...sim.bounds },
     facing: sim.facing,
     action: sim.action,

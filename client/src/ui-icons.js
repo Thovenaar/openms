@@ -76,15 +76,19 @@ function iconLoader(panel, records, layer, signal) {
 }
 
 function installIconLayer(panel, layer) {
-  const previous = panel.iconLayer;
-  if (previous && panel.owner.bindingDrag?.source === previous) {
-    previous.root.visible = false;
-    previous.element.hidden = true;
-    previous.retainedForDrag = true;
-  } else previous?.destroy();
+  retireBindingLayer(panel.iconLayer);
   panel.iconLayer = layer;
   layer.root.visible = true;
   layer.element.hidden = false;
+}
+
+/** A carried icon borrows its old atlas until placement/cancellation retires the carry. */
+export function retireBindingLayer(layer) {
+  if (layer && layer.owner.bindingDrag?.source === layer) {
+    layer.root.visible = false;
+    layer.element.hidden = true;
+    layer.retainedForDrag = true;
+  } else layer?.destroy();
 }
 
 export function itemIcon(layer, entry, rect) {

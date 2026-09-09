@@ -47,7 +47,7 @@ export function extractCombat(context) {
     capabilities: {
       basicAttack: "local timing/damage; original equipped swordOL geometry",
       skills:
-        "unavailable: no learned-skill state, job advancement or recovered activation/controller rules",
+        "learned SkillSystem: catalog-classified sword attacks, self-stat buffs and passive consumers; unrecovered controllers remain unavailable",
       projectile:
         "unavailable: ranged weapon/ammunition not equipped; 009537d5/0095571f trajectory/hit phases unresolved",
       summon:

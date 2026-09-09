@@ -53,19 +53,28 @@ test("v1 migration preserves gameplay and rejects damaged or future saves", () =
   const old = createProfile(LOCATION);
   old.schemaVersion = 1;
   delete old.keyBindings;
+  delete old.remainingSp;
+  delete old.skills;
+  delete old.settings.chat;
   old.inventory.push({ id: 2000000, count: 7 });
   old.hp = 17;
   old.exp = 91;
   const migrated = migrateProfile(old);
-  const { schemaVersion, keyBindings, ...gameplay } = migrated;
+  const { schemaVersion, keyBindings, remainingSp, skills, ...gameplay } =
+    migrated;
   const { schemaVersion: oldVersion, ...oldGameplay } = old;
-  expect(gameplay).toEqual(oldGameplay);
-  expect(schemaVersion).toBe(2);
+  expect(gameplay).toEqual({
+    ...oldGameplay,
+    settings: { ...oldGameplay.settings, chat: { state: 1, height: 70 } },
+  });
+  expect(schemaVersion).toBe(3);
+  expect(remainingSp).toEqual(Array(10).fill(0));
+  expect(skills).toEqual({});
   expect(oldVersion).toBe(1);
   expect(keyBindings.keys[18]).toEqual({ type: 4, id: 0 });
   old.hp = -1;
   expect(() => migrateProfile(old)).toThrow();
-  migrated.schemaVersion = 3;
+  migrated.schemaVersion = 4;
   expect(() => migrateProfile(migrated)).toThrow();
 });
 
@@ -83,6 +92,50 @@ test("replacement moves unique bindings live; cancel restores modifier aliases a
   service.cancel();
   expect(service.actionForCode("ControlRight")).toBe("attack");
   expect(service.active.quickSlots).toEqual(durable.quickSlots);
+  service.destroy();
+});
+
+test("quick placement outside an editor checkpoints normal bindings; draft placement remains cancellable", () => {
+  const { service, store, profile } = fixture();
+  let checkpoints = 0;
+  store.markDirty = () => {
+    checkpoints++;
+  };
+  expect(service.assignQuick(29, { type: 2, id: 2000000 })).toBe(true);
+  expect(profile.keyBindings.keys[29]).toEqual({ type: 2, id: 2000000 });
+  expect(service.editing).toBe(false);
+  expect(checkpoints).toBe(1);
+  service.beginEdit();
+  expect(service.assignQuick(42, { type: 2, id: 2000000 }, 29)).toBe(true);
+  expect(service.lookup("ShiftLeft")).toEqual({ type: 2, id: 2000000 });
+  expect(profile.keyBindings.keys[29]).toEqual({ type: 2, id: 2000000 });
+  expect(checkpoints).toBe(1);
+  service.cancel();
+  expect(service.lookup("ControlLeft")).toEqual({ type: 2, id: 2000000 });
+  expect(service.lookup("ShiftLeft")).toBeNull();
+  service.destroy();
+});
+
+test("carry revalidates ownership and source identity and cannot mutate across a profile transaction", () => {
+  const { service, store, profile, controls } = fixture();
+  const item = { type: 2, id: 2000000 };
+  expect(service.canCarry(item)).toBe(true);
+  expect(service.canCarry(item, 29)).toBe(false);
+  store.profileTransactionPending = true;
+  expect(service.assignQuick(29, item)).toBe(false);
+  expect(service.canCarry(item)).toBe(false);
+  store.profileTransactionPending = false;
+  controls.blocked = true;
+  expect(service.assignQuick(29, item)).toBe(false);
+  controls.blocked = false;
+  profile.inventory[0].count = 0;
+  expect(service.canCarry(item)).toBe(false);
+  expect(service.assignQuick(29, item)).toBe(false);
+  expect(profile.keyBindings.keys[29]).toEqual({ type: 5, id: 52 });
+  profile.skills[1000000] = { level: 1, expiresAt: null };
+  expect(service.canCarry({ type: 1, id: 1000000 })).toBe(false);
+  profile.skills[1001004] = { level: 1, expiresAt: null };
+  expect(service.canCarry({ type: 1, id: 1001004 })).toBe(true);
   service.destroy();
 });
 

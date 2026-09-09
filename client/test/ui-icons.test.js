@@ -4,6 +4,7 @@ import { replaceIcons } from "../src/ui-icons.js";
 // Network failure fixture; visibility and ownership are the renderer/DOM contract.
 function layer() {
   return {
+    owner: { bindingDrag: null },
     root: { visible: true },
     element: { hidden: false },
     disposed: false,

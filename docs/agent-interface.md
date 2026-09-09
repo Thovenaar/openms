@@ -64,6 +64,7 @@ Key operations are `open`, `assign`, `remove`, `defaults`, `clear`, `quickslot`,
 const observation = maple.agent.observe({
   entities: { offset: 0, limit: 32 },
   inventory: { offset: 0, limit: 16 },
+  skills: { offset: 0, limit: 16 },
   events: { since: 0, limit: 64 },
   ids: ["life:0"],
 });
@@ -71,9 +72,11 @@ const png = maple.agent.capture();
 // png: {mimeType, dataUrl, width, height, scope}
 ```
 
-The detached schema1 observation contains current map/status, physics position/contact/bounds/settings, actual animation action/frame/playback, local gameplay phase, held input, UI/windows/chat/key draft, profile scalars and paginated inventory, camera/canvas dimensions, resident entities and recent events. Changing a returned object cannot mutate gameplay.
+The detached schema1 observation contains current map/status, physics position/contact/bounds/settings, actual animation action/frame/playback and face expression/remaining duration, local gameplay phase, held input, UI/windows/chat/key draft, profile scalars and paginated inventory, camera/canvas dimensions, resident entities and recent events. Changing a returned object cannot mutate gameplay.
 
 Entity and inventory pages accept limits1–128 and nonnegative offsets; default32. At most64 requested entity IDs are accepted. A known nonresident life ID is distinguished from an unknown ID. Resident artwork intersecting the logical viewport is **not** a claim of pixel visibility, unobstructed visibility or collision geometry. Hidden entities, unloaded regions, pending artwork and portals without artwork are absent; residency metadata states these limitations. Pages are live, not an atomic multi-call scene snapshot.
+
+Schema3 profile observation includes ten detached SP pools and a paginated `skills` collection of `{id,level,masterLevel,expiresAt}` records. Skill pages share the1–128 limit/default32 rules. Reading a record does not grant it, cast it or bypass the existing skill authority. Persistent profile editing is a separately labeled sidebar development operation, not a normal agent command.
 
 The preallocated256-event journal retains actual map/chat/combat events. `since` is an exclusive sequence cursor; follow `nextSince`, `hasMore` and `dropped`. Default event limit64, maximum128. Timeline resets are explicit epochs; sequence numbers remain monotonic. No full save, quest dictionary or full experimental profile is smuggled into the compact scenario status.
 

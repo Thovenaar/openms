@@ -1,4 +1,6 @@
-import { test, expect } from "bun:test";
+import { test, expect, afterEach } from "bun:test";
+import { Texture } from "pixi.js";
+import { EntityAnimation } from "../src/animation.js";
 import original from "../../docs/ghidra-physics-motion/wz-globals.json";
 import { OfflineField, PLAYER_HIT } from "../src/offline-field.js";
 import { AudiovisualSystem } from "../src/audiovisual-system.js";
@@ -8,8 +10,14 @@ import {
 } from "../src/physics/simulation.js";
 import { attachGround } from "../src/physics/geometry.js";
 
+const actors = [];
+afterEach(() => {
+  for (const actor of actors) actor.container.destroy({ children: true });
+  actors.length = 0;
+});
+
 // Isolating field/geometry fixtures; these are not original recorded outcomes.
-async function fieldFixture() {
+function groundedSimulation() {
   const simulation = createSimulation(
     {
       schemaVersion: 1,
@@ -34,10 +42,31 @@ async function fieldFixture() {
     { x: 0, y: 0 },
   );
   attachGround(simulation, simulation.geometry.byId.get(1));
+  return simulation;
+}
+
+async function fieldFixture() {
+  const simulation = groundedSimulation();
   const scene = {
     simulation,
-    actor: { actions: new Map() },
+    actor: new EntityAnimation(
+      {
+        id: "player",
+        kind: "character",
+        x: 0,
+        y: 0,
+        z: 0,
+        action: "stand1",
+        actions: {
+          stand1: [
+            { delay: 150, parts: [{ texture: "pixel", x: 0, y: 0, z: 0 }] },
+          ],
+        },
+      },
+      new Map([["pixel", Texture.EMPTY]]),
+    ),
     manifest: {
+      physics: { map: {} },
       life: { placements: [], templates: {} },
       combat: {
         schemaVersion: 1,
@@ -57,6 +86,7 @@ async function fieldFixture() {
       },
     },
   };
+  actors.push(scene.actor);
   const store = {
     profile: { hp: 100, maxHP: 100, mp: 0, maxMP: 0 },
     markDirty() {},

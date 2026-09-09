@@ -18,6 +18,7 @@ export function prepareSegments(footholds) {
   }
   const segments = [];
   const byId = new Map();
+  let spaceGroup = Infinity;
   for (const source of footholds) {
     if (
       !Number.isSafeInteger(source.id) ||
@@ -29,12 +30,14 @@ export function prepareSegments(footholds) {
     const segment = makeSegment(source);
     segments.push(segment);
     byId.set(segment.id, segment);
+    spaceGroup = Math.min(spaceGroup, segment.group);
   }
   for (const segment of segments) {
     segment.prev = resolveLink(byId, segment.prevId);
     segment.next = resolveLink(byId, segment.nextId);
   }
-  return { segments, byId };
+  // 00a44c94..a8 selects the first populated per-group X range, not group zero.
+  return { segments, byId, spaceGroup };
 }
 
 function resolveLink(byId, id) {

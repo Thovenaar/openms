@@ -104,12 +104,10 @@ function bodyPose(body, action, index) {
 
 /** Death is an original composition substitution, not a guessed pose alias.
  * 00407757 strips clothing/weapon; 0041272c uses jump for the head/hair/face. */
-function equipmentFrame(item, slot, pose) {
+function equipmentFrame(item, slot, pose, expression = "default") {
   const dead = pose.action === "dead";
   if (dead && slot >= 4) return null;
-  if (slot === 3) {
-    return value(pose.frame, "face", 0) ? at(item, "default") : null;
-  }
+  if (slot === 3) return faceFrame(item, pose, expression);
   const action = dead && slot !== 0 ? "jump" : pose.action;
   const root = item.children[action];
   // A weapon has only its authored families; no invented alternate-family artwork.
@@ -119,6 +117,12 @@ function equipmentFrame(item, slot, pose) {
   }
   const index = dead && slot !== 0 ? "0" : pose.index;
   return authoredEquipmentFrame(root, index, item.source);
+}
+
+/** The body face flag admits exactly the authored default or first hit frame. */
+function faceFrame(item, pose, expression) {
+  if (!value(pose.frame, "face", 0)) return null;
+  return at(item, expression === "default" ? "default" : "hit/0");
 }
 
 /** Keep missing frames distinct from an entirely unauthored weapon family. */
@@ -157,10 +161,10 @@ function appendFrameCanvases(candidates, frame) {
 }
 
 /** Retain every selected authored canvas; absent weapon families remain absent. */
-function candidatesFor(equipment, pose) {
+function candidatesFor(equipment, pose, expression = "default") {
   const candidates = [];
   for (let slot = 0; slot < equipment.length; slot++) {
-    const frame = equipmentFrame(equipment[slot], slot, pose);
+    const frame = equipmentFrame(equipment[slot], slot, pose, expression);
     if (!frame) continue;
     appendFrameCanvases(candidates, frame);
   }
@@ -295,8 +299,11 @@ async function avatarFrame(context, equipment, zmap, request) {
     if (!Number.isFinite(rank) || rank === -1) {
       throw new Error(`Unknown avatar z ${z}`);
     }
-    parts.push(await context.part(canvas, position.x, position.y, -rank));
+    const part = await context.part(canvas, position.x, position.y, -rank);
+    if (canvas.name === "face") part.expression = "default";
+    parts.push(part);
   }
+  await appendHitFaceParts(context, equipment, zmap, { pose, parts });
   const authoredDelay = value(original, "delay", ORIGINAL_DELAY_MS);
   // 00406abd: negative alias delays become absolute durations and also contribute
   // to the original pre-action sum. That sum is not a local damaging-frame rule.
@@ -310,6 +317,26 @@ async function avatarFrame(context, equipment, zmap, request) {
     );
   }
   return { delay: Math.abs(authoredDelay), parts };
+}
+
+/** Hit expressions use their own anchor composition, but publish only the face. */
+async function appendHitFaceParts(context, equipment, zmap, composition) {
+  const { pose, parts } = composition;
+  if (!value(pose.frame, "face", 0)) return;
+  const hitCandidates = candidatesFor(equipment, pose, "hit");
+  const hitPositions = placeCandidates(hitCandidates, pose);
+  for (const canvas of hitCandidates) {
+    if (canvas.name !== "face") continue;
+    const position = hitPositions.get(canvas);
+    const z = value(canvas, "z");
+    const rank = typeof z === "number" ? z : zmap.indexOf(z);
+    if (!Number.isFinite(rank) || rank === -1) {
+      throw new Error(`Unknown face z ${z}`);
+    }
+    const part = await context.part(canvas, position.x, position.y, -rank);
+    part.expression = "hit";
+    parts.push(part);
+  }
 }
 
 function frameIndices(bodyAction) {

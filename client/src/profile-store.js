@@ -15,6 +15,27 @@ const OPEN_TIMEOUT_MS = 10000;
 const TRANSACTION_TIMEOUT_MS = 15000;
 const MAX_FLUSH_PASSES = 64;
 const MAX_SUBSCRIBERS = 64;
+const MAX_PROFILE_NODES = 2000000;
+
+/** Freeze plain validated data outside the tick; retained refs cannot bypass exclusion. */
+function freezeProfile(profile) {
+  const queue = [profile];
+  const seen = new WeakSet(queue);
+  for (let index = 0; index < queue.length; index++) {
+    if (queue.length > MAX_PROFILE_NODES) {
+      throw profileError(
+        "profile-limit",
+        "Profile graph exceeds bounded freeze.",
+      );
+    }
+    for (const child of Object.values(queue[index])) {
+      if (!child || typeof child !== "object" || seen.has(child)) continue;
+      seen.add(child);
+      queue.push(child);
+    }
+  }
+  for (const value of queue) Object.freeze(value);
+}
 
 function storageError(error) {
   if (error?.name === "ProfileError") return error;
@@ -204,7 +225,7 @@ function nextRecord(profile, previous, reset = false) {
 
 /**
  * Sole owner of one mutable profile root. Call markDirty after each synchronous mutation.
- * Checkpoints clone all domains together; callers must not retain nested refs across reset.
+ * Reacquire root/nested refs after reset or any atomic transition, including failure.
  * open always returns a store: inspect error/profile before starting gameplay.
  */
 export class ProfileStore {
@@ -224,7 +245,7 @@ export class ProfileStore {
     this._timer = null;
     this._flushPromise = null;
     this._resetPromise = null;
-    this._bindingPromise = null;
+    this._profilePromise = null;
     this._closePromise = null;
     this._flushTarget = 0;
     this._listeners = new Set();
@@ -246,7 +267,7 @@ export class ProfileStore {
     return store;
   }
 
-  /** Synchronous isolated store: validates/clones a v2 profile; never opens IDB or attaches listeners. */
+  /** Isolated schema3 store; never opens IDB or attaches browser listeners. */
   static memory(profile) {
     validateProfile(profile);
     const store = new ProfileStore({ location: profile.location });
@@ -260,6 +281,10 @@ export class ProfileStore {
 
   get profile() {
     return this._profile;
+  }
+
+  get profileTransactionPending() {
+    return Boolean(this._profilePromise);
   }
 
   async _open() {
@@ -354,10 +379,22 @@ export class ProfileStore {
     }
   }
 
-  /** Commit only the binding domain; failed IDB writes never publish a draft to gameplay saves. */
+  /** Binding saves use the same whole-profile atomic transaction and exclusion. */
   commitKeyBindings(value) {
+    validateKeyBindings(value);
+    const bindings = structuredClone(value);
+    return this.commitProfile((draft) => {
+      draft.keyBindings = bindings;
+    });
+  }
+
+  /** Synchronous draft transform; queued flush/reset/close await its durable completion. */
+  commitProfile(transform) {
+    if (typeof transform !== "function") {
+      throw new TypeError("Profile transform must be a function.");
+    }
     if (
-      this._bindingPromise ||
+      this._profilePromise ||
       this._resetPromise ||
       this._closing ||
       this._destroyed
@@ -366,46 +403,71 @@ export class ProfileStore {
         profileError("save-busy", "Offline save is busy or closed."),
       );
     }
-    validateKeyBindings(value);
-    const bindings = structuredClone(value);
+    validateProfile(this._profile);
+    const original = structuredClone(this._profile);
+    freezeProfile(this._profile);
     const priorFlush = this._flushPromise;
     this._clearTimer();
-    this._bindingPromise = this.temporary
-      ? this._commitMemoryBindings(bindings, priorFlush)
-      : this._commitKeyBindings(bindings, priorFlush);
-    return this._bindingPromise;
+    this._profilePromise = this._commitProfile(transform, priorFlush, original);
+    return this._profilePromise;
   }
-
-  async _commitKeyBindings(bindings, priorFlush) {
+  async _commitProfile(transform, priorFlush, original) {
     await Promise.resolve();
     try {
       if (priorFlush) await priorFlush;
-      this._requireDatabase();
+      if (!this._profile) {
+        throw profileError(
+          "profile-unavailable",
+          "No offline profile is loaded.",
+        );
+      }
+      const draft = structuredClone(this._profile);
+      const result = transform(draft);
+      if (result !== undefined) {
+        throw profileError(
+          "invalid-transform",
+          "Profile transform must be synchronous and return nothing.",
+        );
+      }
+      validateProfile(draft);
+      // A transform may retain its draft: never publish or persist that mutable alias.
+      const profile = structuredClone(draft);
       const epoch = this.dirtyEpoch;
-      const profile = structuredClone(this._profile);
-      profile.keyBindings = bindings;
-      validateProfile(profile);
-      const expected = {
-        revision: this.revision,
-        generation: this._generation,
-      };
-      this.status = "saving";
-      this._notify();
-      const record = await transactProfile(this._database, (current) => {
-        compareRevision(current, expected);
-        validateProfileRecord(current);
-        return nextRecord(profile, current);
-      });
-      this._profile.keyBindings = bindings;
+      let record;
+      if (this.temporary) {
+        if (this.revision === Number.MAX_SAFE_INTEGER) {
+          throw profileError(
+            "revision-exhausted",
+            "Temporary save revision limit reached.",
+          );
+        }
+        record = { revision: this.revision + 1 };
+      } else {
+        this._requireDatabase();
+        const expected = {
+          revision: this.revision,
+          generation: this._generation,
+        };
+        record = await transactProfile(this._database, (current) => {
+          compareRevision(current, expected);
+          validateProfileRecord(current);
+          return nextRecord(profile, current);
+        });
+      }
+      this._profile = profile;
       this.revision = record.revision;
       this.savedEpoch = epoch;
       this.error = null;
       this._publish();
-      return this._saved();
+      const saved = this._saved();
+      // finally releases the lock before the caller receives this completion snapshot.
+      saved.profileTransactionPending = false;
+      return saved;
     } catch (error) {
+      this._profile = original;
       throw this._fail(error);
     } finally {
-      this._bindingPromise = null;
+      this._profilePromise = null;
       this._schedule();
     }
   }
@@ -425,35 +487,12 @@ export class ProfileStore {
     return this._saved();
   }
 
-  /** Temporary binding commits retain the durable store's pending-operation serialization. */
-  async _commitMemoryBindings(bindings, priorFlush) {
-    await Promise.resolve();
-    try {
-      if (priorFlush) await priorFlush;
-      const profile = structuredClone(this._profile);
-      profile.keyBindings = bindings;
-      validateProfile(profile);
-      if (this.revision === Number.MAX_SAFE_INTEGER) {
-        throw profileError(
-          "revision-exhausted",
-          "Temporary save revision limit reached.",
-        );
-      }
-      this._profile.keyBindings = bindings;
-      return this._saveMemory();
-    } catch (error) {
-      throw this._fail(error);
-    } finally {
-      this._bindingPromise = null;
-    }
-  }
-
   /** Coalesce overlapping temporary flushes without IDB, timers, or synchronous observer recursion. */
   async _flushMemory() {
-    const pendingBinding = this._bindingPromise;
+    const pendingProfile = this._profilePromise;
     await Promise.resolve();
     try {
-      if (pendingBinding) await pendingBinding;
+      if (pendingProfile) await pendingProfile;
       for (let pass = 0; pass < MAX_FLUSH_PASSES; pass++) {
         const snapshot = this._saveMemory();
         if (this.savedEpoch >= this._flushTarget) return snapshot;
@@ -472,6 +511,7 @@ export class ProfileStore {
   /** Coalesced 250-ms browser checkpoint policy; no validation or cloning in the physics tick. */
   markDirty() {
     if (this._destroyed || this._closing) {
+      // Close rejects new gameplay writes; accepted transactions still drain.
       throw profileError(
         "store-closed",
         "Offline save store is closing or closed.",
@@ -488,6 +528,9 @@ export class ProfileStore {
         profileError("epoch-exhausted", "Offline dirty epoch limit reached."),
       );
     }
+    if (this.profileTransactionPending) {
+      throw profileError("save-busy", "Profile transaction is pending.");
+    }
     this.dirtyEpoch++;
     if (!this.error && !this._flushPromise && !this._resetPromise) {
       this.status = "dirty";
@@ -501,7 +544,7 @@ export class ProfileStore {
       this.temporary ||
       this._timer !== null ||
       this.error ||
-      this._bindingPromise ||
+      this._profilePromise ||
       this._resetPromise ||
       this._closing ||
       this._destroyed
@@ -553,7 +596,7 @@ export class ProfileStore {
     }
     this._flushTarget = this.dirtyEpoch;
     if (this._flushPromise) return this._flushPromise;
-    if (this.savedEpoch === this._flushTarget && !this._bindingPromise) {
+    if (this.savedEpoch === this._flushTarget && !this._profilePromise) {
       return this.error
         ? Promise.reject(this.error)
         : Promise.resolve(this.snapshot());
@@ -565,11 +608,11 @@ export class ProfileStore {
   }
 
   async _flushAll() {
-    const pendingBinding = this._bindingPromise;
+    const pendingProfile = this._profilePromise;
     // Yield once so the shared promise exists before notifications or synchronous failures.
     await Promise.resolve();
     try {
-      if (pendingBinding) await pendingBinding;
+      if (pendingProfile) await pendingProfile;
       for (let pass = 0; pass < MAX_FLUSH_PASSES; pass++) {
         this._requireDatabase();
         const epoch = this.dirtyEpoch;
@@ -661,7 +704,7 @@ export class ProfileStore {
   async _reset() {
     await Promise.resolve();
     try {
-      if (this._bindingPromise) await this._bindingPromise;
+      if (this._profilePromise) await this._profilePromise;
       if (this._flushPromise) {
         try {
           await this._flushPromise;
@@ -709,7 +752,7 @@ export class ProfileStore {
   async _resetMemory() {
     await Promise.resolve();
     try {
-      if (this._bindingPromise) await this._bindingPromise;
+      if (this._profilePromise) await this._profilePromise;
       if (this._flushPromise) {
         try {
           await this._flushPromise;
@@ -770,6 +813,7 @@ export class ProfileStore {
       dirty: this.dirtyEpoch > this.savedEpoch,
       dirtyEpoch: this.dirtyEpoch,
       savedEpoch: this.savedEpoch,
+      profileTransactionPending: this.profileTransactionPending,
       error: this.error
         ? { code: this.error.code, message: this.error.message }
         : null,

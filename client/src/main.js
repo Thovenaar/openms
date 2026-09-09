@@ -21,12 +21,20 @@ import { InGameSystems } from "./ingame.js";
 import { ProfileStore } from "./profile-store.js";
 import { followCamera } from "./camera.js";
 import { initializeOfflineDelivery } from "./offline-delivery.js";
+import { createAgentInterface } from "./agent-integration.js";
+import { AgentDevelopment, scenarioProfile } from "./agent-development.js";
+import { REVIVAL_POLICY, revivalMap, revivalArrival } from "./revival.js";
+
+const sourceBuildId = import.meta.MAPLE_SOURCE_ID ?? null;
+let agentSurface = null;
+let development = null;
 
 const app = new Application();
 const viewport = document.querySelector("#viewport");
 const network = new Network();
 const hitboxInspector = new HitboxInspector(network);
 const services = { network, atlases: null };
+const MAX_DISPLAY_DENSITY = 4;
 const metrics = {
   frames: 0,
   loadAttempts: 0,
@@ -80,6 +88,8 @@ function entityById(id) {
 /** Player/gameplay artwork advances on the one recovered physics clock. */
 function advancePlayerTick(ms) {
   const scene = current;
+  development?.tick(ms);
+  agentSurface?.tick(ms);
   scene.fieldSystems.step(ms, input.state);
   input.afterTick();
   scene.simulation.movementLocked =
@@ -92,9 +102,14 @@ function advancePlayerTick(ms) {
   scene.updateActor(scene.presentation);
   scene.actor.advance(ms);
 }
+function fieldInputBlocked() {
+  return (
+    loading || destroyed || Boolean(profileStore?.profileTransactionPending)
+  );
+}
 function updatePlayer(ms) {
   const scene = current;
-  if (!scene || loading) return;
+  if (!scene || fieldInputBlocked()) return;
   scene.fieldSystems.beforePhysics(input.state);
   if (loading || current !== scene) return;
   scene.simulation.movementLocked =
@@ -165,6 +180,8 @@ function tick() {
   metrics.frameDeltas[metrics.sampleIndex] = elapsed;
   const started = now;
   try {
+    // Density-only changes need not dispatch resize or media-query events.
+    if (app.renderer.resolution !== window.devicePixelRatio) resize();
     if (!document.hidden) inGame.updateInterface(elapsed);
     // Freeze offline authority during the atomic scene swap, not rendering or UI.
     if (!paused && !document.hidden && !loading) updatePlayer(elapsed);
@@ -176,12 +193,26 @@ function tick() {
   metrics.frameCpuMs[metrics.sampleIndex] = performance.now() - started;
   frameHandle = requestAnimationFrame(tick);
 }
+/** Output density changes backing pixels, never logical gameplay/UI coordinates. */
+function displayDensity() {
+  const density = window.devicePixelRatio;
+  if (
+    !Number.isFinite(density) ||
+    density <= 0 ||
+    density > MAX_DISPLAY_DENSITY
+  ) {
+    throw new RangeError("Display density must be positive and at most 4.");
+  }
+  return density;
+}
+
 function resize() {
   if (destroyed) return;
   // A bounded drawable surface also bounds background repetition pools.
   app.renderer.resize(
     Math.max(1, Math.min(2560, viewport.clientWidth)),
     Math.max(1, Math.min(1440, viewport.clientHeight)),
+    displayDensity(),
   );
   if (current) {
     for (const entity of current.backgrounds) {
@@ -210,7 +241,14 @@ function demand() {
 }
 /** Persist durable values only; no physics graph or render state enters a save. */
 function checkpointProfile() {
-  if (!current || !profileStore?.profile || loading) return;
+  if (
+    !current ||
+    !profileStore?.profile ||
+    loading ||
+    profileStore.profileTransactionPending
+  ) {
+    return;
+  }
   const location = profileStore.profile.location;
   const sim = current.simulation;
   if (
@@ -258,17 +296,23 @@ function requireProfile() {
   }
   throw new Error(profileStore.error ?? "Offline character save unavailable");
 }
-async function reloadAfterReset() {
+async function reloadAfterReset(store = profileStore) {
+  if (store !== profileStore) return;
+  const epoch = inGame?.ui.epoch;
   const wasPaused = paused;
   paused = true;
   try {
-    const promise = loadMap(profileStore.profile.location.mapId, true, null);
+    const promise = loadMap(store.profile.location.mapId, true, null);
     api.ready = promise;
     await promise;
-    inGame.restoreSettings();
+    if (store === profileStore && epoch === inGame?.ui.epoch) {
+      inGame.restoreSettings();
+    }
   } finally {
-    paused = wasPaused;
-    lastNow = performance.now();
+    if (store === profileStore && epoch === inGame?.ui.epoch) {
+      paused = wasPaused;
+      lastNow = performance.now();
+    }
   }
 }
 async function initialize() {
@@ -280,7 +324,8 @@ async function initialize() {
     preferWebGLVersion: 2,
     width: 1,
     height: 1,
-    resolution: 1,
+    resolution: displayDensity(),
+    autoDensity: true,
     antialias: false,
     background: "#101820",
     autoStart: false,
@@ -312,14 +357,169 @@ async function initialize() {
   frameHandle = requestAnimationFrame(tick);
 }
 
+/** Agent observations carry both source and extracted-data identity. */
+function agentStatus() {
+  return {
+    buildId:
+      sourceBuildId && catalog ? `${sourceBuildId}:${catalog.buildId}` : null,
+    sourceBuildId,
+    assetBuildId: catalog?.buildId ?? null,
+    loading,
+    paused,
+    lastError,
+  };
+}
+
+function initializeAgentInterface() {
+  development = new AgentDevelopment({
+    state: () => ({
+      scene: current,
+      store: profileStore,
+      gate: inGame.travelGate,
+      paused,
+      loading,
+      follow,
+      debug,
+      presentationVisible,
+    }),
+    systems: () => inGame,
+    pause: (value) => {
+      paused = value;
+      lastNow = performance.now();
+    },
+    checkpoint: checkpointProfile,
+    normalize: normalizeScenario,
+    prepare: prepareExperiment,
+    install: installExperiment,
+    restoreView: restoreExperimentView,
+    cancelLoading: cancelExperimentLoading,
+    assertControl: () => agentSurface.controller.assertActive(),
+    resetObservation: () => agentSurface.observation.reset(),
+    notify: () => agentSurface.refreshDevelopment(),
+    report: showError,
+  });
+  agentSurface = createAgentInterface({
+    input,
+    canvas: app.canvas,
+    root: document.querySelector("#agent-controls"),
+    hooks: {
+      scene: () => current,
+      systems: () => inGame,
+      status: agentStatus,
+      render,
+      ready: () => Boolean(current && !loading && !destroyed),
+      interrupt: () => development.interrupt(),
+      experimental: () => Boolean(development.session),
+      enter: (spec) => development.enter(spec),
+      exit: () => development.exit(),
+      step: stepExperiment,
+      waitReady: () => api.ready,
+      isLoading: () => loading,
+      report: showError,
+    },
+  });
+  api.agent = agentSurface.agent;
+  api.dev = agentSurface.dev;
+}
+
+async function normalizeScenario(spec, signal) {
+  const id = spec.mapId ?? spec.profile?.location.mapId ?? current.manifest.id;
+  const descriptor = catalog.maps[id];
+  if (!descriptor) throw new Error(`Scenario map ${id} is not packaged`);
+  const manifest = validateManifest(await network.json(descriptor, signal));
+  check(signal);
+  return {
+    manifest,
+    spec: {
+      ...spec,
+      mapId: id,
+      profile: scenarioProfile(spec, profileStore.profile, manifest),
+    },
+  };
+}
+
+async function prepareExperiment(session, externalSignal) {
+  const request = ++generation;
+  transition?.abort();
+  neighbors?.abort();
+  transition = new AbortController();
+  const signal = AbortSignal.any([externalSignal, transition.signal]);
+  loading = true;
+  try {
+    const candidate = await prepareCandidate(session.spec.mapId, signal, null, {
+      store: session.store,
+      travelGate: session.gate,
+      physics: session.spec.physics,
+      manifest: session.manifest,
+    });
+    candidate.fieldSystems.life.controls.root.hidden = true;
+    return candidate;
+  } finally {
+    if (request === generation) loading = false;
+  }
+}
+
+/** Synchronous ownership cutover; caller owns retained or discarded scene lifetimes. */
+function installExperiment(scene, store, gate) {
+  if (destroyed) throw aborted();
+  if (current) current.container.visible = false;
+  profileStore = store;
+  inGame.useProfile(store, gate);
+  input.setBindings(inGame.bindings);
+  current = scene;
+  current.container.visible = true;
+  current.fieldSystems.life.controls.root.hidden = false;
+  if (!current.container.parent) app.stage.addChild(current.container);
+  follow = true;
+  debug = false;
+  presentationVisible = true;
+  current.overlays.visible = true;
+  inGame.ui.setVisible(true);
+  inGame.setScene(scene);
+  inGame.restoreSettings();
+  input.clear();
+  resize();
+  clearError();
+}
+
+function restoreExperimentView(baseline) {
+  paused = baseline.paused;
+  follow = baseline.follow;
+  debug = baseline.debug;
+  presentationVisible = baseline.presentationVisible;
+  current.overlays.visible = presentationVisible;
+  inGame.ui.setVisible(presentationVisible);
+  lastNow = performance.now();
+  render();
+}
+
+function cancelExperimentLoading() {
+  generation++;
+  transition?.abort();
+  neighbors?.abort();
+  loading = false;
+}
+
+/** At most eight ordinary 30-ms integrations; portal loading may suspend progress. */
+function stepExperiment(ticks) {
+  if (!paused || !development.session) {
+    throw new Error("Pause the temporary scenario before stepping");
+  }
+  for (let index = 0; index < ticks && !loading; index++) updatePlayer(30);
+  render();
+}
+
 function initializeInterface() {
   services.atlases = new AtlasStore(app.renderer, network);
   input = createPlayerInput(app.canvas);
+  initializeAgentInterface();
   inGame = new InGameSystems(app, services, {
+    now: () => development.session?.clockMs ?? performance.now(),
+    onEvent: agentSurface.observation.record.bind(agentSurface.observation),
     clearInput: input.clear,
     focusGame: () => app.canvas.focus(),
     tap: input.tap,
-    isBlocked: () => loading || destroyed,
+    isBlocked: fieldInputBlocked,
     onStatus: (message) => {
       document.querySelector("#ui-status").textContent = message;
     },
@@ -327,7 +527,7 @@ function initializeInterface() {
     travel: travelPortal,
     onReset: reloadAfterReset,
     onSave: checkpointProfile,
-    onRecover: input.clear,
+    onRevive: revivePlayer,
   });
   controls = createControls({
     ...api,
@@ -373,21 +573,46 @@ function arrivalPosition(manifest, name) {
   return { x: selected.x, y: selected.y - 10 };
 }
 
-async function prepareCandidate(id, signal, portalName) {
-  const info = catalog.maps[id];
-  if (!info) {
-    throw new Error(`Map ${id} is not packaged; traversal unavailable`);
-  }
+async function candidateManifest(id, info, signal) {
   const manifest =
     initialManifest?.id === id
       ? initialManifest
       : validateManifest(await network.json(info, signal));
   initialManifest = null;
+  return manifest;
+}
+
+/** Temporary physics overlays never mutate the retained extracted manifest. */
+function applyScenarioPhysics(manifest, physics) {
+  const overrides = physics ?? development?.session?.spec.physics;
+  if (!overrides) return manifest;
+  return {
+    ...manifest,
+    physics: {
+      ...manifest.physics,
+      globals: { ...manifest.physics.globals, ...overrides.globals },
+      map: { ...manifest.physics.map, ...overrides.map },
+    },
+  };
+}
+
+async function prepareCandidate(id, signal, portalName, context = {}) {
+  const info = catalog.maps[id];
+  if (!info) {
+    throw new Error(`Map ${id} is not packaged; traversal unavailable`);
+  }
+  let manifest =
+    context.manifest ?? (await candidateManifest(id, info, signal));
   check(signal);
+  manifest = applyScenarioPhysics(manifest, context.physics);
   if (manifest.id !== id) throw new Error("Catalog/map identity mismatch");
-  let arrival = arrivalPosition(manifest, portalName);
-  const saved = profileStore.profile.location;
-  if (portalName === null && saved.mapId === id) arrival = saved;
+  let arrival = context.revivalSource
+    ? revivalArrival(manifest)
+    : arrivalPosition(manifest, portalName);
+  const saved = (context.store ?? profileStore).profile.location;
+  if (!context.revivalSource && portalName === null && saved.mapId === id) {
+    arrival = saved;
+  }
   const scene = new StreamScene(manifest, services, app.screen);
   try {
     await scene.prepare(signal, arrival);
@@ -408,7 +633,7 @@ async function prepareCandidate(id, signal, portalName) {
       manifest.physics,
       app.screen,
     );
-    await inGame.prepareScene(scene, signal);
+    await inGame.prepareScene(scene, signal, context);
     return scene;
   } catch (error) {
     scene.destroy();
@@ -418,6 +643,9 @@ async function prepareCandidate(id, signal, portalName) {
 
 async function relocatePlayer(name, signal) {
   if (!current || destroyed) throw aborted();
+  if (profileStore.profileTransactionPending) {
+    throw new Error("Character update is still committing");
+  }
   check(signal);
   const arrival = arrivalPosition(current.manifest, name);
   generation++;
@@ -444,7 +672,7 @@ function travelPortal(id, portalName, options = {}) {
   const loading =
     options.sameMapMotion && String(id) === current?.manifest.id
       ? relocatePlayer(portalName, options.signal)
-      : loadMap(String(id), false, portalName, options.signal);
+      : loadMap(String(id), false, portalName, { signal: options.signal });
   const request = generation;
   const promise = loading.then((result) => {
     if (!destroyed && request === generation) {
@@ -456,16 +684,48 @@ function travelPortal(id, portalName, options = {}) {
   api.ready = promise;
   return promise;
 }
-function commitCandidate(candidate) {
+async function revivePlayer() {
+  const source = current,
+    store = profileStore;
+  if (
+    !source ||
+    loading ||
+    destroyed ||
+    store.profileTransactionPending ||
+    !source.fieldSystems.gameplay.dead ||
+    store.profile.hp !== 0
+  ) {
+    throw new Error(
+      "Ordinary revival is unavailable during this character/field state",
+    );
+  }
+  const id = revivalMap(source.manifest);
+  const promise = loadMap(id, false, null, {
+    revivalSource: source,
+    store,
+  });
+  api.ready = promise;
+  return promise;
+}
+function commitCandidate(candidate, revival = false) {
   const previous = current;
+  const oldHP = profileStore.profile.hp;
   current = candidate;
   app.stage.addChild(candidate.container);
   if (previous) previous.container.visible = false;
   try {
+    if (revival) {
+      profileStore.profile.hp = Math.min(
+        REVIVAL_POLICY.restoredHP,
+        profileStore.profile.maxHP,
+      );
+      candidate.fieldSystems.gameplay.synchronizeProfile();
+    }
     inGame.setScene(candidate);
     candidate.overlays.visible = presentationVisible;
     render();
   } catch (error) {
+    if (revival) profileStore.profile.hp = oldHP;
     current = previous;
     candidate.container.visible = false;
     if (previous) previous.container.visible = true;
@@ -483,6 +743,7 @@ function commitCandidate(candidate) {
   location.facing = candidate.simulation.facing;
   profileStore.markDirty();
   metrics.loadCommits++;
+  agentSurface?.observation.record("map-commit", candidate.manifest.id, null);
   clearError();
 }
 /** Resolve the authoritative catalog before constructing a replacement world. */
@@ -520,8 +781,11 @@ function recordLoadFailure(error, request) {
   else if (request === generation) showError(error);
 }
 
-async function loadMap(id, refreshCatalog, portalName, travelSignal) {
+function beginMapLoad(travelSignal) {
   if (destroyed) throw aborted();
+  if (profileStore?.profileTransactionPending) {
+    throw new Error("Character update is still committing");
+  }
   const request = ++generation;
   transition?.abort();
   neighbors?.abort();
@@ -531,14 +795,31 @@ async function loadMap(id, refreshCatalog, portalName, travelSignal) {
     : transition.signal;
   loading = true;
   metrics.loadAttempts++;
+  return { request, signal };
+}
+
+function assertCurrentLoad(request, context) {
+  if (request !== generation || destroyed) throw aborted();
+  if (
+    context.revivalSource &&
+    (current !== context.revivalSource ||
+      profileStore !== context.store ||
+      profileStore.profile.hp !== 0)
+  ) {
+    throw aborted();
+  }
+}
+
+async function loadMap(id, refreshCatalog, portalName, context = {}) {
+  const { request, signal } = beginMapLoad(context.signal);
   let candidate = null;
   try {
     check(signal);
     id = await resolveMapId(id, refreshCatalog, signal);
-    candidate = await prepareCandidate(id, signal, portalName);
+    candidate = await prepareCandidate(id, signal, portalName, context);
     check(signal);
-    if (request !== generation || destroyed) throw aborted();
-    commitCandidate(candidate);
+    assertCurrentLoad(request, context);
+    commitCandidate(candidate, Boolean(context.revivalSource));
     candidate = null;
     inspect();
     prefetchNeighbors(id);
@@ -601,6 +882,8 @@ function snapshot() {
     presentationVisible,
     loading,
     lastError,
+    sourceBuildId,
+    agent: agentSurface?.controller.status() ?? null,
     ...sceneSnapshot(),
     input: input ? { ...input.state } : null,
     hitboxReference: hitboxInspector.selected,
@@ -624,6 +907,11 @@ function closeDurableSystems() {
   profileStore?.destroy().catch(showError);
 }
 
+function destroyAgentSystems() {
+  agentSurface?.destroy();
+  development?.destroy();
+}
+
 function destroy() {
   if (destroyed) return;
   destroyed = true;
@@ -636,6 +924,7 @@ function destroy() {
   observer?.disconnect();
   document.removeEventListener("visibilitychange", visibilityChanged);
   window.removeEventListener("pagehide", pageLeaving);
+  destroyAgentSystems();
   input?.destroy();
   controls?.destroy();
   inGame?.destroy();

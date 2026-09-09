@@ -59,7 +59,63 @@ function drawFootholds(overlay, scene) {
     overlay.lines.lineTo(ladder.x, ladder.y2);
   }
   overlay.lines.stroke({ color: 0xffff99, width: 1 });
+  drawBounds(overlay.lines, scene);
+  overlay.simulation = scene.simulation;
   overlay.manifest = scene.manifest;
+}
+
+/** Static field geometry is rebuilt on field/simulation replacement, never per frame. */
+function drawBounds(lines, scene) {
+  const render = scene.manifest.bounds;
+  lines.rect(
+    render.left,
+    render.top,
+    render.right - render.left,
+    render.bottom - render.top,
+  );
+  lines.stroke({ color: 0x6699ff, width: 1 });
+  const map = scene.manifest.physics.map;
+  if (
+    Number.isFinite(map.VRLeft) &&
+    Number.isFinite(map.VRRight) &&
+    Number.isFinite(map.VRTop) &&
+    Number.isFinite(map.VRBottom)
+  ) {
+    lines.rect(
+      map.VRLeft,
+      map.VRTop,
+      map.VRRight - map.VRLeft,
+      map.VRBottom - map.VRTop,
+    );
+    lines.stroke({ color: 0xcc88ff, width: 1 });
+  }
+  const bounds = scene.simulation.bounds;
+  lines.moveTo(bounds.left, bounds.bottom);
+  lines.lineTo(bounds.left, bounds.top);
+  lines.lineTo(bounds.right, bounds.top);
+  lines.lineTo(bounds.right, bounds.bottom);
+  lines.stroke({ color: 0xff8844, width: 2 });
+  // Bottom participates in initialization only. At most 256 dashes per field.
+  const step = Math.max(12, (bounds.right - bounds.left) / 256);
+  for (let x = bounds.left; x < bounds.right; x += step) {
+    lines.moveTo(x, bounds.bottom);
+    lines.lineTo(Math.min(bounds.right, x + step * 0.5), bounds.bottom);
+  }
+  lines.stroke({ color: 0xff8844, width: 1, alpha: 0.5 });
+}
+
+/** Formatting occurs only on the throttled inspection sampler. */
+function boundsReadout(scene) {
+  const physical = scene.simulation.bounds;
+  const render = scene.manifest.bounds;
+  const map = scene.manifest.physics.map;
+  return [
+    `physical clip domain L=${physical.left} R=${physical.right} T=${physical.top} B=${physical.bottom}`,
+    `render bounds L=${render.left} R=${render.right} T=${render.top} B=${render.bottom}`,
+    `authored VR L=${map.VRLeft ?? "absent"} R=${map.VRRight ?? "absent"} T=${map.VRTop ?? "absent"} B=${map.VRBottom ?? "absent"} VRLimit=${map.VRLimit ?? "absent"}`,
+    "orange=physical X/top clip; dashed bottom=initialization only, NOT an air floor",
+    "blue=render bounds; purple=authored VR (zero edges do not restrict physics)",
+  ].join("\n");
 }
 
 /** @param {object} overlay @param {object} scene */
@@ -68,7 +124,9 @@ function updateReadout(overlay, scene) {
   overlay.readout.textContent = [
     `state=${sim.state} action=${sim.action} foothold=${sim.footholdId} prev=${sim.foothold?.prevId ?? "none"} next=${sim.foothold?.nextId ?? "none"} ladder=${sim.ladderId}`,
     `position=${sim.x.toFixed(3)},${sim.y.toFixed(3)} velocity=${sim.vx.toFixed(3)},${sim.vy.toFixed(3)} px/s`,
-    "body=cyan attack=amber damage=pink; white cross=feet; green=footholds",
+    `contact plane=${sim.contactLayer} group=${sim.contactGroup}; space group=${sim.spaceGroup}`,
+    boundsReadout(scene),
+    "body=cyan attack=amber damage=pink; white cross=feet; green=authored footholds/walls, NOT physical domain",
     `blocked=${JSON.stringify(sim.blocked)} original attack activation=unverified; geometry unresolved=${overlay.shapes.unknown}`,
   ].join("\n");
 }
@@ -130,7 +188,12 @@ function updateOverlay(overlay, scene, enabled) {
   overlay.container.visible = visible;
   overlay.readout.hidden = !visible;
   if (!visible) return;
-  if (overlay.manifest !== scene.manifest) drawFootholds(overlay, scene);
+  if (
+    overlay.manifest !== scene.manifest ||
+    overlay.simulation !== scene.simulation
+  ) {
+    drawFootholds(overlay, scene);
+  }
   overlay.container.position.set(-scene.camera.x, -scene.camera.y);
   updateShapes(overlay, scene);
 }
@@ -153,6 +216,7 @@ export function createDebugOverlay(app, inspectionHost) {
     lines,
     readout,
     manifest: null,
+    simulation: null,
     scene: null,
     shapes: createHitboxState(),
     context: { action: "", frame: 0, elapsedMs: 0, attacking: false },

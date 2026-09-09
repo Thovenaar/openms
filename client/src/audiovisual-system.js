@@ -78,7 +78,7 @@ function button(text, action) {
 function makeControls() {
   const root = document.createElement("section");
   root.dataset.audiovisualControls = "true";
-  root.append(button("Enable audio (user gesture)", "enable"));
+  root.append(button("Enable / resume audio", "enable"));
   for (const category of ["BGM", "SE"]) {
     const label = document.createElement("label");
     label.style.cssText = "display:block;margin:6px 0";
@@ -114,7 +114,7 @@ function makeControls() {
   const status = document.createElement("p");
   status.setAttribute("role", "status");
   status.textContent =
-    "Audio requires a gesture. Effect activation/placement previews are non-authoritative.";
+    "Sound is unmuted by default; the first supported interaction unlocks playback.";
   root.append(status);
   document.querySelector("#audio-controls").append(root);
   return { root, select, status };
@@ -141,11 +141,55 @@ export class AudiovisualSystem {
     this.clickBound = this.click.bind(this);
     this.inputBound = this.input.bind(this);
     this.keyBound = this.key.bind(this);
+    this.gestureBound = this.onGesture.bind(this);
+    this.unlocking = null;
     this.audio = new AudioEngine(services.network, this.reportBound);
     this.controls.root.addEventListener("click", this.clickBound);
     this.controls.root.addEventListener("input", this.inputBound);
     this.controls.root.addEventListener("keydown", this.keyBound);
     this.controls.root.addEventListener("keyup", this.keyBound);
+    this.listenForGesture(true);
+  }
+  /** Observe activation without consuming the human's gameplay or UI event. */
+  listenForGesture(attach) {
+    const document = this.controls.root.ownerDocument;
+    if (attach) {
+      document.addEventListener("pointerdown", this.gestureBound, {
+        capture: true,
+        passive: true,
+      });
+      document.addEventListener("keydown", this.gestureBound, true);
+    } else {
+      document.removeEventListener("pointerdown", this.gestureBound, true);
+      document.removeEventListener("keydown", this.gestureBound, true);
+    }
+  }
+  onGesture(event) {
+    if (
+      !event.isTrusted ||
+      this.destroyed ||
+      navigator.userActivation?.isActive === false
+    ) {
+      return;
+    }
+    this.enableAudio().catch(this.reportBound);
+  }
+  /** One in-flight graph/BGM startup serves the first gesture and explicit control. */
+  enableAudio() {
+    if (!this.unlocking) this.unlocking = this.finishEnable();
+    return this.unlocking;
+  }
+  async finishEnable() {
+    try {
+      await this.audio.enable();
+      if (this.destroyed) return;
+      this.listenForGesture(false);
+      this.controls.status.textContent =
+        "Original MP3 playback enabled. Independent original backend volume curve.";
+      await this.hooks.onEnabled?.();
+    } finally {
+      this.unlocking = null;
+    }
   }
   report(error) {
     if (this.destroyed || error.name === "AbortError") return;
@@ -165,11 +209,7 @@ export class AudiovisualSystem {
   }
   async perform(action) {
     if (action === "enable") {
-      await this.audio.enable();
-      if (!this.destroyed) {
-        this.controls.status.textContent =
-          "Original MP3 playback enabled. Independent original backend volume curve.";
-      }
+      await this.enableAudio();
     } else if (action === "effect") {
       await this.playEffect(this.controls.select.value);
     } else if (action === "map-effect") {
@@ -390,6 +430,7 @@ export class AudiovisualSystem {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.listenForGesture(false);
     this.controller.abort();
     this.clearEffect();
     this.effectController.abort();

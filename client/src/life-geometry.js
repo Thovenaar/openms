@@ -37,21 +37,21 @@ export function showRectangle(slot, visible) {
   graphic.scale.set(slot.right - slot.left, slot.bottom - slot.top);
 }
 
-/** NPC dc fields are interaction geometry, explicitly not a physical body. */
+/** 006dd584..006dd6f0 defaults each absent dc edge; 006d3fde never mirrors it. */
 export function npcRectangle(info) {
-  const values = [info.dcLeft, info.dcTop, info.dcRight, info.dcBottom];
-  if (values.every((value) => value === undefined)) return null;
-  // Partial rectangles remain unsupported rather than filling missing edges with artwork bounds.
-  if (!values.every(Number.isFinite)) return null;
-  if (values[0] > values[2] || values[1] > values[3]) {
+  const rectangle = {
+    left: info.dcLeft ?? -22,
+    top: info.dcTop ?? -65,
+    right: info.dcRight ?? 22,
+    bottom: info.dcBottom ?? 0,
+  };
+  if (!Object.values(rectangle).every(Number.isSafeInteger)) {
+    throw new Error("Invalid authored NPC interaction rectangle");
+  }
+  if (rectangle.left > rectangle.right || rectangle.top > rectangle.bottom) {
     throw new Error("Inverted authored NPC interaction rectangle");
   }
-  return {
-    left: values[0],
-    top: values[1],
-    right: values[2],
-    bottom: values[3],
-  };
+  return rectangle;
 }
 
 /** Authored fh is only a reference; show exact segment, authored cy and horizontal range. */

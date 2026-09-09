@@ -1,6 +1,6 @@
 import { Container, Sprite } from "pixi.js";
 
-/** @typedef {{texture:string,x:number,y:number,z:number,flip?:boolean,opacity?:number}} Part */
+/** @typedef {{texture:string,x:number,y:number,z:number,flip?:boolean,opacity?:number,expression?:'default'|'hit'}} Part */
 /** @typedef {{delay:number,parts:Part[],alphaEnd?:number,sourceSize?:{width:number,height:number}}} Frame */
 /** @typedef {{type:number,rx:number,ry:number,cx:number,cy:number}} Background */
 /** @typedef {{id:string,order:number,kind:string,x:number,y:number,z:number,visible:boolean,flip:boolean,opacity:number,action:string,actions:Record<string,Frame[]>,background?:Background}} Entity */
@@ -73,6 +73,8 @@ export class EntityAnimation {
       cy: 0,
     };
     this.elapsedMs = 0;
+    this.expression = "default";
+    this.expressionMs = 0;
     this.actions = new Map();
     this.container = new Container({ label: entity.id });
     this.setPosition(entity.x, entity.y);
@@ -121,8 +123,28 @@ export class EntityAnimation {
     this.selectTimedFrame();
   }
 
-  /** Advance in milliseconds; equality selects the next frame, or completes once.
-   * Player callers supply only the simulation's executed quantum.
+  /** Select face parts independently from the current body action clock. */
+  setExpression(name, duration) {
+    if (
+      (name !== "default" && name !== "hit") ||
+      !Number.isFinite(duration) ||
+      duration < 0
+    ) {
+      throw new Error("Invalid avatar expression");
+    }
+    this.expression = name;
+    this.expressionMs = duration;
+    if (this.frame >= 0) this.applyFrame(this.frame);
+  }
+
+  advanceExpression(ms) {
+    if (this.expressionMs <= 0) return;
+    this.expressionMs = Math.max(0, this.expressionMs - ms);
+    // 004534a2..bd selects default, not a saved previous emotion.
+    if (this.expressionMs === 0) this.setExpression("default", 0);
+  }
+
+  /** Player callers supply only the simulation's executed quantum.
    * @param {number} ms */
   advance(ms) {
     if (
@@ -133,6 +155,7 @@ export class EntityAnimation {
       throw new Error("Invalid animation elapsed milliseconds");
     }
     this.elapsedMs += ms;
+    this.advanceExpression(ms);
     const current = this.current;
     if (current.duration === 0 || this.completed) return;
     // 004522a6: stationary climb consumes the remaining delay but holds the
@@ -193,7 +216,8 @@ export class EntityAnimation {
     for (let i = 0; i < this.sprites.length; i++) {
       const sprite = this.sprites[i];
       const part = parts[i];
-      sprite.visible = !!part;
+      sprite.visible =
+        !!part && (!part.expression || part.expression === this.expression);
       if (!part) continue;
       const texture = this.textures.get(part.texture);
       sprite.texture = texture;
@@ -373,6 +397,8 @@ export class EntityAnimation {
       frame: this.frame,
       actionTimeMs: this.actionTimeMs,
       elapsedMs: this.elapsedMs,
+      expression: this.expression,
+      expressionMs: this.expressionMs,
       actions: [...this.actions.keys()],
       visible: node.visible,
       x: this.background ? this.baseX : node.x,

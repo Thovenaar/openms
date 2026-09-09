@@ -320,6 +320,12 @@ function drawEntity(draw, entity) {
   for (const part of [...draw.frame.parts].sort(
     (left, right) => left.z - right.z,
   )) {
+    if (
+      part.expression &&
+      part.expression !== (entity.expression ?? "default")
+    ) {
+      continue;
+    }
     drawPart(draw, part);
   }
   context.restore();

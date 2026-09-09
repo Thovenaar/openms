@@ -127,6 +127,36 @@ test("stationary climb holds its authored frame while consuming only the remaini
   e.container.destroy({ children: true });
 });
 
+test("hit face survives body transitions and expires without restarting locomotion", () => {
+  const face = [
+    { texture: "pixel", x: 0, y: 0, z: 0, expression: "default" },
+    { texture: "pixel", x: 1, y: 0, z: 1, expression: "hit" },
+  ];
+  const e = entity({
+    faceWalk: [
+      { delay: 80, parts: face },
+      { delay: 120, parts: face },
+    ],
+    faceStill: [{ delay: 0, parts: face }],
+  });
+  e.setAction("faceWalk");
+  e.advance(90);
+  e.setExpression("hit", 1500);
+  expect(e.actionTimeMs).toBe(90);
+  expect(e.sprites[0].visible).toBe(false);
+  expect(e.sprites[1].visible).toBe(true);
+  e.advance(1000);
+  e.setAction("faceStill", "once");
+  e.advance(499);
+  expect(e.sprites[1].visible).toBe(true);
+  e.setAction("faceWalk");
+  e.advance(1);
+  expect(e.actionTimeMs).toBe(1);
+  expect(e.sprites[0].visible).toBe(true);
+  expect(e.sprites[1].visible).toBe(false);
+  e.container.destroy({ children: true });
+});
+
 test("zero-delay boundaries skip immediately and terminal alpha applies without division", () => {
   const frames = [0, 100, 0, 100, 0].map((delay, index) => ({
     delay,

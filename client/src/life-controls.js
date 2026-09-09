@@ -14,7 +14,7 @@ export class LifeControls {
     element("summary", "Life metadata and previews", this.root);
     element(
       "p",
-      "Original life metadata. Mobs use explicit offline-local combat policy; NPC actions are inspection previews.",
+      "Original life metadata. These controls inspect only; eligible NPC world targets use normal dialogue interaction.",
       this.root,
     );
     this.placement = element("select", "", this.root);
@@ -33,7 +33,7 @@ export class LifeControls {
       "aria-label",
       "Non-authoritative life action preview",
     );
-    this.inspect = element("button", "Inspect / server boundary", this.root);
+    this.inspect = element("button", "Inspect metadata", this.root);
     this.inspect.disabled = records.length === 0;
     this.action.disabled = records.length === 0;
     this.placement.disabled = records.length === 0;
@@ -81,7 +81,7 @@ export class LifeControls {
     this.action.value = slot.action;
     this.action.disabled = slot.record.kind === "mob" || !slot.action;
     const a = slot.record.authored;
-    this.status.textContent = `${slot.template.name ?? slot.template.originalId}; authored (${a.x}, ${a.y}), fh=${a.fh}, cy=${a.cy}, range=${a.rx0}..${a.rx1}. ${slot.contactStatus}. Click artwork to inspect; NPC requests stop at the server boundary.`;
+    this.status.textContent = `${slot.template.name ?? slot.template.originalId}; authored (${a.x}, ${a.y}), fh=${a.fh}, cy=${a.cy}, range=${a.rx0}..${a.rx1}. ${slot.contactStatus}. These controls inspect metadata only. Release the left mouse button over an eligible NPC world target to interact.`;
   }
   /** Mob clicks stay in nondamaging metadata inspection, never the NPC dialogue hook. */
   showSelection(id) {

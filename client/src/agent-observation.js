@@ -172,6 +172,8 @@ function animationSnapshot(entity) {
     holdFrame: entity.holdFrame,
     actionTimeMs: entity.actionTimeMs,
     elapsedMs: entity.elapsedMs,
+    expression: entity.expression,
+    expressionMs: entity.expressionMs,
     x: entity.background ? entity.baseX : node.x,
     y: entity.background ? entity.baseY : node.y,
     z: node.zIndex,
@@ -329,7 +331,7 @@ function mobResidency(field) {
 }
 
 /** Profile data is explicit and paginated, never the full save or quest dictionary. */
-function profileSnapshot(store, options) {
+function profileSnapshot(store, inventory, skills) {
   const profile = store?.profile;
   if (!profile) return null;
   const result = {};
@@ -339,14 +341,22 @@ function profileSnapshot(store, options) {
   result.save = store.snapshot();
   result.inventory = pageArray(
     profile.inventory,
-    options,
+    inventory,
     PROFILE_LIMITS.inventory,
   );
   if (profile.equipment.length > PROFILE_LIMITS.equipment) {
     throw new RangeError("Equipment observation bound exceeded");
   }
   result.equipment = profile.equipment.slice();
+  result.remainingSp = profile.remainingSp.slice();
+  result.skills = skillPage(profile.skills, skills);
   return result;
+}
+
+function skillPage(records, options) {
+  const page = pageArray(Object.keys(records), options, PROFILE_LIMITS.skills);
+  page.items = page.items.map((id) => ({ id: Number(id), ...records[id] }));
+  return page;
 }
 
 /** Reuse the native UI's demand-only snapshot: it includes save metadata, not the profile. */
@@ -493,13 +503,20 @@ export class AgentObservation {
   }
 
   /** All returned data is detached from live owners; no full maple.snapshot call.
-   * @param {{entities?:{offset?:number,limit?:number},inventory?:{offset?:number,limit?:number},events?:{since?:number,limit?:number},ids?:string[]}} [options]
+   * @param {{entities?:{offset?:number,limit?:number},inventory?:{offset?:number,limit?:number},skills?:{offset?:number,limit?:number},events?:{since?:number,limit?:number},ids?:string[]}} [options]
    */
   observe(options = {}) {
     this.assertLive();
-    optionsRecord(options, ["entities", "inventory", "events", "ids"]);
+    optionsRecord(options, [
+      "entities",
+      "inventory",
+      "skills",
+      "events",
+      "ids",
+    ]);
     const entities = pageOptions(options.entities);
     const inventory = pageOptions(options.inventory);
+    const skills = pageOptions(options.skills);
     const scene = this.hooks.scene();
     const systems = this.hooks.systems();
     const input = this.hooks.input();
@@ -525,7 +542,7 @@ export class AgentObservation {
         : null,
       input: input ? structuredClone(input.state) : null,
       ui: uiSnapshot(systems),
-      profile: profileSnapshot(systems?.store, inventory),
+      profile: profileSnapshot(systems?.store, inventory, skills),
       camera: scene ? { x: scene.camera.x, y: scene.camera.y } : null,
       canvas: canvasSnapshot(this.hooks.canvas(), scene),
       entities: entityPage(scene, entities),

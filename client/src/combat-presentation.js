@@ -67,10 +67,21 @@ export class CombatPresentation {
     if (scene) scene.overlays.addChild(this.container);
   }
   onPlayerHit(hit, simulation) {
+    if (hit.amount < 0) return;
+    // 00959320..b9 subtracts damage before the signed vital-number consumer.
+    this.onVitalNumber(-hit.amount, simulation);
+  }
+
+  onRecovery(amount, simulation) {
+    this.onVitalNumber(amount, simulation);
+  }
+
+  onVitalNumber(amount, simulation) {
     const actor = this.scene?.actor;
     const geometry = actor?.actions.get(actor.action)?.geometry[actor.frame];
+    // Browser binding-extent approximation; native 004519aa queries two layers.
     const y = simulation.y + (geometry?.y ?? 0);
-    this.show(Math.abs(hit.amount), hit.amount > 0 ? 1 : 2, simulation.x, y);
+    this.show(Math.abs(amount), amount > 0 ? 1 : 2, simulation.x, y);
   }
   onMobHit(mob, damage) {
     const entity = mob.presentation;

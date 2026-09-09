@@ -203,6 +203,13 @@ function frameParts(value, map, background) {
     }
     for (const key of ["x", "y", "z"]) finite(part[key]);
     alpha(part.opacity);
+    if (
+      part.expression !== undefined &&
+      part.expression !== "default" &&
+      part.expression !== "hit"
+    ) {
+      throw new Error("Invalid avatar face expression");
+    }
   }
 }
 function background(value) {

@@ -127,7 +127,7 @@ export class AgentDevelopment {
     this.hooks.systems().bindings.items.lastUse = baseline.itemLastUse;
     baseline.scene.fieldSystems.life.controls.root.hidden = false;
     this.hooks.systems().ui.chat.restore(baseline.chat);
-    this.hooks.systems().ui.status(baseline.uiStatus ?? "");
+    this.hooks.systems().ui.status(baseline.uiStatus ?? "", { record: false });
     this.hooks.restoreView(baseline);
     this.baseline = null;
   }

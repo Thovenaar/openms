@@ -40,6 +40,18 @@ For `0 < abs(force) < 100`, opposing input therefore reaches a real zero divisor
 
 The browser keeps a bounded maximum of 32 connected transitions as an explicit engineering policy. No contact helper allocates arrays/objects in the tick, and ground/air helpers do not recursively call one another.
 
+### Space-group collision correction
+
+The `200081100` outward-hit failure is an eligibility bug, not an incorrect physical right edge. Original `009b36bc..009b3712` accepts a nonpositive-X-tangent segment when its group equals **either** `CSpace2D+0x40` or actor contact group `VecCtrl+0x134`. The browser previously checked only the actor group, rejecting the field's group-0 walls after a hit detached a nonzero-group platform. [`space-group-instructions.txt`](ghidra-physics-refinements/space-group-instructions.txt) retains both comparisons. The actor-kind-7 exception after both comparisons fail is not the ordinary local-player branch and is not implemented by admitting all walls.
+
+The field group is now recovered, not a provisional `0`: `00a447eb..00a448ad` builds a per-group pair of minimum/maximum authored foothold X. Unpopulated entries begin at `INT_MAX, INT_MIN`; `00a44c7c..00a44ca5` initializes `+0x40` to zero, then selects the first pair with `maxX >= minX`. For a nonempty validated static field, this is exactly the **minimum populated foothold group**, independent of layer and input ordering; a vertical-only group is populated too. [`space-group.txt`](ghidra-physics-refinements/space-group.txt) retains range initialization, endpoint updates, the foothold constructor's `+0x20` group assignment and global references. No sparse array indexed by an unbounded group ID is allocated in the browser.
+
+`geometry.spaceGroup` records that load-time selection; `simulation.spaceGroup` is explicitly initialized, restored on same-field relocation, and included in inspection snapshots. Ground attachment, detachment and ladder capture change or preserve **actor** contact group according to their own native paths, never replace the field group with the actor's. New fields derive their own selection. [`space-lifecycle.txt`](ghidra-physics-refinements/space-lifecycle.txt) also retains `00a43433` publishing the `CSpace2D` singleton, `00a43dc2` clearing it at destruction, and `009b1719`'s actor-contact updates.
+
+The supplied executable's SHA-256 was independently recomputed as `1198fa57ca5a7c489bae43ec13c69681d9cabe0f96762f3dc0357facf2e7d4df`; the first new Ghidra extraction checked `currentProgram.getExecutableSHA256()` against it before reading `/tmp/maple-physics-options`. All new extraction used Ghidra 12.0.4, `-readOnly -noanalysis`; no Windows runtime or third-party client was used. The authorized Cosmic emulator's server map rectangle is not the original client's physical-domain authority.
+
+The ordinary loader policy is resolved. Runtime changes to the active space group through exceptional field/script/object state have not been exhaustively reconstructed; this implementation claims only the recovered static-field selection, not a complete audit of all possible indirect writers. Forced targets, special actor kind 7 and moving-object rules still require their genuine dynamic state.
+
 ## Drop eligibility is not a selected landing target
 
 The earlier nearest-strictly-lower-floor and target-only collision policy was wrong. [Original input instructions](ghidra-physics-refinements/drop-instructions.txt), [queries](ghidra-physics-refinements/drop-queries.txt), and [drop setter](ghidra-physics-refinements/drop-selection.txt) prove:
@@ -62,6 +74,14 @@ The input wrapper also gates actor locks, special input modes, certain portal ty
 
 Portal entry passes `portal.y−10`, zero velocity and no foothold to the original initializer; see [`spawn-instructions.txt`](ghidra-physics-refinements/spawn-instructions.txt). The runtime no longer invents a standing contact when a spawn coincides with a floor. Controlled standing test fixtures explicitly attach their synthetic foothold.
 
+For `Map.wz:Map/Map2/200081100.img`, [retained original geometry](ghidra-physics-refinements/200081100-collision.json) has endpoint extrema `(-410,320,-1920,120)` and therefore physical domain **left −380, right 290, top −2220, bottom 130**. Authored render/VR bounds are `(-445,355,-1920,120)` with no `VRLimit`. Platform 153 has group 2 at Y −278 and spans X −310..220; its linked left wall 33 and right wall 140 are group 0. Outward airborne hits must meet those geometry walls, not travel through the gap to physical X 290 or −380. This correction neither substitutes render bounds nor manufactures support at bottom 130.
+
+The boundary review covers minimum/maximum X and Y across initialization, air, ground and relocation: original `009b12a8` clamps all four initial coordinates; `009b45c1` clamps X and minimum Y during airborne motion, with zeroed affected velocity and truncated consumed milliseconds; `009b47aa` clamps grounded X by projecting onto the current foothold tangent. Neither airborne nor ground clipping treats maximum Y as a floor. These recovered formulas and clipping code remain unchanged.
+
+The debug overlay consumes the actual `simulation.bounds`: orange X/top edges are the physical clip domain, its faded dashed bottom is **initialization only**, blue is authored render bounds, purple is authored VR, and green is authored foothold/wall geometry. Its throttled readout prints all exact edges, raw `VRLimit`/VR properties, actor contact plane/group and field space group. Geometry is built on field/simulation replacement; no per-frame text or geometry rebuilding is added.
+
+`client/test/physics-contacts.test.js` now passes the original tower right/left outward-hit and platform-reattachment cases, actor-group versus unrelated-group admission, nonzero minimum space group/relocation, ground-to-air continuation, cross-group landing, domain limits and sloped-left-edge/inward detachment. Native contact sweeps and rendered positions truncate to integer pixels: subpixel coasting against a wall is not a visible escape and is not “fixed” by inventing a new float clamp. The original ±200/−200 tower traces return to platform153 on both sides without crossing the integer wall X. This is executed reconstruction evidence, not an original Windows trajectory comparison.
+
 ## Contact-dependent actor drawing order
 
 `0092fd16` computes ordinary local-user depth as `B + 29997 + (plane*3000−group)*10`, with an additional `5` for the separate dynamic-object branch. `009b4929` updates the contact plane/group from footholds or a ladder's page; entry without a contact uses plane 7/group 0. Evidence: [`actor-depth.txt`](ghidra-physics-refinements/actor-depth.txt), [`depth-factors.txt`](ghidra-physics-refinements/depth-factors.txt), [`drawing-contact-state.txt`](ghidra-physics-refinements/drawing-contact-state.txt), and the disassembly above. The browser removes the shared base `B` and reorders only the actor when that contact-derived key changes. The unimplemented dynamic-object branch is not approximated.
@@ -80,7 +100,7 @@ No formatter, linter, build or test suite was run by this worker. Direct calls t
 Unresolved, without claiming unavailable context is recoverable from static metadata:
 
 - Original integer rational cross-products/division and x87 intermediates versus browser binary64 can differ at numerical boundaries and coincident/equal-query-height ordering; original spatial-index insertion order is not reconstructed.
-- Exceptional group/object rules still require their full dynamic state. Ordinary floor geometry does not provide special actor kind, active field contact group, moving-object attachment or forced landing target state.
+- Exceptional group/object rules still require their full dynamic state. Ordinary field load-time space-group selection is recovered above, but special actor kind, runtime active-group changes, moving-object attachment and forced landing targets are not inferred from static geometry.
 - Runtime exception behavior for opposing sub-unit conveyors, as described above.
 - Complete equipment/skill/mount/action-lock, portal impulse and script/server entry state are outside this base-avatar reconstruction.
 - No original gameplay trajectory recording is available. Main owns integrated static validation and real browser keyboard acceptance; the retained scenarios prove exercised implementation paths, not frame-for-frame original-game equivalence.

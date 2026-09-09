@@ -3,7 +3,7 @@ import {
   ACTION_PALETTE,
   canonicalKeyIndex,
 } from "./keymap.js";
-import { replaceIcons, drawItemCount } from "./ui-icons.js";
+import { replaceIcons, drawItemCount, retireBindingLayer } from "./ui-icons.js";
 
 export function layoutKeys(panel) {
   const bindings = panel.owner.bindings;
@@ -43,7 +43,7 @@ export function refreshKeys(panel) {
   const signature = JSON.stringify([active.keys, inventory]);
   if (panel.keySignature === signature) return;
   panel.keySignature = signature;
-  panel.keyLayer?.destroy();
+  retireBindingLayer(panel.keyLayer);
   const layer = panel.layer("Key assignments");
   panel.keyLayer = layer;
   for (const key of panel.keyTargets) drawKey(layer, panel, key, active);

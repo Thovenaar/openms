@@ -250,9 +250,13 @@ function chooseContact(sim) {
   return first.tx > 0 ? first : last;
 }
 
+/** 009b34c8: ordinary actors accept a wall from either space or contact group. */
 function eligible(sim, segment) {
-  if (segment.tx <= 0 && segment.group !== sim.contactGroup) return false;
-  return true;
+  return (
+    segment.tx > 0 ||
+    segment.group === sim.spaceGroup ||
+    segment.group === sim.contactGroup
+  );
 }
 
 function slideWall(sim, segment) {

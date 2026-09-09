@@ -1,4 +1,5 @@
 import { at, resolveNode, value } from "../src/assets/image.js";
+import { classifySkill, skillSounds, skillVisuals } from "./skill-data.js";
 
 const MAX_IMAGES = 50000;
 const MAX_ITEMS = 5000;
@@ -8,15 +9,9 @@ const MAX_STAGE_ITEMS = 8192;
 const MAX_ROOTS = 100000;
 const MAX_METADATA_NODES = 65536;
 const MAX_METADATA_DEPTH = 64;
-const MAX_SKILLS = 256;
+const MAX_SKILLS = 4096;
 // Exact current artwork templates, not inventory grants (ui-data.js's former preview).
 const EQUIPMENT_IDS = [1040002, 1060002, 1072001, 1302000];
-// Original beginner book and existing combat/hitbox inspection references.
-const SKILL_SELECTION = [
-  { image: "000.img", keys: null },
-  { image: "500.img", keys: ["5001003"] },
-  { image: "310.img", keys: ["3101005"] },
-];
 const ICONS = ["icon", "iconMouseOver", "iconDisabled"];
 
 /** Consume the already-admitted checks/rewards, not dialogue tokens or a second quest parser. */
@@ -137,10 +132,15 @@ function metadataTree(root) {
     const node = entry.node;
     const target = metadataValue(node);
     entry.parent[entry.key] = target;
-    const children =
-      node.type === "UOL"
-        ? [["resolved", resolveNode(node)]]
-        : Object.entries(node.children);
+    let children;
+    if (node.type === "UOL") {
+      try {
+        children = [["resolved", resolveNode(node)]];
+      } catch (error) {
+        target.unavailable = error.message;
+        continue;
+      }
+    } else children = Object.entries(node.children);
     for (const [key, child] of children) {
       if (queue.length >= MAX_METADATA_NODES) {
         throw new Error("UI metadata node limit");
@@ -219,13 +219,84 @@ async function itemRecord(context, id, entry, strings) {
   };
 }
 
+/** Resolve authored rank aliases while retaining the original level metadata. */
+function skillLevels(node) {
+  const level = metadataTree(node.children.level),
+    levels = Object.create(null);
+  const levelNode = node.children.level
+    ? resolveNode(node.children.level)
+    : null;
+  const ranks = Object.keys(levelNode?.children ?? {}).filter((rank) =>
+    /^\d+$/.test(rank),
+  );
+  for (const rank of ranks) {
+    levels[rank] = metadataTree(resolveNode(levelNode.children[rank]));
+  }
+  return { level, levels, maxLevel: ranks.length };
+}
+
+/** Book ranges are the existing catalog families, not learnability rules. */
+function skillFamily(bookId) {
+  if (bookId >= 2000) return "legend";
+  if (bookId >= 1000) return "cygnus";
+  if (bookId >= 800) return "event";
+  return "explorer";
+}
+
+/** Action aliases retain their authored scalar or ordered string children. */
+function skillActions(properties) {
+  const rawActions = properties.action?.resolved ?? properties.action;
+  return typeof rawActions === "string"
+    ? [rawActions]
+    : Object.values(rawActions ?? {}).filter(
+        (action) => typeof action === "string",
+      );
+}
+
+function skillMetadata(node, image, properties) {
+  const rankMetadata = skillLevels(node);
+  const bookId = Number(image.slice(0, -4));
+  return {
+    bookId,
+    jobId: bookId,
+    family: skillFamily(bookId),
+    ...rankMetadata,
+    masterLevel: properties.masterLevel ?? null,
+    prerequisites: Object.entries(properties.req ?? {}).map(
+      ([skillId, rank]) => ({ skillId: Number(skillId), rank }),
+    ),
+    actions: skillActions(properties),
+    flags: {
+      invisible: Boolean(properties.invisible),
+      timeLimited: Boolean(properties.timeLimited),
+      disabled: Boolean(properties.disable),
+    },
+  };
+}
+
+/** Unknown authored costs stay unavailable; beginner entitlement is not SP. */
+function skillAllocationCost(id, properties) {
+  return {
+    kind:
+      properties.levelCost !== undefined
+        ? "unknown"
+        : id % 10000000 >= 1000 && id % 10000000 <= 1002
+          ? "beginner-entitlement"
+          : "sp",
+    amount: properties.levelCost === undefined ? 1 : null,
+    raw: properties.levelCost ?? null,
+    evidence:
+      "Cosmic AssignSPProcessor.java:68-97 (authorized emulator reference)",
+  };
+}
+
 /** Full original strings include per-level hN descriptions, not just a display label. */
 async function skillRecord(context, input, strings) {
   const { key, image, node } = input;
   const id = Number(key),
     source = `Skill.wz:${image}/skill/${key}`;
   const text = strings.children[key];
-  if (!text) throw new Error(`Missing original skill strings ${key}`);
+  // Missing strings are explicit original absence, not grounds to omit a player skill.
   const properties = Object.create(null);
   for (const [name, child] of Object.entries(node.children)) {
     if (name !== "level" && !ICONS.includes(name)) {
@@ -239,14 +310,16 @@ async function skillRecord(context, input, strings) {
     source,
     icons: ICONS,
   });
-  return {
+  const record = {
     id,
-    category: image === "000.img" ? "beginner" : "reference",
-    name: value(text, "name", ""),
-    description: value(text, "desc", ""),
+    category: Number(image.slice(0, -4)) % 1000 === 0 ? "beginner" : "job",
+    ...skillMetadata(node, image, properties),
+    name: text ? value(text, "name", "") : "",
+    description: text ? value(text, "desc", "") : "",
     source,
+    stringsPresent: Boolean(text),
     strings: metadataTree(text),
-    level: metadataTree(node.children.level),
+    allocationCost: skillAllocationCost(id, properties),
     properties,
     iconPath: `skill/${id}/icon`,
     iconMouseOverPath: node.children.iconMouseOver
@@ -256,41 +329,55 @@ async function skillRecord(context, input, strings) {
       ? `skill/${id}/iconDisabled`
       : null,
     descriptor,
+    visuals: await skillVisuals(context, { id, source, node }),
+    sounds: await skillSounds(context, input.soundRoot, key),
   };
+  record.classification = classifySkill(record);
+  return record;
 }
 
 async function skillRecords(context) {
-  const paths = new Set(imagePaths(context, "Skill"));
+  const paths = imagePaths(context, "Skill");
   const strings = await context.image("String", "Skill.img");
+  const soundRoot = await context.image("Sound", "Skill.img");
   const records = Object.create(null);
-  let count = 0;
-  for (const selection of SKILL_SELECTION) {
-    if (!paths.has(selection.image)) {
-      throw new Error(`Missing selected skill image ${selection.image}`);
+  const coverage = { playerBooks: [], domains: {}, counts: {}, total: 0 };
+  for (const image of paths) {
+    if (!/^\d+\.img$/.test(image)) {
+      coverage.domains[image] = {
+        domain: image.slice(0, -4),
+        source: `Skill.wz:${image}`,
+        metadata: metadataTree(await context.image("Skill", image)),
+        learnable: false,
+      };
+      continue;
     }
-    const root = at(await context.image("Skill", selection.image), "skill");
-    const keys = selection.keys ?? Object.keys(root.children);
-    if (keys.length + count > MAX_SKILLS) {
-      throw new Error("UI skill selection limit");
+    coverage.playerBooks.push(Number(image.slice(0, -4)));
+    const root = at(await context.image("Skill", image), "skill");
+    const keys = Object.keys(root.children).sort(
+      (a, b) => Number(a) - Number(b),
+    );
+    if (keys.length + coverage.total > MAX_SKILLS) {
+      throw new Error("Player skill catalog bound exceeded");
     }
     for (const key of keys) {
       if (!/^\d+$/.test(key) || !Number.isSafeInteger(Number(key))) {
         throw new Error(`Invalid skill ID ${key}`);
       }
       if (records[Number(key)]) throw new Error(`Duplicate skill ID ${key}`);
-      records[Number(key)] = await skillRecord(
+      const record = await skillRecord(
         context,
-        {
-          key,
-          image: selection.image,
-          node: at(root, key),
-        },
+        { key, image, node: at(root, key), soundRoot },
         strings,
       );
-      count++;
+      records[Number(key)] = record;
+      const category = `${record.classification.activation}:${record.classification.supported ? "supported" : "unavailable"}`;
+      coverage.counts[category] = (coverage.counts[category] ?? 0) + 1;
+      coverage.total++;
     }
   }
-  return records;
+  coverage.playerBooks.sort((a, b) => a - b);
+  return { records, coverage };
 }
 
 /** Catalog membership describes original templates only; ownership and skill ranks remain profile authorities. */
@@ -312,7 +399,8 @@ export async function extractItemSkillUI(context, strings, canvasRecord) {
     if (!strings[id]) throw new Error(`Missing original item strings ${id}`);
     items[id] = await itemRecord(assets, id, source, strings[id]);
   }
-  const skills = await skillRecords(assets);
+  const extractedSkills = await skillRecords(assets);
+  const skills = extractedSkills.records;
   return {
     items,
     skills,
@@ -323,8 +411,9 @@ export async function extractItemSkillUI(context, strings, canvasRecord) {
       missingItems: missing,
       equipmentTemplateIds: EQUIPMENT_IDS,
       skillIds: Object.keys(skills).map(Number),
+      skillCoverage: extractedSkills.coverage,
       scope:
-        "Supported quest stage checks/rewards plus current equipment templates; original beginner book and selected combat/hitbox references. No ownership or learned-state grants.",
+        "Supported quest stage checks/rewards and current equipment templates; exhaustive numeric player/job Skill IMG sweep with separate non-player domains. Catalog metadata grants no ownership or ranks.",
     },
   };
 }

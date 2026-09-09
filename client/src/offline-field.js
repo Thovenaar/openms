@@ -1,10 +1,8 @@
 import { createHitboxState, updateHitboxes } from "./physics/hitboxes.js";
-import {
-  applyExternalImpulse,
-  relocateSimulation,
-} from "./physics/simulation.js";
+import { applyExternalImpulse } from "./physics/simulation.js";
 import { placeBody } from "./life-geometry.js";
 import { OfflineMobRenderer } from "./offline-mob-renderer.js";
+import { PassiveRecovery } from "./passive-recovery.js";
 import {
   createMobs,
   stepMob,
@@ -20,20 +18,20 @@ import {
   experienceRequired,
   PROGRESSION_POLICY,
 } from "./offline-progression.js";
+import { REVIVAL_POLICY } from "./revival.js";
+const MAX_ATTACK_TARGETS = 6;
 
 export const COMBAT_POLICY = Object.freeze({
   authority: "offline-local-policy",
   fixedTickMs: 30,
   playerDamage:
     "max(1,floor((4*STR+DEX)*equipped WZ incPAD/10 - WZ PDDamage/2)); nearest eligible original body",
-  incomingDamage: "max(1, ceil(original PADamage or MADamage / 20))",
+  incomingDamage:
+    "max(1, ceil(original PADamage or MADamage / 20 - matching learned defense / 2))",
   impact: "first fixed tick at/after half original equipped action duration",
   attackMP: 0,
-  recoverAfterDeathMs: 3000,
-  passiveRecoveryMs: 3000,
-  regeneration: "after 3s without damage: +1 HP/+1 MP, sitting +5 HP/+3 MP",
-  respawn:
-    "full HP/MP at field-entry position after recovery input; no EXP loss",
+  regeneration: "native independent HP/MP timers; see passive-recovery.js",
+  respawn: REVIVAL_POLICY,
 });
 
 /** Original 009581a9 outcome / 00930b27 local-avatar update, not damage policy. */
@@ -72,6 +70,12 @@ export class OfflineField {
     this.receiverContext = {};
     this.attackBody = rectangleState();
     this.phase = store.profile.hp > 0 ? "idle" : "dead";
+    this.attackTargets = new Array(MAX_ATTACK_TARGETS).fill(null);
+    this.targetDistances = new Float64Array(MAX_ATTACK_TARGETS);
+    this.attackSkill = null;
+    this.attackInfo = null;
+    this.attackOnHit = null;
+    this.attackPower = 0;
     this.phaseMs = 0;
     this.attack = null;
     this.attackName = null;
@@ -87,15 +91,17 @@ export class OfflineField {
       source: null,
       attackAction: null,
     };
-    this.recoveryMs = 0;
+    this.recovery = new PassiveRecovery(
+      this.simulation,
+      store,
+      hooks,
+      scene.manifest.physics.map,
+    );
     this.wasAttack = false;
-    this.wasJump = false;
-    this.recoveryRequested = false;
     this.destroyed = false;
     this.prepared = false;
     this.lastStatus = "offline-local-policy";
     this.lastDamage = 0;
-    this.spawn = { x: this.simulation.x, y: this.simulation.y };
     this.deathAction = scene.actor.actions.has("dead") ? "dead" : null;
     this.simulation.movementLocked = this.blocksMovement;
     scene.offlineField = this;
@@ -105,13 +111,15 @@ export class OfflineField {
     return this.phase === "dead";
   }
   get blocksMovement() {
-    return this.phase === "attack" || this.dead;
+    return this.phase !== "idle";
   }
   get playback() {
     return this.phase === "idle" ? "loop" : "once";
   }
   get action() {
-    if (this.phase === "attack") return this.attackName;
+    if (this.phase === "attack" || this.phase === "cast") {
+      return this.attackName;
+    }
     return this.dead ? this.deathAction : null;
   }
 
@@ -129,41 +137,39 @@ export class OfflineField {
 
   /** Called exactly once after each executed original 30-ms physics quantum. */
   step(ms, input) {
-    if (this.destroyed || !this.prepared) return;
+    if (
+      this.destroyed ||
+      !this.prepared ||
+      this.store.profileTransactionPending
+    ) {
+      return;
+    }
     if (ms !== COMBAT_POLICY.fixedTickMs) {
       throw new Error("OfflineField requires one fixed 30-ms tick");
     }
     const attackEdge = !!input.attack && !this.wasAttack;
-    const jumpEdge = !!input.jump && !this.wasJump;
     this.wasAttack = !!input.attack;
-    this.wasJump = !!input.jump;
     this.phaseMs += ms;
     updateHitboxes(this.hitboxes, this.simulation, this.receiverContext);
     for (const mob of this.mobs) stepMob(mob, ms);
-    this.stepPlayer(ms, attackEdge, jumpEdge);
+    this.stepPlayer(attackEdge);
     if (!this.dead) {
       for (const mob of this.mobs) this.stepMobAttack(mob);
       this.contactDamage();
+    }
+    if (this.recovery.step(ms, this.action ?? this.simulation.action)) {
+      this.changed();
     }
     this.advanceHitPresentation();
     this.simulation.movementLocked = this.blocksMovement;
     this.renderer.synchronize();
   }
 
-  stepPlayer(ms, attackEdge, jumpEdge) {
-    if (this.dead) {
-      if (
-        this.phaseMs >= COMBAT_POLICY.recoverAfterDeathMs &&
-        (attackEdge || jumpEdge || this.recoveryRequested)
-      ) {
-        this.recoverPlayer();
-      }
-      return;
-    }
+  stepPlayer(attackEdge) {
+    if (this.dead) return;
     const canStart = this.phase === "idle";
     this.advancePlayerPhase();
     if (canStart && attackEdge) this.beginAttack();
-    this.passiveRecovery(ms);
   }
 
   /** Finish the current action without admitting another attack on its final tick. */
@@ -172,7 +178,12 @@ export class OfflineField {
       if (!this.attackFired && this.phaseMs >= this.attackDurationMs / 2) {
         this.playerImpact();
       }
-      if (this.phaseMs >= this.attackDurationMs) this.phase = "idle";
+    }
+    if (
+      (this.phase === "attack" || this.phase === "cast") &&
+      this.phaseMs >= this.attackDurationMs
+    ) {
+      this.phase = "idle";
     }
   }
 
@@ -197,69 +208,212 @@ export class OfflineField {
       return;
     }
     this.attack = descriptor;
-    this.attackName = name;
-    this.attackDurationMs = artwork.duration;
-    this.attackFired = false;
-    this.phase = "attack";
-    this.phaseMs = 0;
+    this.attackSkill = null;
+    this.attackInfo = null;
+    this.attackOnHit = null;
+    this.startPose(name, "attack");
     this.lastStatus = "local sword attack";
     this.hooks.onAttack?.();
+  }
+
+  skillCastError() {
+    if (
+      !this.prepared ||
+      this.destroyed ||
+      this.dead ||
+      this.store.profileTransactionPending
+    ) {
+      return "Character/field is unavailable";
+    }
+    if (this.phase !== "idle") return "Another character action is active";
+    if (this.simulation.state === "ladder") {
+      return "Active skill rope/ladder pose controller is unavailable";
+    }
+    return null;
+  }
+
+  skillAttackName(skill) {
+    return (
+      skill.actions[0] ??
+      (this.simulation.crouching
+        ? this.combat.proneAction
+        : this.combat.defaultAction)
+    );
+  }
+
+  skillAttackError(skill, info) {
+    if (!this.store.profile.equipment.includes(this.combat.weaponId)) {
+      return "Extracted sword is not equipped";
+    }
+    const name = this.skillAttackName(skill);
+    if (!this.combat.attacks[name] || !this.scene.actor.actions.has(name)) {
+      return "Original weapon action/rectangle is unavailable";
+    }
+    return this.skillDamageError(info);
+  }
+
+  skillDamageError(info) {
+    const count = info.mobCount ?? 1;
+    if (!Number.isInteger(count) || count < 1 || count > MAX_ATTACK_TARGETS) {
+      return "Unsupported original target count";
+    }
+    if ((info.attackCount ?? 1) !== 1) {
+      return "Multiple damage-line controller is unavailable";
+    }
+    if (!Number.isFinite(info.damage) || info.damage <= 0) {
+      return "Original damage multiplier is unavailable";
+    }
+    if (
+      info.range !== undefined &&
+      (!Number.isFinite(info.range) || info.range <= 0)
+    ) {
+      return "Invalid original melee extension range";
+    }
+    return null;
+  }
+
+  /** Called synchronously after skill validation; no costs or second damage authority here. */
+  beginSkillAttack(skill, info, onHit) {
+    const name = this.skillAttackName(skill);
+    this.attack = this.combat.attacks[name];
+    this.attackSkill = skill;
+    this.attackInfo = info;
+    this.attackOnHit = onHit;
+    this.startPose(name, "attack");
+    this.lastStatus = "learned sword skill admitted";
+  }
+
+  beginSkillPose(action) {
+    this.attackSkill = null;
+    this.attackInfo = null;
+    this.attackOnHit = null;
+    this.startPose(action, "cast");
+    this.lastStatus = "learned self-buff pose";
+  }
+
+  startPose(name, phase) {
+    this.attackName = name;
+    this.attackDurationMs = this.scene.actor.actions.get(name).duration;
+    this.attackFired = false;
+    this.phase = phase;
+    this.phaseMs = 0;
+    this.simulation.movementLocked = true;
+  }
+
+  /** Explicit development edits may change mortality without inventing a received hit. */
+  synchronizeProfile() {
+    const dead = this.store.profile.hp === 0;
+    if (dead === this.dead) return;
+    this.phase = dead ? "dead" : "idle";
+    this.phaseMs = 0;
+    this.hitTimerMs = 0;
+    this.blinkTint = PLAYER_HIT.normalTint;
+    this.attackSkill = null;
+    this.attackInfo = null;
+    this.attackOnHit = null;
+    this.simulation.movementLocked = this.blocksMovement;
   }
 
   playerImpact() {
     this.attackFired = true;
     const sim = this.simulation;
     placeBody(this.attackBody, this.attack.rectangle, sim, sim.facing > 0);
-    const reactorHit = this.hooks.onStrike?.(this.attackBody, sim.facing, 0);
-    const target = this.nearestAttackTarget();
-    if (!target) {
+    this.extendSkillRange();
+    const reactorHit = this.hooks.onStrike?.(
+      this.attackBody,
+      sim.facing,
+      this.attackSkill?.id ?? 0,
+    );
+    const count = this.selectAttackTargets(this.attackInfo?.mobCount ?? 1);
+    if (!count) {
       this.lastStatus = reactorHit
         ? "local reactor hit"
-        : "local sword impact: no eligible original body";
+        : "local impact: no eligible original body";
       return;
     }
+    this.attackPower = this.localAttackPower();
+    for (let index = 0; index < count; index++) {
+      this.damageTarget(this.attackTargets[index]);
+    }
+  }
+
+  /** 00951571..0095165c: a basic-range target unlocks Slash Blast's absolute forward extension. */
+  extendSkillRange() {
+    const range = this.attackInfo?.range ?? 0;
+    if (!range || !this.selectAttackTargets(1)) return;
+    const sim = this.simulation;
+    if (sim.facing > 0) {
+      this.attackBody.right = Math.max(this.attackBody.right, sim.x + range);
+    } else this.attackBody.left = Math.min(this.attackBody.left, sim.x - range);
+  }
+
+  localAttackPower() {
     const profile = this.store.profile;
-    const attackPower =
-      ((4 * profile.str + profile.dex) * this.combat.equipment.incPAD) / 10;
+    const extra = this.hooks.derivedStats?.().pad ?? 0;
+    const base =
+      ((4 * profile.str + profile.dex) *
+        (this.combat.equipment.incPAD + extra)) /
+      10;
+    return base * ((this.attackInfo?.damage ?? 100) / 100);
+  }
+
+  damageTarget(target) {
     const amount = Math.min(
       target.hp,
       Math.max(
         1,
-        Math.floor(attackPower - (target.template.info.PDDamage ?? 0) / 2),
+        Math.floor(this.attackPower - (target.template.info.PDDamage ?? 0) / 2),
       ),
     );
-    const killed = damageMob(target, amount, sim.facing);
+    const killed = damageMob(target, amount, this.simulation.facing);
     this.hooks.onMobHit?.(target, amount);
+    if (this.attackSkill) this.attackOnHit(this.attackSkill.id, target);
     this.lastStatus = killed
       ? "local mob killed; WZ EXP awarded; no drops"
       : "local mob hit";
     if (killed) this.onKill(target);
   }
 
-  nearestAttackTarget() {
-    let target = null;
-    let nearest = Infinity;
+  /** Bounded nearest-first insertion into reusable target slots; stable ties keep field order. */
+  selectAttackTargets(limit) {
+    let count = 0;
     for (const mob of this.mobs) {
-      if (
-        !mob.alive ||
-        mob.selectedSkills.length ||
-        mob.template.info.invincible ||
-        !overlaps(this.attackBody, mob.body)
-      ) {
+      if (!this.canAttackMob(mob) || !overlaps(this.attackBody, mob.body)) {
         continue;
       }
       const distance = Math.abs(mob.x - this.simulation.x);
-      if (distance < nearest) {
-        nearest = distance;
-        target = mob;
+      if (count === limit && distance >= this.targetDistances[count - 1]) {
+        continue;
       }
+      let index = Math.min(count, limit - 1);
+      while (index > 0 && distance < this.targetDistances[index - 1]) {
+        this.attackTargets[index] = this.attackTargets[index - 1];
+        this.targetDistances[index] = this.targetDistances[index - 1];
+        index--;
+      }
+      this.attackTargets[index] = mob;
+      this.targetDistances[index] = distance;
+      if (count < limit) count++;
     }
-    return target;
+    return count;
+  }
+
+  canAttackMob(mob) {
+    return (
+      mob.alive &&
+      !mob.template.info.invincible &&
+      (!mob.selectedSkills.length ||
+        mob.selectedSkills.includes(this.attackSkill?.id ?? 0))
+    );
   }
 
   onKill(mob) {
     const exp = mob.template.info.exp ?? 0;
-    const levels = awardExperience(this.store.profile, exp);
+    const levels = awardExperience(
+      this.store.profile,
+      exp,
+      this.hooks.hpGrowth?.() ?? 0,
+    );
     this.hooks.onKill?.(mob.templateId);
     if (levels > 0) this.hooks.onEffect?.("LevelUp");
     this.changed();
@@ -330,7 +484,9 @@ export class OfflineField {
       return false;
     }
     const hit = this.localHit;
-    hit.amount = Math.max(1, Math.ceil(base / 20));
+    const defense = this.hooks.derivedStats?.();
+    const reduction = magic ? (defense?.mdd ?? 0) : (defense?.pdd ?? 0);
+    hit.amount = Math.max(1, Math.ceil(base / 20 - reduction / 2));
     hit.direction = this.simulation.x >= mob.x ? 1 : -1;
     hit.source = mob;
     hit.attackAction = attackAction;
@@ -348,21 +504,27 @@ export class OfflineField {
     if (hit.amount > 0) profile.hp = Math.max(0, profile.hp - hit.amount);
     this.lastDamage = hit.amount;
     this.hitTimerMs = hit.amount > 0 ? PLAYER_HIT.timerMs : -PLAYER_HIT.timerMs;
-    this.recoveryMs = 0;
+    if (hit.amount > 0) {
+      this.scene.actor.setExpression("hit", PLAYER_HIT.timerMs);
+    }
     const killed = profile.hp === 0 && !this.dead;
     if (killed) {
       this.phase = "dead";
       this.phaseMs = 0;
     }
-    if (hit.amount <= 0 || this.dead) this.blinkTint = PLAYER_HIT.normalTint;
-    this.simulation.movementLocked = this.blocksMovement;
-    this.lastStatus = this.dead
-      ? "local player dead; jump/attack to recover after 3s"
-      : "player hit outcome admitted";
+    this.projectHitState(hit);
     this.hooks.onPlayerHit?.(hit, this.simulation);
     if (killed) this.hooks.onPlayerDeath?.();
     this.changed();
     return true;
+  }
+
+  projectHitState(hit) {
+    if (hit.amount <= 0 || this.dead) this.blinkTint = PLAYER_HIT.normalTint;
+    this.simulation.movementLocked = this.blocksMovement;
+    this.lastStatus = this.dead
+      ? "player dead; original revival confirmation required"
+      : "player hit outcome admitted";
   }
 
   rejectsHit(hit) {
@@ -387,54 +549,6 @@ export class OfflineField {
       this.blinkCounter = (this.blinkCounter + 1) >>> 0;
       if ((this.blinkCounter & 3) < 2) this.blinkTint = PLAYER_HIT.hitTint;
     }
-  }
-
-  passiveRecovery(ms) {
-    this.recoveryMs += ms;
-    if (
-      this.recoveryMs < COMBAT_POLICY.passiveRecoveryMs ||
-      this.phase !== "idle"
-    ) {
-      return;
-    }
-    this.recoveryMs = 0;
-    const profile = this.store.profile;
-    const sitting = this.simulation.action === "sit";
-    const hp = Math.min(profile.maxHP, profile.hp + (sitting ? 5 : 1));
-    const mp = Math.min(profile.maxMP, profile.mp + (sitting ? 3 : 1));
-    if (hp === profile.hp && mp === profile.mp) return;
-    profile.hp = hp;
-    profile.mp = mp;
-    this.changed();
-  }
-
-  /** Queue recovery for a fixed tick; UI callbacks never mutate simulation. */
-  recover() {
-    if (
-      !this.dead ||
-      this.phaseMs < COMBAT_POLICY.recoverAfterDeathMs ||
-      this.destroyed
-    ) {
-      return false;
-    }
-    this.recoveryRequested = true;
-    return true;
-  }
-
-  recoverPlayer() {
-    const sim = this.simulation;
-    relocateSimulation(sim, this.spawn);
-    this.store.profile.hp = this.store.profile.maxHP;
-    this.store.profile.mp = this.store.profile.maxMP;
-    this.phase = "idle";
-    this.phaseMs = 0;
-    this.hitTimerMs = 0;
-    this.blinkTint = PLAYER_HIT.normalTint;
-    this.recoveryRequested = false;
-    this.lastStatus = "local full recovery at field entry";
-    updateHitboxes(this.hitboxes, sim, this.receiverContext);
-    this.hooks.onRecover?.();
-    this.changed();
   }
 
   changed() {

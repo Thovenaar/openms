@@ -1,6 +1,6 @@
 import { loadVisualBundle } from "./visual-resources.js";
 import { ACTION_PALETTE, canonicalKeyIndex } from "./keymap.js";
-import { replaceIcons, drawItemCount } from "./ui-icons.js";
+import { replaceIcons, drawItemCount, retireBindingLayer } from "./ui-icons.js";
 import { drawKeyLabel } from "./ui-keyconfig.js";
 import { HUD_CLIENT_Y } from "./ui-hud.js";
 
@@ -113,7 +113,7 @@ export function refreshQuickSlots(owner) {
   );
   if (signature === panel.quickSignature) return;
   panel.quickSignature = signature;
-  panel.keyLayer?.destroy();
+  retireBindingLayer(panel.keyLayer);
   const layer = panel.layer("Quick-slot keys");
   panel.keyLayer = layer;
   for (const record of records) drawQuickSlot(layer, record);
@@ -166,10 +166,6 @@ function quickHit(layer, record, path) {
     rect,
     {
       click: () => {
-        if (layer.owner.suppressBindingClick) {
-          layer.owner.suppressBindingClick = false;
-          return;
-        }
         layer.owner.bindings.activateKey(record.index);
         layer.owner.hooks.focusGame();
       },

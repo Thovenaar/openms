@@ -61,6 +61,7 @@ export function layoutHud(panel, index) {
 
 export function layoutWindow(panel) {
   const name = panel.name;
+  if (name === "Revive") return layoutRevival(panel);
   if (name === "UtilDlgEx" || name === "Quest") return layoutDialog(panel);
   if (name === "MiniMap") return layoutMinimap(panel);
   panel.image(`${name}/backgrnd`, 0, 0);
@@ -71,6 +72,19 @@ export function layoutWindow(panel) {
   if (name === "Skill") return layoutSkills(panel);
   if (name === "Equip") return layoutEquipment(panel);
   layoutOptions(panel);
+}
+
+/** 00898117..008981ba: authored Notice/0 and BtOK2 at (124,115), no browser-rendered duplicate text. */
+function layoutRevival(panel) {
+  panel.image("Notice/0", 0, 0);
+  panel.element.setAttribute(
+    "aria-label",
+    "Press OK to be revived. Once you have revived, you will be sent to a safe town nearby.",
+  );
+  panel.reviveControl = panel.button("BtOK2", 124, 115, {
+    label: "Revive in the nearest town",
+    action: () => panel.owner.confirmRevival(),
+  });
 }
 
 function layoutMenu(panel) {

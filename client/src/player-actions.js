@@ -327,7 +327,10 @@ function dispatchKey(context, systems, command) {
   const event = keyEvent(code, target);
   const blocked = keyAdmission(ui, target, event);
   const binding = systems.bindings.lookup(code);
-  const previousUse = systems.bindings.items.lastUse;
+  const previousUse = {
+    item: systems.bindings.items.lastUse,
+    skill: systems.bindings.lastSkillUse,
+  };
   ui.onKey(event);
   if (blocked) return outcome(false, blocked);
   if (
@@ -364,12 +367,9 @@ function keyResult(systems, event, binding, previousUse) {
   const code = event.code;
   const action = bindingAction(binding);
   const bindingRouted = isBindingKey(ui, event);
-  if (bindingRouted && binding?.type === 2) {
-    const accepted = systems.bindings.items.lastUse !== previousUse;
-    return outcome(accepted, accepted ? "item-used" : "item-use-rejected", {
-      code,
-      status: ui.lastStatus ?? null,
-    });
+  if (bindingRouted) {
+    const use = keyUseResult(systems, event, binding, previousUse);
+    if (use) return use;
   }
   if (
     bindingRouted &&
@@ -384,6 +384,28 @@ function keyResult(systems, event, binding, previousUse) {
     action,
     status: ui.lastStatus ?? null,
   });
+}
+
+function keyUseResult(systems, event, binding, previousUse) {
+  const code = event.code,
+    status = systems.ui.lastStatus ?? null;
+  if (binding?.type === 2) {
+    const accepted = systems.bindings.items.lastUse !== previousUse.item;
+    return outcome(accepted, accepted ? "item-used" : "item-use-rejected", {
+      code,
+      status,
+    });
+  }
+  if (binding?.type === 1) {
+    const use = systems.bindings.lastSkillUse;
+    const accepted = use !== previousUse.skill && use?.accepted === true;
+    return outcome(accepted, accepted ? "skill-used" : "skill-use-rejected", {
+      code,
+      id: binding.id,
+      status,
+    });
+  }
+  return null;
 }
 
 function isBindingKey(ui, event) {
@@ -402,6 +424,9 @@ function dispatchUI(ui, name) {
   if (name === "cancel") {
     const modal = ui.modal();
     if (!modal) return outcome(false, "no-modal");
+    if (!ui.canCloseWindow(modal.name, false)) {
+      return outcome(false, "modal-cannot-cancel");
+    }
     ui.close(modal.name);
     return outcome(true, "modal-cancelled");
   }
@@ -417,6 +442,9 @@ function dispatchUI(ui, name) {
   if (name === "close") {
     const last = Array.from(ui.windows.keys()).pop();
     if (!last) return outcome(false, "no-window");
+    if (!ui.canCloseWindow(last, false)) {
+      return outcome(false, "window-cannot-close");
+    }
     ui.close(last);
     return outcome(true, "close-requested");
   }

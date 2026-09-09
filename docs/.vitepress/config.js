@@ -57,8 +57,10 @@ const sidebar = [
     items: [
       { text: "Gameplay and acceptance checklist", link: "/offline-gameplay" },
       { text: "Combat and progression", link: "/offline-combat" },
+      { text: "Learned skills and passive effects", link: "/skills" },
       { text: "Life and local authority", link: "/ingame-life" },
       { text: "Quests", link: "/ingame-quests" },
+      { text: "Character development", link: "/offline-profile" },
       { text: "Character persistence", link: "/offline-saves" },
       { text: "Portals", link: "/ingame-portals" },
       { text: "Reactors and entity families", link: "/ingame-entities" },
@@ -87,7 +89,7 @@ const sidebar = [
         text: "Physics and streaming results",
         link: "/physics-validation/results",
       },
-      { text: "Rendering baseline", link: "/validation" },
+      { text: "Validation results and rendering baseline", link: "/validation" },
     ],
   },
 ];

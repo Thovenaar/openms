@@ -45,7 +45,7 @@ export class UICursor {
   }
 
   press(event) {
-    if (this.pointerId !== null) return;
+    if (this.pointerId !== null || this.owner.bindingDrag) return;
     this.pointerId = event.pointerId;
     this.set(this.current === 7 ? 9 : this.current === 8 ? 10 : 12);
   }
@@ -68,6 +68,8 @@ export class UICursor {
 
   move(event) {
     const owner = this.owner;
+    const pointerId = owner.bindingDrag?.pointerId ?? this.pointerId;
+    if (pointerId !== null && pointerId !== event.pointerId) return;
     this.clientX = event.clientX;
     this.clientY = event.clientY;
     const canvas = owner.app.canvas.getBoundingClientRect();
@@ -87,6 +89,8 @@ export class UICursor {
   }
 
   leave(event) {
+    const pointerId = this.owner.bindingDrag?.pointerId ?? this.pointerId;
+    if (pointerId !== null && pointerId !== event.pointerId) return;
     if (!event.relatedTarget) this.surface.root.visible = false;
   }
 
@@ -129,14 +133,19 @@ export class UICursor {
     const resource = source.sources.get(path) || source.resource;
     this.ghost = new EntityAnimation(entity, resource.textures);
     this.ghost.setPosition(0, 0);
+    // 009e353d puts carry at 0x7ffffffd, below the native cursor layer.
+    this.ghost.container.zIndex = -1;
+    // 0083550d and 008d6409 create the icon layer with ARGB 0x80ffffff.
+    this.ghost.container.alpha = 128 / 255;
     this.surface.root.addChildAt(this.ghost.container, 0);
     this.set(11);
   }
 
   clearGhost() {
-    this.ghost?.container.destroy({ children: true });
+    if (!this.ghost) return;
+    this.ghost.container.destroy({ children: true });
     this.ghost = null;
-    this.set(0);
+    this.set(-1);
   }
 
   update(ms) {
@@ -149,6 +158,7 @@ export class UICursor {
       this.set(this.worldState());
     }
     this.states[this.current].advance(ms);
+    this.ghost?.advance(ms);
   }
 
   destroy() {

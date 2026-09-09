@@ -21,13 +21,16 @@ export function experienceRequired(level) {
 }
 
 /** Mutate an owned profile or transaction draft; caller persists and emits effects. */
-export function awardExperience(profile, amount) {
+export function awardExperience(profile, amount, hpGrowth = 0) {
   if (
     !Number.isSafeInteger(amount) ||
     amount < 0 ||
     !Number.isSafeInteger(profile.exp + amount)
   ) {
     throw new Error("Invalid local EXP award");
+  }
+  if (!Number.isSafeInteger(hpGrowth) || hpGrowth < 0) {
+    throw new Error("Invalid learned max-HP growth bonus");
   }
   experienceRequired(profile.level);
   if (profile.level === PROGRESSION_POLICY.maxLevel) return 0;
@@ -42,7 +45,7 @@ export function awardExperience(profile, amount) {
     if (profile.exp < required) break;
     profile.exp -= required;
     profile.level++;
-    profile.maxHP += PROGRESSION_POLICY.hpPerLevel;
+    profile.maxHP += PROGRESSION_POLICY.hpPerLevel + hpGrowth;
     profile.maxMP += PROGRESSION_POLICY.mpPerLevel;
     profile.str++;
     profile.dex++;

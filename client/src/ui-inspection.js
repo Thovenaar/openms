@@ -4,6 +4,8 @@ import { replaceIcons, itemIcon } from "./ui-icons.js";
 import { JOB_LABELS } from "./ui-job-labels.js";
 import { skillBooks } from "./ui-skill-books.js";
 import { updateSkillTabs } from "./ui-layout.js";
+import { PROFILE_LIMITS } from "./profile-validation.js";
+import { skillPointPool } from "./skill-system.js";
 
 const MAX_PROFILE_ITEMS = 4096;
 const BEGINNER_JOBS = new Set([0, 1000, 2000, 2001]);
@@ -185,37 +187,179 @@ function statDisabledMask(job) {
   return 0;
 }
 
-function updateSkills(panel, profile) {
-  if (!panel.skillsReady) return;
-  const books = skillBooks(profile?.job);
-  updateSkillTabs(panel, books);
-  const tab = panel.selectedTab || 0;
-  const job = books[tab];
-  // 007619b0 keeps normal entries with no learned record; 0075cd52 types +28=invisible, +38=timeLimited.
+function skillTooltip(template, learned, rank) {
+  const classification = template.classification;
+  const runtime = classification?.supported
+    ? classification.reason || classification.activation
+    : classification?.reason || "Runtime unavailable";
+  const expiration =
+    learned && learned.expiresAt !== null
+      ? `\nExpires at epoch ms ${learned.expiresAt}`
+      : "";
+  return `${template.name}\n${template.description}\nRank ${rank}; master ${learned?.masterLevel || 0}\n${runtime}${expiration}`;
+}
+
+function skillLearningDisabled(panel, template, rank) {
+  return (
+    panel.skillLearning ||
+    panel.owner.store?.profileTransactionPending ||
+    rank >= template.maxLevel ||
+    typeof panel.owner.hooks.onLearnSkill !== "function"
+  );
+}
+
+function skillRow(panel, layer, entry, row) {
+  const { template, learned } = entry;
+  const rank = learned?.level || 0;
+  const path =
+    rank > 0
+      ? template.iconPath
+      : template.iconDisabledPath || template.iconPath;
+  if (path) layer.image(path, 10, 102 + 40 * row);
+  const name = layer.text(template.name, 46, 103 + 40 * row, 111);
+  name.style.whiteSpace = "nowrap";
+  name.style.overflow = "hidden";
+  name.style.textOverflow = "ellipsis";
+  layer.text(
+    `Lv. ${rank}/${template.maxLevel} M${learned?.masterLevel || 0}`,
+    46,
+    120 + 40 * row,
+    88,
+  );
+  const tooltip = skillTooltip(template, learned, rank);
+  layer.hit(
+    tooltip,
+    { x: 7, y: 99 + 40 * row, width: 126, height: 38 },
+    {
+      pointerdown: (event) => {
+        if (rank <= 0 || panel.owner.store?.profileTransactionPending) return;
+        panel.owner.beginBindingDrag(
+          event,
+          { type: 1, id: template.id },
+          null,
+          { source: layer, path: template.iconPath },
+        );
+      },
+    },
+  );
+  const button = layer.localButton("+", 136, 118 + 40 * row, () =>
+    learnSkill(panel, template.id),
+  );
+  button.setAttribute("aria-label", `Learn ${template.name}`);
+  button.disabled = skillLearningDisabled(panel, template, rank);
+}
+
+/** Only the captured store and owner epoch may receive asynchronous skill feedback. */
+function ownsSkillRequest(panel, request) {
+  return (
+    !panel.disposed && panel.owner.ownsProfile(request.store, request.epoch)
+  );
+}
+
+async function learnSkill(panel, id) {
+  const owner = panel.owner;
+  if (panel.skillLearning || owner.store?.profileTransactionPending) return;
+  const store = owner.store;
+  const epoch = owner.epoch;
+  panel.skillLearning = true;
+  const request = { store, epoch };
+  panel.skillRequest = request;
+  panel.skillFeedback = "Saving skill…";
+  updateSkills(panel, store.profile);
+  try {
+    const result = await owner.hooks.onLearnSkill(id);
+    if (!ownsSkillRequest(panel, request)) return;
+    if (result?.ok === false) {
+      throw new Error(result.reason || "Skill learning rejected");
+    }
+    panel.skillFeedback = "Skill saved.";
+  } catch (error) {
+    if (!ownsSkillRequest(panel, request)) return;
+    panel.skillFeedback = error.message;
+    owner.report(error);
+  } finally {
+    if (ownsSkillRequest(panel, request)) {
+      panel.skillLearning = false;
+      panel.skillRequest = null;
+      updateSkills(panel, store.profile);
+      owner.status(panel.skillFeedback);
+    }
+  }
+}
+
+function cancelStaleSkillRequest(panel) {
+  if (
+    panel.skillRequest &&
+    !panel.owner.ownsProfile(panel.skillRequest.store, panel.skillRequest.epoch)
+  ) {
+    panel.skillRequest = null;
+    panel.skillLearning = false;
+    panel.skillFeedback = "Skill learning cancelled: ownership changed.";
+  }
+}
+
+/** Normal book entries retain native exclusions and the current four-row viewport. */
+function skillPage(panel, profile, job) {
+  // 007619b0 includes unlearned normal entries; hidden/time-limited books are separate.
   const skills = Object.values(panel.owner.index.skills).filter(
-    (skill) =>
-      Math.floor(skill.id / 10000) === job &&
-      skill.id !== 1014 &&
-      skill.id !== 10001015 &&
-      !skill.properties.invisible &&
-      !skill.properties.timeLimited,
+    (skill) => skill.bookId === job && visibleSkillEntry(skill, profile),
   );
   panel.skillCount = skills.length;
   const start = panel.skillStart || 0;
-  const signature = `${job}:${start}`;
+  const records = skills.slice(start, start + 4).map((template) => ({
+    template,
+    learned: profile?.skills[template.id],
+  }));
+  return { start, records };
+}
+
+/** 007619b0: learned rank and record presence are distinct native visibility gates. */
+function visibleSkillEntry(skill, profile) {
+  if (skill.id === 1014 || skill.id === 10001015) return false;
+  const learned = profile?.skills[skill.id];
+  return (
+    (learned?.level > 0 || !skill.flags.invisible) &&
+    (Boolean(learned) || !skill.flags.timeLimited)
+  );
+}
+
+function updateSkillSummary(panel, profile, job, points) {
+  if (!panel.skillPoints) {
+    panel.skillPoints = panel.text("", 84, 265, 27);
+    panel.skillPoints.style.whiteSpace = "nowrap";
+    panel.skillPoints.style.overflow = "hidden";
+    panel.skillPoints.style.textAlign = "right";
+  }
+  const pointSummary = `SP pools 1–10: ${points.join(" / ")}`;
+  const pool = skillPointPool(job);
+  panel.skillPoints.textContent = profile ? String(points[pool]) : "";
+  panel.skillPoints.title = pointSummary;
+  panel.element.setAttribute("aria-busy", String(Boolean(panel.skillLearning)));
+}
+
+function updateSkills(panel, profile) {
+  if (!panel.skillsReady) return;
+  cancelStaleSkillRequest(panel);
+  const books = skillBooks(profile?.job);
+  updateSkillTabs(panel, books);
+  const job = books[panel.selectedTab || 0];
+  const { start, records } = skillPage(panel, profile, job);
+  const points = profile?.remainingSp || [];
+  const signature = JSON.stringify([
+    job,
+    start,
+    records.map((entry) => entry.learned),
+    points,
+    Boolean(panel.skillLearning),
+    Boolean(panel.owner.store?.profileTransactionPending),
+    panel.skillFeedback,
+  ]);
   if (panel.skillSignature === signature) return;
   panel.skillSignature = signature;
-  const records = skills
-    .slice(start, start + 4)
-    .map((template) => ({ template }));
-  replaceIcons(panel, records, (layer, entry, row) => {
-    const template = entry.template;
-    const path = template.iconDisabledPath || template.iconPath;
-    layer.image(path, 10, 102 + 40 * row);
-    const rect = { x: 7, y: 99 + 40 * row, width: 154, height: 38 };
-    layer.text(template.name, 46, 103 + 40 * row, 111);
-    layer.hit(`${template.name}\n${template.description}\nNot learned`, rect);
-  }).catch((error) => panel.owner.report(error));
+  updateSkillSummary(panel, profile, job, points);
+  replaceIcons(panel, records, (layer, entry, row) =>
+    skillRow(panel, layer, entry, row),
+  ).catch((error) => panel.owner.report(error));
 }
 
 /** Profile notifications and tab/wheel events only; never builds display objects in RAF. */
@@ -294,41 +438,72 @@ function inspectionElement(tag, text, parent) {
   return node;
 }
 
+const PROFILE_FIELDS = [
+  ["name", "Name", null],
+  ["level", "Level", 1],
+  ["exp", "EXP", 0],
+  ["hp", "HP", 0],
+  ["maxHP", "Maximum HP", 1],
+  ["mp", "MP", 0],
+  ["maxMP", "Maximum MP", 0],
+  ["str", "STR", 1],
+  ["dex", "DEX", 1],
+  ["int", "INT", 1],
+  ["luk", "LUK", 1],
+  ["meso", "Meso", 0],
+  ["fame", "Fame", Number.MIN_SAFE_INTEGER],
+];
+
+function profileInput(parent, label, minimum) {
+  const wrapper = inspectionElement("label", `${label} `, parent);
+  wrapper.style.display = "block";
+  const input = inspectionElement("input", "", wrapper);
+  input.setAttribute("aria-label", label);
+  input.type = minimum === null ? "text" : "number";
+  input.required = true;
+  if (minimum !== null) {
+    input.min = String(minimum);
+    input.max = String(Number.MAX_SAFE_INTEGER);
+    input.step = "1";
+  }
+  return input;
+}
+
+function profileButton(parent, text) {
+  const button = inspectionElement("button", text, parent);
+  button.type = "button";
+  return button;
+}
+
 /** Local policy controls stay outside the original raster gameplay plane. */
 export class ProfileControls {
   constructor(owner) {
     this.owner = owner;
+    this.destroyed = false;
+    this.dirty = false;
+    this.fields = new Map();
+    this.skillRows = new Map();
     this.root = document.createElement("details");
     inspectionElement("summary", "Local offline profile", this.root);
     this.status = inspectionElement("p", "", this.root);
-    this.save = inspectionElement("button", "Save locally", this.root);
-    this.reset = inspectionElement("button", "Reset local profile", this.root);
-    this.recover = inspectionElement("button", "Recover", this.root);
-    const label = inspectionElement(
-      "label",
-      "Local class policy — no job-advancement scripts or skill grants",
-      this.root,
-    );
-    this.job = inspectionElement("select", "", label);
-    this.job.setAttribute("aria-label", "Local class policy");
-    for (const id of owner.knownJobs) {
-      const option = inspectionElement(
-        "option",
-        `${JOB_LABELS[id] || "Job"} [${id}]`,
-        this.job,
-      );
-      option.value = String(id);
-    }
+    this.save = profileButton(this.root, "Save locally");
+    this.reset = profileButton(this.root, "Reset local profile");
+    this.recover = profileButton(this.root, "Recover");
+    this.buildEditor();
     this.items = inspectionElement("select", "", this.root);
     this.items.setAttribute("aria-label", "Local reactor offering item");
-    this.offer = inspectionElement("button", "Offer nearby", this.root);
+    this.offer = profileButton(this.root, "Offer nearby");
     this.feedback = inspectionElement("p", "", this.root);
     this.feedback.setAttribute("role", "status");
     this.listeners = [
       [this.save, "click", owner.saveProfile.bind(owner)],
       [this.reset, "click", owner.requestReset.bind(owner)],
       [this.recover, "click", owner.recoverProfile.bind(owner)],
-      [this.job, "change", this.changeJob.bind(this)],
+      [this.form, "submit", this.submit.bind(this)],
+      [this.form, "input", this.markEdited.bind(this)],
+      [this.form, "click", this.removeSkill.bind(this)],
+      [this.revert, "click", this.revertEdits.bind(this)],
+      [this.add, "click", this.addSkill.bind(this)],
       [this.offer, "click", this.offerItem.bind(this)],
     ];
     for (const [node, type, handler] of this.listeners) {
@@ -338,18 +513,274 @@ export class ProfileControls {
     this.refresh();
   }
 
+  buildEditor() {
+    this.form = inspectionElement("form", "", this.root);
+    this.editor = inspectionElement("fieldset", "", this.form);
+    inspectionElement("legend", "Persistent character editor", this.editor);
+    inspectionElement(
+      "p",
+      "Local edits do not run advancement scripts or grant stats, SP, or skills. Changes save together.",
+      this.editor,
+    );
+    for (const [key, label, minimum] of PROFILE_FIELDS) {
+      const input = profileInput(this.editor, label, minimum);
+      input.name = key;
+      if (key === "name") input.maxLength = PROFILE_LIMITS.name;
+      this.fields.set(key, input);
+    }
+    const label = inspectionElement("label", "Job ", this.editor);
+    label.style.display = "block";
+    this.job = inspectionElement("select", "", label);
+    this.job.setAttribute("aria-label", "Job");
+    this.job.required = true;
+    this.fields.set("job", this.job);
+    const jobs = this.owner.index.coverage.skillCoverage.playerBooks;
+    for (const id of jobs) {
+      const option = inspectionElement(
+        "option",
+        `${JOB_LABELS[id] || "Job"} [${id}]`,
+        this.job,
+      );
+      option.value = String(id);
+    }
+    const pools = inspectionElement("fieldset", "", this.editor);
+    inspectionElement("legend", "Remaining SP — pools 1–10", pools);
+    this.spFields = [];
+    for (let i = 0; i < 10; i++) {
+      this.spFields.push(profileInput(pools, `SP pool ${i + 1}`, 0));
+    }
+    this.buildSkillEditor();
+    this.apply = inspectionElement("button", "Save profile edits", this.editor);
+    this.apply.type = "submit";
+    this.revert = profileButton(this.editor, "Discard unsaved edits");
+    this.editStatus = inspectionElement("p", "", this.form);
+    this.editStatus.setAttribute("role", "status");
+    this.editStatus.setAttribute("aria-live", "polite");
+  }
+
+  buildSkillEditor() {
+    const section = inspectionElement("fieldset", "", this.editor);
+    inspectionElement("legend", "Learned skills", section);
+    inspectionElement(
+      "p",
+      "Edit rank and master rank directly, or remove a record. Expiry is Unix milliseconds; blank means permanent. Normal learning uses the Skill window.",
+      section,
+    );
+    this.skillList = inspectionElement("div", "", section);
+    this.skillList.style.cssText = "max-height:24rem;overflow:auto";
+    this.skillChoice = inspectionElement("select", "", section);
+    this.skillChoice.setAttribute("aria-label", "Skill to add");
+    const skills = Object.values(this.owner.index.skills);
+    if (skills.length > PROFILE_LIMITS.skills) {
+      throw new Error("Skill catalog exceeds profile editor budget");
+    }
+    skills.sort((a, b) => a.id - b.id);
+    for (const skill of skills) {
+      const option = inspectionElement(
+        "option",
+        `${skill.name} [${skill.id}]`,
+        this.skillChoice,
+      );
+      option.value = String(skill.id);
+    }
+    this.add = profileButton(section, "Add skill record");
+  }
+
+  appendSkill(id, record) {
+    const row = inspectionElement("fieldset", "", this.skillList);
+    const template = this.owner.index.skills[id];
+    inspectionElement("legend", `${template?.name || "Skill"} [${id}]`, row);
+    const fields = new Map();
+    for (const [key, label] of [
+      ["level", "Rank"],
+      ["masterLevel", "Master rank"],
+      ["expiresAt", "Expiry"],
+    ]) {
+      const input = profileInput(row, `${label} for skill ${id}`, 0);
+      input.value = record[key] === null ? "" : String(record[key]);
+      if (key === "expiresAt") input.required = false;
+      else if (template) input.max = String(template.maxLevel);
+      fields.set(key, input);
+    }
+    const remove = profileButton(row, "Remove skill record");
+    remove.dataset.removeSkill = String(id);
+    this.skillRows.set(String(id), { row, fields });
+  }
+
+  addSkill() {
+    const id = this.skillChoice.value;
+    if (this.isBusy() || !id || this.skillRows.has(id)) return;
+    if (this.skillRows.size >= PROFILE_LIMITS.skills) {
+      this.editStatus.textContent = "Learned skill capacity reached.";
+      return;
+    }
+    this.appendSkill(id, { level: 0, masterLevel: 0, expiresAt: null });
+    this.markEdited();
+    this.skillRows.get(id).fields.get("level").focus();
+  }
+
+  removeSkill(event) {
+    const id = event.target.dataset?.removeSkill;
+    if (this.isBusy() || !id) return;
+    const entry = this.skillRows.get(id);
+    if (!entry) return;
+    entry.row.remove();
+    this.skillRows.delete(id);
+    this.markEdited();
+  }
+
+  markEdited(event) {
+    if (event?.target === this.skillChoice || this.isBusy()) return;
+    this.dirty = true;
+    this.editStatus.textContent = "Unsaved profile edits.";
+  }
+
+  revertEdits() {
+    if (this.isBusy()) return;
+    this.dirty = false;
+    this.skillEditSignature = null;
+    this.editStatus.textContent = "Unsaved edits discarded.";
+    this.refresh();
+  }
+
+  isBusy() {
+    return Boolean(
+      this.request ||
+      this.owner.saving ||
+      this.owner.resetting ||
+      this.owner.store.profileTransactionPending,
+    );
+  }
+
+  owns(request) {
+    return (
+      !this.destroyed &&
+      !this.owner.disposed &&
+      this.owner.ownsProfile(request.store, request.epoch)
+    );
+  }
+
+  ownsEditRequest(request) {
+    return this.owns(request) && this.request === request;
+  }
+
+  cancelStaleRequests() {
+    if (this.request && !this.owns(this.request)) {
+      this.request = null;
+      this.dirty = false;
+      this.skillEditSignature = null;
+      this.editStatus.textContent =
+        "Profile editing cancelled: ownership changed.";
+    }
+    if (this.offering && !this.owns(this.offering)) this.offering = null;
+  }
+
   refresh() {
+    if (this.destroyed) return;
     const owner = this.owner,
       store = owner.store,
       profile = store.profile;
-    this.status.textContent = store.error?.message || store.status;
-    const busy = Boolean(owner.saving || owner.resetting);
+    this.cancelStaleRequests();
+    this.status.textContent =
+      store.error?.message || store.error || store.status;
+    const busy = this.isBusy();
     this.save.disabled = !profile || busy;
     this.reset.disabled = busy;
     this.recover.disabled = !profile || profile.hp !== 0 || busy;
-    this.job.disabled = !profile || busy;
-    this.job.value = profile ? String(profile.job) : "";
+    this.editor.disabled = !profile || busy;
+    this.form.setAttribute("aria-busy", String(Boolean(this.request)));
+    this.apply.disabled = typeof owner.hooks.onProfileEdit !== "function";
+    if (!this.dirty && !this.request) this.refreshEditor(profile);
     this.refreshItems(profile);
+  }
+
+  refreshEditor(profile) {
+    this.baseline = {};
+    for (const [key, input] of this.fields) {
+      input.value = profile ? String(profile[key]) : "";
+      this.baseline[key] = profile?.[key];
+    }
+    for (let i = 0; i < this.spFields.length; i++) {
+      this.spFields[i].value = profile ? String(profile.remainingSp[i]) : "";
+    }
+    const skills = profile?.skills || {};
+    const signature = JSON.stringify(skills);
+    if (signature !== this.skillEditSignature) {
+      this.skillList.replaceChildren();
+      this.skillRows.clear();
+      for (const [id, record] of Object.entries(skills)) {
+        this.appendSkill(id, record);
+      }
+      this.skillEditSignature = signature;
+    }
+    this.baseline.remainingSp = profile?.remainingSp.slice() || [];
+    this.baseline.skills = structuredClone(skills);
+  }
+
+  readPatch() {
+    const patch = {};
+    for (const [key, input] of this.fields) {
+      const value = key === "name" ? input.value : Number(input.value);
+      if (value !== this.baseline[key]) patch[key] = value;
+    }
+    const remainingSp = this.spFields.map((input) => Number(input.value));
+    if (
+      remainingSp.some(
+        (value, index) => value !== this.baseline.remainingSp[index],
+      )
+    ) {
+      patch.remainingSp = remainingSp;
+    }
+    const skills = {};
+    for (const [id, { fields }] of this.skillRows) {
+      skills[id] = {
+        level: Number(fields.get("level").value),
+        masterLevel: Number(fields.get("masterLevel").value),
+        expiresAt:
+          fields.get("expiresAt").value === ""
+            ? null
+            : Number(fields.get("expiresAt").value),
+      };
+    }
+    if (JSON.stringify(skills) !== JSON.stringify(this.baseline.skills)) {
+      patch.skills = skills;
+    }
+    return patch;
+  }
+
+  async submit(event) {
+    event.preventDefault();
+    if (
+      this.isBusy() ||
+      !this.owner.store.profile ||
+      !this.form.reportValidity()
+    ) {
+      return;
+    }
+    const request = { store: this.owner.store, epoch: this.owner.epoch };
+    this.request = request;
+    this.editStatus.textContent = "Saving profile edits…";
+    try {
+      const patch = this.readPatch();
+      this.refresh();
+      const result = await this.owner.hooks.onProfileEdit(patch);
+      if (!this.ownsEditRequest(request)) return;
+      if (result?.ok === false) {
+        throw new Error(result.reason || "Profile edit rejected");
+      }
+      this.dirty = false;
+      this.skillEditSignature = null;
+      this.editStatus.textContent = "Profile edits saved locally.";
+    } catch (error) {
+      if (!this.ownsEditRequest(request)) return;
+      this.editStatus.textContent = `Profile edits failed: ${error.message}`;
+      this.owner.report(error);
+    } finally {
+      if (this.ownsEditRequest(request)) {
+        this.request = null;
+        this.refresh();
+      }
+    }
   }
 
   refreshItems(profile) {
@@ -375,48 +806,54 @@ export class ProfileControls {
       }
       this.inventorySignature = signature;
     }
-    this.items.disabled = inventory.length === 0;
-    this.offer.disabled = inventory.length === 0 || Boolean(this.offering);
+    this.items.disabled = inventory.length === 0 || this.isBusy();
+    this.offer.disabled =
+      inventory.length === 0 || Boolean(this.offering) || this.isBusy();
   }
 
-  changeJob() {
-    const job = Number(this.job.value),
-      store = this.owner.store;
-    if (!store.profile || !this.owner.knownJobs.includes(job)) {
-      this.owner.report(
-        new Error("Local class must be an original retained quest job ID"),
-      );
-      return;
+  showOfferingResult(result) {
+    if (!result || typeof result.accepted !== "boolean") {
+      throw new Error("Invalid local offering result");
     }
-    store.profile.job = job;
-    store.markDirty();
+    this.feedback.textContent =
+      result.reason ||
+      (result.accepted
+        ? "Local offer accepted."
+        : "No matching nearby reactor requirement.");
   }
 
   async offerItem() {
     const id = Number(this.items.value);
-    if (this.offering || !Number.isSafeInteger(id) || id <= 0) return;
-    this.offering = true;
+    if (
+      this.isBusy() ||
+      this.offering ||
+      !Number.isSafeInteger(id) ||
+      id <= 0
+    ) {
+      return;
+    }
+    const request = { store: this.owner.store, epoch: this.owner.epoch };
+    this.offering = request;
     this.offer.disabled = true;
     try {
       const result = await this.owner.hooks.onOfferItem(id);
-      if (!result || typeof result.accepted !== "boolean") {
-        throw new Error("Invalid local offering result");
-      }
-      this.feedback.textContent =
-        result.reason ||
-        (result.accepted
-          ? "Local offer accepted."
-          : "No matching nearby reactor requirement.");
+      if (!this.owns(request)) return;
+      this.showOfferingResult(result);
     } catch (error) {
+      if (!this.owns(request)) return;
       this.feedback.textContent = `Local offer failed: ${error.message}`;
       this.owner.report(error);
     } finally {
-      this.offering = false;
-      this.refresh();
+      if (this.owns(request)) {
+        this.offering = false;
+        this.refresh();
+      }
     }
   }
 
   destroy() {
+    this.destroyed = true;
+    this.request = null;
     for (const [node, type, handler] of this.listeners) {
       node.removeEventListener(type, handler);
     }

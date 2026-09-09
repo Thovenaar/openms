@@ -2,7 +2,7 @@ import { PROGRESSION_POLICY } from "./offline-progression.js";
 import { createDefaultBindings, isAssignableKey } from "./keymap.js";
 
 /** Versioned browser save format; limits are local engineering policies, not native rules. */
-export const PROFILE_VERSION = 2;
+export const PROFILE_VERSION = 3;
 export const PROFILE_LIMITS = Object.freeze({
   inventory: 4096,
   equipment: 128,
@@ -11,6 +11,7 @@ export const PROFILE_LIMITS = Object.freeze({
   totalKills: 65536,
   coordinate: 10000000,
   name: 32,
+  skills: 4096,
 });
 
 const PROFILE_KEYS = [
@@ -35,6 +36,8 @@ const PROFILE_KEYS = [
   "location",
   "settings",
   "keyBindings",
+  "remainingSp",
+  "skills",
 ];
 
 /** Errors retain a stable code for native UI and inspection consumers. */
@@ -163,7 +166,7 @@ export function validateProfileLocation(value) {
 }
 
 function settings(value) {
-  keys(value, ["BGM", "SE"], "settings");
+  keys(value, ["BGM", "SE", "chat"], "settings");
   for (const category of ["BGM", "SE"]) {
     const audio = value[category];
     keys(audio, ["volume", "mute"], `settings ${category}`);
@@ -172,6 +175,10 @@ function settings(value) {
       invalid("audio settings");
     }
   }
+  keys(value.chat, ["state", "height"], "chat settings");
+  integer(value.chat.state, 1, "chat state");
+  integer(value.chat.height, 26, "chat height");
+  if (value.chat.state > 3 || value.chat.height > 507) invalid("chat settings");
 }
 
 /** Preserve the packed byte/uint32 contract, including assigned type4/ID0. */
@@ -211,34 +218,51 @@ function validateQuickSlots(quickSlots) {
   }
 }
 
-/** Validate the entire old schema before the sole explicit v1 -> v2 migration. */
+/** Sequential migrations validate old root keys before adding only new domains. */
 export function migrateProfile(value) {
   object(value, "root");
-  if (value.schemaVersion !== 1) return validateProfile(value);
-  keys(value, PROFILE_KEYS.slice(0, -1), "version 1 root");
-  const migrated = {
-    ...value,
-    schemaVersion: PROFILE_VERSION,
-    keyBindings: createDefaultBindings(),
-  };
-  validateProfile(migrated);
-  return structuredClone(migrated);
+  if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
+    return validateProfile(value);
+  }
+  const oldKeys = PROFILE_KEYS.slice(0, -2);
+  keys(
+    value,
+    value.schemaVersion === 1 ? oldKeys.slice(0, -1) : oldKeys,
+    "legacy root",
+  );
+  keys(value.settings, ["BGM", "SE"], "legacy settings");
+  const migrated = structuredClone(value);
+  if (migrated.schemaVersion === 1) {
+    migrated.keyBindings = createDefaultBindings();
+    migrated.schemaVersion = 2;
+  }
+  migrated.remainingSp = Array(10).fill(0);
+  migrated.skills = {};
+  migrated.settings.chat = { state: 1, height: 70 };
+  migrated.schemaVersion = PROFILE_VERSION;
+  return validateProfile(migrated);
 }
 
-/** Validate all durable fields before accepting or cloning a checkpoint. */
-export function validateProfile(value) {
-  object(value, "root");
-  if (value.schemaVersion !== PROFILE_VERSION) {
-    const code =
-      value.schemaVersion > PROFILE_VERSION
-        ? "future-profile-version"
-        : "migration-required";
-    throw profileError(
-      code,
-      `Saved profile schema ${String(value.schemaVersion)} cannot be loaded as schema ${PROFILE_VERSION}; migration or an explicit reset is required.`,
-    );
+/** Catalog maximum ranks are checked by the character/skill service boundary. */
+function learnedSkills(value) {
+  dictionary(value, PROFILE_LIMITS.skills, "skills");
+  for (const [id, record] of Object.entries(value)) {
+    if (!/^(0|[1-9][0-9]*)$/.test(id)) invalid("skill id");
+    const numeric = Number(id);
+    if (!Number.isSafeInteger(numeric) || numeric > 0xffffffff) {
+      invalid("skill id");
+    }
+    keys(record, ["level", "masterLevel", "expiresAt"], `skill ${id}`);
+    integer(record.level, 0, "skill level");
+    integer(record.masterLevel, record.level, "skill masterLevel");
+    if (record.expiresAt !== null) {
+      integer(record.expiresAt, 0, "skill expiration");
+    }
   }
-  keys(value, PROFILE_KEYS, "root");
+}
+
+/** Scalar character fields retain their existing validation order and numeric limits. */
+function validateCharacterScalars(value) {
   if (
     typeof value.name !== "string" ||
     !value.name.trim() ||
@@ -259,12 +283,34 @@ export function validateProfile(value) {
   if (value.hp > value.maxHP || value.mp > value.maxMP) {
     invalid("vitals exceed maximum");
   }
+}
+
+/** Validate all durable fields before accepting or cloning a checkpoint. */
+export function validateProfile(value) {
+  object(value, "root");
+  if (value.schemaVersion !== PROFILE_VERSION) {
+    const code =
+      value.schemaVersion > PROFILE_VERSION
+        ? "future-profile-version"
+        : "migration-required";
+    throw profileError(
+      code,
+      `Saved profile schema ${String(value.schemaVersion)} cannot be loaded as schema ${PROFILE_VERSION}; migration or an explicit reset is required.`,
+    );
+  }
+  keys(value, PROFILE_KEYS, "root");
+  validateCharacterScalars(value);
   inventory(value.inventory);
   equipment(value.equipment);
   quests(value.quests);
   validateProfileLocation(value.location);
   settings(value.settings);
   validateKeyBindings(value.keyBindings);
+  if (!Array.isArray(value.remainingSp) || value.remainingSp.length !== 10) {
+    invalid("remainingSp");
+  }
+  for (const points of value.remainingSp) integer(points, 0, "remainingSp");
+  learnedSkills(value.skills);
   return value;
 }
 
@@ -321,9 +367,12 @@ export function createProfile(location) {
     quests: {},
     location: { ...location },
     keyBindings: createDefaultBindings(),
+    remainingSp: Array(10).fill(0),
+    skills: {},
     settings: {
       BGM: { volume: 64, mute: false },
       SE: { volume: 64, mute: false },
+      chat: { state: 1, height: 70 },
     },
   };
 }

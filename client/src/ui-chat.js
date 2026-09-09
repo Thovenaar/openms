@@ -1,4 +1,6 @@
 import { HUD_CLIENT_Y } from "./ui-hud.js";
+import { ChatChannels } from "./chat-channels.js";
+import { ChatLog } from "./chat-log.js";
 
 // 00490701 bounds history to eight; 008d379a selects 70 for ordinary users.
 const HISTORY_LIMIT = 8;
@@ -35,11 +37,8 @@ export class UIChat {
     this.submitIndex = 0;
     this.blockedUntil = -Infinity;
     this.composing = false;
-    this.log = panel.contentArea(4, HUD_CLIENT_Y + 513, 566, 25);
-    this.log.className = "maple-ui-chat-log";
-    this.log.setAttribute("role", "log");
-    this.log.setAttribute("aria-label", "Chat messages");
-    this.log.style.pointerEvents = "none";
+    this.messages = new ChatLog(panel);
+    this.log = this.messages.element;
     this.layer = panel.layer("Chat input");
     this.layer.image("base/chatTarget", 1, HUD_CLIENT_Y + 515);
     this.createInput();
@@ -93,38 +92,36 @@ export class UIChat {
     this.layer.listen(this.input, "blur", () => {
       this.owner.hooks.clearInput();
     });
+    this.layer.listen(this.input, "focus", () => {
+      if (this.state === 1) this.setState(2);
+    });
   }
 
   createSelector() {
-    this.selector = document.createElement("select");
-    this.selector.setAttribute("aria-label", "Chat channel");
-    this.selector.style.cssText = `position:absolute;left:1px;top:${HUD_CLIENT_Y + 515}px;width:80px;height:20px;border:0;background:transparent;font:11px Arial,sans-serif;color:#000;`;
-    for (const name of CHAT_CHANNELS) {
-      const option = document.createElement("option");
-      option.textContent = name;
-      this.selector.append(option);
-    }
-    this.selector.selectedIndex = 7;
-    this.layer.element.append(this.selector);
-    this.layer.listen(this.selector, "change", () => this.input.focus());
+    this.selector = new ChatChannels(this.layer, CHAT_CHANNELS, () =>
+      this.open(),
+    );
   }
 
   setState(state) {
     this.state = state;
-    const active = state !== 1;
-    this.layer.root.visible = active;
-    this.layer.element.hidden = !active;
+    // Requested persistent edit chrome uses native compact-edit geometry even when unfocused.
+    this.layer.root.visible = true;
+    this.layer.element.hidden = false;
     this.grip.hidden = state !== 3;
     this.maximum.setVisible(state !== 3);
     this.minimum.setVisible(state === 3);
     this.resizeHighlight.container.visible = false;
-    this.resizeHighlight.setPosition(0, HUD_CLIENT_Y + 504 - this.height);
-    const top = state === 1 ? 513 : state === 2 ? 486 : 510 - this.height;
-    const height = state === 3 ? this.height - 2 : 25;
+    // Native stored height may become a two-pixel-larger span (including 507 -> 509).
+    const expanded = this.height + (this.height % 13 === 0 ? 2 : 0);
+    this.resizeHighlight.setPosition(0, HUD_CLIENT_Y + 504 - expanded);
+    const top = state === 3 ? 510 - expanded : 486;
+    const height = state === 3 ? expanded - 2 : 25;
     this.log.style.top = `${HUD_CLIENT_Y + top}px`;
     this.log.style.height = `${height}px`;
     this.log.style.background = state === 3 ? "rgba(0,0,0,.45)" : "transparent";
-    this.grip.style.top = `${HUD_CLIENT_Y + 504 - this.height}px`;
+    this.grip.style.top = `${HUD_CLIENT_Y + 504 - expanded}px`;
+    this.selector.show(false);
     this.owner.hooks.clearInput();
   }
 
@@ -148,6 +145,7 @@ export class UIChat {
   }
 
   handle(event) {
+    if (this.selector.handle(event)) return true;
     if (event.target !== this.input) return false;
     event.stopImmediatePropagation();
     // keyCode 229 covers browser IME Enter delivery with isComposing already false.
@@ -272,6 +270,28 @@ export class UIChat {
     };
   }
 
+  applySettings(settings) {
+    if (
+      !Number.isInteger(settings.height) ||
+      settings.height < 26 ||
+      settings.height > 507 ||
+      ![1, 2, 3].includes(settings.state)
+    ) {
+      throw new TypeError("Invalid chat configuration");
+    }
+    this.height = settings.height;
+    this.setState(settings.state);
+  }
+
+  /** Only an actual session/system producer may append; send() never fabricates an All echo. */
+  receive(record) {
+    this.messages.append(record);
+  }
+
+  queryLog(offset = 0, limit = 20) {
+    return this.messages.page(offset, limit);
+  }
+
   /** Capture bounded transient state before switching clock/profile ownership. */
   checkpoint() {
     return {
@@ -287,6 +307,8 @@ export class UIChat {
       text: this.input.value,
       state: this.state,
       height: this.height,
+      log: this.messages.checkpoint(),
+      channelMenuOpen: !this.selector.menu.hidden,
     };
   }
 
@@ -313,6 +335,8 @@ export class UIChat {
     this.composing = false;
     this.endResize();
     this.setState(checkpoint.state);
+    this.messages.restore(checkpoint.log);
+    this.selector.show(checkpoint.channelMenuOpen);
   }
 
   /** Clear transient chat and clock-domain counters on an explicit scenario ownership switch. */
@@ -325,6 +349,7 @@ export class UIChat {
     this.submitTimes.fill(-Infinity);
     this.submitIndex = 0;
     this.blockedUntil = -Infinity;
+    this.messages.clear();
     this.composing = false;
     this.selector.selectedIndex = 7;
     this.height = 70;
@@ -407,7 +432,6 @@ export class UIChat {
       26,
       Math.min(507, this.resizeStart.height + Math.trunc(delta / 13) * 13),
     );
-    if (this.height % 13 === 0) this.height = Math.min(507, this.height + 2);
     this.setState(3);
   }
 
@@ -418,7 +442,7 @@ export class UIChat {
 
   destroy() {
     this.layer.destroy();
-    this.log.remove();
+    this.messages.destroy();
     this.grip.remove();
   }
 }

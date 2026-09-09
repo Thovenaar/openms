@@ -44,6 +44,35 @@ The new address-directed original-client investigation establishes the actual ru
 
 `animation.seek(ms)` accepts an authoritative elapsed action clock (used by dynamic mob presentation). It updates elapsed time, loop modulo/once clamping, completion, frame and alpha together without exposing direct clock mutation. Seeking earlier than a completed one-shot's end clears completion. It does not introduce an accumulator or advance gameplay.
 
+### Independent original hit face
+
+The fixed `Face/00020000.img` was directly inspected again: `default` contains one26×16 face canvas; `hit` contains exactly frame0 with a face canvas. The extractor now composes that authored hit face against each face-visible body's original anchors. Only face parts are added, tagged `expression:'default'|'hit'`; body/equipment compositions are not duplicated. Existing `frame.parts` atlas closure, descriptor ownership, tiled-part spreading and texture loading retain both variants. Frame validation rejects unknown expression tags, and the independent Canvas2D oracle filters them using the actor snapshot expression.
+
+`EntityAnimation.setExpression(name,durationMs)` changes only the face selector/deadline, not action/frame/elapsed clocks. `advance(ms)` advances its independent deadline even for held climb frames or completed one-shots. Accepted positive hits select hit for1500ms; zero/negative hits do not. At expiry the renderer unconditionally selects default, matching `004534a2..004534bd` in the [retained instruction export](ghidra-client-corrections/fidelity-r2-emotion-carry.txt), not a saved previous emotion. Locomotion/action changes retain the active face deadline.
+
+These face and number changes were inspected against original WZ and the verified original EXE in read-only `/tmp/maple-physics-motion`; no Windows execution is claimed. Main owns final regeneration of generated assets and browser verification. [Recovery/name evidence and limits](offline-combat.md#recovered-natural-recovery) cover the accompanying field changes.
+
+## Native plain player-name attachment
+
+The completion pass resolves the earlier “unknown parent offset / feet+2 policy” qualification for the ordinary undecorated name. It does **not** derive the name from a mob label or an avatar artwork rectangle. Read-only original EXE instructions are retained in [name compositor](ghidra-client-corrections/fidelity-name-compositor.txt), [compact layout/attachment](ghidra-client-corrections/fidelity-name-layout.txt), [accessors](ghidra-client-corrections/fidelity-name-accessors.txt), and [measurement/canvas helpers](ghidra-client-corrections/fidelity-name-measurement.txt).
+
+`00942dcc` supplies the compositor's stack parameters as name string (`EBP+8`), user layer1150 (`+c`), user vector11a4 (`+10`), category1000 (`+14`), selector (`+18`), then four zero optional arguments. `005f0334` initializes label index0; only other categories switch to index1/2. The newly created name layer receives an overlay relationship to1150 through layer virtual`+fc`, but its **coordinate origin** is attached to11a4 through vector virtual`+64` (`005f17d1..1805`). These are separate relationships, not two competing y offsets. The11a4 object's `+8c` coordinate query is also the source for the original user's X/Y foothold probes at `0092fd99..0092fe11`. It is the user position vector, not the current face/body canvas lower edge.
+
+For the undecorated category1000 branch, let `W` be native font text-width measurement (`0042782e`, font virtual`+1c`) and `H` its font-height property (`00485a45`, font virtual`+14`):
+
+- Canvas width is `W+5`; canvas height is `H+4` (`005f12e5..1345`). Optional icon width is zero on this branch.
+- The background fill is ARGB`a0000000`. Each of the four corner1×1 pixels is written as ARGB`00ffffff`, **transparent**, not a white border.
+- Text is drawn at canvas`(2,0)` (`005f15ef..1603`), not`(2,2)`.
+- Canvas origin is `(trunc(width/2),-2)` (`005f1654..1694`), giving world top-left **`(userX-trunc(width/2),userY+2)`**. The later preceding-label height accumulation cannot move this plain name: index0 decrements to−1 and exits at `005f1979..1981`. Guild/medal/category1/2 stacking is separate.
+
+Thus the ordinary name's feet+2 relation is now native-backed, while the prior4px width padding,2px text inset and square background corners were corrected. Font slot0 remains the previously recovered **Arial12, white**. The renderer substitutes browser Arial text width/height measurement and rasterization; exact Windows font metrics/antialiasing are not claimed. Decoration, highlighted-name modes and native occlusion rules remain outside this plain-name component.
+
+`new PlayerName(scene,store)` retains the stable store owner, not a profile root. `step(renderer.resolution)` reads the latest `store.profile.name`, so atomic profile replacement/rename is visible. Main calls it in `FieldSystems.update` **after** `updatePresentation`; it consumes `scene.presentation.x/y` and uses the same integer logical-pixel truncation as `EntityAnimation.setPosition`. It cannot visibly lead the interpolated avatar by following raw physics. Text/background geometry rebuilds only on a changed name or actual renderer resolution; Pixi Text resolution is explicitly set so density changes rerasterize. `destroy()` removes/destroys its container and text/background resources; there are no subscriptions or per-frame arrays/objects/text construction.
+
+Renderer resize also calls the same name update without advancing physics. This rerasterizes the name when density changes during a deliberate pause, rather than waiting for gameplay to resume.
+
+The address-directed Ghidra exports and [provenance](ghidra-client-corrections/fidelity-name-provenance.json) distinguish recovered layout from remaining browser font/overlay policy. The [current browser report](ingame-validation/fidelity/report.json) and [visible recovery capture](ingame-validation/fidelity/recovery.png) exercise the live profile name after native persistent editing, alongside renderer transitions at1×/1.25×/2× density. These are browser-reconstruction checks, not original Windows screenshots.
+
 ## Death is not an authored rotation
 
 Direct inspection disproved the assumption that `dead` is an `action/frame` alias. `00002000.img/dead/0` contains an original 28x28 body canvas, `face=1`, a `neck=(1,-28)` anchor, origin `(13,27)`, and no authored rotation, movement offset or delay.

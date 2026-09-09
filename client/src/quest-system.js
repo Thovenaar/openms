@@ -194,7 +194,7 @@ function transactQuestStates(draft, actions, completingId) {
   return { ok: true };
 }
 
-function transaction(profile, record, stage, selected) {
+function transaction(profile, record, stage, { selected, hpGrowth }) {
   const act = record.stages[stage].act;
   const rewards = rewardItems(act, profile, selected);
   if (!rewards.ok) return rewards;
@@ -216,7 +216,7 @@ function transaction(profile, record, stage, selected) {
   }
   const states = transactQuestStates(draft, act.quests, record.id);
   if (!states.ok) return states;
-  const levels = awardExperience(draft, act.exp);
+  const levels = awardExperience(draft, act.exp, hpGrowth);
   const kills =
     stage === 0 ? Object.create(null) : { ...profile.quests[record.id].kills };
   draft.quests[record.id] = { state: stage + 1, kills };
@@ -418,6 +418,9 @@ export class QuestSystem {
   }
 
   mutate(questId, npcId, stage, session) {
+    if (this.store.profileTransactionPending) {
+      return fail("profile", "Character update is still committing");
+    }
     const record = this.catalog.records[questId];
     if (!record) return fail("quest", "Unknown original quest ID");
     const status = this.status(record, Number(npcId));
@@ -430,12 +433,10 @@ export class QuestSystem {
     }
     const admission = this.admitSession(record, stage, Number(npcId), session);
     if (!admission.ok) return admission;
-    const result = transaction(
-      this.store.profile,
-      record,
-      stage,
-      session?.rewardIndex,
-    );
+    const result = transaction(this.store.profile, record, stage, {
+      selected: session?.rewardIndex,
+      hpGrowth: this.hooks.hpGrowth?.(this.store.profile) ?? 0,
+    });
     if (!result.ok) return result;
     try {
       validateProfile(result.draft);
