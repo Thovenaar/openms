@@ -12,32 +12,55 @@ export function layoutKeys(panel) {
   panel.keyTargets = KEY_COORDINATES.filter(
     (key) => key.x !== 0 || key.y !== 0,
   );
-  panel.button("KeyConfig/BtOK", 8, 236, {
+  panel.keySaveControl = panel.button("KeyConfig/BtOK", 8, 236, {
     label: "Save key configuration",
     action: () => saveKeys(panel),
   });
-  panel.button("BtCancel2", 58, 236, {
+  panel.keyCancelControl = panel.button("KeyConfig/BtCancel", 58, 236, {
     label: "Cancel key configuration",
     action: () => cancelKeys(panel),
   });
-  panel.button("KeyConfig/BtDefault", 112, 236, {
+  panel.keyDefaultControl = panel.button("KeyConfig/BtDefault", 112, 236, {
     label: "Restore default keys",
     action: () => defaultKeys(panel),
   });
-  panel.button("KeyConfig/BtDelete", 177, 236, {
+  panel.keyDeleteControl = panel.button("KeyConfig/BtDelete", 177, 236, {
     label: "Delete all key assignments",
     action: () => clearKeys(panel),
   });
-  panel.button("KeyConfig/BtQuickSlot", 260, 236, {
+  panel.keyQuickControl = panel.button("KeyConfig/BtQuickSlot", 260, 236, {
     label: "Configure quick-slot keys",
     action: () => panel.owner.openQuickSlotCapture(),
   });
+  panel.keyState = panel.text("", 368, 238, 245);
+  panel.keyState.setAttribute("aria-live", "polite");
   panel.keysReady = true;
   refreshKeys(panel);
 }
 
+function refreshKeyState(panel) {
+  const bindings = panel.owner.bindings;
+  const busy = bindings.saving || panel.owner.store.profileTransactionPending;
+  const text = busy
+    ? "Saving…"
+    : bindings.hasChanges()
+      ? "Unsaved live preview"
+      : "Saved";
+  if (panel.keyState.textContent !== text) panel.keyState.textContent = text;
+  for (const control of [
+    panel.keySaveControl,
+    panel.keyCancelControl,
+    panel.keyDefaultControl,
+    panel.keyDeleteControl,
+    panel.keyQuickControl,
+  ]) {
+    control.setDisabled(busy || Boolean(panel.owner.keyNotice));
+  }
+}
+
 export function refreshKeys(panel) {
   if (!panel?.keysReady || panel.disposed) return;
+  refreshKeyState(panel);
   const active = panel.owner.bindings.active;
   const inventory = panel.owner.store?.profile?.inventory || [];
   const signature = JSON.stringify([active.keys, inventory]);
@@ -208,28 +231,93 @@ export async function saveKeys(panel, signal) {
   }
 }
 
-/** Request the same visible confirmation as the Default button; do not mutate yet. */
-export function defaultKeys(panel) {
-  panel.owner.confirm("Restore the original default keys?", () =>
-    panel.owner.bindings.resetDefaults(),
-  );
+/** 0083665b: original notices0/1/2 own default/delete/save-close decisions. */
+export function requestKeyNotice(panel, kind) {
+  const owner = panel.owner;
+  if (owner.keyNotice || owner.bindings.saving) return false;
+  const notice = { panel, kind };
+  owner.keyNotice = notice;
+  refreshKeys(panel);
+  owner.open("KeyConfigNotice").catch((error) => {
+    if (owner.keyNotice === notice) owner.keyNotice = null;
+    refreshKeys(panel);
+    owner.report(error);
+  });
+  return true;
 }
 
-/** Request the same visible confirmation as the Delete button; do not mutate yet. */
+export function defaultKeys(panel) {
+  return requestKeyNotice(panel, 0);
+}
+
 export function clearKeys(panel) {
-  panel.owner.confirm("Delete all key assignments?", () =>
-    panel.owner.bindings.clearKeys(),
-  );
+  return requestKeyNotice(panel, 1);
 }
 
 export function cancelKeys(panel) {
-  const cancel = () => {
-    panel.owner.bindings.cancel();
-    panel.owner.close("KeyConfig", true);
-  };
-  if (panel.owner.bindings.hasChanges()) {
-    panel.owner.confirm("Discard key configuration changes?", cancel);
-  } else cancel();
+  if (panel.owner.bindings.hasChanges()) return requestKeyNotice(panel, 2);
+  panel.owner.bindings.cancel();
+  panel.owner.close("KeyConfig", true);
+  return true;
+}
+
+/** Native266x116 window, original266x85 prompt, controls at160/210,55 (00836877). */
+export function layoutKeyNotice(panel) {
+  const notice = panel.owner.keyNotice;
+  if (!notice) throw new Error("Key configuration notice has no transaction");
+  panel.image(`KeyConfig/notice/${notice.kind}`, 0, 0);
+  const labels = [
+    "Restore default keys",
+    "Delete all key assignments",
+    "Save changes",
+  ];
+  panel.element.setAttribute("aria-label", labels[notice.kind]);
+  panel.button("KeyConfig/BtOK", 160, 55, {
+    label: labels[notice.kind],
+    action: () => answerKeyNotice(panel.owner, true),
+  });
+  panel.button("KeyConfig/BtCancel", 210, 55, {
+    label: notice.kind === 2 ? "Discard changes" : "Keep current keys",
+    action: () => answerKeyNotice(panel.owner, false),
+  });
+  const bindings = panel.owner.bindings;
+  const changed = bindings.active.quickSlots.some(
+    (key, slot) => key !== bindings.store.profile.keyBindings.quickSlots[slot],
+  );
+  if (changed && notice.kind !== 1) {
+    panel.text(
+      notice.kind === 0
+        ? "The changes you've made to the Quick Slots will also change to default."
+        : "The changes you've made to the Quick Slot will also be canceled.",
+      12,
+      85,
+      242,
+    );
+  }
+}
+
+/** Outer destruction restores saved maps (00832834); nested OK never persists alone. */
+export async function answerKeyNotice(owner, accepted) {
+  const notice = owner.keyNotice;
+  if (
+    !notice ||
+    owner.bindings.saving ||
+    owner.store.profileTransactionPending
+  ) {
+    return false;
+  }
+  owner.keyNotice = null;
+  owner.close("KeyConfigNotice", true);
+  refreshKeys(notice.panel);
+  if (notice.kind === 2) {
+    if (accepted) return saveKeys(notice.panel);
+    owner.bindings.cancel();
+    owner.close("KeyConfig", true);
+  } else if (accepted) {
+    if (notice.kind === 0) owner.bindings.resetDefaults();
+    else owner.bindings.clearKeys();
+  }
+  return true;
 }
 
 /** Pointer coordinates, never the captured DOM target, decide the destination. */

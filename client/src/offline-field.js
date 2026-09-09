@@ -365,11 +365,16 @@ export class OfflineField {
         Math.floor(this.attackPower - (target.template.info.PDDamage ?? 0) / 2),
       ),
     );
-    const killed = damageMob(target, amount, this.simulation.facing);
+    const killed = damageMob(
+      target,
+      amount,
+      this.simulation.facing,
+      this.attackSkill?.id ?? 0,
+    );
     this.hooks.onMobHit?.(target, amount);
     if (this.attackSkill) this.attackOnHit(this.attackSkill.id, target);
     this.lastStatus = killed
-      ? "local mob killed; WZ EXP awarded; no drops"
+      ? "local mob killed; WZ EXP awarded"
       : "local mob hit";
     if (killed) this.onKill(target);
   }
@@ -414,7 +419,7 @@ export class OfflineField {
       exp,
       this.hooks.hpGrowth?.() ?? 0,
     );
-    this.hooks.onKill?.(mob.templateId);
+    this.hooks.onKill?.(mob.templateId, mob);
     if (levels > 0) this.hooks.onEffect?.("LevelUp");
     this.changed();
   }

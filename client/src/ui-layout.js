@@ -1,5 +1,6 @@
 import { HUD_CLIENT_Y, layoutGauges } from "./ui-hud.js";
 import { layoutKeys } from "./ui-keyconfig.js";
+import { layoutMinimap } from "./ui-minimap.js";
 /** Original status control row translated from CWnd client space (008cfd43..60). */
 export const HUD_TOP = 515 + HUD_CLIENT_Y;
 
@@ -108,6 +109,7 @@ function inventoryTabs(panel, branch, count, target = panel) {
   const remainder = span - (width + 8) * count;
   let x = 7;
   const select = (selected, notify = true) => {
+    if (notify) target.owner.hideTooltip();
     showTabPart(left, selected === 0 ? 1 : 0);
     for (let i = 0; i < tabs.length; i++) {
       const tab = tabs[i];
@@ -188,6 +190,7 @@ function layoutInventory(panel) {
     "text-align:right;white-space:nowrap;overflow:hidden;line-height:13px;";
   panel.listen(panel.element, "wheel", (event) => {
     event.preventDefault();
+    panel.owner.hideTooltip();
     if (panel.fullSkin?.container.visible) return;
     const maximum = Math.max(0, (panel.inventoryCount || 0) - 24);
     panel.inventoryStart = Math.max(
@@ -219,6 +222,11 @@ function layoutStats(panel) {
   panel.basicStat.container.visible = false;
   panel.statControls = [];
   panel.statValues = new Map();
+  // 008c6a9c..008c6b7f: decimal AP, right-aligned at x=85 and drawn at y=215.
+  const points = panel.text("", 8, 215, 77);
+  points.style.textAlign = "right";
+  points.style.lineHeight = "13px";
+  panel.statValues.set("remainingAp", points);
   panel.statOverlays = ["STR", "DEX", "INT", "LUK"].map((name, index) => {
     const sprite = panel.image(`Stat/Disabled/${name}`, 8, 244 + 18 * index);
     sprite.container.visible = false;
@@ -228,7 +236,7 @@ function layoutStats(panel) {
   for (const y of [117, 135, 247, 265, 283, 301]) {
     const control = panel.button("Stat/BtApUp", 153, y, {
       label:
-        "AP allocation unavailable; local profile does not invent AP grants",
+        "AP spending is unavailable; Edit character changes stats and AP explicitly",
       action: null,
       disabled: true,
     });
@@ -246,6 +254,7 @@ function layoutSkills(panel) {
   panel.skillsReady = true;
   panel.listen(panel.element, "wheel", (event) => {
     event.preventDefault();
+    panel.owner.hideTooltip();
     panel.skillStart = Math.max(
       0,
       Math.min(
@@ -284,58 +293,21 @@ function layoutDialog(panel) {
   panel.image("UtilDlgEx/t", 0, 0);
   for (let i = 0; i < 6; i++) panel.image("UtilDlgEx/c", 0, 28 + i * 20);
   panel.image("UtilDlgEx/s", 0, 148);
-  panel.content = panel.contentArea(24, 30, 480, 132);
+  panel.content = panel.contentArea(24, 30, 480, 116);
   panel.content.classList.add("maple-ui-dialog-text");
-  panel.button("UtilDlgEx/BtClose", 425, 176, {
+  panel.dialogClose = panel.button("UtilDlgEx/BtClose", 425, 176, {
     label: "Close dialogue",
     action: () => panel.owner.close(panel.name),
   });
 }
 
-/** Original nine-slice artwork, browser-policy size; map imagery is loaded separately if packaged. */
-function layoutMinimap(panel) {
-  const prefix = "MiniMap/MinMap/";
-  const positions = [
-    ["nw", 0, 0],
-    ["n", 9, 0],
-    ["ne", 251, 0],
-    ["w", 0, 20],
-    ["c", 9, 20],
-    ["e", 251, 20],
-    ["sw", 0, panel.height - 9],
-    ["s", 9, panel.height - 9],
-    ["se", 251, panel.height - 9],
-  ];
-  for (const [part, x, y] of positions) {
-    const sprite = panel.image(prefix + part, x, y);
-    const asset = panel.assets[prefix + part];
-    if (["n", "c", "s"].includes(part)) {
-      sprite.container.scale.x = 242 / asset.width;
-    }
-    if (["w", "c", "e"].includes(part)) {
-      sprite.container.scale.y = (panel.height - 29) / asset.height;
-    }
-  }
-  // 00858344 non-minimized button: x=windowWidth-42, y=6.
-  panel.button("MiniMap/BtMap", panel.width - 42, 6, {
-    label: "World-map routing unavailable",
-    action: () =>
-      panel.owner.notice(
-        "World-map route and teleport authorization require the unavailable server.",
-      ),
-  });
-  panel.mapLabel = panel.text("Original minimap skin", 12, 28, 235);
-  panel.mapStatus = panel.text("Map image unavailable", 12, 168, {
-    width: 235,
-    className: "maple-ui-unavailable",
-  });
-}
-
 function layoutOptions(panel) {
-  panel.text(
-    "Original options skin\n\nUnrecovered original controls are non-interactive. Browser audio controls are explicitly separate; no original preference persistence is claimed.",
+  const content = panel.contentArea(
     14,
     40,
-    { width: panel.width - 28, className: "maple-ui-unavailable" },
+    panel.width - 28,
+    panel.height - 54,
   );
+  content.textContent =
+    "These original options are not implemented. Sound settings are available in the side panel.";
 }

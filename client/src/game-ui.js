@@ -8,9 +8,16 @@ import {
   ProfileControls,
 } from "./ui-inspection.js";
 import { updateProfileHud, finishGaugeWarnings } from "./ui-hud.js";
+import { updateMinimap, cycleMinimap } from "./ui-minimap.js";
 import { UICursor } from "./ui-cursor.js";
 import { UIChat } from "./ui-chat.js";
-import { refreshKeys, cancelKeys, keyAtPoint } from "./ui-keyconfig.js";
+import {
+  refreshKeys,
+  cancelKeys,
+  keyAtPoint,
+  layoutKeyNotice,
+  answerKeyNotice,
+} from "./ui-keyconfig.js";
 import {
   layoutQuickSlotConfig,
   closeQuickSlotConfig,
@@ -25,7 +32,12 @@ import { REVIVAL_POLICY } from "./revival.js";
 
 const MAX_OPEN_WINDOWS = 4;
 const MAX_WINDOWS_WITH_MODALS = MAX_OPEN_WINDOWS + 2;
-const MODAL_WINDOWS = new Set(["UtilDlgEx", "QuickSlotConfig", "Revive"]);
+const MODAL_WINDOWS = new Set([
+  "UtilDlgEx",
+  "QuickSlotConfig",
+  "KeyConfigNotice",
+  "Revive",
+]);
 const WINDOWS = new Set([
   "Item",
   "Equip",
@@ -38,6 +50,7 @@ const WINDOWS = new Set([
   "UtilDlgEx",
   "Revive",
   "QuickSlotConfig",
+  "KeyConfigNotice",
   "GameOpt",
   "Quest",
   "SysOpt",
@@ -57,6 +70,7 @@ const SIZES = {
   UtilDlgEx: [529, 206],
   Quest: [529, 206],
   QuickSlotConfig: [266, 238],
+  KeyConfigNotice: [266, 116],
   Revive: [286, 146],
   GameMenu: [93, 140],
   ShortCut: [93, 271],
@@ -72,7 +86,7 @@ const LOCAL_STYLE = `.maple-ui-root .maple-ui-content{white-space:pre-wrap;line-
 const CURSOR_STYLE =
   ".maple-ui-root.maple-ui-original-cursor,.maple-ui-root.maple-ui-original-cursor *{cursor:none!important}.maple-ui-chat-log{position:absolute;overflow:hidden;font:12px Arial,sans-serif;line-height:13px;color:white;white-space:pre-wrap;pointer-events:none}";
 const FOCUSABLE =
-  "button:not([disabled]):not([hidden]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex='0']";
+  "button:not([disabled]):not([hidden]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,a[href],[tabindex='0']";
 
 /** Resolve retained window sizes or original background dimensions within the logical viewport. */
 function windowSize(name, resource) {
@@ -86,43 +100,6 @@ function windowSize(name, resource) {
     throw new Error(`Invalid UI dimensions: ${name}`);
   }
   return [size[0], size[1]];
-}
-
-function windowBounds(panel) {
-  const bounds = panel.root.getLocalBounds();
-  return [
-    panel.x + Math.min(0, bounds.x),
-    panel.y + Math.min(0, bounds.y),
-    panel.x +
-      Math.max(panel.width, panel.element.scrollWidth, bounds.x + bounds.width),
-    panel.y +
-      Math.max(
-        panel.height,
-        panel.element.scrollHeight,
-        bounds.y + bounds.height,
-      ),
-  ];
-}
-
-/** Subtract opaque browser window envelopes without leaking through overlapping occluders. */
-function subtractWindow(rectangles, [left, top, right, bottom]) {
-  const visible = [];
-  for (const rectangle of rectangles) {
-    const [x1, y1, x2, y2] = rectangle;
-    const l = Math.max(x1, left);
-    const t = Math.max(y1, top);
-    const r = Math.min(x2, right);
-    const b = Math.min(y2, bottom);
-    if (l >= r || t >= b) {
-      visible.push(rectangle);
-      continue;
-    }
-    if (y1 < t) visible.push([x1, y1, x2, t]);
-    if (b < y2) visible.push([x1, b, x2, y2]);
-    if (x1 < l) visible.push([x1, t, l, b]);
-    if (r < x2) visible.push([r, t, x2, b]);
-  }
-  return visible;
 }
 
 /** Screen-space UI owner. Browser window/focus policy is explicit, not a claim about original global arbitration. */
@@ -171,6 +148,8 @@ export class GameUI {
     this.bindingClickPointer = null;
     this.confirmAction = null;
     this.quickCapture = null;
+    this.quickCaptureDraft = null;
+    this.keyNotice = null;
     this.pointerPoint = { x: 0, y: 0 };
     this.layoutFrame = null;
     this.commandSignal = null;
@@ -511,6 +490,14 @@ export class GameUI {
     }
   }
 
+  advanceMinimap() {
+    const panel = this.windows.get("MiniMap");
+    if (panel) return cycleMinimap(panel);
+    if (this.pending.has("MiniMap")) return false;
+    this.open("MiniMap").catch((error) => this.report(error));
+    return true;
+  }
+
   activate(name) {
     if (name === "QuickSlot") {
       toggleQuickSlots(this).catch((error) => this.report(error));
@@ -563,7 +550,7 @@ export class GameUI {
       this.index.bundles[
         name === "Quest"
           ? "UtilDlgEx"
-          : name === "QuickSlotConfig"
+          : name === "QuickSlotConfig" || name === "KeyConfigNotice"
             ? "KeyConfig"
             : name === "Revive"
               ? "Notice"
@@ -580,6 +567,7 @@ export class GameUI {
       resource = null;
       this.compose(panel);
       this.addWindowChrome(panel);
+      panel.renderArtwork();
       signal.throwIfAborted();
       this.windows.set(name, panel);
       this.front(panel);
@@ -600,6 +588,7 @@ export class GameUI {
 
   compose(panel) {
     if (panel.name === "QuickSlotConfig") return layoutQuickSlotConfig(panel);
+    if (panel.name === "KeyConfigNotice") return layoutKeyNotice(panel);
     layoutWindow(panel);
     if (panel.name === "UtilDlgEx" || panel.name === "Quest") {
       this.mountDialog(panel);
@@ -611,18 +600,24 @@ export class GameUI {
     if (POPUP_POSITIONS[panel.name]) return;
     const offset = this.windows.size * 18;
     this.positionWindow(panel, (800 - panel.width) / 2 + offset, 70 + offset);
+    if (panel.name === "KeyConfigNotice") return;
     const strip = document.createElement("div");
     strip.className = "maple-ui-drag";
     strip.dataset.cursorState = "5";
-    strip.style.width = `${panel.width - 24}px`;
+    strip.style.width = `${panel.width - (panel.name === "MiniMap" ? 76 : 24)}px`;
     panel.listen(strip, "pointerdown", (event) => this.beginDrag(event, panel));
     panel.element.prepend(strip);
     panel.dragStrip = strip;
     if (panel.name === "QuickSlotConfig") return;
-    panel.closeControl = panel.button("BtClose", panel.width - 17, 6, {
-      label: `Close ${panel.name}`,
-      action: () => this.close(panel.name),
-    });
+    panel.closeControl = panel.button(
+      "BtClose",
+      panel.name === "MiniMap" ? 60 : panel.width - 17,
+      6,
+      {
+        label: `Close ${panel.name}`,
+        action: () => this.close(panel.name),
+      },
+    );
   }
 
   positionWindow(panel, x, y) {
@@ -664,38 +659,15 @@ export class GameUI {
     for (const window of this.windows.values()) {
       window.element.style.zIndex = String(depth++);
     }
-    this.clipDomWindows();
     this.syncModalState();
-  }
-
-  /** Pixi rasterizes every window below the DOM plane; lower DOM captions must not bleed over a higher window. */
-  clipDomWindows() {
-    const panels = this.hud
-      ? [this.hud, ...this.windows.values()]
-      : [...this.windows.values()];
-    const bounds = panels.map(windowBounds);
-    for (let i = 0; i < panels.length; i++) {
-      const panel = panels[i];
-      if (i === panels.length - 1) {
-        panel.element.style.clipPath = "";
-        continue;
-      }
-      let visible = [bounds[i]];
-      for (let j = i + 1; j < panels.length; j++) {
-        visible = subtractWindow(visible, bounds[j]);
-      }
-      const path = visible
-        .map(
-          ([l, t, r, b]) =>
-            `M${l - panel.x} ${t - panel.y}H${r - panel.x}V${b - panel.y}H${l - panel.x}Z`,
-        )
-        .join("");
-      panel.element.style.clipPath = path ? `path("${path}")` : "inset(50%)";
-    }
   }
 
   close(name, committed = false) {
     if (!this.canCloseWindow(name, committed)) return;
+    if (name === "KeyConfigNotice" && !committed) {
+      answerKeyNotice(this, false).catch((error) => this.report(error));
+      return;
+    }
     this.pending.get(name)?.controller.abort();
     this.pending.delete(name);
     const panel = this.windows.get(name);
@@ -741,7 +713,6 @@ export class GameUI {
     this.windows.delete(panel.name);
     panel.destroy();
     this.syncModalState();
-    this.clipDomWindows();
     this.hideTooltip();
     this.hooks.clearInput();
     const modal = this.modal();
@@ -754,7 +725,8 @@ export class GameUI {
     this.endBindingDrag();
     this.bindings?.cancel();
     this.quickCapture = null;
-    this.quickCaptureOriginal = null;
+    this.quickCaptureDraft = null;
+    this.keyNotice = null;
     this.confirmAction = null;
     for (const task of this.pending.values()) task.controller.abort();
     this.pending.clear();
@@ -763,7 +735,6 @@ export class GameUI {
       panel.destroy();
     }
     this.windows.clear();
-    this.clipDomWindows();
     this.hideTooltip();
     this.drag = null;
     this.syncModalState();
@@ -806,13 +777,7 @@ export class GameUI {
   }
 
   mountDialog(panel) {
-    panel.dialogCleanup?.();
-    panel.dialogCleanup = null;
-    panel.content.replaceChildren();
-    if (!panel.dialogDisposal) {
-      panel.dialogDisposal = true;
-      panel.cleanups.push(() => panel.dialogCleanup?.());
-    }
+    this.prepareDialog(panel);
     if (panel.name === "Quest" && this.hooks.onQuestJournal) {
       panel.dialogCleanup = this.hooks.onQuestJournal(panel);
     } else if (panel.name === "Quest") {
@@ -827,6 +792,20 @@ export class GameUI {
           ? `${this.dialogNpc.name}: local quest dialogue is not connected. Original NPC scripts remain unavailable.`
           : this.dialogText ||
             "Local dialogue presentation. Original server scripts are unavailable.";
+    }
+  }
+
+  prepareDialog(panel) {
+    panel.dialogCleanup?.();
+    panel.dialogCleanup = null;
+    panel.content.replaceChildren();
+    panel.dialogClose?.setVisible(
+      panel.name !== "UtilDlgEx" ||
+        !["confirm", "reset"].includes(this.dialogMode),
+    );
+    if (!panel.dialogDisposal) {
+      panel.dialogDisposal = true;
+      panel.cleanups.push(() => panel.dialogCleanup?.());
     }
   }
 
@@ -854,6 +833,9 @@ export class GameUI {
   /** Shared visible confirmation action; normal commands cannot invoke an unseen/pending dialog. */
   confirmDialog() {
     if (this.modal()?.name === "Revive") return this.confirmRevival();
+    if (this.modal()?.name === "KeyConfigNotice") {
+      return answerKeyNotice(this, true);
+    }
     if (this.modal()?.name !== "UtilDlgEx" || this.dialogMode !== "confirm") {
       return false;
     }
@@ -866,11 +848,11 @@ export class GameUI {
   openQuickSlotCapture() {
     if (!this.bindings || this.quickCapture !== null) return;
     this.quickCapture = -1;
-    const original = this.bindings.active.quickSlots.slice();
-    this.quickCaptureOriginal = original;
+    const draft = this.bindings.active.quickSlots.slice();
+    this.quickCaptureDraft = draft;
     this.hooks.clearInput();
     this.open("QuickSlotConfig").catch((error) => {
-      if (this.quickCaptureOriginal === original) this.close("QuickSlotConfig");
+      if (this.quickCaptureDraft === draft) this.close("QuickSlotConfig");
       this.report(error);
     });
   }
@@ -878,27 +860,22 @@ export class GameUI {
   mountReset(panel) {
     panel.content.textContent =
       "RESET LOCAL PROFILE\nThis permanently replaces this browser's name, statistics, inventory, quests, location and settings with the provisional beginner profile. No server is contacted.";
-    const actions = document.createElement("div");
-    actions.className = "maple-ui-save-actions";
-    const confirm = document.createElement("button");
-    confirm.className = "maple-ui-local";
-    confirm.type = "button";
-    confirm.textContent = "Reset local profile";
-    const cancel = confirm.cloneNode(false);
-    cancel.textContent = "Cancel";
-    const reset = () => {
-      confirm.disabled = true;
-      this.resetProfile();
-    };
-    const close = () => this.close(panel.name);
-    confirm.addEventListener("click", reset);
-    cancel.addEventListener("click", close);
-    actions.append(confirm, cancel);
-    panel.content.append(actions);
-    panel.dialogCleanup = () => {
-      confirm.removeEventListener("click", reset);
-      cancel.removeEventListener("click", close);
-    };
+    const layer = panel.layer("Reset");
+    const confirm = layer.button("BtOK", 300, 176, {
+      label: "Reset local profile",
+      action: () => this.resetProfile(),
+    });
+    layer.button("BtCancel2", 355, 176, {
+      label: "Cancel",
+      action: () => this.close(panel.name),
+    });
+    const cleanup = () => layer.destroy();
+    cleanup.refresh = () =>
+      confirm.setDisabled(
+        this.resetting || this.store.profileTransactionPending,
+      );
+    cleanup.refresh();
+    panel.dialogCleanup = cleanup;
   }
 
   showTooltip(text, x, y) {
@@ -944,7 +921,7 @@ export class GameUI {
     this.refreshProfilePanel(panel);
     this.positionWindow(panel, panel.x, panel.y);
     (full ? panel.smallControl : panel.fullControl).element.focus();
-    this.clipDomWindows();
+    panel.renderArtwork();
   }
 
   setScene(scene) {
@@ -994,6 +971,14 @@ export class GameUI {
     if (!this.visible) return;
     this.hud?.update(ms);
     finishGaugeWarnings(this.hud);
+    const minimap = this.windows.get("MiniMap");
+    if (minimap && this.scene) {
+      updateMinimap(
+        minimap,
+        this.scene.presentation.x,
+        this.scene.presentation.y,
+      );
+    }
     for (const panel of this.windows.values()) panel.update(ms);
     this.cursor?.update(ms);
   }
@@ -1031,7 +1016,6 @@ export class GameUI {
       this.positionWindow(panel, panel.x, panel.y);
     }
     this.syncDomLayout();
-    this.clipDomWindows();
   }
 
   /** Track canvas resize and ancestor layout changes without querying layout in the animation loop. */
@@ -1103,6 +1087,7 @@ export class GameUI {
     this.screenScaleX = this.scale * ratioX * parentScaleX;
     this.screenScaleY = this.scale * ratioY * parentScaleY;
     this.layoutGeneration++;
+    for (const panel of this.windows.values()) panel.renderArtwork();
   }
 
   onKey(event) {
@@ -1206,6 +1191,7 @@ export class GameUI {
       this.modal() ||
       this.pending.has("UtilDlgEx") ||
       this.pending.has("Revive") ||
+      this.keyNotice !== null ||
       this.quickCapture !== null,
     );
   }
@@ -1371,7 +1357,6 @@ export class GameUI {
       drag.startX + (event.clientX - drag.x) / this.screenScaleX,
       drag.startY + (event.clientY - drag.y) / this.screenScaleY,
     );
-    this.clipDomWindows();
   }
 
   endDrag(event) {
@@ -1450,6 +1435,7 @@ export class GameUI {
     const palette =
       sourceIndex === null && binding.type >= 4 && binding.type <= 6;
     this.carryBinding(event, binding, sourceIndex, { source, path, palette });
+    this.sound("DragStart");
     return true;
   }
 
@@ -1487,17 +1473,24 @@ export class GameUI {
       this.bindings.canCarry(drag.binding, drag.sourceIndex);
     this.endBindingDrag();
     if (!admitted) return;
+    let accepted = false;
     if (
       quickTarget !== null &&
       this.hud.quickSurface.element.contains(element)
     ) {
-      this.placeQuickBinding(event, drag, quickTarget);
+      accepted = this.placeQuickBinding(event, drag, quickTarget);
     } else if (target !== null && panel.element.contains(element)) {
-      if (target > 90) this.removeCarriedBinding(drag);
-      else if (target < 89) {
-        this.bindings.assign(target, drag.binding, drag.sourceIndex);
-      }
+      accepted = this.placeKeyBinding(drag, target);
     }
+    if (accepted) this.sound("DragEnd");
+  }
+
+  placeKeyBinding(drag, target) {
+    if (target > 90) return this.removeCarriedBinding(drag);
+    return (
+      target < 89 &&
+      this.bindings.assign(target, drag.binding, drag.sourceIndex)
+    );
   }
 
   /** 004f9386/004f38f4/004fb32c return the overwritten quick binding to 008d6409. */
@@ -1511,7 +1504,9 @@ export class GameUI {
     }
     if (!this.bindings.assignQuick(target, drag.binding, drag.sourceIndex)) {
       this.endBindingDrag();
+      return false;
     }
+    return true;
   }
 
   quickBindingVisual(binding) {
@@ -1528,14 +1523,14 @@ export class GameUI {
 
   removeCarriedBinding(drag) {
     // Palette actions cannot be returned to the palette; existing keys/items/skills can.
-    if (drag.palette) return;
+    if (drag.palette) return false;
     const source =
       drag.sourceIndex ??
       this.bindings.active.keys.findIndex(
         (binding) =>
           binding.type === drag.binding.type && binding.id === drag.binding.id,
       );
-    if (source >= 0) this.bindings.remove(source);
+    return source >= 0 && this.bindings.remove(source);
   }
 
   releaseBindingCapture(drag) {

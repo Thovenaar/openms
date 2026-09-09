@@ -39,6 +39,11 @@ function fixture() {
           levels: {},
           prerequisites: [],
         },
+        1121000: {
+          id: 1121000,
+          bookId: 112,
+          maxLevel: 30,
+        },
       },
     },
   };
@@ -146,7 +151,10 @@ const INVALID_PATCHES = [
   ],
   ["level above catalog rank cap", { skills: learned(21, 21) }],
   ["mastery above catalog rank cap", { skills: learned(1, 21) }],
-  ["learned rank above current mastery", { skills: learned(2, 1) }],
+  [
+    "mastery-gated learned rank above current mastery",
+    { skills: { 1121000: { level: 2, masterLevel: 1, expiresAt: null } } },
+  ],
   ["invalid skill expiration", { skills: learned(1, 20, -1) }],
   [
     "unknown skill record field",
@@ -175,6 +183,14 @@ test("a scalar-only patch cannot bypass validation of an existing learned record
   const before = structuredClone(store.profile);
   await expect(service.edit({ name: "Not published" })).rejects.toThrow();
   expect(store.profile).toEqual(before);
+});
+
+test("ordinary skills preserve independently stored mastery below learned rank", async () => {
+  const { store, service } = fixture();
+  await service.edit({ skills: learned(3, 0) });
+  expect(store.profile.skills).toEqual(learned(3, 0));
+  await service.edit({ name: "Still valid" });
+  expect(store.profile.skills).toEqual(learned(3, 0));
 });
 
 test("unknown nonenumerable rank fields are rejected before cloning can erase them", async () => {

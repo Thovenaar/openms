@@ -19,7 +19,8 @@ function npcResources(info) {
   const template = {
     kind: "npc",
     originalId: 1012101,
-    name: "NPC",
+    // Picker coverage does not depend on browser font rasterization.
+    name: "",
     function: null,
     info,
     defaultAction: "stand",

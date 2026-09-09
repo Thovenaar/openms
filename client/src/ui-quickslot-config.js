@@ -1,4 +1,4 @@
-import { keyIndexForCode } from "./keymap.js";
+import { isAssignableKey, keyIndexForCode } from "./keymap.js";
 
 /** 0072df19 origins; 0072cc05 controls1000..1007, OK1 and Cancel2. */
 const POSITIONS = Array.from({ length: 8 }, (_, slot) => ({
@@ -18,11 +18,11 @@ export function layoutQuickSlotConfig(panel) {
       action: () => selectControl(panel, slot),
     }),
   );
-  panel.captureOK = panel.button("BtOK", 157, 208, {
+  panel.captureOK = panel.button("KeyConfig/BtOK", 157, 208, {
     label: "OK",
     action: () => panel.owner.close("QuickSlotConfig", true),
   });
-  panel.captureCancel = panel.button("BtCancel2", 210, 208, {
+  panel.captureCancel = panel.button("KeyConfig/BtCancel", 210, 208, {
     label: "Cancel",
     action: () => panel.owner.close("QuickSlotConfig"),
   });
@@ -49,7 +49,7 @@ function selectControl(panel, slot, footer = null) {
 
 export function refreshQuickSlotConfig(panel) {
   if (!panel || panel.disposed) return;
-  const keys = panel.owner.bindings.active.quickSlots;
+  const keys = panel.owner.quickCaptureDraft;
   let changed = !panel.captureKeys;
   for (let i = 0; !changed && i < 8; i++) {
     changed = panel.captureKeys[i] !== keys[i];
@@ -81,19 +81,29 @@ export function refreshQuickSlotConfig(panel) {
 }
 
 export function closeQuickSlotConfig(owner, committed) {
-  if (!committed && owner.quickCaptureOriginal) {
-    owner.bindings.restoreQuickSlots(owner.quickCaptureOriginal);
+  if (committed && owner.quickCaptureDraft) {
+    owner.bindings.setQuickSlots(owner.quickCaptureDraft);
   }
-  owner.quickCaptureOriginal = null;
+  owner.quickCaptureDraft = null;
   owner.quickCapture = null;
+}
+
+/** 004c0933: a focused footer consumes Space before the parent key handler. */
+function footerOwnsSpace(panel, event) {
+  return (
+    event.key === " " &&
+    (event.target === panel?.captureOK.element ||
+      event.target === panel?.captureCancel.element)
+  );
 }
 
 /** 0072ce91 +0072ddb3/de13/de7b: two focus groups, not eight sequential capture steps. */
 export function captureQuickKey(owner, event) {
   if (owner.quickCapture === null) return false;
+  const panel = owner.windows.get("QuickSlotConfig");
+  if (footerOwnsSpace(panel, event)) return false;
   event.preventDefault();
   event.stopImmediatePropagation();
-  const panel = owner.windows.get("QuickSlotConfig");
   if (event.key === "Escape") {
     if (panel && (owner.quickCapture >= 0 || panel.captureFooter !== null)) {
       selectControl(panel, -1);
@@ -103,7 +113,8 @@ export function captureQuickKey(owner, event) {
   }
   if (!panel) return true;
   if (event.key === "Enter") {
-    owner.close("QuickSlotConfig", panel.captureFooter !== 1);
+    // 0072ce91 always dispatches button1 for Enter, independent of footer focus.
+    owner.close("QuickSlotConfig", true);
     return true;
   }
   if (captureFocusKey(owner, panel, event)) return true;
@@ -134,14 +145,18 @@ function captureSlotKey(owner, panel, event) {
   const slot = owner.quickCapture;
   if (slot < 0 || navigateGrid(panel, slot, event.key)) return;
   const index = keyIndexForCode(event.code);
-  const previous = owner.bindings.active.quickSlots[slot];
+  const draft = owner.quickCaptureDraft;
+  const previous = draft[slot];
   if (index < 0 || previous === index) return true;
-  if (!owner.bindings.setQuickSlot(slot, index)) {
+  if (!isAssignableKey(index) || draft.includes(index)) {
     owner.status(
-      "This physical key cannot be selected or already belongs to another quick slot.",
+      !isAssignableKey(index)
+        ? "The key you just pressed is a key that has been disabled."
+        : "This key is already being used.",
     );
     return true;
   }
+  draft[slot] = index;
   // 0072df55 updates the selected slot without ending its capture focus.
   refreshQuickSlotConfig(panel);
   return true;

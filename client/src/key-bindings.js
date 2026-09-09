@@ -108,7 +108,9 @@ export class KeyBindings {
   }
 
   useItem(id) {
-    return !this.destroyed && this.items.use(id);
+    const accepted = !this.destroyed && this.items.use(id);
+    if (accepted) this.hooks.onSound?.("UI", "DragEnd");
+    return accepted;
   }
 
   useSkill(id) {
@@ -282,8 +284,8 @@ export class KeyBindings {
     return true;
   }
 
-  /** Restore an eight-key nested-dialog checkpoint atomically, including permutations. */
-  restoreQuickSlots(quickSlots) {
+  /** Publish a complete nested-dialog draft into the outer live preview, including permutations. */
+  setQuickSlots(quickSlots) {
     if (!this._canEdit()) return false;
     validateKeyBindings({ keys: this.active.keys, quickSlots });
     this.active.quickSlots = quickSlots.slice();
@@ -343,6 +345,9 @@ export class KeyBindings {
   snapshot() {
     return {
       active: structuredClone(this.active),
+      saved: structuredClone(this.store.profile.keyBindings),
+      pending: this.editing ? structuredClone(this.active) : null,
+      previewing: this.editing && this.hasChanges(),
       editing: this.editing,
       saving: this.saving,
       changed: this.hasChanges(),

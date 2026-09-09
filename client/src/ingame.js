@@ -12,6 +12,8 @@ import { CombatPresentation } from "./combat-presentation.js";
 import { PlayerName } from "./player-name.js";
 import { SkillSystem } from "./skill-system.js";
 import { CharacterDevelopment } from "./character-development.js";
+import { DropSystem } from "./drop-system.js";
+import { DropRenderer } from "./drop-renderer.js";
 
 /** Candidate fields own resources independently; only committed fields advance. */
 class FieldSystems {
@@ -35,6 +37,7 @@ class FieldSystems {
         onError: owner.hooks.onError,
       });
       this.skills = this.createSkills(store);
+      this.drops = this.createDrops(store);
       this.gameplay = this.createGameplay(store);
       this.life = new LifeSystem(scene, owner.fieldHooks);
       this.speech = new SpeechBubbles(owner.app, owner.services);
@@ -68,11 +71,36 @@ class FieldSystems {
       startAction: (action) => this.gameplay.beginSkillPose(action),
     });
   }
+  createDrops(store) {
+    const owner = this.owner;
+    const drops = new DropSystem(
+      owner.catalog.drops,
+      store,
+      this.scene.manifest.physics.footholds,
+      {
+        items: owner.catalog.ui.items,
+        random: owner.hooks.random,
+        onSound: (name) => owner.playSound("Game", name),
+      },
+    );
+    this.dropRenderer = new DropRenderer(
+      this.scene,
+      drops,
+      owner.services,
+      owner.catalog.ui.dropArtwork,
+    );
+    return drops;
+  }
   createGameplay(store) {
     const scene = this.scene,
       owner = this.owner;
     return new OfflineField(scene, store, {
       ...owner.gameplayHooks,
+      onKill: (templateId, mob) => {
+        owner.quests.onKill(templateId);
+        const result = this.drops.spawn(mob);
+        if (!result.ok) owner.ui.status(result.reason);
+      },
       skillLevel: this.skills.level.bind(this.skills),
       skillInfo: this.skills.info.bind(this.skills),
       hpGrowth: this.skills.hpGrowth.bind(this.skills),
@@ -101,6 +129,7 @@ class FieldSystems {
       this.speech.prepare(this.owner.catalog, signal),
       this.combat.prepare(this.owner.catalog.audiovisual, signal),
       this.skills.prepare(),
+      this.dropRenderer.prepare(signal),
     ]);
   }
   playerHit(hit, simulation) {
@@ -128,6 +157,7 @@ class FieldSystems {
     this.combat.update(ms);
     this.gameplay.step(ms, input);
     this.reactors.step(ms);
+    this.drops.step(ms);
   }
   update(ms, input) {
     this.portals.update(ms, input);
@@ -138,6 +168,8 @@ class FieldSystems {
       pose.y + this.scene.actor.current.geometry[this.scene.actor.frame].y;
     this.speech.update(ms, this.speechPose, this.scene.camera);
     this.name.step(this.owner.app.renderer.resolution);
+    this.dropRenderer.updateDemand();
+    this.dropRenderer.draw();
   }
   snapshot() {
     return {
@@ -148,9 +180,12 @@ class FieldSystems {
       speech: this.speech.snapshot(),
       combatPresentation: this.combat.snapshot(),
       skills: this.skills.snapshot(),
+      drops: this.drops.snapshot(),
     };
   }
   destroy() {
+    this.dropRenderer?.destroy();
+    this.drops?.destroy();
     this.skills?.destroy();
     this.portals?.destroy();
     this.life?.destroy();
@@ -193,6 +228,16 @@ export class InGameSystems {
       onChatSubmit: this.submitChat.bind(this),
       onProfileEdit: this.editProfile.bind(this),
       onLearnSkill: this.learnSkill.bind(this),
+      skillAllocationError: (id) =>
+        this.scene?.fieldSystems.skills.allocationError(
+          this.store.profile,
+          this.catalog.ui.skills[id],
+        ) ?? (this.scene ? null : "No active field"),
+      skillAllocationPoints: (id) =>
+        this.scene?.fieldSystems.skills.allocationPoints(
+          this.store.profile,
+          this.catalog.ui.skills[id],
+        ) ?? 0,
       isWorldInteractive: this.isWorldInteractive.bind(this),
       isFieldBlocked: hooks.isBlocked,
       onRecover: this.showRevival.bind(this),
@@ -206,16 +251,18 @@ export class InGameSystems {
       onNpcDialogue: (panel, npc) => mountNpcDialogue(panel, npc, this.quests),
       onQuestJournal: (panel) => mountQuestJournal(panel, this.quests),
     });
+    this.initializeFieldHooks();
+  }
+  initializeFieldHooks() {
     this.fieldHooks = {
-      travel: hooks.travel,
+      travel: this.hooks.travel,
       travelGate: this.travelGate,
-      onError: hooks.onError,
+      onError: this.hooks.onError,
       isBlocked: this.npcBlocked.bind(this),
       playSound: this.playSound,
       onInteract: this.ui.showNpc.bind(this.ui),
     };
     this.gameplayHooks = {
-      onKill: (templateId) => this.quests.onKill(templateId),
       onEffect: this.playEffect,
       onSound: this.playSound,
       onChange: this.profileChanged,
@@ -310,12 +357,36 @@ export class InGameSystems {
       .catch(this.audio.reportBound);
   }
   activateBinding(name) {
+    if (name === "MiniMap") return this.ui.advanceMinimap();
     if (name === "Attack" || name === "Jump") {
       this.hooks.focusGame();
       this.hooks.tap(name === "Attack" ? "attack" : "jump");
+    } else if (name === "Pickup") {
+      return this.pickup();
     } else {
       this.ui.activate(name);
     }
+    return true;
+  }
+  pickup() {
+    if (!this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay()) {
+      return false;
+    }
+    const scene = this.scene;
+    scene.fieldSystems.drops
+      .pickup(scene.simulation)
+      .then((result) => {
+        if (scene !== this.scene) return;
+        if (!result.ok) this.ui.status(result.reason);
+        else {
+          this.hooks.onEvent?.(
+            "player-pickup",
+            String(result.itemId),
+            result.quantity,
+          );
+        }
+      })
+      .catch(this.hooks.onError);
     return true;
   }
   async prepare(catalog, signal, store) {
@@ -342,6 +413,7 @@ export class InGameSystems {
     const bindings = new KeyBindings(store, this.catalog, {
       onAction: (name) => this.activateBinding(name),
       onSkill: this.activateSkill.bind(this),
+      onSound: this.playSound,
       isBlocked: () =>
         !this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay(),
       now: () => this.hooks.now?.() ?? performance.now(),

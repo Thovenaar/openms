@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import original from "../../docs/ghidra-physics-motion/wz-globals.json";
 import { createSimulation } from "../src/physics/simulation.js";
-import { createMobs, stepMob } from "../src/offline-mobs.js";
+import { createMobs, damageMob, stepMob } from "../src/offline-mobs.js";
 
 // Isolating floor geometry; Shroom's mobType=4, speed=-30 and maxHP=20
 // are original 0120100.img scalars, not an invented movement classification.
@@ -41,7 +41,7 @@ function mobWorld() {
   };
 }
 
-function groundedMob(info = {}) {
+function groundedMob(info = {}, hitDuration = 0) {
   const simulation = createSimulation(mobWorld(), { x: 10, y: 0 });
   const action = {
     timingKnown: true,
@@ -56,6 +56,12 @@ function groundedMob(info = {}) {
     info: { maxHP: 20, speed: -30, mobType: 4, ...info },
     actions: { stand: action, move: action },
   };
+  if (hitDuration > 0) {
+    template.actions.hit1 = {
+      timingKnown: true,
+      frames: [{ delayMs: hitDuration, body: action.frames[0].body }],
+    };
+  }
   const life = {
     templates: { "mob:0120100": template },
     placements: [
@@ -97,4 +103,61 @@ test("noFlip fixes body mirroring without fixing the movement direction", () => 
   expect(mob.x).toBeCloseTo(51.4, 8);
   expect(mob.body.left).toBeCloseTo(mob.x - 4, 8);
   expect(mob.body.right).toBeCloseTo(mob.x + 6, 8);
+});
+
+test("the original pushed threshold separates HP loss from interruption and knockback", () => {
+  const mob = groundedMob({ pushed: 10 }, 180);
+  mob.state = "attack";
+  const attack = { properties: { attackAfter: 90 } };
+  mob.pendingAttack = attack;
+  damageMob(mob, 9, 1);
+  expect(mob.hp).toBe(11);
+  expect(mob.state).toBe("attack");
+  expect(mob.pendingAttack).toBe(attack);
+  damageMob(mob, 10, 1);
+  expect(mob.hp).toBe(1);
+  expect(mob.state).toBe("hit");
+  expect(mob.pendingAttack).toBeNull();
+  stepMob(mob, 30);
+  // Native midpoint integration: (130 + 118)/2 * .03, not constant-speed 120.
+  expect(mob.x).toBeCloseTo(13.72, 8);
+  expect(mob.body.bottom).toBe(0);
+  advance(mob, 5);
+  expect(mob.x).toBeCloseTo(26.92, 8);
+  expect(mob.knockbackMs).toBe(0);
+});
+
+test("knockback crosses patrol limits but respects connected floor ends without teleporting back", () => {
+  const mob = groundedMob({}, 360);
+  mob.record.authored.rx1 = 12;
+  damageMob(mob, 1, 1);
+  advance(mob, 12);
+  expect(mob.x).toBeGreaterThan(12);
+  const before = mob.x;
+  stepMob(mob, 30);
+  expect(mob.x).toBeCloseTo(before - 1.26, 8);
+  expect(mob.x).toBeGreaterThan(12);
+  damageMob(mob, 1, -1);
+  advance(mob, 12);
+  damageMob(mob, 1, -1);
+  advance(mob, 12);
+  expect(mob.x).toBe(0);
+  expect(mob.foothold.id).toBe(1);
+  expect(mob.body.bottom).toBe(0);
+  expect(mob.fault).toBeNull();
+});
+
+test("selected-skill admission and a missing hit pose do not fabricate immunity or reaction", () => {
+  const mob = groundedMob();
+  mob.selectedSkills = [1001004];
+  damageMob(mob, 5, 1);
+  expect(mob.hp).toBe(20);
+  damageMob(mob, 5, 1, 1001004);
+  expect(mob.hp).toBe(15);
+  expect(mob.state).toBe("idle");
+  expect(mob.knockbackMs).toBe(0);
+  expect(damageMob(mob, 15, 1, 1001004)).toBe(true);
+  expect(damageMob(mob, 15, 1, 1001004)).toBe(false);
+  expect(mob.deaths).toBe(1);
+  expect(mob.body.active).toBe(false);
 });

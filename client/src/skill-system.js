@@ -1,8 +1,10 @@
-import { skillBooks } from "./ui-skill-books.js";
+import { requiresSkillMastery, skillBooks } from "./ui-skill-books.js";
 import { SkillResources } from "./skill-resources.js";
 
 const MAX_SKILLS = 4096;
 const MAX_ACTIVE = 64;
+// 00765e9e sums all four original beginner triples, even after a job-family edit.
+const BEGINNER_ROOTS = [0, 10000000, 20000000, 20010000];
 const STATS = ["pad", "pdd", "mad", "mdd", "acc", "eva", "speed", "jump"];
 const OK = Object.freeze({ ok: true });
 function refusal(reason) {
@@ -13,9 +15,6 @@ function rankOf(profile, id, now) {
   return record && (record.expiresAt === null || record.expiresAt > now)
     ? record.level
     : 0;
-}
-function fourthJob(book) {
-  return book % 1000 >= 100 && book % 10 === 2;
 }
 export function skillPointPool(book) {
   return book >= 2210 && book <= 2218 ? book - 2209 : 0;
@@ -165,10 +164,13 @@ export class SkillSystem {
   allocationRankError(profile, skill) {
     const current = profile.skills[skill.id];
     const rank = rankOf(profile, skill.id, this.wallTime);
-    const cap = fourthJob(skill.bookId)
+    const cap = requiresSkillMastery(skill.bookId)
       ? Math.min(skill.maxLevel, current?.masterLevel ?? 0)
       : skill.maxLevel;
     if (rank >= cap) return "Skill max/master rank reached";
+    if (!Object.hasOwn(skill.levels, rank + 1)) {
+      return "Original next skill rank is unavailable";
+    }
     if (current?.expiresAt !== null && current?.expiresAt !== undefined) {
       return "Expiring skill allocation requires expiration authority";
     }
@@ -182,10 +184,11 @@ export class SkillSystem {
     if (skill.allocationCost.kind !== "beginner-entitlement") {
       return profile.remainingSp[skillPointPool(skill.bookId)];
     }
-    const root = Math.floor(profile.job / 1000) * 10000000;
     let used = 0;
-    for (let i = 0; i < 3; i++) {
-      used += rankOf(profile, root + 1000 + i, this.wallTime);
+    for (const root of BEGINNER_ROOTS) {
+      for (let index = 0; index < 3; index++) {
+        used += rankOf(profile, root + 1000 + index, this.wallTime);
+      }
     }
     return Math.min(profile.level - 1, 6) - used;
   }
@@ -201,12 +204,9 @@ export class SkillSystem {
         const reason = this.allocationError(draft, skill);
         if (reason) throw new Error(reason);
         const current = draft.skills[id];
-        const masterLevel = fourthJob(skill.bookId)
-          ? current.masterLevel
-          : skill.maxLevel;
         draft.skills[id] = {
           level: (current?.level ?? 0) + 1,
-          masterLevel,
+          masterLevel: current?.masterLevel ?? 0,
           expiresAt: null,
         };
         if (skill.allocationCost.kind === "sp") {

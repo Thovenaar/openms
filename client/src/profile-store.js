@@ -409,10 +409,12 @@ export class ProfileStore {
     const priorFlush = this._flushPromise;
     this._clearTimer();
     this._profilePromise = this._commitProfile(transform, priorFlush, original);
+    this._notify();
     return this._profilePromise;
   }
   async _commitProfile(transform, priorFlush, original) {
     await Promise.resolve();
+    let failure = null;
     try {
       if (priorFlush) await priorFlush;
       if (!this._profile) {
@@ -459,17 +461,15 @@ export class ProfileStore {
       this.savedEpoch = epoch;
       this.error = null;
       this._publish();
-      const saved = this._saved();
-      // finally releases the lock before the caller receives this completion snapshot.
-      saved.profileTransactionPending = false;
-      return saved;
     } catch (error) {
       this._profile = original;
-      throw this._fail(error);
+      failure = storageError(error);
     } finally {
       this._profilePromise = null;
       this._schedule();
     }
+    if (failure) throw this._fail(failure);
+    return this._saved();
   }
 
   /** Temporary Save validates a checkpoint but cannot publish it outside this store. */

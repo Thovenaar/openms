@@ -1,4 +1,4 @@
-import { Container, Point, Text } from "pixi.js";
+import { Container, Graphics, Point, Text } from "pixi.js";
 import { LifeControls } from "./life-controls.js";
 import {
   rectangleSlot,
@@ -262,7 +262,7 @@ export class LifeSystem {
   updateLabel(slot, visible, entity) {
     slot.label.visible = visible && slot.template.info.hideName !== 1;
     if (entity) {
-      slot.label.position.set(entity.container.x, entity.container.y + 5);
+      slot.label.position.set(entity.container.x, entity.container.y);
     }
   }
 
@@ -497,27 +497,30 @@ function renderedInScene(container, root) {
   return !container && resident;
 }
 
-/** Browser typography is explicitly not a reconstruction of the original font renderer. */
+/** 006d5c9a types1001/1002 → 005f10f3..11d0: Arial12, yellow, A0 black. */
 function createLabel(template) {
-  const label = new Text({
-    text: nameplate(template),
-    style: {
-      fontFamily: "sans-serif",
-      fontSize: 12,
-      fill: 0xffffa0,
-      align: "center",
-      stroke: { color: 0x15202b, width: 3 },
-    },
-  });
-  label.anchor.set(0.5, 0);
+  const label = new Container({ label: "npc-nameplate" });
+  let y = 2; // 005f1691 sets canvas originY=-2.
+  for (const value of [template.name, template.function]) {
+    if (!value) continue;
+    const text = new Text({
+      text: value,
+      style: { fontFamily: "Arial", fontSize: 12, fill: 0xffff00 },
+    });
+    // 005f12f0..1301: measured width+5, font height+4; text starts x2/y0.
+    const width = Math.ceil(text.width) + 5;
+    const height = Math.ceil(text.height) + 4;
+    const left = -Math.trunc(width / 2);
+    const background = new Graphics()
+      .rect(left, y, width, height)
+      .fill({ color: 0, alpha: 160 / 255 });
+    text.position.set(left + 2, y);
+    label.addChild(background, text);
+    y += height + 1; // 005f1a04..1a18 stacks the next independent name layer.
+  }
   label.eventMode = "none";
   label.visible = false;
   return label;
-}
-
-function nameplate(template) {
-  const label = template.name ?? "";
-  return template.function ? `${label}\n${template.function}` : label;
 }
 
 function snapshotRectangle(rectangle) {

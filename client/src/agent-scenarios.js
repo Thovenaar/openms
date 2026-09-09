@@ -197,8 +197,15 @@ function scheduleTask(resolve) {
   setTimeout(resolve, 0);
 }
 
+/** Mulberry32 sample; independent tool/drop states avoid inspection changing recorded loot. */
+function randomSample(state) {
+  let value = Math.imul(state ^ (state >>> 15), state | 1);
+  value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+  return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+}
+
 /**
- * Opt-in, fixed-tick temporary scenarios; no gameplay RNG consumers are altered.
+ * Opt-in fixed-tick scenarios use independent seeded tool and local-drop RNG streams.
  * hooks.enter(spec) atomically returns canonical {mapId, profile, physics?, seed}.
  * hooks.exit() clears holds and restores the suspended durable baseline, even after revocation.
  * hooks.step(n) is synchronous, paused-only, and calls tick(30) once per executed quantum.
@@ -212,6 +219,7 @@ export class AgentScenarios {
     this._spec = null;
     this._ticks = 0;
     this._randomState = DEFAULT_SEED;
+    this._gameplayRandomState = DEFAULT_SEED;
     this._commandCount = 0;
     this._recording = null;
     this._recordGeneration = null;
@@ -295,6 +303,7 @@ export class AgentScenarios {
       this._spec = canonical;
       this._ticks = 0;
       this._randomState = canonical.seed;
+      this._gameplayRandomState = canonical.seed;
       this._commandCount = 0;
       this._recording = null;
       this._buildId = buildId;
@@ -458,10 +467,16 @@ export class AgentScenarios {
       throw new Error("Begin a scenario before using its tool RNG.");
     }
     this._randomState = (this._randomState + 0x6d2b79f5) >>> 0;
-    let value = this._randomState;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    return randomSample(this._randomState);
+  }
+
+  /** Internal drop authority only; ordinary field randomness is not patched globally. */
+  gameplayRandom() {
+    if (!this._spec) {
+      throw new Error("Scenario drop RNG has no active scenario.");
+    }
+    this._gameplayRandomState = (this._gameplayRandomState + 0x6d2b79f5) >>> 0;
+    return randomSample(this._gameplayRandomState);
   }
 
   /** Entire recording is checked before replacement; rejection never partially executes bad input. */
@@ -542,8 +557,9 @@ export class AgentScenarios {
       spec: includeSpec && this._spec ? structuredClone(this._spec) : null,
       recordedActions: this._recording?.actions.length ?? 0,
       rng: {
-        scope: "scenario-tool-only; no gameplay RNG consumer",
+        scope: "independent scenario tool and local-drop streams",
         state: this._randomState,
+        gameplayState: this._gameplayRandomState,
       },
       persistence: "temporary; Save/reset never write durable state",
       physicsPolicy:

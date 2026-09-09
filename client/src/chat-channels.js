@@ -1,9 +1,10 @@
 import { HUD_CLIENT_Y } from "./ui-hud.js";
 
 const MAX_CHANNELS = 8;
-const ROW_HEIGHT = 20;
+// 004c7068: eight 16px rows, 90px-wide popup at combo (x+1,y-129).
+const ROW_HEIGHT = 16;
 
-/** Original recipient strings sit over base/chatTarget; dropdown chrome is browser policy. */
+/** 008dfb36/004c4552: type1 uses Basic/ComboBox2; 008d3705 supplies list colors. */
 export class ChatChannels {
   constructor(layer, labels, onChoose) {
     if (labels.length !== MAX_CHANNELS) {
@@ -12,15 +13,19 @@ export class ChatChannels {
     this.labels = labels;
     this.onChoose = onChoose;
     this.index = 7;
-    this.element = document.createElement("button");
-    this.element.type = "button";
-    this.element.setAttribute("aria-label", "Chat channel");
+    this.control = layer.button("ComboBox2", 1, HUD_CLIENT_Y + 515, {
+      label: "Chat channel",
+      action: this.toggle.bind(this),
+    });
+    this.element = this.control.element;
     this.element.setAttribute("aria-haspopup", "listbox");
-    this.element.style.cssText = `position:absolute;left:1px;top:${HUD_CLIENT_Y + 515}px;width:80px;height:20px;border:0;padding:0 13px 0 4px;background:transparent;text-align:left;white-space:nowrap;font:11px Arial,sans-serif;color:#000;`;
+    // 004c6b94 ->0098a707(0x22): white 11px Arial; native label offset x6/y3.
+    this.element.style.cssText +=
+      "padding:0 6px;text-align:left;white-space:nowrap;font:11px Arial,sans-serif;line-height:20px;color:#fff;";
     this.menu = document.createElement("div");
     this.menu.setAttribute("role", "listbox");
     this.menu.setAttribute("aria-label", "Chat channels");
-    this.menu.style.cssText = `position:absolute;left:1px;top:${HUD_CLIENT_Y + 515 - ROW_HEIGHT * labels.length - 2}px;width:110px;background:white;border:1px solid #315573;pointer-events:auto;z-index:3;`;
+    this.menu.style.cssText = `position:absolute;left:2px;top:${HUD_CLIENT_Y + 515 - ROW_HEIGHT * labels.length - 1}px;width:90px;height:${ROW_HEIGHT * labels.length + 1}px;box-sizing:border-box;overflow:hidden;background:#315573;border:1px solid #404040;pointer-events:auto;z-index:3;`;
     this.options = [];
     for (let index = 0; index < labels.length; index++) {
       const option = document.createElement("button");
@@ -28,12 +33,11 @@ export class ChatChannels {
       option.setAttribute("role", "option");
       option.dataset.chatChannel = String(index);
       option.textContent = labels[index];
-      option.style.cssText = `display:block;width:100%;height:${ROW_HEIGHT}px;border:0;padding:0 4px;text-align:left;font:12px Arial,sans-serif;color:#000;`;
+      option.style.cssText = `display:block;width:100%;height:${ROW_HEIGHT}px;box-sizing:border-box;border:0;border-bottom:1px solid #315573;padding:0 6px;text-align:left;white-space:nowrap;font:11px Arial,sans-serif;line-height:15px;color:#fff;`;
       this.menu.append(option);
       this.options.push(option);
     }
     layer.element.append(this.element, this.menu);
-    layer.listen(this.element, "click", this.toggle.bind(this));
     layer.listen(this.menu, "click", this.choose.bind(this));
     layer.listen(document, "pointerdown", this.outside.bind(this));
     this.selectedIndex = 7;
@@ -56,7 +60,7 @@ export class ChatChannels {
         String(entry === index),
       );
       this.options[entry].style.background =
-        entry === index ? "#cce2f4" : "transparent";
+        entry === index ? "#559ab9" : "#315573";
     }
   }
 

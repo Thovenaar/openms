@@ -6,7 +6,8 @@ export class UICursor {
   constructor(owner, resource) {
     this.owner = owner;
     this.surface = new UISurface(owner, "Cursor", resource, [800, 600]);
-    this.surface.element.remove();
+    this.surface.element.style.pointerEvents = "none";
+    this.surface.element.style.zIndex = "2147483647";
     this.surface.root.eventMode = "none";
     this.surface.root.zIndex = 1000001;
     this.states = [];
@@ -17,6 +18,8 @@ export class UICursor {
     this.worldTarget = false;
     this.clientX = 0;
     this.clientY = 0;
+    this.lastPointer = null;
+    this.layoutGeneration = owner.layoutGeneration;
     this.hoverHandler = this.move.bind(this);
     this.leaveHandler = this.leave.bind(this);
     window.addEventListener("pointerover", this.hoverHandler);
@@ -64,12 +67,15 @@ export class UICursor {
     this.owner.app.canvas.classList.toggle("maple-original-cursor", visible);
     this.owner.host.classList.toggle("maple-ui-original-cursor", visible);
     if (!visible) this.surface.root.visible = false;
+    this.surface.element.hidden = !visible;
   }
 
   move(event) {
     const owner = this.owner;
     const pointerId = owner.bindingDrag?.pointerId ?? this.pointerId;
     if (pointerId !== null && pointerId !== event.pointerId) return;
+    this.lastPointer = event;
+    this.layoutGeneration = owner.layoutGeneration;
     this.clientX = event.clientX;
     this.clientY = event.clientY;
     const canvas = owner.app.canvas.getBoundingClientRect();
@@ -81,17 +87,30 @@ export class UICursor {
     this.surface.root.visible = owner.visible && inside;
     if (!inside) return;
     const point = owner.logicalPointer(event);
-    this.surface.root.position.set(point.x, point.y);
-    owner.root.setChildIndex(this.surface.root, owner.root.children.length - 1);
+    this.surface.position(point.x, point.y);
+    this.clipToViewport();
     if (this.pointerId === null && !owner.bindingDrag) {
       this.set(this.hoverState(event));
     }
   }
 
+  /** Clip only the cursor/carry plane to the real canvas, never to a DOM window. */
+  clipToViewport() {
+    const owner = this.owner;
+    const left = -owner.offsetX / owner.scale - this.surface.x;
+    const top = -owner.offsetY / owner.scale - this.surface.y;
+    const right = left + owner.viewportWidth / owner.scale;
+    const bottom = top + owner.viewportHeight / owner.scale;
+    this.surface.element.style.clipPath = `polygon(${left}px ${top}px,${right}px ${top}px,${right}px ${bottom}px,${left}px ${bottom}px)`;
+  }
+
   leave(event) {
     const pointerId = this.owner.bindingDrag?.pointerId ?? this.pointerId;
     if (pointerId !== null && pointerId !== event.pointerId) return;
-    if (!event.relatedTarget) this.surface.root.visible = false;
+    if (!event.relatedTarget) {
+      this.surface.root.visible = false;
+      this.lastPointer = null;
+    }
   }
 
   worldState() {
@@ -149,6 +168,13 @@ export class UICursor {
   }
 
   update(ms) {
+    if (
+      this.lastPointer &&
+      this.layoutGeneration !== this.owner.layoutGeneration
+    ) {
+      this.move(this.lastPointer);
+    }
+    this.surface.element.hidden = !this.surface.root.visible;
     if (!this.surface.root.visible) return;
     if (
       this.worldTarget &&
@@ -159,6 +185,7 @@ export class UICursor {
     }
     this.states[this.current].advance(ms);
     this.ghost?.advance(ms);
+    this.surface.renderArtwork();
   }
 
   destroy() {
@@ -166,6 +193,7 @@ export class UICursor {
     window.removeEventListener("pointerout", this.leaveHandler);
     this.clearGhost();
     this.surface.destroy();
+    this.lastPointer = null;
     this.owner.app.canvas.classList.remove("maple-original-cursor");
     this.cursorStyle.remove();
     this.owner.host.classList.remove("maple-ui-original-cursor");

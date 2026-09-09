@@ -331,6 +331,7 @@ const WINDOW_ACTIONS = Object.freeze({
   0: "Equip",
   1: "Item",
   3: "Skill",
+  7: "MiniMap", // 00a0788f ->008590f9 cycles the resident minimap.
   9: "KeyConfig",
   8: "Quest",
   2: "Stat",

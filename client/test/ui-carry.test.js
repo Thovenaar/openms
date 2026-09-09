@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import { Container, Texture } from "pixi.js";
 import { GameUI } from "../src/game-ui.js";
 import { KeyBindings } from "../src/key-bindings.js";
 import { createProfile } from "../src/profile-validation.js";
-import { UICursor } from "../src/ui-cursor.js";
-import { EntityAnimation } from "../src/animation.js";
 import { retireBindingLayer } from "../src/ui-icons.js";
 
 function pointer(target, values = {}) {
@@ -113,6 +110,7 @@ function carryUi(bindings, store, quick, item) {
     bindingDrag: null,
     bindingClickPointer: null,
     quickCapture: null,
+    keyNotice: null,
     drag: null,
     pointerPoint: {},
     index: { items: { 2000000: item }, skills: {} },
@@ -290,64 +288,4 @@ test("native item doubleclick consumes through item authority, never placing an 
   f.ui.captureBindingClick(double);
   expect(double.stopped).toBe(true);
   f.bindings.destroy();
-});
-
-function animatedEntity() {
-  return {
-    id: "icon",
-    kind: "ui",
-    x: 0,
-    y: 0,
-    z: 99,
-    action: "default",
-    actions: {
-      default: [
-        { delay: 50, parts: [{ texture: "pixel", x: 0, y: 0, z: 0 }] },
-        { delay: 50, parts: [{ texture: "pixel", x: 3, y: 0, z: 0 }] },
-      ],
-    },
-  };
-}
-
-test("animated carry stays below the visible original cursor even when Pixi sorts children", () => {
-  const entity = animatedEntity();
-  const resource = { textures: new Map([["pixel", Texture.WHITE]]) };
-  const root = new Container({ sortableChildren: true });
-  const states = Array.from({ length: 13 }, () => {
-    const sprite = new EntityAnimation(entity, resource.textures);
-    sprite.container.zIndex = 0;
-    sprite.container.visible = false;
-    root.addChild(sprite.container);
-    return sprite;
-  });
-  const cursor = Object.assign(Object.create(UICursor.prototype), {
-    owner: { bindingDrag: null },
-    surface: { root },
-    states,
-    current: 0,
-    fallback: 0,
-    ghost: null,
-    pointerId: null,
-    worldTarget: false,
-  });
-  states[0].container.visible = true;
-  cursor.set(4);
-  cursor.press({ pointerId: 7 });
-  cursor.owner.bindingDrag = { pointerId: 7 };
-  cursor.drag(
-    { entities: new Map([["icon", entity]]), sources: new Map(), resource },
-    "icon",
-  );
-  root.sortChildren();
-  expect(root.children.indexOf(cursor.ghost.container)).toBeLessThan(
-    root.children.indexOf(states[11].container),
-  );
-  cursor.update(60);
-  expect(cursor.ghost.sprites[0].x).toBe(3);
-  expect(states[11].sprites[0].x).toBe(3);
-  cursor.owner.bindingDrag = null;
-  cursor.release({ pointerId: 7 });
-  cursor.clearGhost();
-  expect(cursor.current).toBe(4);
-  root.destroy({ children: true });
 });

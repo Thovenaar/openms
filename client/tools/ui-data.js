@@ -1,5 +1,7 @@
 import { at, resolveNode, value } from "../src/assets/image.js";
 import { extractItemSkillUI } from "./ui-item-data.js";
+import { extractNpcPortraits } from "./ui-npc-data.js";
+import { extractDropArtwork } from "./drop-data.js";
 
 const MAX_UI_NODES = 16000;
 const MAX_UI_DEPTH = 64;
@@ -57,6 +59,9 @@ async function branchBundle(context, imageName, branch, extras = []) {
   for (const extra of extras) {
     stack.push({ node: at(root, extra), path: extra, depth: 0 });
   }
+  if (branch === "MiniMap") {
+    await addMinimapMarkers(context, stack);
+  }
   const entities = [],
     assets = Object.create(null),
     aliases = Object.create(null);
@@ -99,6 +104,17 @@ async function branchBundle(context, imageName, branch, extras = []) {
   });
 }
 
+async function addMinimapMarkers(context, stack) {
+  const markers = await context.image("Map", "MapHelper.img");
+  for (const name of ["user", "npc", "portal"]) {
+    stack.push({
+      node: at(markers, `minimap/${name}`),
+      path: `MapHelper/minimap/${name}`,
+      depth: 0,
+    });
+  }
+}
+
 function publishBranch(
   context,
   { imageName, branch, assets, aliases, entities },
@@ -110,6 +126,9 @@ function publishBranch(
     timing:
       "Static canvases; absent frame timing unsupported. Explicit authored delays retained in assets.",
   };
+  if (branch === "MiniMap") {
+    metadata.markerSource = "Map.wz:MapHelper.img/minimap";
+  }
   if (imageName === "Basic.img" && branch === "Cursor") {
     metadata.states = cursorStates(assets);
   }
@@ -266,6 +285,7 @@ export async function extractGameUI(context) {
     "Tab2",
     "BtMin",
     "BtMax",
+    "ComboBox2",
     "BtOK",
     "BtOK2",
     "BtYes",
@@ -303,6 +323,8 @@ export async function extractGameUI(context) {
     schemaVersion: 1,
     bundles,
     minimaps,
+    npcPortraits: await extractNpcPortraits(context),
+    dropArtwork: await extractDropArtwork(context, canvasRecord),
     help,
     itemLabels: strings.labels,
     items: templates.items,

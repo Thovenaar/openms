@@ -140,6 +140,7 @@ function travelOptions(portal, token) {
     sound: portal.type !== 4 && portal.type !== 5,
     effect: token.crossMap ? null : "Teleport",
     sameMapMotion: !token.crossMap,
+    transition: token.crossMap ? "field" : "teleport",
     notBeforeMs: token.notBeforeMs,
   };
 }
@@ -210,8 +211,9 @@ function prepareRecord(presentation, portals, raw) {
 }
 
 /** Offline traversal is not server permission. Owns state, never scene artwork/resources.
- * Main advances entity animations before update(), then renders. travel must validate
- * the catalog and exact named destination before atomically replacing even the same map.
+ * Main advances entity animations before update(), then renders. travel validates
+ * the exact named destination, relocates same-map motion without field replacement,
+ * and stages packet-path destinations before an atomic faded field replacement.
  */
 export class PortalSystem {
   constructor(scene, hooks) {

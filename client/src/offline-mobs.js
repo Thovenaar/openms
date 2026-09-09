@@ -3,8 +3,6 @@ import { placeBody, sweepBody } from "./life-geometry.js";
 export const MOB_POLICY = Object.freeze({
   authority: "offline-local-policy",
   walkPixelsPerSecondAtSpeedZero: 60,
-  knockbackPixelsPerSecond: 120,
-  knockbackMs: 240,
   respawnMs: 10000,
   attackCooldownMs: 2400,
   recoveryMs: 5000,
@@ -12,6 +10,12 @@ export const MOB_POLICY = Object.freeze({
   specialMovement:
     "stationary: no grounded move artwork or unsupported flying controller",
   mobTime: "preserved, not interpreted as respawn seconds",
+});
+/** 0066bb1a/009bbdfd: ordinary hit velocity, braking force and base ability mass. */
+export const MOB_HIT = Object.freeze({
+  velocity: 130,
+  deceleration: 40000 / 100,
+  minimumMotionMs: 90,
 });
 const MAX_MOBS = 4096;
 const MAX_ACTIONS = 128;
@@ -78,6 +82,7 @@ function validateMobInfo(info) {
     "PDDamage",
     "MADamage",
     "exp",
+    "pushed",
     "hpRecovery",
     "mpRecovery",
   ]) {
@@ -226,6 +231,7 @@ function mobInitialState(definition, inactiveReason) {
     cooldownMs: MOB_POLICY.attackCooldownMs,
     recoveryMs: 0,
     knockbackMs: 0,
+    knockbackSpeed: 0,
     knockbackFacing: 0,
     pendingAttack: null,
     attackFired: false,
@@ -323,10 +329,7 @@ export function stepMob(mob, ms) {
     return;
   }
   mob.cooldownMs = Math.max(0, mob.cooldownMs - ms);
-  if (
-    mob.state === "hit" &&
-    mob.stateMs >= Math.max(240, mob.actions[mob.action].duration)
-  ) {
+  if (mob.state === "hit" && mob.stateMs >= mob.actions[mob.action].duration) {
     mob.state = "idle";
   }
   if (
@@ -348,18 +351,27 @@ export function stepMob(mob, ms) {
 
 function stepMobMotion(mob, ms) {
   if (mob.knockbackMs > 0) {
+    const seconds = Math.min(ms, mob.knockbackMs) / 1000;
+    const before = mob.knockbackSpeed;
+    mob.knockbackSpeed = Math.max(0, before - MOB_HIT.deceleration * seconds);
+    const segment = mob.foothold;
+    const horizontal = segment.dx / Math.hypot(segment.dx, segment.dy);
     moveMob(
       mob,
-      (mob.knockbackFacing *
-        MOB_POLICY.knockbackPixelsPerSecond *
-        Math.min(ms, mob.knockbackMs)) /
-        1000,
+      mob.knockbackFacing *
+        horizontal *
+        ((before + mob.knockbackSpeed) / 2) *
+        seconds,
+      false,
     );
     mob.knockbackMs = Math.max(0, mob.knockbackMs - ms);
     return;
   }
   if (mob.state !== "idle") return;
   if (mob.movement === "ground-patrol" && mob.speed > 0) {
+    const authored = mob.record.authored;
+    if (mob.x <= authored.rx0) mob.facing = 1;
+    else if (mob.x >= authored.rx1) mob.facing = -1;
     moveMob(mob, (mob.facing * mob.speed * ms) / 1000);
     setMobAction(mob, "move");
   } else setMobAction(mob, "stand");
@@ -383,13 +395,15 @@ function connectedSegment(segment, direction) {
 }
 
 /** Local patrol only follows contiguous original floor links; no invented gap jumping. */
-function moveMob(mob, distance) {
+function moveMob(mob, distance, patrol = true) {
   if (mob.movement !== "ground-patrol") return;
   const authored = mob.record.authored;
-  const target = Math.max(
-    authored.rx0,
-    Math.min(authored.rx1, mob.x + distance),
-  );
+  const target = patrol
+    ? Math.max(
+        Math.min(authored.rx0, mob.x),
+        Math.min(Math.max(authored.rx1, mob.x), mob.x + distance),
+      )
+    : mob.x + distance;
   const direction = Math.sign(distance);
   if (target !== mob.x + distance) mob.facing = -direction;
   for (let count = 0; count < MOB_POLICY.maxTransitions; count++) {
@@ -451,20 +465,19 @@ function stepDeadMob(mob, ms) {
   mob.cooldownMs = MOB_POLICY.attackCooldownMs;
   mob.recoveryMs = 0;
   mob.knockbackMs = 0;
+  mob.knockbackSpeed = 0;
   mob.pendingAttack = null;
   setMobAction(mob, "stand");
   updateMobBody(mob);
 }
 
 /** Returns true exactly for the lethal transition, never for repeated dead hits. */
-export function damageMob(mob, amount, facing) {
-  if (!Number.isSafeInteger(amount) || amount < 0) {
-    throw new Error("Mob damage must be a nonnegative safe integer");
-  }
+export function damageMob(mob, amount, facing, skillId = 0) {
+  validateMobHit(amount, facing, skillId);
   if (
     !mob.alive ||
     !mob.active ||
-    mob.selectedSkills.length ||
+    (mob.selectedSkills.length && !mob.selectedSkills.includes(skillId)) ||
     mob.template.info.invincible
   ) {
     return false;
@@ -473,11 +486,13 @@ export function damageMob(mob, amount, facing) {
   if (amount === 0) return false;
   mob.lastDamage = amount;
   mob.hp = Math.max(0, mob.hp - amount);
-  mob.stateMs = 0;
-  mob.actionMs = 0;
-  mob.frame = 0;
-  mob.pendingAttack = null;
   if (mob.hp === 0) {
+    mob.stateMs = 0;
+    mob.actionMs = 0;
+    mob.frame = 0;
+    mob.pendingAttack = null;
+    mob.knockbackMs = 0;
+    mob.knockbackSpeed = 0;
     mob.alive = false;
     mob.state = "dying";
     mob.deaths++;
@@ -487,10 +502,34 @@ export function damageMob(mob, amount, facing) {
     mob.sweptBody.active = false;
     return true;
   }
-  mob.state = "hit";
-  mob.knockbackMs = MOB_POLICY.knockbackMs;
-  mob.knockbackFacing = facing;
-  setMobAction(mob, "hit1");
-  updateMobBody(mob);
+  if (amount >= (mob.template.info.pushed ?? 1) && mob.actions.hit1) {
+    beginMobHit(mob, facing);
+  }
   return false;
+}
+
+function validateMobHit(amount, facing, skillId) {
+  if (!Number.isSafeInteger(amount) || amount < 0) {
+    throw new Error("Mob damage must be a nonnegative safe integer");
+  }
+  if ((facing !== -1 && facing !== 1) || !Number.isSafeInteger(skillId)) {
+    throw new Error("Invalid mob hit direction or skill");
+  }
+}
+
+/** Hit1 is an authored pose, not the player's signed damage-protection blink. */
+function beginMobHit(mob, facing) {
+  mob.state = "hit";
+  mob.stateMs = 0;
+  mob.actionMs = 0;
+  mob.frame = 0;
+  mob.pendingAttack = null;
+  setMobAction(mob, "hit1");
+  const duration = mob.actions.hit1.duration;
+  const moving =
+    mob.movement === "ground-patrol" && duration >= MOB_HIT.minimumMotionMs;
+  mob.knockbackMs = moving ? duration : 0;
+  mob.knockbackSpeed = moving ? MOB_HIT.velocity : 0;
+  mob.knockbackFacing = facing;
+  updateMobBody(mob);
 }

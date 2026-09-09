@@ -6,6 +6,12 @@ import { skillBooks } from "./ui-skill-books.js";
 import { updateSkillTabs } from "./ui-layout.js";
 import { PROFILE_LIMITS } from "./profile-validation.js";
 import { skillPointPool } from "./skill-system.js";
+import {
+  minimapGeometry,
+  createMinimapMarkers,
+  rebuildMinimap,
+  updateMinimap,
+} from "./ui-minimap.js";
 
 const MAX_PROFILE_ITEMS = 4096;
 const BEGINNER_JOBS = new Set([0, 1000, 2000, 2001]);
@@ -160,6 +166,7 @@ function updateStats(panel, profile) {
   statValue(panel, "dex", profile.dex, 262);
   statValue(panel, "int", profile.int, 280);
   statValue(panel, "luk", profile.luk, 298);
+  statValue(panel, "remainingAp", profile.remainingAp, 215);
   updateStatMode(panel, profile);
 }
 
@@ -167,6 +174,7 @@ function updateStats(panel, profile) {
 function updateStatMode(panel, profile) {
   const notice = profile.level <= 10 && BEGINNER_JOBS.has(profile.job);
   panel.basicStat.container.visible = notice;
+  panel.statValues.get("remainingAp").hidden = notice;
   const disabled = statDisabledMask(profile.job);
   for (let i = 0; i < panel.statControls.length; i++) {
     panel.statControls[i].setVisible(i < 2 || !notice);
@@ -199,12 +207,13 @@ function skillTooltip(template, learned, rank) {
   return `${template.name}\n${template.description}\nRank ${rank}; master ${learned?.masterLevel || 0}\n${runtime}${expiration}`;
 }
 
-function skillLearningDisabled(panel, template, rank) {
-  return (
+function skillLearningDisabled(panel, template) {
+  return Boolean(
     panel.skillLearning ||
     panel.owner.store?.profileTransactionPending ||
-    rank >= template.maxLevel ||
-    typeof panel.owner.hooks.onLearnSkill !== "function"
+    typeof panel.owner.hooks.onLearnSkill !== "function" ||
+    typeof panel.owner.hooks.skillAllocationError !== "function" ||
+    panel.owner.hooks.skillAllocationError(template.id),
   );
 }
 
@@ -242,11 +251,12 @@ function skillRow(panel, layer, entry, row) {
       },
     },
   );
-  const button = layer.localButton("+", 136, 118 + 40 * row, () =>
-    learnSkill(panel, template.id),
-  );
-  button.setAttribute("aria-label", `Learn ${template.name}`);
-  button.disabled = skillLearningDisabled(panel, template, rank);
+  // 008aad45..b3: original BtSpUp, x131/y119, four rows spaced40 pixels.
+  layer.button("Skill/BtSpUp", 131, 119 + 40 * row, {
+    label: `Learn ${template.name}`,
+    action: () => learnSkill(panel, template.id),
+    disabled: skillLearningDisabled(panel, template),
+  });
 }
 
 /** Only the captured store and owner epoch may receive asynchronous skill feedback. */
@@ -323,7 +333,7 @@ function visibleSkillEntry(skill, profile) {
   );
 }
 
-function updateSkillSummary(panel, profile, job, points) {
+function updateSkillSummary(panel, profile, points, available) {
   if (!panel.skillPoints) {
     panel.skillPoints = panel.text("", 84, 265, 27);
     panel.skillPoints.style.whiteSpace = "nowrap";
@@ -331,10 +341,24 @@ function updateSkillSummary(panel, profile, job, points) {
     panel.skillPoints.style.textAlign = "right";
   }
   const pointSummary = `SP pools 1–10: ${points.join(" / ")}`;
-  const pool = skillPointPool(job);
-  panel.skillPoints.textContent = profile ? String(points[pool]) : "";
+  panel.skillPoints.textContent =
+    profile && available !== null ? String(available) : "";
   panel.skillPoints.title = pointSummary;
   panel.element.setAttribute("aria-busy", String(Boolean(panel.skillLearning)));
+}
+
+/** Beginner books show native entitlement, not the durable ordinary SP pool. */
+function availableSkillPoints(panel, profile, job) {
+  if (!profile) return null;
+  if (!BEGINNER_JOBS.has(job)) return profile.remainingSp[skillPointPool(job)];
+  const id = job * 10000 + 1000;
+  if (
+    !panel.owner.index.skills[id] ||
+    typeof panel.owner.hooks.skillAllocationPoints !== "function"
+  ) {
+    return null;
+  }
+  return panel.owner.hooks.skillAllocationPoints(id);
 }
 
 function updateSkills(panel, profile) {
@@ -345,18 +369,20 @@ function updateSkills(panel, profile) {
   const job = books[panel.selectedTab || 0];
   const { start, records } = skillPage(panel, profile, job);
   const points = profile?.remainingSp || [];
+  const available = availableSkillPoints(panel, profile, job);
   const signature = JSON.stringify([
     job,
     start,
     records.map((entry) => entry.learned),
     points,
+    available,
     Boolean(panel.skillLearning),
     Boolean(panel.owner.store?.profileTransactionPending),
     panel.skillFeedback,
   ]);
   if (panel.skillSignature === signature) return;
   panel.skillSignature = signature;
-  updateSkillSummary(panel, profile, job, points);
+  updateSkillSummary(panel, profile, points, available);
   replaceIcons(panel, records, (layer, entry, row) =>
     skillRow(panel, layer, entry, row),
   ).catch((error) => panel.owner.report(error));
@@ -373,13 +399,12 @@ export function updateProfilePanel(panel, store) {
 
 /** Atomically replace a separately leased map image; stale scene loads cannot attach artwork. */
 export async function replaceMinimap(owner, panel, signal) {
-  const id = owner.scene?.manifest.id;
+  const scene = owner.scene;
+  const id = scene?.manifest.id;
   if (!id) return;
   const entry = owner.index.minimaps[id];
   if (!entry?.available) {
-    panel.mapLabel.textContent = `Map ${id}`;
-    releaseMap(panel);
-    owner.status(entry?.reason || "Map not in packaged UI index");
+    unavailableMinimap(owner, panel, entry, id);
     return;
   }
   let resource = await loadVisualBundle(
@@ -388,38 +413,63 @@ export async function replaceMinimap(owner, panel, signal) {
     signal,
   );
   let animation = null;
+  let markers = null;
   try {
     signal.throwIfAborted();
-    const asset = resource.manifest.metadata.assets["miniMap/canvas"];
+    const geometry = minimapGeometry(resource.manifest.metadata);
     animation = new EntityAnimation(
       resource.manifest.entities[0],
       resource.textures,
     );
     animation.container.zIndex = 0;
-    const scale = Math.min(1, 230 / asset.width, 110 / asset.height);
-    animation.container.scale.set(scale);
-    animation.setPosition(
-      12 + asset.origin.x * scale,
-      53 + asset.origin.y * scale,
-    );
+    markers = createMinimapMarkers(panel, scene.manifest);
     signal.throwIfAborted();
+    if (panel.disposed || owner.scene !== scene) {
+      throw new Error("Minimap scene ownership changed");
+    }
     releaseMap(panel);
-    panel.root.addChild(animation.container);
+    panel.mapContent.addChild(animation.container, markers.layer.root);
+    markers.layer.root.visible = true;
+    panel.mapMarkerLayer = markers.layer;
+    panel.mapMarkers = markers.markers;
+    panel.mapPlayerMarker = markers.player;
+    panel.mapGeometry = geometry;
+    markers = null;
     panel.mapAnimation = animation;
     panel.mapResource = resource;
     panel.dependencies.push(resource);
     panel.mapId = id;
-    panel.mapLabel.textContent = owner.scene.manifest.name || `Map ${id}`;
+    panel.mapLabel.textContent =
+      owner.quests.catalog.strings.map[id] || `Map ${id}`;
     panel.mapStatus.textContent = "";
+    rebuildMinimap(panel);
+    updateMinimap(panel, scene.simulation.x, scene.simulation.y);
+    owner.positionWindow(panel, panel.x, panel.y);
+    panel.renderArtwork();
     resource = null;
     animation = null;
   } finally {
+    markers?.layer.destroy();
     animation?.container.destroy({ children: true });
     resource?.destroy();
   }
 }
 
+function unavailableMinimap(owner, panel, entry, id) {
+  panel.mapLabel.textContent =
+    owner.quests.catalog.strings.map[id] || `Map ${id}`;
+  releaseMap(panel);
+  const reason = entry?.reason || "Map not in packaged UI index";
+  panel.mapStatus.textContent = reason;
+  owner.status(reason);
+}
+
 function releaseMap(panel) {
+  panel.mapMarkerLayer?.destroy();
+  panel.mapMarkerLayer = null;
+  panel.mapMarkers = [];
+  panel.mapPlayerMarker = null;
+  panel.mapGeometry = null;
   panel.mapAnimation?.container.destroy({ children: true });
   if (panel.mapResource) {
     const index = panel.dependencies.indexOf(panel.mapResource);
@@ -446,6 +496,7 @@ const PROFILE_FIELDS = [
   ["maxHP", "Maximum HP", 1],
   ["mp", "MP", 0],
   ["maxMP", "Maximum MP", 0],
+  ["remainingAp", "Ability points (AP)", 0],
   ["str", "STR", 1],
   ["dex", "DEX", 1],
   ["int", "INT", 1],
@@ -484,11 +535,11 @@ export class ProfileControls {
     this.fields = new Map();
     this.skillRows = new Map();
     this.root = document.createElement("details");
-    inspectionElement("summary", "Local offline profile", this.root);
+    inspectionElement("summary", "Edit character", this.root);
     this.status = inspectionElement("p", "", this.root);
-    this.save = profileButton(this.root, "Save locally");
-    this.reset = profileButton(this.root, "Reset local profile");
-    this.recover = profileButton(this.root, "Recover");
+    this.save = profileButton(this.root, "Save character");
+    this.reset = profileButton(this.root, "Reset character");
+    this.recover = profileButton(this.root, "Revive character");
     this.buildEditor();
     this.items = inspectionElement("select", "", this.root);
     this.items.setAttribute("aria-label", "Local reactor offering item");
@@ -516,10 +567,10 @@ export class ProfileControls {
   buildEditor() {
     this.form = inspectionElement("form", "", this.root);
     this.editor = inspectionElement("fieldset", "", this.form);
-    inspectionElement("legend", "Persistent character editor", this.editor);
+    inspectionElement("legend", "Character stats", this.editor);
     inspectionElement(
       "p",
-      "Local edits do not run advancement scripts or grant stats, SP, or skills. Changes save together.",
+      "Change values, then save all changes together. Changing job or level does not award points or skills.",
       this.editor,
     );
     for (const [key, label, minimum] of PROFILE_FIELDS) {
@@ -544,13 +595,21 @@ export class ProfileControls {
       option.value = String(id);
     }
     const pools = inspectionElement("fieldset", "", this.editor);
-    inspectionElement("legend", "Remaining SP — pools 1–10", pools);
+    inspectionElement("legend", "Unused skill points (SP)", pools);
     this.spFields = [];
     for (let i = 0; i < 10; i++) {
-      this.spFields.push(profileInput(pools, `SP pool ${i + 1}`, 0));
+      this.spFields.push(
+        profileInput(
+          pools,
+          i === 0
+            ? "SP — most jobs / Evan stage 1"
+            : `SP — Evan stage ${i + 1}`,
+          0,
+        ),
+      );
     }
     this.buildSkillEditor();
-    this.apply = inspectionElement("button", "Save profile edits", this.editor);
+    this.apply = inspectionElement("button", "Save changes", this.editor);
     this.apply.type = "submit";
     this.revert = profileButton(this.editor, "Discard unsaved edits");
     this.editStatus = inspectionElement("p", "", this.form);
@@ -559,11 +618,13 @@ export class ProfileControls {
   }
 
   buildSkillEditor() {
-    const section = inspectionElement("fieldset", "", this.editor);
+    const details = inspectionElement("details", "", this.editor);
+    inspectionElement("summary", "Advanced: edit learned skills", details);
+    const section = inspectionElement("fieldset", "", details);
     inspectionElement("legend", "Learned skills", section);
     inspectionElement(
       "p",
-      "Edit rank and master rank directly, or remove a record. Expiry is Unix milliseconds; blank means permanent. Normal learning uses the Skill window.",
+      "Use the Skill window + buttons to spend SP normally. These advanced controls change skill levels directly. Expiration is milliseconds since 1 January 1970; leave blank for no expiration.",
       section,
     );
     this.skillList = inspectionElement("div", "", section);
@@ -583,7 +644,7 @@ export class ProfileControls {
       );
       option.value = String(skill.id);
     }
-    this.add = profileButton(section, "Add skill record");
+    this.add = profileButton(section, "Add learned skill");
   }
 
   appendSkill(id, record) {
@@ -592,9 +653,9 @@ export class ProfileControls {
     inspectionElement("legend", `${template?.name || "Skill"} [${id}]`, row);
     const fields = new Map();
     for (const [key, label] of [
-      ["level", "Rank"],
-      ["masterLevel", "Master rank"],
-      ["expiresAt", "Expiry"],
+      ["level", "Skill level"],
+      ["masterLevel", "Maximum trainable level"],
+      ["expiresAt", "Expiration time"],
     ]) {
       const input = profileInput(row, `${label} for skill ${id}`, 0);
       input.value = record[key] === null ? "" : String(record[key]);
@@ -602,7 +663,7 @@ export class ProfileControls {
       else if (template) input.max = String(template.maxLevel);
       fields.set(key, input);
     }
-    const remove = profileButton(row, "Remove skill record");
+    const remove = profileButton(row, "Remove learned skill");
     remove.dataset.removeSkill = String(id);
     this.skillRows.set(String(id), { row, fields });
   }

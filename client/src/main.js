@@ -24,6 +24,7 @@ import { initializeOfflineDelivery } from "./offline-delivery.js";
 import { createAgentInterface } from "./agent-integration.js";
 import { AgentDevelopment, scenarioProfile } from "./agent-development.js";
 import { REVIVAL_POLICY, revivalMap, revivalArrival } from "./revival.js";
+import { FieldTransition } from "./field-transition.js";
 
 const sourceBuildId = import.meta.MAPLE_SOURCE_ID ?? null;
 let agentSurface = null;
@@ -31,6 +32,14 @@ let development = null;
 
 const app = new Application();
 const viewport = document.querySelector("#viewport");
+const fieldTransition = new FieldTransition();
+const fieldFade = document.createElement("div");
+fieldFade.style.cssText =
+  "position:absolute;inset:0;background:#000;pointer-events:none;z-index:2147483646";
+fieldFade.hidden = true;
+fieldFade.setAttribute("aria-hidden", "true");
+viewport.append(fieldFade);
+let displayedFade = 0;
 const network = new Network();
 const hitboxInspector = new HitboxInspector(network);
 const services = { network, atlases: null };
@@ -104,7 +113,10 @@ function advancePlayerTick(ms) {
 }
 function fieldInputBlocked() {
   return (
-    loading || destroyed || Boolean(profileStore?.profileTransactionPending)
+    loading ||
+    destroyed ||
+    fieldTransition.blocksInput ||
+    Boolean(profileStore?.profileTransactionPending)
   );
 }
 function updatePlayer(ms) {
@@ -152,9 +164,18 @@ function updatePresentation(scene) {
   pose.crouching = sim.crouching;
   scene.hitboxPreview = hitboxInspector.context;
 }
+/** Original global brightness covers world and UI; unchanged frames do no DOM work. */
+function paintFieldFade() {
+  const opacity = fieldTransition.opacity;
+  if (displayedFade === opacity) return;
+  displayedFade = opacity;
+  fieldFade.style.opacity = String(opacity);
+  fieldFade.hidden = opacity === 0;
+}
 function render() {
   if (!initialized || destroyed) return;
   const start = performance.now();
+  paintFieldFade();
   if (current) {
     current.container.position.set(-current.camera.x, -current.camera.y);
     for (const entity of current.backgrounds) {
@@ -182,6 +203,7 @@ function tick() {
   try {
     // Density-only changes need not dispatch resize or media-query events.
     if (app.renderer.resolution !== window.devicePixelRatio) resize();
+    if (!document.hidden) fieldTransition.update(elapsed);
     if (!document.hidden) inGame.updateInterface(elapsed);
     // Freeze offline authority during the atomic scene swap, not rendering or UI.
     if (!paused && !document.hidden && !loading) updatePlayer(elapsed);
@@ -365,6 +387,7 @@ function agentStatus() {
     sourceBuildId,
     assetBuildId: catalog?.buildId ?? null,
     loading,
+    fieldTransition: fieldTransition.snapshot(),
     paused,
     lastError,
   };
@@ -441,6 +464,7 @@ async function normalizeScenario(spec, signal) {
 async function prepareExperiment(session, externalSignal) {
   const request = ++generation;
   transition?.abort();
+  fieldTransition.cancel();
   neighbors?.abort();
   transition = new AbortController();
   const signal = AbortSignal.any([externalSignal, transition.signal]);
@@ -496,6 +520,7 @@ function restoreExperimentView(baseline) {
 function cancelExperimentLoading() {
   generation++;
   transition?.abort();
+  fieldTransition.cancel();
   neighbors?.abort();
   loading = false;
 }
@@ -515,6 +540,10 @@ function initializeInterface() {
   initializeAgentInterface();
   inGame = new InGameSystems(app, services, {
     now: () => development.session?.clockMs ?? performance.now(),
+    random: () =>
+      development.session
+        ? agentSurface.scenarios.gameplayRandom()
+        : Math.random(),
     onEvent: agentSurface.observation.record.bind(agentSurface.observation),
     clearInput: input.clear,
     focusGame: () => app.canvas.focus(),
@@ -650,6 +679,7 @@ async function relocatePlayer(name, signal) {
   const arrival = arrivalPosition(current.manifest, name);
   generation++;
   transition?.abort();
+  fieldTransition.cancel();
   neighbors?.abort();
   loading = false;
   relocateSimulation(current.simulation, arrival);
@@ -672,7 +702,10 @@ function travelPortal(id, portalName, options = {}) {
   const loading =
     options.sameMapMotion && String(id) === current?.manifest.id
       ? relocatePlayer(portalName, options.signal)
-      : loadMap(String(id), false, portalName, { signal: options.signal });
+      : loadMap(String(id), false, portalName, {
+          signal: options.signal,
+          fieldTransition: options.transition === "field",
+        });
   const request = generation;
   const promise = loading.then((result) => {
     if (!destroyed && request === generation) {
@@ -703,6 +736,7 @@ async function revivePlayer() {
   const promise = loadMap(id, false, null, {
     revivalSource: source,
     store,
+    fieldTransition: true,
   });
   api.ready = promise;
   return promise;
@@ -788,6 +822,7 @@ function beginMapLoad(travelSignal) {
   }
   const request = ++generation;
   transition?.abort();
+  fieldTransition.cancel();
   neighbors?.abort();
   transition = new AbortController();
   const signal = travelSignal
@@ -812,20 +847,26 @@ function assertCurrentLoad(request, context) {
 
 async function loadMap(id, refreshCatalog, portalName, context = {}) {
   const { request, signal } = beginMapLoad(context.signal);
+  const fade =
+    context.fieldTransition && current ? fieldTransition.begin(request) : null;
+  if (fade) input.clear();
   let candidate = null;
   try {
     check(signal);
     id = await resolveMapId(id, refreshCatalog, signal);
     candidate = await prepareCandidate(id, signal, portalName, context);
+    if (fade && !(await fade.covered)) throw aborted();
     check(signal);
     assertCurrentLoad(request, context);
     commitCandidate(candidate, Boolean(context.revivalSource));
     candidate = null;
+    if (fade) fieldTransition.reveal(request);
     inspect();
     prefetchNeighbors(id);
     return snapshot();
   } catch (error) {
     candidate?.destroy();
+    if (fade) fieldTransition.fail(request);
     recordLoadFailure(error, request);
     throw error;
   } finally {
@@ -881,6 +922,7 @@ function snapshot() {
     follow,
     presentationVisible,
     loading,
+    fieldTransition: fieldTransition.snapshot(),
     lastError,
     sourceBuildId,
     agent: agentSurface?.controller.status() ?? null,
@@ -917,6 +959,8 @@ function destroy() {
   destroyed = true;
   generation++;
   transition?.abort();
+  fieldTransition.cancel();
+  fieldFade.remove();
   neighbors?.abort();
   clearInterval(demandTimer);
   clearInterval(inspectionTimer);

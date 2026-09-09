@@ -15,12 +15,12 @@ const EQUIPMENT_IDS = [1040002, 1060002, 1072001, 1302000];
 const ICONS = ["icon", "iconMouseOver", "iconDisabled"];
 
 /** Consume the already-admitted checks/rewards, not dialogue tokens or a second quest parser. */
-function requiredItems(quests) {
+function requiredItems(quests, dropIds = []) {
   const records = Object.values(quests.records);
   if (records.length > MAX_QUESTS) {
     throw new Error("UI quest closure exceeds policy");
   }
-  const ids = new Set(EQUIPMENT_IDS);
+  const ids = dropItemClosure(dropIds);
   let supportedQuests = 0;
   for (const record of records) {
     if (!record.supported) continue;
@@ -34,6 +34,21 @@ function requiredItems(quests) {
     }
   }
   return { ids: [...ids].sort((a, b) => a - b), supportedQuests };
+}
+
+function dropItemClosure(dropIds) {
+  if (!Array.isArray(dropIds) || dropIds.length > MAX_ITEMS) {
+    throw new Error("Invalid drop item closure");
+  }
+  const ids = new Set(EQUIPMENT_IDS);
+  for (const id of dropIds) {
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      throw new Error("Invalid drop item ID");
+    }
+    ids.add(id);
+  }
+  if (ids.size > MAX_ITEMS) throw new Error("UI item closure exceeds policy");
+  return ids;
 }
 
 function collectStageItems(ids, items) {
@@ -383,7 +398,7 @@ async function skillRecords(context) {
 /** Catalog membership describes original templates only; ownership and skill ranks remain profile authorities. */
 export async function extractItemSkillUI(context, strings, canvasRecord) {
   const assets = { ...context, canvasRecord };
-  const closure = requiredItems(context.quests);
+  const closure = requiredItems(context.quests, context.dropItemIds);
   const sources = await itemSources(context, closure.ids);
   const items = Object.create(null),
     missing = [];
@@ -413,7 +428,7 @@ export async function extractItemSkillUI(context, strings, canvasRecord) {
       skillIds: Object.keys(skills).map(Number),
       skillCoverage: extractedSkills.coverage,
       scope:
-        "Supported quest stage checks/rewards and current equipment templates; exhaustive numeric player/job Skill IMG sweep with separate non-player domains. Catalog metadata grants no ownership or ranks.",
+        "Supported quest checks/rewards, selected-map mob drops and current equipment templates; exhaustive numeric player/job Skill IMG sweep with separate non-player domains. Catalog metadata grants no ownership or ranks.",
     },
   };
 }

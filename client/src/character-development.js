@@ -1,5 +1,6 @@
 import { experienceRequired } from "./offline-progression.js";
 import { profileError, validateProfile } from "./profile-validation.js";
+import { requiresSkillMastery } from "./ui-skill-books.js";
 
 const MAX_JOB_BOOKS = 1024;
 const EDITABLE_FIELDS = [
@@ -18,6 +19,7 @@ const EDITABLE_FIELDS = [
   "meso",
   "fame",
   "remainingSp",
+  "remainingAp",
   "skills",
 ];
 
@@ -77,16 +79,23 @@ function validateDevelopment(profile, catalog, jobs) {
     invalid("exp");
   }
   for (const [id, record] of Object.entries(profile.skills)) {
-    const skill = Object.hasOwn(catalog.ui.skills, id)
-      ? catalog.ui.skills[id]
-      : null;
-    if (!skill || skill.id !== Number(id)) invalid(`unknown skill ${id}`);
-    if (!Number.isSafeInteger(skill.maxLevel) || skill.maxLevel < 0) {
-      invalid(`skill ${id} catalog maximum`);
-    }
-    if (record.level > skill.maxLevel || record.masterLevel > skill.maxLevel) {
-      invalid(`skill ${id} rank`);
-    }
+    validateLearnedSkill(id, record, catalog);
+  }
+}
+
+function validateLearnedSkill(id, record, catalog) {
+  const skill = Object.hasOwn(catalog.ui.skills, id)
+    ? catalog.ui.skills[id]
+    : null;
+  if (!skill || skill.id !== Number(id)) invalid(`unknown skill ${id}`);
+  if (!Number.isSafeInteger(skill.maxLevel) || skill.maxLevel < 0) {
+    invalid(`skill ${id} catalog maximum`);
+  }
+  if (record.level > skill.maxLevel || record.masterLevel > skill.maxLevel) {
+    invalid(`skill ${id} rank`);
+  }
+  if (requiresSkillMastery(skill.bookId) && record.level > record.masterLevel) {
+    invalid(`skill ${id} mastery`);
   }
 }
 

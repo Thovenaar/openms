@@ -371,7 +371,7 @@ export class QuestSystem {
     }
     for (const item of record.dependencies.itemIds) {
       result.push(
-        `Item ${item}: obtained only from encoded quest grants or existing stock; no invented monster drops`,
+        `Item ${item}: must be owned; local acquisition is limited to encoded quest grants and supported original-item/Cosmic drop rows`,
       );
     }
     for (const script of record.dependencies.scriptRefs) {

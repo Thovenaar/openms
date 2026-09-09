@@ -2,7 +2,7 @@ import { PROGRESSION_POLICY } from "./offline-progression.js";
 import { createDefaultBindings, isAssignableKey } from "./keymap.js";
 
 /** Versioned browser save format; limits are local engineering policies, not native rules. */
-export const PROFILE_VERSION = 3;
+export const PROFILE_VERSION = 4;
 export const PROFILE_LIMITS = Object.freeze({
   inventory: 4096,
   equipment: 128,
@@ -38,6 +38,7 @@ const PROFILE_KEYS = [
   "keyBindings",
   "remainingSp",
   "skills",
+  "remainingAp",
 ];
 
 /** Errors retain a stable code for native UI and inspection consumers. */
@@ -221,10 +222,18 @@ function validateQuickSlots(quickSlots) {
 /** Sequential migrations validate old root keys before adding only new domains. */
 export function migrateProfile(value) {
   object(value, "root");
-  if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
+  if (![1, 2, 3].includes(value.schemaVersion)) {
     return validateProfile(value);
   }
-  const oldKeys = PROFILE_KEYS.slice(0, -2);
+  if (value.schemaVersion === 3) {
+    keys(value, PROFILE_KEYS.slice(0, -1), "legacy root");
+    return validateProfile({
+      ...structuredClone(value),
+      schemaVersion: PROFILE_VERSION,
+      remainingAp: 0,
+    });
+  }
+  const oldKeys = PROFILE_KEYS.slice(0, -3);
   keys(
     value,
     value.schemaVersion === 1 ? oldKeys.slice(0, -1) : oldKeys,
@@ -238,6 +247,7 @@ export function migrateProfile(value) {
   }
   migrated.remainingSp = Array(10).fill(0);
   migrated.skills = {};
+  migrated.remainingAp = 0;
   migrated.settings.chat = { state: 1, height: 70 };
   migrated.schemaVersion = PROFILE_VERSION;
   return validateProfile(migrated);
@@ -254,7 +264,7 @@ function learnedSkills(value) {
     }
     keys(record, ["level", "masterLevel", "expiresAt"], `skill ${id}`);
     integer(record.level, 0, "skill level");
-    integer(record.masterLevel, record.level, "skill masterLevel");
+    integer(record.masterLevel, 0, "skill masterLevel");
     if (record.expiresAt !== null) {
       integer(record.expiresAt, 0, "skill expiration");
     }
@@ -276,7 +286,15 @@ function validateCharacterScalars(value) {
   if (value.level > PROGRESSION_POLICY.maxLevel) {
     invalid("level exceeds local progression");
   }
-  for (const key of ["job", "exp", "meso", "hp", "mp", "maxMP"]) {
+  for (const key of [
+    "job",
+    "exp",
+    "meso",
+    "hp",
+    "mp",
+    "maxMP",
+    "remainingAp",
+  ]) {
     integer(value[key], 0, key);
   }
   integer(value.fame, Number.MIN_SAFE_INTEGER, "fame");
@@ -368,6 +386,7 @@ export function createProfile(location) {
     location: { ...location },
     keyBindings: createDefaultBindings(),
     remainingSp: Array(10).fill(0),
+    remainingAp: 0,
     skills: {},
     settings: {
       BGM: { volume: 64, mute: false },

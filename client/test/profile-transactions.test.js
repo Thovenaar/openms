@@ -5,10 +5,16 @@ import { createProfile, migrateProfile } from "../src/profile-validation.js";
 const LOCATION = { mapId: "100000000", x: 0, y: 0, facing: 1 };
 
 // Memory mode shares the whole-profile transaction owner, without opening a browser database.
-test("atomic profile commit publishes coherent state once and isolates retained draft aliases", async () => {
+test("atomic commit exposes lock transitions and publishes coherent values without draft aliases", async () => {
   const store = ProfileStore.memory(createProfile(LOCATION));
   const seen = [];
-  store.subscribe(() => seen.push([store.profile.hp, store.profile.maxHP]));
+  const pendingStates = [];
+  store.subscribe(() => {
+    pendingStates.push(store.profileTransactionPending);
+    if (!store.profileTransactionPending) {
+      seen.push([store.profile.hp, store.profile.maxHP]);
+    }
+  });
   let retained;
   const pending = store.commitProfile((draft) => {
     draft.maxHP = 200;
@@ -21,6 +27,8 @@ test("atomic profile commit publishes coherent state once and isolates retained 
   }).toThrow();
   await pending;
   expect(seen).toEqual([[150, 200]]);
+  expect(pendingStates[0]).toBe(true);
+  expect(pendingStates.at(-1)).toBe(false);
   retained.hp = 0;
   expect(store.profile.hp).toBe(150);
   store.profile.hp = 149;
@@ -69,6 +77,7 @@ test("schema2 migration preserves customized bindings and all existing gameplay 
   const old = createProfile(LOCATION);
   old.schemaVersion = 2;
   delete old.remainingSp;
+  delete old.remainingAp;
   delete old.skills;
   delete old.settings.chat;
   old.hp = 12;
@@ -76,13 +85,14 @@ test("schema2 migration preserves customized bindings and all existing gameplay 
   old.inventory.push({ id: 2000000, count: 9 });
   old.keyBindings.keys[18] = { type: 4, id: 0 };
   const migrated = migrateProfile(old);
-  const { remainingSp, skills, ...previous } = migrated;
+  const { remainingSp, remainingAp, skills, ...previous } = migrated;
   expect(previous).toEqual({
     ...old,
-    schemaVersion: 3,
+    schemaVersion: 4,
     settings: { ...old.settings, chat: { state: 1, height: 70 } },
   });
   expect(remainingSp).toEqual(Array(10).fill(0));
+  expect(remainingAp).toBe(0);
   expect(skills).toEqual({});
   migrated.inventory[0].count = 1;
   expect(old.inventory[0].count).toBe(9);

@@ -40,7 +40,6 @@ export class UIChat {
     this.messages = new ChatLog(panel);
     this.log = this.messages.element;
     this.layer = panel.layer("Chat input");
-    this.layer.image("base/chatTarget", 1, HUD_CLIENT_Y + 515);
     this.createInput();
     this.createSelector();
     this.maximum = panel.button("BtMax", 536, HUD_CLIENT_Y + 519, {
@@ -105,9 +104,9 @@ export class UIChat {
 
   setState(state) {
     this.state = state;
-    // Requested persistent edit chrome uses native compact-edit geometry even when unfocused.
-    this.layer.root.visible = true;
-    this.layer.element.hidden = false;
+    // 008d4a6d ->008dfb36(0): minimized chat has no edit/combo child.
+    this.layer.root.visible = state !== 1;
+    this.layer.element.hidden = state === 1;
     this.grip.hidden = state !== 3;
     this.maximum.setVisible(state !== 3);
     this.minimum.setVisible(state === 3);
@@ -115,11 +114,13 @@ export class UIChat {
     // Native stored height may become a two-pixel-larger span (including 507 -> 509).
     const expanded = this.height + (this.height % 13 === 0 ? 2 : 0);
     this.resizeHighlight.setPosition(0, HUD_CLIENT_Y + 504 - expanded);
-    const top = state === 3 ? 510 - expanded : 486;
+    const top = state === 3 ? 510 - expanded : state === 1 ? 513 : 486;
     const height = state === 3 ? expanded - 2 : 25;
     this.log.style.top = `${HUD_CLIENT_Y + top}px`;
     this.log.style.height = `${height}px`;
-    this.log.style.background = state === 3 ? "rgba(0,0,0,.45)" : "transparent";
+    // 008dbf61 fills the expanded log with ARGB 0x80000000, never a compact overlay.
+    this.log.style.background =
+      state === 3 ? "rgba(0,0,0,0.5019607843)" : "transparent";
     this.grip.style.top = `${HUD_CLIENT_Y + 504 - expanded}px`;
     this.selector.show(false);
     this.owner.hooks.clearInput();

@@ -2,6 +2,8 @@ import { coordinate, MAX_SEGMENTS } from "./physics/geometry.js";
 
 // Physics manifests are immutable. Cache geometry once, never scan footholds per frame.
 const cameraRects = new WeakMap();
+// 00437b32: the camera target vector is attached fifty pixels above local-user feet.
+const CAMERA_TARGET_Y = -50;
 
 /** Missing authored VR edges use geometry; present values still require valid coordinates. */
 function vrCoordinate(value, fallback) {
@@ -76,6 +78,11 @@ export function followCamera(camera, pose, physics, viewport) {
   }
   const rect = cameraRect(physics);
   camera.x = followAxis(pose.x, rect.left, rect.right, viewport.width);
-  camera.y = followAxis(pose.y, rect.top, rect.bottom, viewport.height);
+  camera.y = followAxis(
+    pose.y + CAMERA_TARGET_Y,
+    rect.top,
+    rect.bottom,
+    viewport.height,
+  );
   return camera;
 }

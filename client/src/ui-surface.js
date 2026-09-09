@@ -1,5 +1,6 @@
 import { Container } from "pixi.js";
 import { EntityAnimation } from "./animation.js";
+import { UIRasterPlane } from "./ui-raster-plane.js";
 
 const MAX_PANEL_SPRITES = 1632; // 96 visible stacks: one icon plus up to 16 safe-integer count digits.
 const MAX_PANEL_CONTROLS = 128;
@@ -32,6 +33,11 @@ export class UISurface {
     this.disposed = false;
     this.ownsResource = true;
     this.layers = new Set();
+    this.raster =
+      owner.app && name !== "StatusBar"
+        ? new UIRasterPlane(this.root, this.element)
+        : null;
+    this.element.style.isolation = "isolate";
     owner.root.addChild(this.root);
     owner.host.append(this.element);
   }
@@ -149,6 +155,17 @@ export class UISurface {
     for (const sprite of this.timedSprites) {
       if (sprite.container.visible) sprite.advance(ms);
     }
+    this.renderArtwork();
+  }
+
+  /** CSS/window scaling comes from the layout owner; no layout reads in the draw loop. */
+  renderArtwork() {
+    if (!this.raster) return;
+    const ratio = window.devicePixelRatio || 1;
+    this.raster.sync(
+      (this.owner.screenScaleX ?? 1) * ratio,
+      (this.owner.screenScaleY ?? 1) * ratio,
+    );
   }
 
   /** State origins remain relative to the normal-state anchor, including keyFocused overlays. */
@@ -223,6 +240,7 @@ export class UISurface {
       listener.target.removeEventListener(listener.type, listener.handler);
     }
     this.element.remove();
+    this.raster?.destroy();
     this.root.destroy({ children: true });
     for (const resource of this.dependencies) resource.destroy();
     if (this.ownsResource) this.resource.destroy();
@@ -334,11 +352,15 @@ class UIControl {
     this.updateFlags(event);
     if (event.type === "click") {
       if (!this.acceptsClick(event)) return;
-      this.panel.owner.sound("BtMouseClick");
+      // 004c0933: Space releases sound; Enter belongs to the parent dialog.
+      if (event.detail > 0 || this.activationKey === " ") {
+        this.panel.owner.sound("BtMouseClick");
+      }
+      this.activationKey = null;
       this.options.action?.();
     }
     if (event.type === "pointerenter") {
-      this.panel.owner.sound("BtMouseOver");
+      if (!this.options.disabled) this.panel.owner.sound("BtMouseOver");
       const point = this.panel.owner.logicalPointer(event);
       this.panel.owner.showTooltip(this.options.label, point.x, point.y);
     }
@@ -438,9 +460,13 @@ class UIControl {
 
   updateFocusFlags(event) {
     if (event.type === "focus") this.focused = true;
-    if (event.type === "blur") this.focused = false;
+    if (event.type === "blur") {
+      this.focused = false;
+      this.activationKey = null;
+    }
     if (event.type === "keydown" && ["Enter", " "].includes(event.key)) {
-      this.pressed = true;
+      this.activationKey = event.key;
+      this.pressed = event.key === " ";
     }
     if (event.type === "keyup") this.pressed = false;
   }

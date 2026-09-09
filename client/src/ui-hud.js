@@ -7,6 +7,11 @@ export const HUD_CLIENT_Y = 22;
 
 // 008d2494: independent bar screen (218,567); 008da3d4: graduation local (218,544).
 export function layoutGauges(panel) {
+  // 008d3ff2: secondary base at client (2,507), including the original LV. plate.
+  panel.image("base/backgrnd2", 2, 507 + HUD_CLIENT_Y);
+  // 008d3b2f: memo box and glyph are independent status canvases.
+  panel.image("base/box", 573, 515 + HUD_CLIENT_Y);
+  panel.image("base/iconMemo", 599, 519 + HUD_CLIENT_Y);
   panel.image("gauge/bar", 218, 567);
   panel.gauges = [
     [220, 105],
@@ -127,6 +132,9 @@ function updateIdentity(panel, profile) {
   panel.identityLayer?.destroy();
   const layer = panel.layer("Character identity");
   panel.identityLayer = layer;
+  // 008d83b7/008d8456 use +0xbe0, initialized to white 12px Arial at008d03b2.
+  layer.element.style.color = "#fff";
+  layer.element.style.font = "12px Arial,sans-serif";
   const level = String(profile.level);
   let x = 50 - 6 * (level.length - 1);
   for (const digit of level) {

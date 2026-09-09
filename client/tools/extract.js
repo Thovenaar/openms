@@ -18,6 +18,7 @@ import { extractAvatar } from "./avatar-data.js";
 import { extractQuests } from "./quest-data.js";
 import { extractCombat } from "./combat-data.js";
 import { extractReactors } from "./reactor-data.js";
+import { extractDropData, finalizeDropData } from "./drop-data.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
@@ -523,11 +524,14 @@ async function run() {
     Buffer.from(JSON.stringify(quests.inventory)),
   );
   const combat = await extractCombat(extractionContext);
+  const drops = await extractDropData(extractionContext);
   const ui = await extractGameUI({
     ...extractionContext,
     quests,
+    dropItemIds: drops.itemIds,
     imageEntries: (name) => archive(name).entries,
   });
+  finalizeDropData(drops, ui.items);
   const audiovisual = await extractAudiovisual(
     extractionContext,
     mapIds,
@@ -541,30 +545,21 @@ async function run() {
     "json",
     Buffer.from(JSON.stringify(references)),
   );
-  const buildId = hash(
-    Buffer.from(
-      JSON.stringify({
-        maps,
-        hitboxes,
-        ui,
-        audiovisual,
-        quests,
-        combat,
-        routes,
-      }),
-    ),
-  );
-  const catalog = {
-    schemaVersion: 2,
-    buildId,
-    defaultMap: mapIds.includes("100000000") ? "100000000" : mapIds[0],
+  const content = {
     maps,
     hitboxes,
     ui,
     audiovisual,
     quests,
     combat,
+    drops,
     routes,
+  };
+  const catalog = {
+    schemaVersion: 2,
+    buildId: hash(Buffer.from(JSON.stringify(content))),
+    defaultMap: mapIds.includes("100000000") ? "100000000" : mapIds[0],
+    ...content,
   };
   await publishCatalog(catalog, reports);
 }

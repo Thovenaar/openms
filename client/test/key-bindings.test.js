@@ -54,27 +54,35 @@ test("v1 migration preserves gameplay and rejects damaged or future saves", () =
   old.schemaVersion = 1;
   delete old.keyBindings;
   delete old.remainingSp;
+  delete old.remainingAp;
   delete old.skills;
   delete old.settings.chat;
   old.inventory.push({ id: 2000000, count: 7 });
   old.hp = 17;
   old.exp = 91;
   const migrated = migrateProfile(old);
-  const { schemaVersion, keyBindings, remainingSp, skills, ...gameplay } =
-    migrated;
+  const {
+    schemaVersion,
+    keyBindings,
+    remainingSp,
+    remainingAp,
+    skills,
+    ...gameplay
+  } = migrated;
   const { schemaVersion: oldVersion, ...oldGameplay } = old;
   expect(gameplay).toEqual({
     ...oldGameplay,
     settings: { ...oldGameplay.settings, chat: { state: 1, height: 70 } },
   });
-  expect(schemaVersion).toBe(3);
+  expect(schemaVersion).toBe(4);
   expect(remainingSp).toEqual(Array(10).fill(0));
+  expect(remainingAp).toBe(0);
   expect(skills).toEqual({});
   expect(oldVersion).toBe(1);
   expect(keyBindings.keys[18]).toEqual({ type: 4, id: 0 });
   old.hp = -1;
   expect(() => migrateProfile(old)).toThrow();
-  migrated.schemaVersion = 4;
+  migrated.schemaVersion = 5;
   expect(() => migrateProfile(migrated)).toThrow();
 });
 

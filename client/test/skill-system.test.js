@@ -203,3 +203,103 @@ test("destroying a preparing owner cancels publication of learned resources", as
   await expect(preparing).rejects.toHaveProperty("name", "AbortError");
   expect(system.activate(1001004).ok).toBe(false);
 });
+
+test("Evan early books spend their own SP while late books require existing mastery", async () => {
+  const extra = {
+    22121000: skill(22121000, { 1: {}, 2: {} }),
+    22171000: skill(22171000, { 1: {}, 2: {} }),
+    22181000: skill(22181000, { 1: {}, 2: {} }),
+  };
+  const { system, store } = fixture(extra);
+  store.profile.job = 2218;
+  store.profile.remainingSp[3] = 1;
+  store.profile.remainingSp[8] = 2;
+  store.profile.remainingSp[9] = 1;
+  expect((await system.learn(22121000)).ok).toBe(true);
+  expect(store.profile.remainingSp[3]).toBe(0);
+  const before = structuredClone(store.profile);
+  expect((await system.learn(22171000)).ok).toBe(false);
+  expect((await system.learn(22181000)).ok).toBe(false);
+  expect(store.profile).toEqual(before);
+  store.profile.skills[22171000] = {
+    level: 0,
+    masterLevel: 1,
+    expiresAt: null,
+  };
+  expect((await system.learn(22171000)).ok).toBe(true);
+  expect(store.profile.remainingSp[8]).toBe(1);
+  expect((await system.learn(22171000)).ok).toBe(false);
+  expect(store.profile.skills[22171000].level).toBe(1);
+  expect(store.profile.remainingSp[8]).toBe(1);
+  system.destroy();
+});
+
+test("beginner entitlement cannot be regained by changing job families", async () => {
+  const entry = skill(
+    20011000,
+    { 1: {}, 2: {}, 3: {} },
+    {
+      allocationCost: { kind: "beginner-entitlement", amount: 1 },
+    },
+  );
+  const { system, store } = fixture({ 20011000: entry });
+  store.profile.job = 2001;
+  store.profile.level = 7;
+  store.profile.skills[1000] = { level: 3, masterLevel: 3, expiresAt: null };
+  store.profile.skills[10001000] = {
+    level: 3,
+    masterLevel: 3,
+    expiresAt: null,
+  };
+  const before = structuredClone(store.profile);
+  expect((await system.learn(20011000)).ok).toBe(false);
+  expect(store.profile).toEqual(before);
+  system.destroy();
+});
+
+test("missing authored rank and expired prerequisites refuse allocation atomically", async () => {
+  const { system, store } = fixture({
+    1000000: skill(1000000, { 1: {}, 3: {} }),
+    1000001: skill(
+      1000001,
+      { 1: {} },
+      {
+        prerequisites: [{ skillId: 1000000, rank: 1 }],
+      },
+    ),
+  });
+  store.profile.skills[1000000] = { level: 1, masterLevel: 3, expiresAt: null };
+  const missing = structuredClone(store.profile);
+  expect((await system.learn(1000000)).ok).toBe(false);
+  expect(store.profile).toEqual(missing);
+  store.profile.skills[1000000].expiresAt = 1000;
+  const expired = structuredClone(store.profile);
+  expect((await system.learn(1000001)).ok).toBe(false);
+  expect(store.profile).toEqual(expired);
+  system.destroy();
+});
+
+test("ordinary allocation does not manufacture mastery or treat it as the rank cap", async () => {
+  const { system, store } = fixture({
+    1000000: skill(1000000, { 1: {}, 2: {}, 3: {} }),
+  });
+  expect((await system.learn(1000000)).ok).toBe(true);
+  expect((await system.learn(1000000)).ok).toBe(true);
+  expect(store.profile.skills[1000000]).toEqual({
+    level: 2,
+    masterLevel: 0,
+    expiresAt: null,
+  });
+  // A legacy save's explicit mastery survives; it still does not cap this book.
+  store.profile.skills[1000000].masterLevel = 2;
+  expect((await system.learn(1000000)).ok).toBe(true);
+  expect(store.profile.skills[1000000]).toEqual({
+    level: 3,
+    masterLevel: 2,
+    expiresAt: null,
+  });
+  const atCap = structuredClone(store.profile);
+  expect((await system.learn(1000000)).ok).toBe(false);
+  expect(store.profile).toEqual(atCap);
+  system.destroy();
+});

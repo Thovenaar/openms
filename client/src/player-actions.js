@@ -417,9 +417,9 @@ function isBindingKey(ui, event) {
 }
 
 /** Implement named UI controls through their existing owner methods, never arbitrary DOM clicks. */
-function dispatchUI(ui, name) {
+async function dispatchUI(ui, name) {
   if (name === "confirm") {
-    return outcome(ui.confirmDialog(), "confirmation-action");
+    return outcome(await ui.confirmDialog(), "confirmation-action");
   }
   if (name === "cancel") {
     const modal = ui.modal();
@@ -538,7 +538,7 @@ function assignQuickSlot(ui, panel, command) {
   if (!isAssignableKey(keyIndexForCode(command.code))) {
     return outcome(false, "quickslot-key-not-assignable");
   }
-  const previous = ui.bindings.active.quickSlots[command.slot];
+  const previous = ui.quickCaptureDraft[command.slot];
   ui.quickCapture = command.slot;
   panel.captureFooter = null;
   panel.captureControls[command.slot].element.focus();
@@ -548,7 +548,7 @@ function assignQuickSlot(ui, panel, command) {
   );
   captureQuickKey(ui, event);
   refreshQuickSlotConfig(panel);
-  const accepted = previous !== ui.bindings.active.quickSlots[command.slot];
+  const accepted = previous !== ui.quickCaptureDraft[command.slot];
   return outcome(
     accepted,
     accepted ? "quickslot-draft-updated" : "quickslot-rejected-or-unchanged",

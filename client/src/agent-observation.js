@@ -28,6 +28,7 @@ const PROFILE_FIELDS = [
   "maxHP",
   "mp",
   "maxMP",
+  "remainingAp",
   "str",
   "dex",
   "int",

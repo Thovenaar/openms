@@ -1,3 +1,6 @@
+import { DialogPortrait } from "./ui-dialog-portrait.js";
+import { renderDialogArtwork } from "./ui-dialog-art.js";
+
 const MAX_TEXT = 65536;
 const PAGE_SIZE = 24;
 const COLORS = {
@@ -70,21 +73,30 @@ export function renderQuestText(container, raw, quests, interactive = false) {
     appendStyled(target, text.slice(position, match.index), color, bold);
     const token = match[0];
     if (token.startsWith("#L")) {
-      target = element(interactive ? "button" : "span", "");
-      if (interactive) {
-        target.type = "button";
-        target.dataset.questChoice = token.slice(2, -1);
-        target.style.cssText =
-          "display:block;text-align:left;background:transparent;border:0;padding:3px;color:inherit;font:inherit;cursor:pointer;";
-      }
+      target = choiceElement(token, interactive);
       container.append(target);
     } else if (token === "#l") target = container;
     else if (COLORS[token.slice(1)]) color = COLORS[token.slice(1)];
     else if (token === "#e" || token === "#n") bold = token === "#e";
-    else appendStyled(target, tokenText(token, quests), color, bold);
+    else if (/^#[iv]\d+#$|^#[fF]UI\/UIWindow\.img\//.test(token)) {
+      const image = element("span", tokenText(token, quests));
+      image.dataset.questArt = token;
+      target.append(image);
+    } else appendStyled(target, tokenText(token, quests), color, bold);
     position = match.index + token.length;
   }
   appendStyled(target, text.slice(position), color, bold);
+}
+
+function choiceElement(token, interactive) {
+  const target = element(interactive ? "button" : "span", "");
+  if (interactive) {
+    target.type = "button";
+    target.dataset.questChoice = token.slice(2, -1);
+    target.style.cssText =
+      "display:block;text-align:left;background:transparent;border:0;padding:3px;color:inherit;font:inherit;cursor:pointer;";
+  }
+  return target;
 }
 
 function appendStyled(target, text, color, bold) {
@@ -147,8 +159,8 @@ function footer(panel) {
   const controls = {};
   for (const [key, asset, x, label] of [
     ["back", "BtPrev", 24, "Previous page or return to local quest list"],
-    ["next", "BtNext", 310, "Next original dialogue page"],
-    ["yes", "BtQYes", 270, "Accept original quest transaction"],
+    ["next", "BtNext", 292, "Next original dialogue page"],
+    ["yes", "BtQYes", 285, "Accept original quest transaction"],
     ["no", "BtQNo", 350, "Decline original quest offer"],
     ["ok", "BtOK", 350, "Acknowledge original quest dialogue"],
   ]) {
@@ -411,11 +423,26 @@ function accept(view) {
 
 function refresh(view) {
   if (view.destroyed) return;
+  view.artRequest?.abort();
   view.panel.content.replaceChildren();
   hideFooter(view.controls);
+  if (view.portrait) {
+    const speakerId = view.session?.say.npc ?? view.npcId;
+    view.portrait.show(
+      speakerId,
+      view.quests.catalog.strings.npc[speakerId] ?? view.npc?.name,
+    );
+  }
   if (view.journal && view.selected) renderJournal(view);
   else if (view.session) renderDialogue(view);
   else renderMenu(view);
+  const request = new AbortController();
+  view.artRequest = request;
+  renderDialogArtwork(view.panel, request.signal).catch((error) => {
+    if (!request.signal.aborted && !view.destroyed) {
+      view.panel.owner.report(error);
+    }
+  });
 }
 
 function handleClick(view, event) {
@@ -451,8 +478,14 @@ function mount(panel, quests, npc, journal) {
     error: null,
     controls: footer(panel),
     destroyed: false,
+    portrait: journal ? null : new DialogPortrait(panel),
+    artRequest: null,
   };
   panel.content.style.whiteSpace = "pre-wrap";
+  panel.content.style.overflowWrap = "anywhere";
+  panel.content.style.left = journal ? "24px" : "160px";
+  panel.content.style.width = journal ? "480px" : "344px";
+  panel.content.style.height = "116px";
   const click = (event) => handleClick(view, event);
   const change = (event) => {
     if (event.target.dataset.questReward && view.session) {
@@ -465,6 +498,10 @@ function mount(panel, quests, npc, journal) {
   refresh(view);
   const cleanup = () => {
     view.destroyed = true;
+    view.artRequest?.abort();
+    view.portrait?.destroy();
+    panel.content.style.left = "24px";
+    panel.content.style.width = "480px";
     panel.content.removeEventListener("click", click);
     panel.content.removeEventListener("change", change);
     hideFooter(view.controls);
