@@ -47,7 +47,7 @@ Separate these claims:
 The current command uses real mouse/keyboard input for movement and map selection:
 
 - Cold-load Henesys with the recorded empty-cache page-target network emulation. Service-worker-originated fetches are not throttled by that CDP target; do not call this a fully shaped connection.
-- Click empty canvas near its edge, hold Right, press/release Space, and observe displacement, rising motion, landing and artwork/pose agreement. The initial center can legitimately hit Regular Cab during entry and open a modal; that is not failed keyboard focus.
+- Click empty canvas near its edge, hold Right, press/release the original default Alt Jump binding, and observe displacement, rising motion, landing and artwork/pose agreement. The initial center can legitimately hit Regular Cab during entry and open a modal; that is not failed keyboard focus.
 - Run a screenshot-free live movement interval with bounded frame/long-task probes.
 - Select requested browser maps through the real map control, retain the previous scene while loading, exercise movement/jump and capture the commit. `--maps` limits these browser selections; the report records the actual coverage.
 - Select each original hitbox preview through the real debug controls. These are

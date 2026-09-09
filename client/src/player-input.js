@@ -1,87 +1,136 @@
-const KEY_ACTIONS = Object.freeze({
-  ArrowLeft: "left",
-  KeyA: "left",
-  ArrowRight: "right",
-  KeyD: "right",
-  ArrowUp: "up",
-  KeyW: "up",
-  ArrowDown: "down",
-  KeyS: "down",
-  Space: "jump",
-  KeyX: "attack",
-  ControlLeft: "attack",
-  ControlRight: "attack",
-});
-const KEYS = Object.freeze(Object.keys(KEY_ACTIONS));
-
-function recompute(input, held) {
-  input.left = false;
-  input.right = false;
-  input.up = false;
-  input.down = false;
-  input.jump = false;
-  input.attack = false;
-  for (let index = 0; index < KEYS.length; index++) {
-    if (held[index]) input[KEY_ACTIONS[KEYS[index]]] = true;
-  }
-}
+import {
+  createDefaultBindings,
+  heldActionForCode,
+  PHYSICAL_CODES,
+} from "./keymap.js";
 
 /** Native pointer focus restores the canvas after browser controls. */
 function focusCanvas(event) {
   event.currentTarget.focus({ preventScroll: true });
 }
 
-/** Real keyboard state is preallocated; aliases remain held until both keys release. */
-export function createPlayerInput(canvas) {
-  const input = {
-    left: false,
-    right: false,
-    up: false,
-    down: false,
-    jump: false,
-    attack: false,
-    jumpPressed: false,
-    upPressed: false,
+function recompute(context) {
+  const input = context.input;
+  input.left = false;
+  input.right = false;
+  input.up = false;
+  input.down = false;
+  input.jump = context.tappedJump;
+  input.attack = context.tappedAttack;
+  for (let index = 0; index < PHYSICAL_CODES.length; index++) {
+    if (!context.held[index]) continue;
+    const action = actionForCode(context, PHYSICAL_CODES[index]);
+    if (action) input[action] = true;
+  }
+}
+
+function actionForCode(context, code) {
+  return context.bindings
+    ? context.bindings.actionForCode(code)
+    : heldActionForCode(code, context.defaults);
+}
+
+function press(context, event) {
+  if (event.defaultPrevented) return;
+  const index = PHYSICAL_CODES.indexOf(event.code);
+  if (index < 0) return;
+  const action = actionForCode(context, event.code);
+  if (!action) return;
+  event.preventDefault();
+  if (event.repeat && !context.held[index]) return;
+  if (!context.held[index] && !context.input[action]) {
+    if (action === "jump") context.input.jumpPressed = true;
+    if (action === "up") context.input.upPressed = true;
+  }
+  context.held[index] = 1;
+  recompute(context);
+}
+
+function createInputContext() {
+  return {
+    input: {
+      left: false,
+      right: false,
+      up: false,
+      down: false,
+      jump: false,
+      attack: false,
+      jumpPressed: false,
+      upPressed: false,
+    },
+    held: new Uint8Array(PHYSICAL_CODES.length),
+    defaults: createDefaultBindings(),
+    bindings: null,
+    unsubscribe: null,
+    tappedJump: false,
+    tappedAttack: false,
   };
-  const held = new Uint8Array(KEYS.length);
+}
+
+/** Preallocated physical holds preserve modifier aliases until both sides release. */
+export function createPlayerInput(canvas) {
+  const context = createInputContext();
   function keydown(event) {
-    if (event.defaultPrevented) return;
-    const index = KEYS.indexOf(event.code);
-    if (index < 0) return;
-    event.preventDefault();
-    if (event.repeat && !held[index]) return;
-    const action = KEY_ACTIONS[event.code];
-    if (!held[index] && !input[action]) {
-      if (action === "jump") input.jumpPressed = true;
-      if (action === "up") input.upPressed = true;
-    }
-    held[index] = 1;
-    recompute(input, held);
+    press(context, event);
   }
   function keyup(event) {
-    const index = KEYS.indexOf(event.code);
+    const index = PHYSICAL_CODES.indexOf(event.code);
     if (index < 0) return;
-    held[index] = 0;
-    recompute(input, held);
+    context.held[index] = 0;
+    recompute(context);
   }
   function clear() {
-    held.fill(0);
-    recompute(input, held);
-    input.jumpPressed = false;
-    input.upPressed = false;
+    context.held.fill(0);
+    context.tappedJump = false;
+    context.tappedAttack = false;
+    recompute(context);
+    context.input.jumpPressed = false;
+    context.input.upPressed = false;
   }
-  canvas.addEventListener("keydown", keydown);
-  window.addEventListener("keyup", keyup);
-  window.addEventListener("blur", clear);
-  canvas.addEventListener("blur", clear);
-  canvas.addEventListener("pointerdown", focusCanvas);
-  function destroy() {
-    canvas.removeEventListener("keydown", keydown);
-    window.removeEventListener("keyup", keyup);
-    window.removeEventListener("blur", clear);
-    canvas.removeEventListener("blur", clear);
-    canvas.removeEventListener("pointerdown", focusCanvas);
+  function setBindings(service) {
+    context.unsubscribe?.();
+    context.bindings = service;
+    context.unsubscribe = service ? service.subscribe(clear) : null;
     clear();
   }
-  return { state: input, clear, destroy };
+  function tap(action) {
+    if (action === "jump") {
+      context.tappedJump = true;
+      context.input.jumpPressed = true;
+    } else if (action === "attack") context.tappedAttack = true;
+    else throw new TypeError("Only jump and attack have gameplay taps.");
+    recompute(context);
+  }
+  function afterTick() {
+    context.input.jumpPressed = false;
+    context.input.upPressed = false;
+    if (!context.tappedJump && !context.tappedAttack) return;
+    context.tappedJump = false;
+    context.tappedAttack = false;
+    recompute(context);
+  }
+  function destroy() {
+    attachInput(canvas, handlers, false);
+    context.unsubscribe?.();
+    clear();
+  }
+  const handlers = { keydown, keyup, clear };
+  attachInput(canvas, handlers, true);
+  return { state: context.input, clear, setBindings, tap, afterTick, destroy };
+}
+
+function attachInput(canvas, handlers, attach) {
+  if (attach) {
+    canvas.addEventListener("keydown", handlers.keydown);
+    window.addEventListener("keyup", handlers.keyup);
+    window.addEventListener("blur", handlers.clear);
+    canvas.addEventListener("blur", handlers.clear);
+    canvas.addEventListener("pointerdown", focusCanvas);
+  } else {
+    canvas.removeEventListener("keydown", handlers.keydown);
+    window.removeEventListener("keyup", handlers.keyup);
+    window.removeEventListener("blur", handlers.clear);
+    canvas.removeEventListener("blur", handlers.clear);
+    canvas.removeEventListener("pointerdown", focusCanvas);
+  }
 }

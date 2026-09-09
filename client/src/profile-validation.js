@@ -1,7 +1,8 @@
 import { PROGRESSION_POLICY } from "./offline-progression.js";
+import { createDefaultBindings, isAssignableKey } from "./keymap.js";
 
 /** Versioned browser save format; limits are local engineering policies, not native rules. */
-export const PROFILE_VERSION = 1;
+export const PROFILE_VERSION = 2;
 export const PROFILE_LIMITS = Object.freeze({
   inventory: 4096,
   equipment: 128,
@@ -33,6 +34,7 @@ const PROFILE_KEYS = [
   "quests",
   "location",
   "settings",
+  "keyBindings",
 ];
 
 /** Errors retain a stable code for native UI and inspection consumers. */
@@ -172,6 +174,57 @@ function settings(value) {
   }
 }
 
+/** Preserve the packed byte/uint32 contract, including assigned type4/ID0. */
+export function validateKeyBindings(value) {
+  keys(value, ["keys", "quickSlots"], "key bindings");
+  if (!Array.isArray(value.keys) || value.keys.length !== 89) {
+    invalid("functional keys");
+  }
+  for (const binding of value.keys) {
+    keys(binding, ["type", "id"], "functional key");
+    integer(binding.type, 0, "functional key type");
+    integer(binding.id, 0, "functional key id");
+    if (binding.type > 8 || binding.id > 0xffffffff) {
+      invalid("packed functional key");
+    }
+  }
+  validateQuickSlots(value.quickSlots);
+  return value;
+}
+
+function validateQuickSlots(quickSlots) {
+  if (!Array.isArray(quickSlots) || quickSlots.length !== 8) {
+    invalid("quick slots");
+  }
+  const seen = new Set();
+  for (const index of quickSlots) {
+    integer(index, 0, "quick slot key");
+    if (
+      index > 88 ||
+      index === 54 ||
+      !isAssignableKey(index) ||
+      seen.has(index)
+    ) {
+      invalid("quick slot key");
+    }
+    seen.add(index);
+  }
+}
+
+/** Validate the entire old schema before the sole explicit v1 -> v2 migration. */
+export function migrateProfile(value) {
+  object(value, "root");
+  if (value.schemaVersion !== 1) return validateProfile(value);
+  keys(value, PROFILE_KEYS.slice(0, -1), "version 1 root");
+  const migrated = {
+    ...value,
+    schemaVersion: PROFILE_VERSION,
+    keyBindings: createDefaultBindings(),
+  };
+  validateProfile(migrated);
+  return structuredClone(migrated);
+}
+
 /** Validate all durable fields before accepting or cloning a checkpoint. */
 export function validateProfile(value) {
   object(value, "root");
@@ -182,7 +235,7 @@ export function validateProfile(value) {
         : "migration-required";
     throw profileError(
       code,
-      `Saved profile schema ${String(value.schemaVersion)} cannot be loaded by schema ${PROFILE_VERSION}; no migration is available. Reset must be explicit.`,
+      `Saved profile schema ${String(value.schemaVersion)} cannot be loaded as schema ${PROFILE_VERSION}; migration or an explicit reset is required.`,
     );
   }
   keys(value, PROFILE_KEYS, "root");
@@ -211,6 +264,7 @@ export function validateProfile(value) {
   quests(value.quests);
   validateProfileLocation(value.location);
   settings(value.settings);
+  validateKeyBindings(value.keyBindings);
   return value;
 }
 
@@ -266,6 +320,7 @@ export function createProfile(location) {
     equipment: [1040002, 1060002, 1072001, 1302000],
     quests: {},
     location: { ...location },
+    keyBindings: createDefaultBindings(),
     settings: {
       BGM: { volume: 64, mute: false },
       SE: { volume: 64, mute: false },

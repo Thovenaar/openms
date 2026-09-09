@@ -1,9 +1,7 @@
-import { Container, Graphics, Sprite, Text, Texture } from "pixi.js";
+import { Container, Graphics, Sprite, Texture } from "pixi.js";
 import { createHitboxState, updateHitboxes } from "./physics/hitboxes.js";
 
 // Inspection policies, not original physics constants.
-const LABEL_CAPACITY = 80;
-const LABEL_CANDIDATE_CAPACITY = LABEL_CAPACITY * 8;
 const READOUT_INTERVAL_MS = 200;
 const VELOCITY_SCALE = 0.2;
 const SHAPE_NAMES = ["body", "attack", "damage"];
@@ -47,26 +45,6 @@ function placeRectangle(edges, shape) {
   edges[3].height = height;
 }
 
-/** @param {Container} parent */
-function makeLabels(parent) {
-  const labels = [];
-  for (let index = 0; index < LABEL_CAPACITY; index++) {
-    const label = new Text({
-      text: "",
-      style: {
-        fontFamily: "monospace",
-        fontSize: 10,
-        fill: 0xffffff,
-        stroke: { color: 0x001a08, width: 2 },
-      },
-    });
-    label.visible = false;
-    parent.addChild(label);
-    labels.push(label);
-  }
-  return labels;
-}
-
 /** @param {object} overlay @param {object} scene */
 function drawFootholds(overlay, scene) {
   const geometry = scene.manifest.physics;
@@ -84,91 +62,14 @@ function drawFootholds(overlay, scene) {
   overlay.manifest = scene.manifest;
 }
 
-/** @param {object} foothold @param {object} scene @param {object} screen */
-function inView(foothold, scene, screen) {
-  const left = scene.camera.x;
-  const top = scene.camera.y;
-  return (
-    Math.max(foothold.x1, foothold.x2) >= left &&
-    Math.min(foothold.x1, foothold.x2) <= left + screen.width &&
-    Math.max(foothold.y1, foothold.y2) >= top &&
-    Math.min(foothold.y1, foothold.y2) <= top + screen.height
-  );
-}
-
-/** Reject overlapping label rectangles in world coordinates; camera translation is shared. */
-function overlapsLabel(label, labels, count) {
-  const right = label.x + label.width + 4;
-  const bottom = label.y + label.height + 3;
-  for (let index = 0; index < count; index++) {
-    const previous = labels[index];
-    if (
-      label.x < previous.x + previous.width + 4 &&
-      right > previous.x &&
-      label.y < previous.y + previous.height + 3 &&
-      bottom > previous.y
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/** At most three rows per candidate; text measurement stays in the inspection sampler. */
-function placeLabel(overlay, foothold, count) {
-  const label = overlay.labels[count];
-  label.text = `${foothold.id} prev=${foothold.prevId} next=${foothold.nextId}`;
-  label.x = (foothold.x1 + foothold.x2) / 2;
-  const y = (foothold.y1 + foothold.y2) / 2 - label.height - 3;
-  for (let row = 0; row < 3; row++) {
-    label.y = y - row * (label.height + 3);
-    if (overlapsLabel(label, overlay.labels, count)) continue;
-    label.visible = true;
-    return true;
-  }
-  label.visible = false;
-  return false;
-}
-
-/** Label strings change only in the bounded inspection sampler, not physics ticks. */
-function updateLabels(overlay, scene) {
-  let visible = 0;
-  let omitted = 0;
-  let considered = 0;
-  const current = scene.simulation.foothold;
-  if (current && inView(current, scene, overlay.app.screen)) {
-    placeLabel(overlay, current, visible++);
-  }
-  for (const foothold of scene.simulation.geometry.segments) {
-    if (foothold === current || !inView(foothold, scene, overlay.app.screen)) {
-      continue;
-    }
-    if (visible === LABEL_CAPACITY || considered >= LABEL_CANDIDATE_CAPACITY) {
-      omitted++;
-      continue;
-    }
-    considered++;
-    if (!placeLabel(overlay, foothold, visible)) {
-      omitted++;
-      continue;
-    }
-    visible++;
-  }
-  for (let index = visible; index < LABEL_CAPACITY; index++) {
-    overlay.labels[index].visible = false;
-  }
-  return omitted;
-}
-
 /** @param {object} overlay @param {object} scene */
 function updateReadout(overlay, scene) {
-  const omitted = updateLabels(overlay, scene);
   const sim = scene.simulation;
   overlay.readout.textContent = [
-    `state=${sim.state} action=${sim.action} foothold=${sim.footholdId} ladder=${sim.ladderId}`,
+    `state=${sim.state} action=${sim.action} foothold=${sim.footholdId} prev=${sim.foothold?.prevId ?? "none"} next=${sim.foothold?.nextId ?? "none"} ladder=${sim.ladderId}`,
     `position=${sim.x.toFixed(3)},${sim.y.toFixed(3)} velocity=${sim.vx.toFixed(3)},${sim.vy.toFixed(3)} px/s`,
-    `body=cyan attack=amber damage=pink; white cross=feet; green=footholds; labels omitted=${omitted}`,
-    `blocked=${JSON.stringify(sim.blocked)} combat activation=unknown; geometry unresolved=${overlay.shapes.unknown}`,
+    "body=cyan attack=amber damage=pink; white cross=feet; green=footholds",
+    `blocked=${JSON.stringify(sim.blocked)} original attack activation=unverified; geometry unresolved=${overlay.shapes.unknown}`,
     `effective physics=${JSON.stringify(sim.effectiveSettings)}`,
   ].join("\n");
 }
@@ -235,20 +136,20 @@ function updateOverlay(overlay, scene, enabled) {
   updateShapes(overlay, scene);
 }
 
-/** Reusable world-space geometry and bounded labels; no guessed sprite hitboxes.
+/** World-space geometry and side-panel diagnostic text; no guessed sprite hitboxes.
  * @param {import('pixi.js').Application} app initialized WebGL application
+ * @param {HTMLElement} inspectionHost side-panel diagnostic destination
  */
-export function createDebugOverlay(app) {
+export function createDebugOverlay(app, inspectionHost) {
   const container = new Container({ label: "physics-debug", zIndex: 1000000 });
   const lines = new Graphics();
   container.addChild(lines);
   const readout = document.createElement("pre");
   readout.className = "physics-debug-readout";
   readout.hidden = true;
-  app.canvas.parentElement.appendChild(readout);
+  inspectionHost.appendChild(readout);
   app.stage.addChild(container);
   const overlay = {
-    app,
     container,
     lines,
     readout,
@@ -257,7 +158,6 @@ export function createDebugOverlay(app) {
     shapes: createHitboxState(),
     context: { action: "", frame: 0, elapsedMs: 0, attacking: false },
     rectangles: SHAPE_COLORS.map((color) => rectangleSprites(container, color)),
-    labels: makeLabels(container),
     velocity: lineSprite(container, 0xffffff),
     contact: contactSprites(container),
   };

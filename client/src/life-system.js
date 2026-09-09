@@ -407,7 +407,7 @@ function createLabel(template) {
 }
 
 function nameplate(template) {
-  const label = template.name ?? template.originalId;
+  const label = template.name ?? "";
   return template.function ? `${label}\n${template.function}` : label;
 }
 

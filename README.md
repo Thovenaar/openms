@@ -14,7 +14,7 @@ bun run extract
 bun run dev
 ```
 
-Open **http://127.0.0.1:3100**. Click empty map space: arrows move/climb, Space jumps, Down+Space drops through eligible footholds, Up enters supported portals, and X/Control attacks. I/E/S/K open UI windows; M opens the minimap. Enable audio with its explicit gesture button. Use **Download complete release**, then **Use installed release and reload** before relying on offline launch. [Controls and boundaries](docs/README.md) distinguish recovered behavior from local policy.
+Open **http://127.0.0.1:3100**. Click empty map space: arrows move/climb, Alt jumps, Down+Alt drops through eligible footholds, Up enters supported portals, and Control attacks. I/E/S/K open graphical windows; C opens KeyConfig, H the minimap, Q the journal and Enter chat. Actions follow the active key configuration; unsupported original actions remain explicit. Enable audio with its gesture button. Use **Download complete release**, then **Use installed release and reload** before relying on offline launch. [Controls and boundaries](docs/README.md) distinguish recovered behavior from local policy.
 
 ## Project
 

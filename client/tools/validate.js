@@ -200,12 +200,12 @@ async function movement() {
     after.simulation.x > before.simulation.x,
     { before: before.simulation, after: after.simulation },
   );
-  await page.keyboard.down("Space");
+  await page.keyboard.down("Alt");
   await delay(90);
   const rising = await snapshot();
-  await page.keyboard.up("Space");
+  await page.keyboard.up("Alt");
   check(
-    "Real Space input produces upward jump",
+    "Original Alt binding produces upward jump",
     rising.simulation.vy < 0 && rising.simulation.y < after.simulation.y,
     { rising: rising.simulation },
   );
@@ -274,7 +274,7 @@ async function transition(id) {
   );
   await focusCanvas();
   await hold("ArrowRight", 300);
-  await hold("Space", 80);
+  await hold("Alt", 80);
   await delay(350);
   const captured = await capture(`map-${id}`, true);
   check(
@@ -284,6 +284,11 @@ async function transition(id) {
   );
 }
 async function geometryPreviews() {
+  const closed = await page.$eval(
+    "#scene-inspection",
+    (element) => !element.open,
+  );
+  if (closed) await page.click("#scene-inspection > summary");
   await page.click("#debug");
   await page.waitForFunction(
     () => !document.querySelector("#hitbox-reference").disabled,

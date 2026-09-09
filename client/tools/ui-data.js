@@ -1,4 +1,5 @@
 import { at, resolveNode, value } from "../src/assets/image.js";
+import { extractItemSkillUI } from "./ui-item-data.js";
 
 const MAX_UI_NODES = 16000;
 const MAX_UI_DEPTH = 64;
@@ -18,12 +19,6 @@ const BRANCHES = [
   "ToolTip",
   "GameOpt",
   "SysOpt",
-];
-const EQUIPMENT = [
-  ["Coat", "01040002"],
-  ["Pants", "01060002"],
-  ["Shoes", "01072001"],
-  ["Weapon", "01302000"],
 ];
 
 /** Each canvas is a static presentation entity. Delay=1 is a storage sentinel, never an original animation default. */
@@ -62,7 +57,8 @@ async function branchBundle(context, imageName, branch, extras = []) {
     stack.push({ node: at(root, extra), path: extra, depth: 0 });
   }
   const entities = [],
-    assets = Object.create(null);
+    assets = Object.create(null),
+    aliases = Object.create(null);
   let visited = 0;
   while (stack.length) {
     if (++visited > MAX_UI_NODES) {
@@ -72,6 +68,7 @@ async function branchBundle(context, imageName, branch, extras = []) {
     if (item.depth > MAX_UI_DEPTH) {
       throw new Error(`UI branch exceeds depth budget: ${item.path}`);
     }
+    if (item.node.type === "UOL") aliases[item.path] = item.node.value;
     const node = resolveNode(item.node);
     if (node.type === "Canvas") {
       const record = await canvasRecord(
@@ -92,64 +89,49 @@ async function branchBundle(context, imageName, branch, extras = []) {
       });
     }
   }
+  return publishBranch(context, {
+    imageName,
+    branch,
+    assets,
+    aliases,
+    entities,
+  });
+}
+
+function publishBranch(
+  context,
+  { imageName, branch, assets, aliases, entities },
+) {
   const metadata = {
     source: `UI.wz:${imageName}${branch ? `/${branch}` : ""}`,
     assets,
+    aliases,
     timing:
       "Static canvases; absent frame timing unsupported. Explicit authored delays retained in assets.",
   };
-  const descriptor = await context.bundle({
+  if (imageName === "Basic.img" && branch === "Cursor") {
+    metadata.states = cursorStates(assets);
+  }
+  return context.bundle({
     id: `ui:${imageName}:${branch || "root"}`,
     entities,
     metadata,
   });
-  return descriptor;
 }
 
-/** Static reconstruction avatar selection, not a server equipment inventory. */
-async function equipmentBundle(context) {
-  const strings = await context.image("String", "Eqp.img");
-  const entities = [],
-    equipment = [],
-    assets = Object.create(null);
-  for (const [category, id] of EQUIPMENT) {
-    const image = await context.image("Character", `${category}/${id}.img`);
-    const info = at(image, "info");
-    const record = await canvasRecord(
-      context,
-      at(info, "icon"),
-      `equipment:${id}`,
-      entities.length,
-    );
-    entities.push(record.entity);
-    assets[record.asset.id] = record.asset;
-    const fields = Object.create(null);
-    for (const [key, child] of Object.entries(info.children)) {
-      if (
-        /^(req|inc|tuc$|price$|cash$)/.test(key) &&
-        ["number", "string"].includes(typeof child.value)
-      ) {
-        fields[key] = child.value;
-      }
-    }
-    equipment.push({
-      id,
-      category,
-      name: value(at(strings, `Eqp/${category}/${Number(id)}`), "name", id),
-      asset: record.asset,
-      fields,
-    });
+/** Cursor state frames retain sparse numeric IDs and aliases; the UI owner supplies the animation clock. */
+function cursorStates(assets) {
+  const states = Object.create(null);
+  for (const path of Object.keys(assets)) {
+    const parts = path.split("/");
+    const state = parts[1];
+    if (!states[state]) states[state] = [];
+    states[state].push(path);
   }
-  return context.bundle({
-    id: "ui:reconstruction-equipment",
-    entities,
-    metadata: {
-      equipment,
-      assets,
-      authority:
-        "Exact static reconstruction avatar artwork selection; not live inventory or instance statistics.",
-    },
-  });
+  for (const frames of Object.values(states)) {
+    frames.sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+  }
+  return states;
 }
 
 /** Original per-map minimap canvas and scalar coordinate metadata, independently demand-loaded. */
@@ -190,7 +172,12 @@ async function minimapBundle(context, mapId) {
 
 /** Full original item-name table; labels do not confer possession, use rules or instance statistics. */
 async function itemLabels(context) {
-  const state = { labels: Object.create(null), visited: 0, items: 0 };
+  const state = {
+    labels: Object.create(null),
+    details: Object.create(null),
+    visited: 0,
+    items: 0,
+  };
   for (const imageName of [
     "Eqp.img",
     "Consume.img",
@@ -199,14 +186,14 @@ async function itemLabels(context) {
     "Cash.img",
   ]) {
     const root = await context.image("String", imageName);
-    collectItemLabels(root, state);
+    collectItemLabels(root, state, imageName);
   }
-  return state.labels;
+  return state;
 }
 
 /** One image traversal shares cumulative limits across the complete original name table. */
-function collectItemLabels(root, state) {
-  const stack = [{ node: root, key: "", depth: 0 }];
+function collectItemLabels(root, state, imageName) {
+  const stack = [{ node: root, key: "", path: "", depth: 0 }];
   while (stack.length) {
     if (++state.visited > MAX_ITEM_NAME_NODES) {
       throw new Error("UI item-name node budget exceeded");
@@ -217,16 +204,26 @@ function collectItemLabels(root, state) {
     }
     const node = resolveNode(entry.node);
     if (/^\d{7,8}$/.test(entry.key) && node.children?.name) {
-      recordItemLabel(state, entry.key, node);
+      recordItemLabel(
+        state,
+        entry.key,
+        node,
+        `String.wz:${imageName}/${entry.path}`,
+      );
       continue;
     }
     for (const [key, child] of Object.entries(node.children || {})) {
-      stack.push({ node: child, key, depth: entry.depth + 1 });
+      stack.push({
+        node: child,
+        key,
+        path: entry.path ? `${entry.path}/${key}` : key,
+        depth: entry.depth + 1,
+      });
     }
   }
 }
 
-function recordItemLabel(state, key, node) {
+function recordItemLabel(state, key, node, source) {
   const id = Number(key),
     name = value(node, "name", null);
   if (typeof name !== "string" || name.length > 4096) {
@@ -239,6 +236,11 @@ function recordItemLabel(state, key, node) {
     throw new Error(`Conflicting item name ${id}`);
   }
   state.labels[id] = name;
+  const description = value(node, "desc", "") ?? "";
+  if (typeof description !== "string") {
+    throw new Error(`Invalid original item description ${key}`);
+  }
+  state.details[id] = { name, description, source };
 }
 
 /** Immutable catalog.ui schema v1. Bundles load only when the corresponding window is opened. */
@@ -248,11 +250,18 @@ export async function extractGameUI(context) {
   bundles.Basic = await branchBundle(context, "Basic.img", "BtClose", [
     "BtCancel2",
     "Tab2",
+    "BtMin",
+    "BtMax",
+    "BtOK",
+    "BtYes",
+    "BtNo",
+    "ItemNo",
+    "LevelNo",
   ]);
+  bundles.Cursor = await branchBundle(context, "Basic.img", "Cursor");
   for (const branch of BRANCHES) {
     bundles[branch] = await branchBundle(context, "UIWindow.img", branch);
   }
-  bundles.EquipmentPreview = await equipmentBundle(context);
   const minimaps = Object.create(null);
   if (!Array.isArray(context.mapIds) || context.mapIds.length > MAX_UI_MAPS) {
     throw new Error("UI extraction requires bounded selected map IDs");
@@ -269,12 +278,21 @@ export async function extractGameUI(context) {
       description: value(node, "Desc", ""),
     };
   }
+  const strings = await itemLabels(context);
+  const templates = await extractItemSkillUI(
+    context,
+    strings.details,
+    canvasRecord,
+  );
   return {
     schemaVersion: 1,
     bundles,
     minimaps,
     help,
-    itemLabels: await itemLabels(context),
+    itemLabels: strings.labels,
+    items: templates.items,
+    skills: templates.skills,
+    coverage: templates.coverage,
     authority:
       "Original raster artwork and recovered anchors; live values and controls are explicitly provisional local-profile presentation, not original server authority.",
     evidence: "docs/ingame-ui.md",

@@ -81,6 +81,7 @@ function entityById(id) {
 function advancePlayerTick(ms) {
   const scene = current;
   scene.fieldSystems.step(ms, input.state);
+  input.afterTick();
   scene.simulation.movementLocked =
     scene.fieldSystems.gameplay.blocksMovement ||
     scene.fieldSystems.portals.blocksMovement;
@@ -291,7 +292,7 @@ async function initialize() {
   app.canvas.tabIndex = 0;
   app.canvas.setAttribute(
     "aria-label",
-    "Playable original asset map. Arrows move and climb; hold Space to jump; Control attacks; Up enters portals; I E S K open UI windows.",
+    "Playable original asset map. Arrows move and climb. Other actions follow your KeyConfig. Enter opens chat.",
   );
   viewport.prepend(app.canvas);
   services.atlases = new AtlasStore(app.renderer, network);
@@ -299,6 +300,11 @@ async function initialize() {
   inGame = new InGameSystems(app, services, {
     clearInput: input.clear,
     focusGame: () => app.canvas.focus(),
+    tap: input.tap,
+    isBlocked: () => loading || destroyed,
+    onStatus: (message) => {
+      document.querySelector("#ui-status").textContent = message;
+    },
     onError: showError,
     travel: travelPortal,
     onReset: reloadAfterReset,
@@ -306,7 +312,10 @@ async function initialize() {
     onRecover: input.clear,
   });
   controls = createControls(api);
-  overlay = createDebugOverlay(app);
+  overlay = createDebugOverlay(
+    app,
+    document.querySelector("#scene-inspection"),
+  );
   observer = new ResizeObserver(resize);
   observer.observe(viewport);
   resize();
@@ -488,6 +497,7 @@ async function resolveMapId(id, refreshCatalog, signal) {
     }
     requireProfile();
     await inGame.prepare(catalog, signal, profileStore);
+    input.setBindings(inGame.bindings);
   }
   check(signal);
   return id || current?.manifest.id || profileStore.profile.location.mapId;

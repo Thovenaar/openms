@@ -1,7 +1,9 @@
 import {
   createProfile,
+  migrateProfile,
   profileError,
   validateProfile,
+  validateKeyBindings,
   validateProfileRecord,
 } from "./profile-validation.js";
 
@@ -220,6 +222,7 @@ export class ProfileStore {
     this._timer = null;
     this._flushPromise = null;
     this._resetPromise = null;
+    this._bindingPromise = null;
     this._closePromise = null;
     this._flushTarget = 0;
     this._listeners = new Set();
@@ -250,7 +253,15 @@ export class ProfileStore {
       this._database.onversionchange = this._onVersionChange;
       this._database.onclose = this._onDatabaseClose;
       const record = await transactProfile(this._database, (current) => {
-        if (current !== undefined) return current;
+        if (current !== undefined) {
+          this.revision = revisionOf(current);
+          this._generation = generationOf(current);
+          const profile = migrateProfile(current.profile);
+          validateProfileRecord({ ...current, profile });
+          return profile === current.profile
+            ? current
+            : nextRecord(profile, current);
+        }
         return nextRecord(createProfile(this._bootstrap), undefined);
       });
       this.revision = revisionOf(record);
@@ -328,6 +339,60 @@ export class ProfileStore {
     }
   }
 
+  /** Commit only the binding domain; failed IDB writes never publish a draft to gameplay saves. */
+  commitKeyBindings(value) {
+    if (
+      this._bindingPromise ||
+      this._resetPromise ||
+      this._closing ||
+      this._destroyed
+    ) {
+      return Promise.reject(
+        profileError("save-busy", "Offline save is busy or closed."),
+      );
+    }
+    validateKeyBindings(value);
+    const bindings = structuredClone(value);
+    const priorFlush = this._flushPromise;
+    this._clearTimer();
+    this._bindingPromise = this._commitKeyBindings(bindings, priorFlush);
+    return this._bindingPromise;
+  }
+
+  async _commitKeyBindings(bindings, priorFlush) {
+    await Promise.resolve();
+    try {
+      if (priorFlush) await priorFlush;
+      this._requireDatabase();
+      const epoch = this.dirtyEpoch;
+      const profile = structuredClone(this._profile);
+      profile.keyBindings = bindings;
+      validateProfile(profile);
+      const expected = {
+        revision: this.revision,
+        generation: this._generation,
+      };
+      this.status = "saving";
+      this._notify();
+      const record = await transactProfile(this._database, (current) => {
+        compareRevision(current, expected);
+        validateProfileRecord(current);
+        return nextRecord(profile, current);
+      });
+      this._profile.keyBindings = bindings;
+      this.revision = record.revision;
+      this.savedEpoch = epoch;
+      this.error = null;
+      this._publish();
+      return this._saved();
+    } catch (error) {
+      throw this._fail(error);
+    } finally {
+      this._bindingPromise = null;
+      this._schedule();
+    }
+  }
+
   /** Coalesced 250-ms browser checkpoint policy; no validation or cloning in the physics tick. */
   markDirty() {
     if (this._destroyed || this._closing) {
@@ -359,6 +424,7 @@ export class ProfileStore {
     if (
       this._timer !== null ||
       this.error ||
+      this._bindingPromise ||
       this._resetPromise ||
       this._closing ||
       this._destroyed
@@ -410,7 +476,7 @@ export class ProfileStore {
     }
     this._flushTarget = this.dirtyEpoch;
     if (this._flushPromise) return this._flushPromise;
-    if (this.savedEpoch === this._flushTarget) {
+    if (this.savedEpoch === this._flushTarget && !this._bindingPromise) {
       return this.error
         ? Promise.reject(this.error)
         : Promise.resolve(this.snapshot());
@@ -420,9 +486,11 @@ export class ProfileStore {
   }
 
   async _flushAll() {
+    const pendingBinding = this._bindingPromise;
     // Yield once so the shared promise exists before notifications or synchronous failures.
     await Promise.resolve();
     try {
+      if (pendingBinding) await pendingBinding;
       for (let pass = 0; pass < MAX_FLUSH_PASSES; pass++) {
         this._requireDatabase();
         const epoch = this.dirtyEpoch;
@@ -514,6 +582,7 @@ export class ProfileStore {
   async _reset() {
     await Promise.resolve();
     try {
+      if (this._bindingPromise) await this._bindingPromise;
       if (this._flushPromise) {
         try {
           await this._flushPromise;

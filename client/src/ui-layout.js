@@ -1,9 +1,11 @@
+import { layoutGauges } from "./ui-hud.js";
+import { layoutKeys } from "./ui-keyconfig.js";
 /** First original status-bar control row; windows must leave it unobstructed. */
 export const HUD_TOP = 515;
 
 // Recovered 008d2fc3..008d36ab control-create calls, reference screen coordinates (800 x 600).
 const HUD_BUTTONS = [
-  ["BtClaim", 573, HUD_TOP, "Claim"],
+  ["BtClaim", 573, HUD_TOP, "Alert GM"],
   ["EquipKey", 618, HUD_TOP, "Equip"],
   ["InvenKey", 648, HUD_TOP, "Item"],
   ["StatKey", 678, HUD_TOP, "Stat"],
@@ -34,57 +36,27 @@ const MENUS = {
   ],
 };
 
-/** Original raster HUD anchors with explicitly local native profile text and controls. */
+/** Original 008d01b2 status controls and 008d850b gauge composition. */
 export function layoutHud(panel, index) {
   panel.element.style.pointerEvents = "none";
   panel.image("base/backgrnd", 0, 529);
-  panel.profileText = panel.text("", 8, 564, {
-    width: 545,
-    className: "maple-ui-status",
-  });
-  panel.saveStatus = panel.text("", 8, HUD_TOP, {
-    width: 545,
-    className: "maple-ui-status",
-  });
-  panel.saveStatus.style.maxHeight = "17px";
-  panel.saveStatus.style.overflow = "auto";
-  panel.saveStatus.style.pointerEvents = "auto";
+  layoutGauges(panel);
   for (const [path, x, y, target] of HUD_BUTTONS) {
     panel.button(path, x, y, {
-      label: index.help[target]?.title || target,
+      label:
+        target === "Alert GM" ? target : index.help[target]?.title || target,
       action: () => panel.owner.activate(target),
     });
   }
-  const quick = panel.image("base/quickSlot", 649, 435);
-  quick.container.visible = false;
-  panel.button("QuickSlot", 768, HUD_TOP, {
-    label: "Quick slots — assignments unavailable",
-    action: () => {
-      quick.container.visible = !quick.container.visible;
-      panel.owner.showTooltip(
-        "Original quick-slot skin; no server key assignments",
-        590,
-        420,
-      );
-    },
+  panel.quickControl = panel.button("QuickSlot", 768, HUD_TOP, {
+    label: "Quick slots",
+    action: () => panel.owner.activate("QuickSlot"),
   });
-  panel.localButton("UI help", 8, 535, () =>
-    panel.owner.notice(
-      "Offline local controls: arrows move/climb, hold Space to jump, Ctrl or X to attack; I inventory, E equipment, S stats, K skills, M minimap, F10 key config, Escape close/menu. Save is durable in this browser; Reset replaces the local profile after confirmation. Quest and combat policies are provisional, not an original server.",
-    ),
-  );
-  panel.localButton("Stats", 65, 535, () => panel.owner.activate("Stat"));
-  panel.localButton("Inventory", 110, 535, () => panel.owner.activate("Item"));
-  panel.localButton("Quests", 178, 535, () => panel.owner.activate("Quest"));
-  panel.saveControl = panel.localButton("Save locally", 232, 535, () =>
-    panel.owner.saveProfile(),
-  );
-  panel.resetControl = panel.localButton("Reset local profile", 315, 535, () =>
-    panel.owner.requestReset(),
-  );
-  panel.recoverControl = panel.localButton("Recover", 438, 535, () =>
-    panel.owner.recoverProfile(),
-  );
+  panel.quickDownControl = panel.button("QuickSlotD", 768, HUD_TOP, {
+    label: "Hide quick slots",
+    action: () => panel.owner.activate("QuickSlot"),
+  });
+  panel.quickDownControl.setVisible(false);
 }
 
 export function layoutWindow(panel) {
@@ -113,13 +85,15 @@ function layoutMenu(panel) {
 }
 
 /** Inventory type1: Tab2, width170, height19; 004dd790/004de15f/004dd903. */
-function inventoryTabs(panel, branch, count) {
+function inventoryTabs(panel, branch, count, target = panel) {
   const tabs = [];
+  panel.tabButtons = [];
   const left = tabParts(panel, "left", 3, 4);
-  const width = Math.trunc((170 - (count - 1) * 8 - 8) / count);
-  const remainder = 170 - (width + 8) * count;
+  const span = branch === "Skill" ? 34 * count : 170;
+  const width = Math.trunc((span - (count - 1) * 8 - 8) / count);
+  const remainder = span - (width + 8) * count;
   let x = 7;
-  const select = (selected) => {
+  const select = (selected, notify = true) => {
     showTabPart(left, selected === 0 ? 1 : 0);
     for (let i = 0; i < tabs.length; i++) {
       const tab = tabs[i];
@@ -129,8 +103,12 @@ function inventoryTabs(panel, branch, count) {
       showTabPart(tab.edge, i === selected ? 1 : i + 1 === selected ? 2 : 0);
       tab.button.setAttribute("aria-selected", String(i === selected));
     }
-    panel.selectedTab = selected;
-    panel.owner.refreshProfilePanel(panel);
+    if (target.selectedTab !== selected) {
+      if (branch === "Item") target.inventoryStart = 0;
+      else target.skillStart = 0;
+    }
+    target.selectedTab = selected;
+    if (notify) target.owner.refreshProfilePanel(target);
   };
   for (let i = 0; i < count; i++) {
     const size = width + (i < remainder ? 1 : 0);
@@ -152,9 +130,11 @@ function inventoryTabs(panel, branch, count) {
     button.style.width = `${size}px`;
     button.style.height = "19px";
     tabs.push({ on, off, fill, edge, button });
+    panel.tabButtons.push(button);
     x += size + 8;
   }
-  select(0);
+  target.tabButtons = panel.tabButtons;
+  select(0, false);
 }
 
 function tabParts(panel, part, x, width) {
@@ -185,152 +165,105 @@ function tabLabel(panel, path, x, width) {
 
 function layoutInventory(panel) {
   inventoryTabs(panel, "Item", 5);
-  panel.profileContent = panel.contentArea(12, 49, 150, panel.height - 90);
-  panel.profileContent.classList.add(
-    "maple-ui-unavailable",
-    "maple-ui-profile",
-  );
+  panel.inventoryStart = 0;
+  panel.inventoryReady = true;
+  // 0081dc20 draws formatted currency with its right edge at138, y266.
+  panel.currencyValue = panel.text("", 26, 266, 112);
+  panel.currencyValue.setAttribute("aria-label", "Mesos");
+  panel.currencyValue.style.cssText +=
+    "text-align:right;white-space:nowrap;overflow:hidden;line-height:13px;";
+  panel.listen(panel.element, "wheel", (event) => {
+    event.preventDefault();
+    if (panel.fullSkin?.container.visible) return;
+    const maximum = Math.max(0, (panel.inventoryCount || 0) - 24);
+    panel.inventoryStart = Math.max(
+      0,
+      Math.min(maximum, panel.inventoryStart + (event.deltaY > 0 ? 4 : -4)),
+    );
+    panel.owner.refreshProfilePanel(panel);
+  });
   // 0092c2e8 proves +0x590 is close-X, not width; 0081e3a6 uses close-X minus15.
   panel.gatherControl = panel.button("Item/BtGather", panel.width - 32, 6, {
-    label:
-      "Original gather/slot ordering unavailable; local inventory is a counted list",
+    label: "Gather items — slot ordering is not available offline",
     action: null,
     disabled: true,
   });
   // 0081c6c9 places BtFull/BtSmall thirty pixels left of the close control.
   panel.fullControl = panel.button("Item/BtFull", panel.width - 47, 6, {
-    label: "Preview full inventory skin",
+    label: "Expand inventory",
     action: () => panel.owner.toggleInventorySkin(panel),
   });
   panel.smallControl = panel.button("Item/BtSmall", panel.width - 47, 6, {
-    label: "Preview small inventory skin",
+    label: "Compact inventory",
     action: () => panel.owner.toggleInventorySkin(panel),
   });
   panel.smallControl.setVisible(false);
 }
 
 function layoutStats(panel) {
-  panel.profileContent = panel.contentArea(12, 44, 135, 266);
-  panel.profileContent.classList.add(
-    "maple-ui-unavailable",
-    "maple-ui-profile",
-  );
+  panel.basicStat = panel.image("Stat/basicStat", 8, 195);
+  panel.basicStat.container.visible = false;
+  panel.statControls = [];
+  panel.statValues = new Map();
+  panel.statOverlays = ["STR", "DEX", "INT", "LUK"].map((name, index) => {
+    const sprite = panel.image(`Stat/Disabled/${name}`, 8, 244 + 18 * index);
+    sprite.container.visible = false;
+    return sprite;
+  });
   // 008c79f5 exact AP increment controls: (153,117/135/247/265/283/301).
   for (const y of [117, 135, 247, 265, 283, 301]) {
-    panel.button("Stat/BtApUp", 153, y, {
+    const control = panel.button("Stat/BtApUp", 153, y, {
       label:
         "AP allocation unavailable; local profile does not invent AP grants",
       action: null,
       disabled: true,
     });
+    panel.statControls.push(control);
   }
   panel.button("Stat/BtDetail", 12, 318, {
-    label: "Static detail skin",
-    action: () => panel.owner.showDetail(panel, "Stat/backgrnd2"),
+    label: "Detailed derived statistics are unavailable in the local profile.",
+    disabled: true,
   });
 }
 
 function layoutSkills(panel) {
-  inventoryTabs(panel, "Skill", 5);
-  panel.text(
-    "Skills / SP unavailable\n\nJob advancement, learned skills, ranks and cooldowns require server state.",
-    12,
-    70,
-    { width: 150, className: "maple-ui-unavailable" },
-  );
-  panel.button("Skill/BtSpUp", 150, 120, {
-    label: "Skill allocation requires server state",
-    action: null,
-    disabled: true,
+  panel.tabButtons = [];
+  panel.skillStart = 0;
+  panel.skillsReady = true;
+  panel.listen(panel.element, "wheel", (event) => {
+    event.preventDefault();
+    panel.skillStart = Math.max(
+      0,
+      Math.min(
+        Math.max(0, (panel.skillCount || 0) - 4),
+        panel.skillStart + (event.deltaY > 0 ? 1 : -1),
+      ),
+    );
+    panel.owner.refreshProfilePanel(panel);
   });
+}
+
+export function updateSkillTabs(panel, books) {
+  const signature = books.join(",");
+  if (panel.skillBooksSignature === signature) return;
+  panel.skillBooksSignature = signature;
+  panel.skillTabLayer?.destroy();
+  panel.tabButtons = [];
+  panel.selectedTab = 0;
+  panel.skillStart = 0;
+  if (books.length === 0) return;
+  const layer = panel.layer("Skill books");
+  panel.skillTabLayer = layer;
+  // This original normal-Skill window authors five tab glyphs; extended job UIs are separate consumers.
+  inventoryTabs(layer, "Skill", Math.min(5, books.length), panel);
 }
 
 function layoutEquipment(panel) {
-  panel.profileContent = panel.contentArea(10, 30, 155, 204);
-  panel.profileContent.classList.add(
-    "maple-ui-unavailable",
-    "maple-ui-profile",
-  );
-  panel.localButton("Inspect avatar artwork", 9, 245, () =>
-    panel.owner.equipmentPreview(panel),
-  );
+  panel.equipmentReady = true;
   panel.button("Equip/BtDetail", 12, 278, {
-    label: "Static detail skin",
-    action: () => panel.owner.showDetail(panel, "Equip/FullBackgrnd"),
-  });
-}
-
-/** Archive gallery is intentionally not presented as a recovered keyboard assignment layout. */
-function layoutKeys(panel) {
-  panel.text(
-    "KEY CONFIG PRESENTATION — archive glyphs, not live bindings",
-    14,
-    26,
-    { width: 600, className: "maple-ui-unavailable" },
-  );
-  panel.text(
-    "Remap / defaults / delete / quick-slot assignment cannot be committed without recovered session state. I/E/S/K labels are static help; browser F10/M/Escape controls are not claimed original defaults.",
-    18,
-    165,
-    { width: 590, className: "maple-ui-unavailable" },
-  );
-  const icons = Object.keys(panel.assets).filter((path) =>
-    /^KeyConfig\/icon\/\d+$/.test(path),
-  );
-  const keys = Object.keys(panel.assets).filter((path) =>
-    /^KeyConfig\/key\/\d+$/.test(path),
-  );
-  glyphGallery(panel, icons, {
-    x: 20,
-    y: 58,
-    columns: 16,
-    stepX: 36,
-    stepY: 32,
-  });
-  glyphGallery(panel, keys, {
-    x: 20,
-    y: 264,
-    columns: 16,
-    stepX: 35,
-    stepY: 17,
-  });
-  // Original 00832a43/ac6/b4c/bd5/c5e: x=8,58,112,177,260; y=236, including Basic/BtCancel2.
-  panel.button("KeyConfig/BtOK", 8, 236, {
-    label: "Close presentation; no keymap sent",
-    action: () => panel.owner.close(panel.name),
-  });
-  panel.button("BtCancel2", 58, 236, {
-    label: "Cancel presentation",
-    action: () => panel.owner.close(panel.name),
-  });
-  panel.button("KeyConfig/BtDefault", 112, 236, {
-    label: "Defaults unavailable",
-    action: null,
+    label: "Additional equipment slots are unavailable in the local profile.",
     disabled: true,
   });
-  panel.button("KeyConfig/BtDelete", 177, 236, {
-    label: "Assignments unavailable",
-    action: null,
-    disabled: true,
-  });
-  panel.button("KeyConfig/BtQuickSlot", 260, 236, {
-    label: "Quick-slot assignment unavailable",
-    action: () =>
-      panel.owner.notice(
-        "Original quick-slot assignment needs live keymap/session state. The HUD offers a skin-only preview.",
-      ),
-  });
-}
-
-function glyphGallery(panel, paths, layout) {
-  if (paths.length > 128) throw new Error("UI glyph gallery exceeds bound");
-  for (let i = 0; i < paths.length; i++) {
-    panel.image(
-      paths[i],
-      layout.x + (i % layout.columns) * layout.stepX,
-      layout.y + Math.floor(i / layout.columns) * layout.stepY,
-    );
-  }
 }
 
 function layoutDialog(panel) {

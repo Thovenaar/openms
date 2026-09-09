@@ -6,6 +6,7 @@ import { OfflineField } from "./offline-field.js";
 import { QuestSystem } from "./quest-system.js";
 import { mountNpcDialogue, mountQuestJournal } from "./quest-ui.js";
 import { ReactorSystem } from "./reactor-system.js";
+import { KeyBindings } from "./key-bindings.js";
 
 /** Candidate fields own resources independently; only committed fields advance. */
 class FieldSystems {
@@ -71,6 +72,7 @@ export class InGameSystems {
   constructor(app, services, hooks) {
     this.hooks = hooks;
     this.store = null;
+    this.bindings = null;
     this.quests = null;
     this.travelGate = new PortalTravelGate();
     this.audio = new AudiovisualSystem(app, services, {
@@ -83,6 +85,7 @@ export class InGameSystems {
       clearInput: hooks.clearInput,
       focusGame: hooks.focusGame,
       onError: hooks.onError,
+      onStatus: hooks.onStatus,
       onReset: hooks.onReset,
       onSave: hooks.onSave,
       onRecover: () => this.scene?.fieldSystems.gameplay.recover() ?? false,
@@ -121,6 +124,17 @@ export class InGameSystems {
       .playEffect(name, "offline gameplay")
       .catch(this.audio.reportBound);
   }
+  activateBinding(name) {
+    if (name === "Attack" || name === "Jump") {
+      this.hooks.focusGame();
+      this.hooks.tap(name === "Attack" ? "attack" : "jump");
+    } else if (this.ui.windows.has(name) || this.ui.pending.has(name)) {
+      this.ui.close(name);
+    } else {
+      this.ui.activate(name);
+    }
+    return true;
+  }
   async prepare(catalog, signal, store) {
     this.store = store;
     this.quests = new QuestSystem(catalog.quests, store, {
@@ -130,6 +144,16 @@ export class InGameSystems {
     await this.audio.prepare(catalog.audiovisual, signal);
     await this.ui.prepare(catalog.ui, signal);
     this.ui.setProfile(store, this.quests);
+    const bindings = new KeyBindings(store, catalog, {
+      onAction: (name) => this.activateBinding(name),
+      isBlocked: () =>
+        !this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay(),
+      now: () => performance.now(),
+      report: (message) => this.ui.status(message),
+    });
+    this.bindings?.destroy();
+    this.bindings = bindings;
+    this.ui.setBindings(bindings);
     this.restoreSettings();
   }
   restoreSettings() {
@@ -179,6 +203,7 @@ export class InGameSystems {
   }
   destroy() {
     this.ui.destroy();
+    this.bindings?.destroy();
     this.audio.destroy();
   }
 }

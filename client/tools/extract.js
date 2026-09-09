@@ -510,7 +510,11 @@ async function run() {
     Buffer.from(JSON.stringify(quests.inventory)),
   );
   const combat = await extractCombat(extractionContext);
-  const ui = await extractGameUI(extractionContext);
+  const ui = await extractGameUI({
+    ...extractionContext,
+    quests,
+    imageEntries: (name) => archive(name).entries,
+  });
   const audiovisual = await extractAudiovisual(extractionContext, mapIds);
   const { maps, reports } = await extractMaps(character, combat);
   const references = extractHitboxReferences(image);
@@ -545,6 +549,10 @@ async function run() {
     combat,
     routes,
   };
+  await publishCatalog(catalog, reports);
+}
+
+async function publishCatalog(catalog, reports) {
   await Bun.write(resolve(output, "catalog.json.tmp"), JSON.stringify(catalog));
   renameSync(
     resolve(output, "catalog.json.tmp"),

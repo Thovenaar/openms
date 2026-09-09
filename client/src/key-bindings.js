@@ -1,0 +1,287 @@
+import {
+  ACTION_PALETTE,
+  bindingAction,
+  canonicalKeyIndex,
+  createDefaultBindings,
+  heldActionForCode,
+  isAssignableKey,
+  itemBindingType,
+  keyIndexForCode,
+  KEY_COUNT,
+} from "./keymap.js";
+import { validateKeyBindings } from "./profile-validation.js";
+import { ItemUse } from "./item-use.js";
+
+const MAX_LISTENERS = 64;
+
+function sameBinding(a, b) {
+  return a.type === b.type && a.id === b.id;
+}
+
+function sameMap(a, b) {
+  for (let index = 0; index < KEY_COUNT; index++) {
+    if (!sameBinding(a.keys[index], b.keys[index])) return false;
+  }
+  for (let slot = 0; slot < 8; slot++) {
+    if (a.quickSlots[slot] !== b.quickSlots[slot]) return false;
+  }
+  return true;
+}
+
+function itemType(type) {
+  return type === 2 || type === 3 || type === 7;
+}
+
+/** Shared active native map; only successful explicit Save publishes its durable counterpart. */
+export class KeyBindings {
+  constructor(store, catalog, hooks) {
+    if (!store?.profile || !catalog?.ui?.items) {
+      throw new TypeError(
+        "Bindings require a loaded profile and item catalog.",
+      );
+    }
+    for (const name of ["onAction", "isBlocked", "now", "report"]) {
+      if (typeof hooks?.[name] !== "function") {
+        throw new TypeError(`Missing binding hook: ${name}`);
+      }
+    }
+    validateKeyBindings(store.profile.keyBindings);
+    this.store = store;
+    this.catalog = catalog;
+    this.hooks = hooks;
+    this.active = structuredClone(store.profile.keyBindings);
+    this.committedReference = store.profile.keyBindings;
+    this.editing = false;
+    this.saving = false;
+    this.destroyed = false;
+    this.listeners = new Set();
+    this.items = new ItemUse(store, catalog, hooks);
+    this.onStoreChange = this._storeChanged.bind(this);
+    this.unsubscribeStore = store.subscribe(this.onStoreChange);
+  }
+
+  _storeChanged() {
+    const committed = this.store.profile?.keyBindings;
+    if (!committed || committed === this.committedReference) return;
+    this.committedReference = committed;
+    if (!this.editing) this.active = structuredClone(committed);
+    this._notify();
+  }
+
+  lookup(code) {
+    const index = keyIndexForCode(code);
+    if (index < 0 || this.destroyed) return null;
+    const binding = this.active.keys[index];
+    return binding.type === 0 ? null : binding;
+  }
+
+  actionForCode(code) {
+    if (this.destroyed || this.hooks.isBlocked()) return null;
+    return heldActionForCode(code, this.active);
+  }
+
+  activateCode(code) {
+    if (this.destroyed || this.hooks.isBlocked()) return false;
+    if (heldActionForCode(code, this.active)) return false;
+    const index = keyIndexForCode(code);
+    if (index < 0 || this.active.keys[index].type === 0) return false;
+    this.activateKey(index);
+    return true;
+  }
+
+  activateKey(index) {
+    index = canonicalKeyIndex(index);
+    if (index < 0 || this.destroyed || this.hooks.isBlocked()) return false;
+    const binding = this.active.keys[index];
+    if (binding.type === 0) return false;
+    if (binding.type === 2) return this.useItem(binding.id);
+    const action = bindingAction(binding);
+    if (action && this.hooks.onAction(action)) return true;
+    this.hooks.report(
+      action
+        ? `${action} is unavailable in this offline field.`
+        : "This original binding has no implemented local action.",
+    );
+    return true;
+  }
+
+  useItem(id) {
+    return !this.destroyed && this.items.use(id);
+  }
+
+  beginEdit() {
+    if (this.destroyed || this.saving) return false;
+    if (this.editing) return true;
+    this.active = structuredClone(this.store.profile.keyBindings);
+    this.editing = true;
+    this._notify();
+    return true;
+  }
+
+  _canEdit() {
+    return this.editing && !this.saving && !this.destroyed;
+  }
+
+  _available(binding) {
+    if (
+      !binding ||
+      !Number.isInteger(binding.type) ||
+      !Number.isSafeInteger(binding.id)
+    ) {
+      return false;
+    }
+    if (binding.type >= 4 && binding.type <= 6) {
+      return ACTION_PALETTE.some((entry) => sameBinding(entry, binding));
+    }
+    // Original drag admission and real ownership, not whether an effect is implemented.
+    return (
+      itemType(binding.type) &&
+      binding.type === itemBindingType(this.catalog.ui.items[binding.id]) &&
+      this.store.profile.inventory.some(
+        (entry) => entry.id === binding.id && entry.count > 0,
+      )
+    );
+  }
+
+  /** 004f9386 / 004f38f4: normal key drops replace, globally clear duplicate sources. */
+  assign(targetIndex, binding, sourceIndex = null) {
+    if (
+      !this._canEdit() ||
+      !isAssignableKey(targetIndex) ||
+      !this._available(binding)
+    ) {
+      return false;
+    }
+    const target = canonicalKeyIndex(targetIndex);
+    if (sourceIndex !== null) {
+      const source = canonicalKeyIndex(sourceIndex);
+      if (source < 0 || !sameBinding(this.active.keys[source], binding)) {
+        return false;
+      }
+    }
+    if (sameBinding(this.active.keys[target], binding)) return false;
+    const incoming = { type: binding.type, id: binding.id };
+    this._clearMatching(incoming);
+    this.active.keys[target] = incoming;
+    this._notify();
+    return true;
+  }
+
+  /** Dropping a key back in the palette removes it; displaced actions become available automatically. */
+  remove(index) {
+    index = canonicalKeyIndex(index);
+    if (!this._canEdit() || index < 0 || this.active.keys[index].type === 0) {
+      return false;
+    }
+    this._clearMatching(this.active.keys[index]);
+    this._notify();
+    return true;
+  }
+
+  _clearMatching(binding) {
+    const { type, id } = binding;
+    for (let index = 0; index < KEY_COUNT; index++) {
+      const current = this.active.keys[index];
+      const matchingType =
+        current.type === type || (itemType(type) && itemType(current.type));
+      if (matchingType && current.id === id) current.type = 0;
+    }
+  }
+
+  resetDefaults() {
+    if (!this._canEdit()) return false;
+    this.active = createDefaultBindings();
+    this._notify();
+    return true;
+  }
+
+  clearKeys() {
+    if (!this._canEdit()) return false;
+    for (const binding of this.active.keys) {
+      binding.type = 0;
+      binding.id = 0;
+    }
+    this._notify();
+    return true;
+  }
+
+  setQuickSlot(slot, keyIndex) {
+    keyIndex = canonicalKeyIndex(keyIndex);
+    if (!this._canEdit() || !Number.isInteger(slot) || slot < 0 || slot >= 8) {
+      return false;
+    }
+    if (
+      !isAssignableKey(keyIndex) ||
+      this.active.quickSlots.includes(keyIndex)
+    ) {
+      return false;
+    }
+    this.active.quickSlots[slot] = keyIndex;
+    this._notify();
+    return true;
+  }
+
+  hasChanges() {
+    return !sameMap(this.active, this.store.profile.keyBindings);
+  }
+
+  async save() {
+    if (!this._canEdit()) throw new Error("Key configuration is not editable.");
+    validateKeyBindings(this.active);
+    this.saving = true;
+    this._notify();
+    try {
+      await this.store.commitKeyBindings(this.active);
+      this.editing = false;
+    } finally {
+      this.saving = false;
+      this._notify();
+    }
+    return this.snapshot();
+  }
+
+  cancel() {
+    if (!this._canEdit()) return false;
+    this.active = structuredClone(this.store.profile.keyBindings);
+    this.editing = false;
+    this._notify();
+    return true;
+  }
+
+  subscribe(listener) {
+    if (
+      this.destroyed ||
+      typeof listener !== "function" ||
+      this.listeners.size >= MAX_LISTENERS
+    ) {
+      throw new Error("Invalid key configuration observer.");
+    }
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  _notify() {
+    for (const listener of this.listeners) {
+      try {
+        listener(this);
+      } catch (error) {
+        console.error("Key configuration observer failed", error);
+      }
+    }
+  }
+
+  snapshot() {
+    return {
+      active: structuredClone(this.active),
+      editing: this.editing,
+      saving: this.saving,
+      changed: this.hasChanges(),
+    };
+  }
+
+  destroy() {
+    this.unsubscribeStore();
+    this.listeners.clear();
+    this.destroyed = true;
+  }
+}

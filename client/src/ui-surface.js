@@ -1,7 +1,7 @@
 import { Container } from "pixi.js";
 import { EntityAnimation } from "./animation.js";
 
-const MAX_PANEL_SPRITES = 512;
+const MAX_PANEL_SPRITES = 1536; // 96 visible stacks, up to ten validated count digits each.
 const MAX_PANEL_CONTROLS = 128;
 
 /** Original raster resources with a bounded accessible DOM interaction plane. No independent image/atlas decoding. */
@@ -29,6 +29,9 @@ export class UISurface {
     this.listeners = [];
     this.dependencies = [];
     this.cleanups = [];
+    this.disposed = false;
+    this.ownsResource = true;
+    this.layers = new Set();
     owner.root.addChild(this.root);
     owner.host.append(this.element);
   }
@@ -56,6 +59,49 @@ export class UISurface {
     this.root.addChild(sprite.container);
     this.sprites.push(sprite);
     return sprite;
+  }
+
+  /** A separately replaceable composition layer borrows its parent's decoded resources. */
+  layer(name) {
+    const layer = new UISurface(
+      { root: this.root, host: this.element },
+      name,
+      this.resource,
+      [this.width, this.height],
+    );
+    layer.owner = this.owner;
+    layer.ownsResource = false;
+    layer.borrow(this.resource);
+    layer.position(0, 0);
+    layer.element.style.pointerEvents = "none";
+    for (const resource of new Set(this.sources.values())) {
+      layer.borrow(resource);
+    }
+    this.layers.add(layer);
+    layer.cleanups.push(() => this.layers.delete(layer));
+    return layer;
+  }
+
+  hit(label, rect, handlers = {}) {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = "maple-ui-hit";
+    element.setAttribute("aria-label", label);
+    element.style.cssText = `position:absolute;left:${rect.x}px;top:${rect.y}px;width:${rect.width}px;height:${rect.height}px;touch-action:none;`;
+    for (const [type, handler] of Object.entries(handlers)) {
+      this.listen(element, type, handler);
+    }
+    this.listen(element, "pointerenter", (event) => {
+      if (!this.owner.bindingDrag) this.owner.cursor?.set(5);
+      const point = this.owner.logicalPointer(event);
+      this.owner.showTooltip(label, point.x, point.y);
+    });
+    this.listen(element, "pointerleave", () => {
+      if (!this.owner.bindingDrag) this.owner.cursor?.set(0);
+      this.owner.hideTooltip();
+    });
+    this.element.append(element);
+    return element;
   }
   /** Borrow the HUD-owned Basic close-control bundle; consumers die before its owner. */
   borrow(resource) {
@@ -168,6 +214,9 @@ export class UISurface {
   }
 
   destroy() {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const layer of this.layers) layer.destroy();
     for (const cleanup of this.cleanups) cleanup();
     this.cleanups.length = 0;
     for (const listener of this.listeners) {
@@ -176,7 +225,7 @@ export class UISurface {
     this.element.remove();
     this.root.destroy({ children: true });
     for (const resource of this.dependencies) resource.destroy();
-    this.resource.destroy();
+    if (this.ownsResource) this.resource.destroy();
     this.listeners.length = 0;
     this.controls.length = 0;
     this.sprites.length = 0;
@@ -247,7 +296,6 @@ class UIControl {
     this.element.className = "maple-ui-hit";
     this.element.setAttribute("aria-label", options.label);
     this.element.setAttribute("aria-disabled", String(options.disabled));
-    this.element.title = options.label;
     this.element.style.cssText = `position:absolute;left:${options.x}px;top:${options.y}px;width:${normal.width}px;height:${normal.height}px;`;
     const handler = this.handle.bind(this);
     for (const type of [
@@ -276,23 +324,33 @@ class UIControl {
 
   handle(event) {
     this.updateFlags(event);
+    this.updateCursor(event);
     if (event.type === "click" && this.options.disabled) return;
     if (event.type === "click" && !this.visible) return;
-    if (event.type === "click" && !this.options.disabled) {
+    if (event.type === "click") {
       this.panel.owner.sound("BtMouseClick");
       this.options.action?.();
     }
     if (event.type === "pointerenter") {
       this.panel.owner.sound("BtMouseOver");
-      this.panel.owner.showTooltip(
-        this.options.label,
-        this.panel.x + this.options.x,
-        this.panel.y + this.options.y,
-      );
+      const point = this.panel.owner.logicalPointer(event);
+      this.panel.owner.showTooltip(this.options.label, point.x, point.y);
     }
     if (event.type === "pointerleave") this.panel.owner.hideTooltip();
     if (event.type === "blur") this.panel.owner.hideTooltip();
     this.render();
+  }
+  updateCursor(event) {
+    const owner = this.panel.owner;
+    if (event.type === "pointerenter" && !owner.bindingDrag) {
+      owner.cursor?.set(4);
+    }
+    if (event.type === "pointerleave" && !owner.bindingDrag) {
+      owner.cursor?.set(0);
+    }
+    if (event.type === "pointerup" || event.type === "pointercancel") {
+      owner.cursor?.release();
+    }
   }
   updateFlags(event) {
     if (event.type === "pointerenter") this.hover = true;

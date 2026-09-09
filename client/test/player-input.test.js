@@ -47,3 +47,34 @@ test("focus or map clearing does not rearm held keys on OS repeat", () => {
     expect(input.state.upPressed).toBe(true);
   });
 });
+
+test("both modifier sides share the native action without releasing each other's hold", () => {
+  withInput((input, canvas, windowTarget) => {
+    key(canvas, "keydown", "ControlLeft");
+    key(canvas, "keydown", "ControlRight");
+    key(windowTarget, "keyup", "ControlLeft");
+    expect(input.state.attack).toBe(true);
+    key(windowTarget, "keyup", "ControlRight");
+    expect(input.state.attack).toBe(false);
+    key(canvas, "keydown", "AltRight");
+    key(windowTarget, "keyup", "AltRight");
+    expect(input.state.jumpPressed).toBe(true);
+    input.afterTick();
+    expect(input.state.jumpPressed).toBe(false);
+  });
+});
+
+test("quickslot taps last one gameplay step without cancelling a real held key", () => {
+  withInput((input, canvas, windowTarget) => {
+    input.tap("attack");
+    expect(input.state.attack).toBe(true);
+    input.afterTick();
+    expect(input.state.attack).toBe(false);
+    key(canvas, "keydown", "ControlLeft");
+    input.tap("attack");
+    input.afterTick();
+    expect(input.state.attack).toBe(true);
+    key(windowTarget, "keyup", "ControlLeft");
+    expect(input.state.attack).toBe(false);
+  });
+});
