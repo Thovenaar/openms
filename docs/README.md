@@ -55,7 +55,7 @@ Development defaults to port5173; the built preview uses port4173. Navigation co
 
 Keep implementation contracts and measured results synchronized on their existing authoritative pages. Markdown pages and embedded images remain local; checked source-file, archive and directory links resolve to their exact repository locations instead of copying the entire evidence archive into the site. Missing raw targets and dead page links fail the build. Run the build and inspect the actual browser surface before publishing documentation changes.
 
-The [site browser report](validation/docs-site/browser.json) records all31 routes, eight navigation groups, native local search to the Shroom correction section, and a390-pixel viewport with working menu/backdrop. Retained captures: [desktop](validation/docs-site/desktop.png), [search](validation/docs-site/search.png), [mobile article](validation/docs-site/mobile.png), and [mobile menu](validation/docs-site/mobile-menu.png). No page-script or same-origin resource errors occurred in the complete route pass.
+The [current site browser report](client-audit/site/browser.json) records all32 routes, native local search to the audit's performance section, exact repository evidence links, and a390-pixel article with native menu/cross-route/backdrop interaction. All three embedded audit figures loaded. Retained captures: [desktop](client-audit/site/desktop.png), [search](client-audit/site/search.png), [mobile article](client-audit/site/mobile.png), and [mobile menu](client-audit/site/mobile-menu.png). No page-script or same-origin resource errors occurred in the route pass. The [earlier31-route baseline](validation/docs-site/browser.json) remains historical.
 
 ## Structure
 
