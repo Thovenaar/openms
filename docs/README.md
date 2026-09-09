@@ -40,6 +40,23 @@ bun run format
 
 `bun client/tools/ingame-inventory.js` regenerates the lossless metadata inventory without decoding pixels or audio. Its optional positional arguments are the original-input directory and inventory output directory. See [ingame-inventory.md](ingame-inventory.md) for exact coverage and archive-member lookup.
 
+## Documentation site
+
+The documentation site uses **VitePress**, JavaScript configuration with JSDoc, and Bun. It builds from the retained documentation without extracting or installing the original game inputs.
+
+```sh
+bun install --frozen-lockfile
+bun run docs:dev --host 127.0.0.1
+bun run docs:build
+bun run docs:preview --host 127.0.0.1
+```
+
+Development defaults to port5173; the built preview uses port4173. Navigation covers setup, architecture, asset decoding/streaming, physics, UI, offline gameplay, reverse-engineering evidence and browser validation. Local search indexes the authored pages. Generated `.vitepress/cache` and `.vitepress/dist` are ignored.
+
+Keep implementation contracts and measured results synchronized on their existing authoritative pages. Markdown pages and embedded images remain local; checked source-file, archive and directory links resolve to their exact repository locations instead of copying the entire evidence archive into the site. Missing raw targets and dead page links fail the build. Run the build and inspect the actual browser surface before publishing documentation changes.
+
+The [site browser report](validation/docs-site/browser.json) records all31 routes, eight navigation groups, native local search to the Shroom correction section, and a390-pixel viewport with working menu/backdrop. Retained captures: [desktop](validation/docs-site/desktop.png), [search](validation/docs-site/search.png), [mobile article](validation/docs-site/mobile.png), and [mobile menu](validation/docs-site/mobile-menu.png). No page-script or same-origin resource errors occurred in the complete route pass.
+
 ## Structure
 
 - `client/src/assets/`: bounded archive IO, recovered WZ crypto/strings/directories/properties, canvas inflation/pixels, lossless PNG encoding. Decoder runs under Bun, off the browser render thread.

@@ -75,6 +75,8 @@ export default [
       "node_modules/**",
       "client/dist/**",
       "client/public/generated/**",
+      "docs/.vitepress/cache/**",
+      "docs/.vitepress/dist/**",
     ],
   },
   js.configs.recommended,

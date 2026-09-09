@@ -101,6 +101,8 @@ Auto-X types 4/6 clear the origin parent, then attach camera ratios `(0, ry+100)
 
 ## Frames, alpha, placement, and pixels
 
+<a id="timed-frame-alpha--verified"></a>
+
 ### Timed frame alpha — verified
 
 Client `0x0043f768` reads frame `delay` with default **120 ms**, `a0` with default **-1**, `a1` with default **-1**, and passes them to the layer's canvas insertion helper. Gr2D `0x5040abef` stores delay at frame-record `+0x0c`, a0 at `+0x10`, and a1 at `+0x14`. `0x5040b9e7` accumulates `frameDelay * animationScale / 1000` into end timestamps; initial a0 is applied immediately when nonnegative and a1 is scheduled for the frame end when nonnegative. `-1` means omit that assignment, not forcibly reset to 255.
