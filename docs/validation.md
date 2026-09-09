@@ -1,6 +1,34 @@
 # Validation results
 
-## Current original-behavior correction acceptance
+## Current interaction-correction acceptance
+
+The [interaction report](ingame-validation/interaction-corrections/report.json) records native Chromium mouse, keyboard and form workflows on an isolated local origin. Scripts observed gameplay state; explicit request/IndexedDB fault injection exercised failure paths, and a Web Audio observer counted real source starts. No game-authority API substituted for native play.
+
+Final implementation source: `6478b29df40219025ed7fc1d3566c405ee01ef9559dbd324da1ef0d22efe774f`; extracted assets: `a2803d8b95eb1ebc7d64c22de07c8134f7179629c86d79d349af71168fff3a1e`. `bun run format`, `bun run lint`, `bun run test` and `bun run extract` passed: **140 tests, 0 failures, 822 assertions across 22 files**. The full356-map extraction retained157 mob templates,1,643 drop item IDs and4,305 supported Cosmic rows, with no unavailable drop rows.
+
+| Requested surface | Executed native acceptance |
+| --- | --- |
+| Minimap | M cycled compact260×153, expanded477×173 and title-only260×20 in Henesys. Movement changed74 raster pixels; drag, close/reopen, controls and original title/markers worked. [Expanded](ingame-validation/interaction-corrections/minimap-expanded-title.png). |
+| Transitions | Named Henesys↔Maya entry, black-boundary commit,600-ms reveal with admitted movement, revival and all four same-map Teleport frames without global fade. A503 request failure reversed partial darkness; superseding at opacity0.224 left no stale fade or pending loads. [Arrival](ingame-validation/interaction-corrections/maya-field-arrival.png). |
+| Drops/pickup | Native Blue Snail kills produced Green Apple2010009 and9 mesos. A quota failure preserved both drops and the profile; meso-capacity refusal did not poison storage state. Retry animated pickup with one sound, credited once and survived reload. [Ground loot](ingame-validation/interaction-corrections/native-mob-drop.png), [inventory](ingame-validation/interaction-corrections/native-pickup-inventory.png). |
+| NPCs | Cody's scrolling quest list retained its portrait/footer; Maya's level55 requirement stayed blocked. Nella's original next/back/decline/accept pages charged1000 mesos once and persisted quest2029 state1. [Maya](ingame-validation/interaction-corrections/npc-maya-requirements.png), [original yes page](ingame-validation/interaction-corrections/npc-original-yes-page.png). |
+| Chat | Minimized editor/channel had no client rectangles; local submit/history, readable channel list and native13px resize quanta worked. [Expanded chat](ingame-validation/interaction-corrections/chat-expanded.png). |
+| Cursor/stacking | Original cursor remained above chat list, tooltip and popups; GameMenu artwork covered underlying Stat text as one window. [Cursor detail](ingame-validation/interaction-corrections/chat-cursor-detail.png), [popup overlap](ingame-validation/interaction-corrections/game-menu-over-stat.png). |
+| HUD | Original LV. artwork rendered at levels1/30; the recovered Stat AP position displayed saved AP5. [Stat/AP](ingame-validation/interaction-corrections/character-stat-ap.png). |
+| Skills | Prerequisite unlock, ordinary mastery0 learning, max/expiry/SP-zero disabling, mastery-gated Brandish allocation and live job/book refresh passed. Native D-bound Power Strike paid original rank1 MP cost4. [Mastery/SP](ingame-validation/interaction-corrections/skill-mastery-sp-exhaustion.png), [binding](ingame-validation/interaction-corrections/skill-key-binding.png). |
+| Sounds | Admitted release and focused Space produced one original click; off-target release produced none. Carry used DragStart/DragEnd; successful pickup produced one real source start. No synthetic playback was introduced by the observer. |
+| Hits/geometry | Contact produced both ±200 horizontal/−200 vertical impulses1500ms apart. Complete tint phases were60 simulated ms. Standing/prone rectangles were44×65/46×31; a Red Snail's HP40→8 hit entered `hit1`. [Mob hit](ingame-validation/interaction-corrections/native-mob-hit1.png), [prone receiver](ingame-validation/interaction-corrections/native-crouch-hitbox.png). |
+| Character editor | Typed edits and AP persisted; job/skill/SP projections refreshed coherently. HP301/maxHP300 plus an unrelated name change failed atomically. Zero HP opened original revival rather than silently restoring vitals. |
+| Keybinding workflow | Click-carry, live attack preview, duplicate rejection, original default/clear notices, nested draft isolation, dirty-close Save/Discard, failed-save preservation and reload passed. Final-source replay proved Space cancels a focused Cancel footer while Enter applies default OK; outer discard restores both key/quick-slot baselines. [Live preview](ingame-validation/interaction-corrections/key-live-preview.png), [nested draft](ingame-validation/interaction-corrections/quickslot-isolated-draft.png). |
+| Connected defects | Native play found and fixed quick-key Space/Enter routing, dark-on-dark NPC name text and reverse-Tab skipping disclosure summaries. Native summary focus/Space expansion passed after correction. |
+
+Viewport captures cover [800×700/DPR1](ingame-validation/interaction-corrections/viewport-800x700-dpr1.png), [1280×900/DPR1.25](ingame-validation/interaction-corrections/viewport-1280x900-dpr1.25.png) and [1920×1200/DPR2](ingame-validation/interaction-corrections/viewport-1920x1200-dpr2.png). Actual window bounds stayed inside the field, and cursor backing bitmaps followed density.
+
+Chrome150.0.7871.24, ANGLE Metal/Apple M3: native movement and attack at1920×1200/DPR2 yielded **300 rAF intervals over5,000ms,60 FPS, p95/max16.8ms, zero intervals above33.4ms**,1,095 resident sprites and zero pending loads. This short measured interval is not a hardware-wide guarantee or a repeat of the earlier independent world-pixel oracle.
+
+**Evidence boundary:** original executable/WZ inputs establish recovered constants and artwork; authorized Cosmic code is a SERVER reference, not Nexon source. Drop launch/pickup curves, local authority, asynchronous recovery, browser font/compositor behavior and unknown initial placements remain explicit policies. No original Windows execution, native camera-vector dynamics, exact BGM crossfade, server scripts or unsupported skill controllers are claimed. See [UI](ingame-ui.md), [combat](offline-combat.md), [skills](skills.md) and [portals](ingame-portals.md).
+
+## Earlier original-behavior correction acceptance
 
 The [fidelity report](ingame-validation/fidelity/report.json) records the September 9, 2026 correction wave, including staged source identities, controlled fixtures, native input, observed state transitions and retained screenshots. The final source is `61f1725c854188bf689100f6ca4078df8f6fdabfb6a2e73db0b45aa0ab6d1878`; extracted assets are `bcb95e4daac55b53de1722ff2a9d6fef64ff273782f9362bd41b6c6dda3aa7ec`.
 

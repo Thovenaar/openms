@@ -10,7 +10,7 @@ Map manifests contain bounds/camera, original physics, character actors, texture
 
 Independent visual bundles use `{schemaVersion:1,id,entities,metadata,textures,atlases}`.
 They share the existing hash-verified network, lossless atlas packing, worker decode,
-upload admission and refcounted atlas store; they are not a second rendering/decoding path.
+upload admission and refcounted atlas store; there is no second resource or image-decoding path.
 Sound descriptors retain original encoded MP3 bytes and Sound_DX8 metadata. Native
 decoded PCM has separate bounded ownership and byte accounting.
 
@@ -30,7 +30,7 @@ Optional entity `background:{type,rx,ry,cx,cy}` retains original background fiel
 
 Simulation owns the character's position, movement state and action selection; keyboard input drives it independently of display cadence. `server/` remains reserved. The browser performs no WZ parsing. PNG decode runs in a dedicated worker; GPU upload admission and caches are bounded browser policies.
 
-Current complete map state remains visible while a candidate map loads. Only a ready candidate commits; failed/superseded candidates release resources without replacing the current map. Regions commit after their atlas dependencies are ready, and shared resources remain while referenced.
+Current complete map state stays owned while a candidate loads. Only a ready candidate commits; failed/superseded candidates release resources without replacing the current map. Ordinary native-style field travel additionally waits for the outgoing600ms black boundary before atomic commit, then reveals the destination over600ms. Input/simulation resume at commit, not at the end of reveal. Same-map teleport retains the scene/BGM and uses the original four80ms Teleport frames without global fade. The black browser overlay approximates native global RGB brightness; developer direct map selection/reload remains immediate. Failed travel restores the last-good scene and reverses darkness, without success cues. [Transition evidence](ghidra-client-corrections/transition-contract.json) distinguishes recovered timing from asynchronous browser ownership. Regions commit after their atlas dependencies are ready, and shared resources remain while referenced.
 
 Offline portal traversal validates the packaged target and exact named destination
 before replacement. Missing or ambiguous names and unavailable maps fail without
@@ -40,13 +40,15 @@ portal graphics update after animation. Duplicate/stale requests are guarded.
 Successful local traversal is not original server authorization. Scripted/conditioned
 portals are explicitly unsupported where their activation cannot be established.
 
-Screen-space UI/audio survive map replacement. Field portal/life/gameplay/reactor, skill, player-name, speech and combat-number owners belong to the candidate scene. Ordinary commits transfer the same character's skill timers before destroying the previous owner; temporary stores remain isolated. World overlays survive region refresh, not field replacement. Displays die before their leases, and failed/cancelled candidates cannot attach late resources. UI focus and ordinary canvas blur clear held gameplay input.
+Screen-space UI/audio survive map replacement. HUD artwork/gauges remain Pixi-rendered; non-HUD top-level windows use atlas-borrowing `UIRasterPlane` Canvas2D artwork in the same DOM stacking context as their text/controls. Cursor/carry own a separate topmost DOM plane. Sprite trees still own geometry/animation but are not duplicate-rendered; windows release consumers before atlas leases. [UI ownership](ingame-ui.md#implemented-modules-and-integration) is authoritative for this browser compositor policy.
 
-`KeyBindings` survives field replacement with screen UI/profile ownership. Physical codes use one shared active map. KeyConfig is nonmodal; its quick-key popup, UtilDlgEx and ordinary revival are modal. Text focus captures input. Schema3 persists committed bindings, SP, learned records and chat display preferences; active drafts, cursor/carry, chat history and item-use throttle timestamps remain transient.
+Field portal/life/gameplay/reactor/drop, skill, player-name, speech and combat-number owners belong to the candidate scene. Ordinary commits transfer the same character's skill timers before destroying the previous owner; temporary stores remain isolated. World overlays survive region refresh, not field replacement. Displays die before their leases, and failed/cancelled candidates cannot attach late resources. UI focus and ordinary canvas blur clear held gameplay input.
+
+`KeyBindings` survives field replacement with screen UI/profile ownership. Physical codes use one shared active map. KeyConfig is nonmodal; its Save changes? notice, isolated quick-key popup, UtilDlgEx and ordinary revival are modal. The outer draft previews live; nested OK only updates it, and parent Save/affirmative dirty-close is the durable boundary. Text focus captures input. Schema4 persists committed bindings, AP, SP, learned records and chat display preferences; drafts, cursor/carry, chat history and item-use throttle timestamps remain transient.
 
 Candidate initialization and subsequent updates use the same actor-pose synchronization: position, original left-authored facing, action and contact-dependent depth are correct before the first draw, even when the scene is paused. A paused reload does not wait for a simulation tick to correct the avatar.
 
-All retained gameplay authority freezes while replacement is loading, including a portal request begun inside `beforePhysics`. The loop rechecks loading/current-scene ownership before advancing. The old scene remains visible, not keyboard-playable. `step(ms)` also rejects while loading. Enabling camera follow recomputes and renders immediately even when paused.
+All retained gameplay authority freezes while replacement is loading, including a portal request begun inside `beforePhysics`. The loop rechecks loading/current-scene ownership before advancing. The old scene stays owned beneath any transition darkness, not keyboard-playable. `step(ms)` rejects while loading; incoming reveal itself does not keep destination gameplay locked. Enabling camera follow recomputes and renders immediately even when paused.
 
 The animation driver samples `performance.now()` at callback entry, consistently with pause/focus clock resets. It must not subtract a newer reset from rAF's earlier frame-start timestamp: that produced a negative elapsed value and stopped cached-map transitions. Negative public simulation input still fails; the fix does not clamp or conceal an invalid delta. The executed lifecycle reproduction and corrected pixel comparison are in [physics-validation/lifecycle-smoke.json](physics-validation/lifecycle-smoke.json).
 
@@ -66,6 +68,6 @@ The animation driver samples `performance.now()` at callback entry, consistently
 
 ## Human controls and evidence
 
-Click empty map space to focus gameplay. Arrows move/climb; Alt Jump and Control Attack are recovered defaults. Down+bound Jump requests eligible drop-through; Up requests supported portal traversal. I/E/S/K open Item/Equip/Stat/Skill; Backslash opens Set Key, Q Quest, [ ShortCut and ] quick slots. Enter opens chat without granting delivery; admitted All-channel text displays local speech and typing never becomes gameplay input. Space/Talk, X/Sit, Z/Pickup and other unimplemented categories report unavailable actions. Nearby NPC artwork uses live admission before original-data quest dialogue. C/H are not KeyConfig/MiniMap aliases.
+Click empty map space to focus gameplay. Arrows move/climb; Alt Jump and Control Attack are recovered defaults. Down+bound Jump requests eligible drop-through; Up requests supported portal traversal. I/E/S/K open Item/Equip/Stat/Skill; M opens the demand-loaded MiniMap then cycles compact1 → expanded0 → title-only2 → compact1 through recovered type4/id7; Backslash opens Set Key, Q Quest, [ ShortCut and ] quick slots. Enter opens chat without granting delivery; admitted All-channel text displays local speech and typing never becomes gameplay input. Z/Pickup requests the local durable drop transaction; Space/Talk, X/Sit and other unsupported categories report unavailable actions. Nearby NPC artwork uses live admission before original-data quest dialogue. C/H are not KeyConfig/MiniMap aliases.
 
 Receiver geometry remains distinct from the foothold contact point. Geometry previews do not establish damaging phases: the separate [offline combat authority](offline-combat.md) explicitly supplies local impact timing and equations. Whole world compositions/camera vectors use signed integer projection before GPU submission; simulation remains binary64. External parity requires [original Windows references](windows-reference-captures.md), not browser self-consistency.

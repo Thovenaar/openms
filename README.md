@@ -2,11 +2,11 @@
 
 A browser reconstruction of MapleStory's original v83 assets and rendering, written in JavaScript with JSDoc, Bun, and PixiJS.
 
-The client streams a 356-map original route closure with keyboard-driven physics, local mobs/combat/progression, supported data-driven NPC quests, portals/reactors, original UI and audio, durable character saves, and a verified complete-release offline installer. Local authority is explicitly provisional; missing server scripts, loot/skill rules and original-runtime parity are not fabricated.
+The client streams a 356-map original route closure with keyboard-driven physics, local mobs/combat/progression, supported data-driven NPC quests, portals/reactors, original UI/audio, Cosmic-reference drops with original item assets, durable saves and a verified complete-release offline installer. Local authority is explicitly provisional; missing server scripts/controllers and original-runtime parity are not fabricated.
 
 ## Run
 
-Requires [Bun](https://bun.sh) and local original client assets, which are not included in this repository. See [setup and asset configuration](docs/README.md#run).
+Requires [Bun](https://bun.sh), local original client assets and the authorized Cosmic server-reference checkout for drop extraction. Neither input tree is included here. See [setup and input configuration](docs/README.md#run).
 
 ```sh
 bun install --frozen-lockfile
@@ -14,7 +14,7 @@ bun run extract
 bun run dev
 ```
 
-Open **http://127.0.0.1:3100**. Click empty map space: arrows move/climb, Alt jumps, Down+Alt drops through eligible footholds, Up enters supported portals, and Control attacks. I/E/S/K open graphical windows; C opens KeyConfig, H the minimap, Q the journal and Enter chat. Actions follow the active key configuration; unsupported original actions remain explicit. Enable audio with its gesture button. Use **Download complete release**, then **Use installed release and reload** before relying on offline launch. [Controls and boundaries](docs/README.md) distinguish recovered behavior from local policy.
+Open **http://127.0.0.1:3100**. Click empty map space: arrows move/climb, Alt jumps, Down+Alt drops through eligible footholds, Up enters supported portals, Control attacks and Z picks up. I/E/S/K open graphical windows; Backslash opens KeyConfig, M cycles the minimap, Q opens the journal and Enter opens chat. Actions follow the live key configuration; unsupported actions remain explicit. Trusted input unlocks enabled audio. Use **Download complete release**, then **Use installed release and reload** before relying on offline launch. [Controls and boundaries](docs/README.md) distinguish recovered behavior from local policy.
 
 ## Project
 
