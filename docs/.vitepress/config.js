@@ -19,6 +19,7 @@ const sidebar = [
     items: [
       { text: "Reconstruction contract", link: "/reconstruction-contract" },
       { text: "Scene and inspection contract", link: "/scene-contract" },
+      { text: "Agent actions and reversible experiments", link: "/agent-interface" },
       {
         text: "Offline integration contract",
         link: "/offline-integration-contract",

@@ -31,6 +31,7 @@ export function quickKeyAtPoint(owner, point) {
 }
 
 export async function toggleQuickSlots(owner) {
+  const commandSignal = owner.commandSignal;
   if (!owner.hud || !owner.bindings) return;
   if (owner.quickLoading) return owner.quickLoading;
   let panel = owner.hud.quickSurface;
@@ -42,6 +43,7 @@ export async function toggleQuickSlots(owner) {
       owner.quickLoading = null;
     }
     if (!panel) return;
+    if (commandSignal?.aborted) return;
   } else {
     panel.root.visible = !panel.root.visible;
     panel.element.hidden = !panel.root.visible;
@@ -51,8 +53,10 @@ export async function toggleQuickSlots(owner) {
 }
 
 async function createQuickSlots(owner) {
-  const hud = owner.hud,
-    signal = owner.controller.signal;
+  const hud = owner.hud;
+  const signal = owner.commandSignal
+    ? AbortSignal.any([owner.controller.signal, owner.commandSignal])
+    : owner.controller.signal;
   const resource = await loadVisualBundle(
     owner.index.bundles.KeyConfig,
     owner.services,

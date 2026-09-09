@@ -39,6 +39,18 @@ const WINDOWS = new Set([
   "Quest",
   "SysOpt",
 ]);
+/** Normal command names exclude constructing internal modal windows without their owners. */
+export const NORMAL_UI_NAMES = Object.freeze([
+  ...Array.from(WINDOWS).filter(
+    (name) => name !== "UtilDlgEx" && name !== "QuickSlotConfig",
+  ),
+  "QuickSlot",
+  "focusGame",
+  "close",
+  "confirm",
+  "cancel",
+  "chat",
+]);
 const SIZES = {
   MiniMap: [260, 216],
   UtilDlgEx: [529, 206],
@@ -148,6 +160,7 @@ export class GameUI {
     this.quickCapture = null;
     this.pointerPoint = { x: 0, y: 0 };
     this.layoutFrame = null;
+    this.commandSignal = null;
     this.listenForInput();
     this.resize(app.screen.width, app.screen.height);
     this.observeLayout();
@@ -275,6 +288,9 @@ export class GameUI {
       throw new Error("UI requires a subscribable ProfileStore");
     }
     this.unsubscribeProfile?.();
+    this.epoch++;
+    this.saving = false;
+    this.resetting = false;
     this.store = store;
     this.quests = quests;
     const jobs = quests?.knownJobs() || [];
@@ -340,20 +356,35 @@ export class GameUI {
     }
   }
 
+  /** Async persistence belongs to the profile epoch that requested it. */
   async saveProfile() {
     if (!this.store?.profile || this.saving || this.resetting) return;
+    const store = this.store;
+    const epoch = this.epoch;
     this.saving = true;
     this.refreshProfile();
     try {
       await this.hooks.onSave?.();
-      await this.store.flush();
+      if (this.ownsProfile(store, epoch)) await store.flush();
     } catch (error) {
-      this.report(error);
-      this.notice(`Local save failed: ${error.message}`);
+      if (this.ownsProfile(store, epoch)) {
+        this.report(error);
+        this.notice(`Local save failed: ${error.message}`);
+      }
     } finally {
-      this.saving = false;
-      this.refreshProfile();
+      if (this.ownsProfile(store, epoch)) {
+        this.saving = false;
+        this.refreshProfile();
+      }
     }
+  }
+
+  ownsProfile(store, epoch) {
+    return (
+      this.store === store &&
+      this.epoch === epoch &&
+      !this.controller.signal.aborted
+    );
   }
 
   requestReset() {
@@ -365,19 +396,27 @@ export class GameUI {
 
   async resetProfile() {
     if (!this.store || this.saving || this.resetting) return;
+    const store = this.store;
+    const epoch = this.epoch;
     this.resetting = true;
     this.refreshProfile();
     try {
-      await this.store.reset();
-      await this.hooks.onReset?.();
+      await store.reset();
+      if (!this.ownsProfile(store, epoch)) return;
+      await this.hooks.onReset?.(store);
+      if (!this.ownsProfile(store, epoch)) return;
       this.closeAll();
       this.hooks.focusGame();
     } catch (error) {
-      this.report(error);
-      this.notice(`Local reset failed: ${error.message}`);
+      if (this.ownsProfile(store, epoch)) {
+        this.report(error);
+        this.notice(`Local reset failed: ${error.message}`);
+      }
     } finally {
-      this.resetting = false;
-      this.refreshProfile();
+      if (this.ownsProfile(store, epoch)) {
+        this.resetting = false;
+        this.refreshProfile();
+      }
     }
   }
 
@@ -417,7 +456,9 @@ export class GameUI {
       );
     }
     const controller = new AbortController();
-    const signal = AbortSignal.any([controller.signal, this.controller.signal]);
+    const signals = [controller.signal, this.controller.signal];
+    if (this.commandSignal) signals.push(this.commandSignal);
+    const signal = AbortSignal.any(signals);
     const task = { controller, promise: null };
     task.promise = this.loadWindow(name, signal).finally(() => {
       if (this.pending.get(name) === task) this.pending.delete(name);
@@ -703,17 +744,24 @@ export class GameUI {
     const layer = panel.layer("Confirmation");
     layer.button("BtOK", 300, 176, {
       label: "OK",
-      action: () => {
-        const action = this.confirmAction;
-        this.close("UtilDlgEx");
-        action?.();
-      },
+      action: () => this.confirmDialog(),
     });
     layer.button("BtCancel2", 355, 176, {
       label: "Cancel",
       action: () => this.close("UtilDlgEx"),
     });
     panel.dialogCleanup = () => layer.destroy();
+  }
+
+  /** Shared visible confirmation action; normal commands cannot invoke an unseen/pending dialog. */
+  confirmDialog() {
+    if (this.modal()?.name !== "UtilDlgEx" || this.dialogMode !== "confirm") {
+      return false;
+    }
+    const action = this.confirmAction;
+    this.close("UtilDlgEx");
+    action?.();
+    return true;
   }
 
   openQuickSlotCapture() {

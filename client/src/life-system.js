@@ -268,9 +268,15 @@ export class LifeSystem {
     this.interact(slot.record.id, "world-pointer");
   }
 
+  /** Normal command admission is identical to a resident NPC world click, never inspector selection. */
+  interactWorld(id) {
+    if (!this.canInteract(id)) return false;
+    return this.interact(id, "world-pointer");
+  }
+
   /** Inspector selection cannot open gameplay. Native world clicks use local proximity admission. */
   interact(id, source = "inspection") {
-    if (this.destroyed) return;
+    if (this.destroyed) return false;
     const slot = this.byId.get(id);
     if (!slot) throw new Error("Unknown life interaction preview");
     this.selected = slot;
@@ -280,7 +286,7 @@ export class LifeSystem {
       !this.canInteract(id)
     ) {
       this.controls.showSelection(id);
-      return;
+      return false;
     }
     const record = {
       id,
@@ -298,12 +304,15 @@ export class LifeSystem {
         "local visible/alive world-pointer within 120px horizontal and 100px vertical; dc geometry remains separate",
     };
     try {
+      if (!this.hooks.onInteract) return false;
       const pending = this.hooks.onInteract?.(record);
       if (pending && typeof pending.catch === "function") {
         pending.catch(this.hooks.onError);
       }
+      return true;
     } catch (error) {
       this.hooks.onError(error);
+      return false;
     }
   }
 

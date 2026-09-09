@@ -1,9 +1,66 @@
 import { resolve, dirname, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { prepareRelease } from "./release-manifest.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const MAX_SOURCE_FILES = 4096;
+const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Hash sorted repository-relative paths and exact build-input bytes, not mtimes.
+ * Length-framed entries prevent ambiguous path/content concatenations. This is
+ * independent of the extracted catalog buildId and creates no generated source.
+ * @returns {Promise<string>} Lowercase SHA-256 source/dependency identity.
+ */
+async function sourceIdentity() {
+  const repository = resolve(root, "..");
+  const paths = [
+    "bun.lock",
+    "package.json",
+    "client/package.json",
+    "server/package.json",
+    "client/tools/dev.js",
+    "client/tools/browser-oracle.js",
+  ];
+  const sources = new Bun.Glob("src/**/*.js");
+  for await (const path of sources.scan({
+    cwd: root,
+    onlyFiles: true,
+    followSymlinks: false,
+    dot: true,
+  })) {
+    if (paths.length >= MAX_SOURCE_FILES) {
+      throw new RangeError(
+        "Source identity exceeds its build-input file limit.",
+      );
+    }
+    paths.push(`client/${path.replaceAll("\\", "/")}`);
+  }
+  paths.sort();
+  const hash = createHash("sha256").update("maple-source-v1\0");
+  let totalBytes = 0;
+  for (const path of paths) {
+    const file = Bun.file(resolve(repository, path));
+    if (file.size > MAX_SOURCE_BYTES - totalBytes) {
+      throw new RangeError(
+        "Source identity exceeds its build-input byte limit.",
+      );
+    }
+    const bytes = await file.arrayBuffer();
+    totalBytes += bytes.byteLength;
+    if (totalBytes > MAX_SOURCE_BYTES) {
+      throw new RangeError(
+        "Source identity exceeds its build-input byte limit.",
+      );
+    }
+    hash.update(`${JSON.stringify(path)}\0${bytes.byteLength}\0`);
+    hash.update(new Uint8Array(bytes));
+  }
+  return hash.digest("hex");
+}
+
 /** Resolve only public entry files, browser bundles and generated assets. */
 function resourcePath(path) {
   if (path === "/") path = "/index.html";
@@ -147,6 +204,9 @@ const result = await Bun.build({
   naming: "[name].[ext]",
   sourcemap: "linked",
   outdir: resolve(root, "dist"),
+  define: {
+    "import.meta.MAPLE_SOURCE_ID": JSON.stringify(await sourceIdentity()),
+  },
 });
 if (!result.success) {
   throw new AggregateError(result.logs, "Browser build failed");

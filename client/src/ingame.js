@@ -12,13 +12,18 @@ import { CombatPresentation } from "./combat-presentation.js";
 
 /** Candidate fields own resources independently; only committed fields advance. */
 class FieldSystems {
-  constructor(scene, owner) {
+  constructor(scene, owner, context = {}) {
+    const store = context.store ?? owner.store;
+    const travelGate = context.travelGate ?? owner.travelGate;
     this.scene = scene;
     this.owner = owner;
     this.speechPose = { x: 0, headY: 0 };
     try {
-      this.portals = new PortalSystem(scene, owner.fieldHooks);
-      this.reactors = new ReactorSystem(scene, owner.store, {
+      this.portals = new PortalSystem(scene, {
+        ...owner.fieldHooks,
+        travelGate,
+      });
+      this.reactors = new ReactorSystem(scene, store, {
         onSound: (descriptor) =>
           owner.audio.audio
             .playSound(descriptor, owner.audio.controller.signal)
@@ -26,15 +31,20 @@ class FieldSystems {
         onChange: owner.profileChanged,
         onError: owner.hooks.onError,
       });
-      this.gameplay = new OfflineField(scene, owner.store, {
+      this.gameplay = new OfflineField(scene, store, {
         ...owner.gameplayHooks,
         onStrike: this.reactors.strike.bind(this.reactors),
-        onAttack: () =>
-          owner.audio.onPlayerAttack(scene.manifest.combat.equipment.sfx),
+        onAttack: () => {
+          owner.hooks.onEvent?.("player-attack", scene.actor.id, null);
+          owner.audio.onPlayerAttack(scene.manifest.combat.equipment.sfx);
+        },
         onPlayerHit: this.playerHit.bind(this),
         onMobHit: this.mobHit.bind(this),
         onMobAttack: (mob) => owner.audio.onMobAttack(mob, scene.simulation),
-        onPlayerDeath: owner.audio.onPlayerDeath.bind(owner.audio),
+        onPlayerDeath: () => {
+          owner.hooks.onEvent?.("player-death", scene.actor.id, null);
+          owner.audio.onPlayerDeath();
+        },
       });
       this.life = new LifeSystem(scene, owner.fieldHooks);
       this.speech = new SpeechBubbles(owner.app, owner.services);
@@ -54,10 +64,13 @@ class FieldSystems {
     ]);
   }
   playerHit(hit, simulation) {
+    this.owner.hooks.onEvent?.("player-hit", hit.source?.id ?? "", hit.amount);
     this.combat.onPlayerHit(hit, simulation);
     this.owner.audio.onPlayerHit(hit, simulation);
   }
   mobHit(mob, amount) {
+    this.owner.hooks.onEvent?.("mob-hit", mob.id, amount);
+    if (!mob.alive) this.owner.hooks.onEvent?.("mob-death", mob.id, null);
     this.combat.onMobHit(mob, amount);
     this.owner.audio.onMobHit(mob, amount, this.scene.simulation);
   }
@@ -123,6 +136,7 @@ export class InGameSystems {
     this.playEffect = this.playEffect.bind(this);
     this.profileChanged = this.profileChanged.bind(this);
     this.ui = new GameUI(app, services, {
+      now: hooks.now,
       clearInput: hooks.clearInput,
       focusGame: hooks.focusGame,
       onError: hooks.onError,
@@ -163,7 +177,9 @@ export class InGameSystems {
     if (!this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay()) {
       return false;
     }
-    return this.scene.fieldSystems.speech.show(text);
+    const accepted = this.scene.fieldSystems.speech.show(text);
+    if (accepted) this.hooks.onEvent?.("chat", this.scene.actor.id, text);
+    return accepted;
   }
   isWorldInteractive(clientX, clientY) {
     if (!this.scene || this.hooks.isBlocked()) return false;
@@ -195,24 +211,31 @@ export class InGameSystems {
   async prepare(catalog, signal, store) {
     this.store = store;
     this.catalog = catalog;
-    this.quests = new QuestSystem(catalog.quests, store, {
+    await this.audio.prepare(catalog.audiovisual, signal);
+    await this.ui.prepare(catalog.ui, signal);
+    this.useProfile(store);
+    this.restoreSettings();
+  }
+  /** Swap validated profile authority without reloading or duplicating HUD resources.
+   * Temporary stores and gates belong to an explicit development session. */
+  useProfile(store, travelGate = this.travelGate) {
+    this.store = store;
+    this.travelGate = travelGate;
+    this.quests = new QuestSystem(this.catalog.quests, store, {
       onChange: this.profileChanged,
       onEffect: this.playEffect,
     });
-    await this.audio.prepare(catalog.audiovisual, signal);
-    await this.ui.prepare(catalog.ui, signal);
     this.ui.setProfile(store, this.quests);
-    const bindings = new KeyBindings(store, catalog, {
+    const bindings = new KeyBindings(store, this.catalog, {
       onAction: (name) => this.activateBinding(name),
       isBlocked: () =>
         !this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay(),
-      now: () => performance.now(),
+      now: () => this.hooks.now?.() ?? performance.now(),
       report: (message) => this.ui.status(message),
     });
     this.bindings?.destroy();
     this.bindings = bindings;
     this.ui.setBindings(bindings);
-    this.restoreSettings();
   }
   restoreSettings() {
     for (const category of ["BGM", "SE"]) {
@@ -236,8 +259,8 @@ export class InGameSystems {
       }
     }
   }
-  async prepareScene(scene, signal) {
-    scene.fieldSystems = new FieldSystems(scene, this);
+  async prepareScene(scene, signal, context = {}) {
+    scene.fieldSystems = new FieldSystems(scene, this, context);
     await scene.fieldSystems.prepare(signal);
   }
   setScene(scene) {

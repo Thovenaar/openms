@@ -2,11 +2,11 @@ import { HUD_CLIENT_Y } from "./ui-hud.js";
 
 // 00490701 bounds history to eight; 008d379a selects 70 for ordinary users.
 const HISTORY_LIMIT = 8;
-const CHAT_LIMIT = 70;
+export const CHAT_LIMIT = 70;
 const REPEAT_WINDOW_MS = 30000;
 const FLOOD_WINDOW_MS = 2000;
 const FLOOD_COOLDOWN_MS = 2800;
-const CHANNELS = [
+export const CHAT_CHANNELS = Object.freeze([
   "To a buddy",
   "To Group",
   "To the party",
@@ -15,7 +15,7 @@ const CHANNELS = [
   "To Spouse",
   "Whisper",
   "To All",
-];
+]);
 // 008d57aa jump table / 008d53cd..008d542b; no remote target selection offline.
 const NEXT_CHANNEL = [5, 2, 3, 4, 6, 1, 7, 0];
 
@@ -99,7 +99,7 @@ export class UIChat {
     this.selector = document.createElement("select");
     this.selector.setAttribute("aria-label", "Chat channel");
     this.selector.style.cssText = `position:absolute;left:1px;top:${HUD_CLIENT_Y + 515}px;width:80px;height:20px;border:0;background:transparent;font:11px Arial,sans-serif;color:#000;`;
-    for (const name of CHANNELS) {
+    for (const name of CHAT_CHANNELS) {
       const option = document.createElement("option");
       option.textContent = name;
       this.selector.append(option);
@@ -187,29 +187,149 @@ export class UIChat {
     }
   }
 
+  /** Submit the real edit buffer; outcomes distinguish local admission from server delivery. */
   submit() {
     // 008d549f sanitizes non-ASCII bytes; trim helpers are 00474414/004744c9.
     const text = this.input.value.replace(/[^\x20-\x7e]/g, " ").trim();
     this.input.value = "";
     if (!text) {
       this.exitEdit();
-      return;
+      return { accepted: false, reason: "empty-chat" };
     }
+    const result = this.submitText(text);
+    this.input.focus();
+    return result;
+  }
+
+  /** Apply ordinary character/channel/flood gates before the field-owned speech hook. */
+  submitText(text) {
     if (text.length > CHAT_LIMIT) {
       this.owner.status("Chat is limited to 70 characters.");
-    } else if (this.selector.selectedIndex !== 7 || text.startsWith("/")) {
+      return { accepted: false, reason: "chat-length" };
+    }
+    if (this.selector.selectedIndex !== 7 || text.startsWith("/")) {
       this.owner.status(
         "Private channels and chat commands require the original server.",
       );
-    } else if (this.admit(text, performance.now())) {
-      if (this.owner.hooks.onChatSubmit?.(text) === true) {
-        this.remember(text);
-        this.owner.status("Local speech displayed; not sent to a server.");
-      } else {
-        this.owner.status("Local speech is unavailable; nothing was sent.");
-      }
+      return { accepted: false, reason: "requires-server" };
     }
-    this.input.focus();
+    const now = this.owner.hooks.now?.() ?? performance.now();
+    if (!Number.isFinite(now)) {
+      return { accepted: false, reason: "invalid-chat-clock" };
+    }
+    if (!this.admit(text, now)) {
+      return {
+        accepted: false,
+        reason: "chat-rate-limit",
+        retryAt: this.blockedUntil,
+      };
+    }
+    if (this.owner.hooks.onChatSubmit?.(text) !== true) {
+      this.owner.status("Local speech is unavailable; nothing was sent.");
+      return { accepted: false, reason: "speech-unavailable" };
+    }
+    this.remember(text);
+    this.owner.status("Local speech displayed; not sent to a server.");
+    return { accepted: true, delivery: "local-only", text };
+  }
+
+  /** Enter text through this edit owner, without DOM event synthesis or bypassing submission. */
+  send(text, channel = this.selector.selectedIndex) {
+    if (typeof text !== "string" || text.length > CHAT_LIMIT) {
+      return { accepted: false, reason: "chat-length", maximum: CHAT_LIMIT };
+    }
+    const index =
+      typeof channel === "string" ? CHAT_CHANNELS.indexOf(channel) : channel;
+    if (
+      !Number.isInteger(index) ||
+      index < 0 ||
+      index >= CHAT_CHANNELS.length
+    ) {
+      return { accepted: false, reason: "invalid-chat-channel" };
+    }
+    if (this.composing || this.owner.blocksGameplay() || !this.owner.visible) {
+      return { accepted: false, reason: "chat-blocked" };
+    }
+    this.open();
+    this.selector.selectedIndex = index;
+    this.input.value = text;
+    return this.submit();
+  }
+
+  /** Demand-only metadata for normal input clients; limits are owned here, not copied by callers. */
+  describe() {
+    return {
+      maximum: CHAT_LIMIT,
+      channels: CHAT_CHANNELS.slice(),
+      selectedChannel: this.selector.selectedIndex,
+      localChannel: 7,
+      repeatWindowMs: REPEAT_WINDOW_MS,
+      floodWindowMs: FLOOD_WINDOW_MS,
+      floodCooldownMs: FLOOD_COOLDOWN_MS,
+      blockedUntil: Number.isFinite(this.blockedUntil)
+        ? this.blockedUntil
+        : null,
+    };
+  }
+
+  /** Capture bounded transient state before switching clock/profile ownership. */
+  checkpoint() {
+    return {
+      history: this.history.slice(),
+      recent: this.recent.slice(),
+      historyIndex: this.historyIndex,
+      recalledSubmission: this.recalledSubmission,
+      recentStarted: this.recentStarted,
+      submitTimes: Array.from(this.submitTimes),
+      submitIndex: this.submitIndex,
+      blockedUntil: this.blockedUntil,
+      channel: this.selector.selectedIndex,
+      text: this.input.value,
+      state: this.state,
+      height: this.height,
+    };
+  }
+
+  /** Restore an unmodified checkpoint created by this owner, never a public profile import. */
+  restore(checkpoint) {
+    if (
+      checkpoint.history.length > HISTORY_LIMIT ||
+      checkpoint.recent.length > 4 ||
+      checkpoint.submitTimes.length !== this.submitTimes.length
+    ) {
+      throw new TypeError("Invalid chat checkpoint bounds");
+    }
+    this.history = checkpoint.history.slice();
+    this.recent = checkpoint.recent.slice();
+    this.historyIndex = checkpoint.historyIndex;
+    this.recalledSubmission = checkpoint.recalledSubmission;
+    this.recentStarted = checkpoint.recentStarted;
+    this.submitTimes.set(checkpoint.submitTimes);
+    this.submitIndex = checkpoint.submitIndex;
+    this.blockedUntil = checkpoint.blockedUntil;
+    this.selector.selectedIndex = checkpoint.channel;
+    this.input.value = checkpoint.text;
+    this.height = checkpoint.height;
+    this.composing = false;
+    this.endResize();
+    this.setState(checkpoint.state);
+  }
+
+  /** Clear transient chat and clock-domain counters on an explicit scenario ownership switch. */
+  resetSession() {
+    this.history.length = 0;
+    this.recent.length = 0;
+    this.historyIndex = 0;
+    this.recalledSubmission = false;
+    this.recentStarted = -Infinity;
+    this.submitTimes.fill(-Infinity);
+    this.submitIndex = 0;
+    this.blockedUntil = -Infinity;
+    this.composing = false;
+    this.selector.selectedIndex = 7;
+    this.height = 70;
+    this.endResize();
+    this.close(true);
   }
 
   /** 004904be: four equal messages / 30 s or four submissions / 2 s block for 2800 ms. */

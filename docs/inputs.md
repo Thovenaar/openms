@@ -10,4 +10,10 @@ The supplied community remake and sibling reconstructions are excluded as implem
 
 Ghidra installation: `/Users/k/Downloads/ghidra_12.0.4_PUBLIC`. Analysis uses separate temporary headless projects and preserves selected address-bearing reports here. Windows executables are analyzed, not executed.
 
+## Available server reference
+
+The additional supplied tree `/Users/k/Development/tensorfish/MapleStory-Server` identifies itself in `README.md` as **Cosmic**, a Global MapleStory v83 server emulator descended from OdinMS/HeavenMS. It contains Java server logic, JavaScript scripts and WZ exports. The user explicitly authorized consulting this server code for the current gameplay corrections.
+
+This is **server-reference evidence, not original Nexon server source**. Cite exact consumers and distinguish emulator behavior from original executable/WZ observations; corroborate timing and presentation against the original client where available. Sibling third-party **client** reconstructions remain excluded. The application's reserved `server/` workspace still contains no backend implementation.
+
 Direct archive observations: `Base.wz`, `Map.wz`, and `Character.wz` begin with `PKG1`; offset 12 contains little-endian `60`; offset 60 contains bytes `ac 00`. `List.wz` has a different header and is not presumed to use the same structure. Interpretations require the accompanying Ghidra evidence and successful archive probes.

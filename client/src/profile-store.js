@@ -229,6 +229,7 @@ export class ProfileStore {
     this._flushTarget = 0;
     this._listeners = new Set();
     this._destroyed = false;
+    this.temporary = false;
     this._closing = false;
     this._onAutosave = this._autosave.bind(this);
     this._onBackgroundFailure = this._backgroundFailure.bind(this);
@@ -242,6 +243,18 @@ export class ProfileStore {
   static async open(options = {}) {
     const store = new ProfileStore(options);
     await store._open();
+    return store;
+  }
+
+  /** Synchronous isolated store: validates/clones a v2 profile; never opens IDB or attaches listeners. */
+  static memory(profile) {
+    validateProfile(profile);
+    const store = new ProfileStore({ location: profile.location });
+    store._profile = structuredClone(profile);
+    store.temporary = true;
+    store.revision = 0;
+    store._generation = "temporary";
+    store.status = "saved";
     return store;
   }
 
@@ -357,7 +370,9 @@ export class ProfileStore {
     const bindings = structuredClone(value);
     const priorFlush = this._flushPromise;
     this._clearTimer();
-    this._bindingPromise = this._commitKeyBindings(bindings, priorFlush);
+    this._bindingPromise = this.temporary
+      ? this._commitMemoryBindings(bindings, priorFlush)
+      : this._commitKeyBindings(bindings, priorFlush);
     return this._bindingPromise;
   }
 
@@ -395,6 +410,65 @@ export class ProfileStore {
     }
   }
 
+  /** Temporary Save validates a checkpoint but cannot publish it outside this store. */
+  _saveMemory() {
+    validateProfile(this._profile);
+    if (this.revision === Number.MAX_SAFE_INTEGER) {
+      throw profileError(
+        "revision-exhausted",
+        "Temporary save revision limit reached.",
+      );
+    }
+    this.revision++;
+    this.savedEpoch = this.dirtyEpoch;
+    this.error = null;
+    return this._saved();
+  }
+
+  /** Temporary binding commits retain the durable store's pending-operation serialization. */
+  async _commitMemoryBindings(bindings, priorFlush) {
+    await Promise.resolve();
+    try {
+      if (priorFlush) await priorFlush;
+      const profile = structuredClone(this._profile);
+      profile.keyBindings = bindings;
+      validateProfile(profile);
+      if (this.revision === Number.MAX_SAFE_INTEGER) {
+        throw profileError(
+          "revision-exhausted",
+          "Temporary save revision limit reached.",
+        );
+      }
+      this._profile.keyBindings = bindings;
+      return this._saveMemory();
+    } catch (error) {
+      throw this._fail(error);
+    } finally {
+      this._bindingPromise = null;
+    }
+  }
+
+  /** Coalesce overlapping temporary flushes without IDB, timers, or synchronous observer recursion. */
+  async _flushMemory() {
+    const pendingBinding = this._bindingPromise;
+    await Promise.resolve();
+    try {
+      if (pendingBinding) await pendingBinding;
+      for (let pass = 0; pass < MAX_FLUSH_PASSES; pass++) {
+        const snapshot = this._saveMemory();
+        if (this.savedEpoch >= this._flushTarget) return snapshot;
+      }
+      throw profileError(
+        "save-overload",
+        "Temporary save observers exceed the checkpoint bound.",
+      );
+    } catch (error) {
+      throw this._fail(error);
+    } finally {
+      this._flushPromise = null;
+    }
+  }
+
   /** Coalesced 250-ms browser checkpoint policy; no validation or cloning in the physics tick. */
   markDirty() {
     if (this._destroyed || this._closing) {
@@ -424,6 +498,7 @@ export class ProfileStore {
 
   _schedule() {
     if (
+      this.temporary ||
       this._timer !== null ||
       this.error ||
       this._bindingPromise ||
@@ -483,7 +558,9 @@ export class ProfileStore {
         ? Promise.reject(this.error)
         : Promise.resolve(this.snapshot());
     }
-    this._flushPromise = this._flushAll();
+    this._flushPromise = this.temporary
+      ? this._flushMemory()
+      : this._flushAll();
     return this._flushPromise;
   }
 
@@ -577,7 +654,7 @@ export class ProfileStore {
     }
     if (this._resetPromise) return this._resetPromise;
     this._clearTimer();
-    this._resetPromise = this._reset();
+    this._resetPromise = this.temporary ? this._resetMemory() : this._reset();
     return this._resetPromise;
   }
 
@@ -628,6 +705,38 @@ export class ProfileStore {
     }
   }
 
+  /** Reset creates a new beginner profile at the temporary bootstrap, never the durable row. */
+  async _resetMemory() {
+    await Promise.resolve();
+    try {
+      if (this._bindingPromise) await this._bindingPromise;
+      if (this._flushPromise) {
+        try {
+          await this._flushPromise;
+        } catch (error) {
+          this._backgroundFailure(error);
+        }
+      }
+      if (
+        this.dirtyEpoch === Number.MAX_SAFE_INTEGER ||
+        this.revision === Number.MAX_SAFE_INTEGER
+      ) {
+        throw profileError(
+          "epoch-exhausted",
+          "Temporary reset counter limit reached.",
+        );
+      }
+      const profile = createProfile(this._bootstrap);
+      Object.assign(this._profile, profile);
+      this.dirtyEpoch++;
+      return this._saveMemory();
+    } catch (error) {
+      throw this._fail(error);
+    } finally {
+      this._resetPromise = null;
+    }
+  }
+
   _versionChange() {
     this._database.close();
     this._database = null;
@@ -654,6 +763,7 @@ export class ProfileStore {
   /** Metadata only. Gameplay reads profile; snapshot never exposes IDB handles or mutable aliases. */
   snapshot() {
     return {
+      persistence: this.temporary ? "temporary" : "durable",
       status: this.status,
       revision: this.revision ?? null,
       generation: this._generation ?? null,

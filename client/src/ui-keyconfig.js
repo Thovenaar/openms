@@ -22,17 +22,11 @@ export function layoutKeys(panel) {
   });
   panel.button("KeyConfig/BtDefault", 112, 236, {
     label: "Restore default keys",
-    action: () =>
-      panel.owner.confirm("Restore the original default keys?", () =>
-        bindings.resetDefaults(),
-      ),
+    action: () => defaultKeys(panel),
   });
   panel.button("KeyConfig/BtDelete", 177, 236, {
     label: "Delete all key assignments",
-    action: () =>
-      panel.owner.confirm("Delete all key assignments?", () =>
-        bindings.clearKeys(),
-      ),
+    action: () => clearKeys(panel),
   });
   panel.button("KeyConfig/BtQuickSlot", 260, 236, {
     label: "Configure quick-slot keys",
@@ -184,20 +178,48 @@ export function drawKeyLabel(layer, index, x, y) {
   if (layer.assets[path]) layer.image(path, x + offset, y + 4);
 }
 
-async function saveKeys(panel) {
-  if (panel.keySaving) return;
+/** Explicit Save is the sole durable publication path for both UI and normal commands. */
+export async function saveKeys(panel, signal) {
+  if (panel.keySaving) return false;
   panel.keySaving = true;
+  const bindings = panel.owner.bindings;
   try {
-    await panel.owner.bindings.save();
+    await bindings.save();
+    if (signal?.aborted) {
+      if (
+        panel.owner.bindings === bindings &&
+        panel.owner.windows.get("KeyConfig") === panel
+      ) {
+        bindings.beginEdit();
+      }
+      return true;
+    }
     if (panel.owner.windows.get("KeyConfig") === panel) {
       panel.owner.close("KeyConfig", true);
     }
+    return true;
   } catch (error) {
+    if (signal?.aborted || panel.owner.bindings !== bindings) return false;
     panel.owner.status(`Key configuration was not saved: ${error.message}`);
     panel.owner.report(error);
+    return false;
   } finally {
     panel.keySaving = false;
   }
+}
+
+/** Request the same visible confirmation as the Default button; do not mutate yet. */
+export function defaultKeys(panel) {
+  panel.owner.confirm("Restore the original default keys?", () =>
+    panel.owner.bindings.resetDefaults(),
+  );
+}
+
+/** Request the same visible confirmation as the Delete button; do not mutate yet. */
+export function clearKeys(panel) {
+  panel.owner.confirm("Delete all key assignments?", () =>
+    panel.owner.bindings.clearKeys(),
+  );
 }
 
 export function cancelKeys(panel) {

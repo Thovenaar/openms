@@ -23,6 +23,30 @@ header {
   align-items: center;
   background: #17232e;
   border-bottom: 1px solid #344554;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+#agent-controls,
+.maple-agent-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+#agent-controls {
+  margin-left: auto;
+  font-size: 12px;
+}
+#agent-controls [role="status"] {
+  overflow-wrap: anywhere;
+}
+#agent-controls[data-experimental] {
+  border-left: 3px solid #e7bc63;
+  padding-left: 10px;
+}
+#agent-development-status:empty {
+  display: none;
 }
 h1 {
   margin: 0;
