@@ -1,12 +1,24 @@
 # Validation results
 
-## Current external-controls acceptance
+## Current native offline UI acceptance
+
+The [native offline UI acceptance index](native-ui-validation.md) joins92 scenario groups across nine independently exercised domains,40 targeted correction groups, original-client recovery and preserved historical findings. It covers native bindings/focus/macros/options, gameplay status/motion/logs, inventory/trade, NPC/shop/quest/helper, social/UserInfo, Family, Monster Book, Cash Shop and viewport/layering behavior. Each report retains its own build; setup is not acquisition and implemented source is not an automatic browser pass.
+
+Published source: `d9d0f288bdfa436d1a0dbfa8b73a6307ee90ea17a7ef41b1a976775be26d32a5`; assets: `c97c0a515272e724565684bb3501dea3971143f62fee3405c23eaaac2c9cbe8a`; release: `6e38afc1db7927ff1021f971c21df7e7a9ffb24aed9eb691289b3cbb5d0f6d2f`. Full extraction includes356 maps and36,727 release resources. Strict lint and220 tests/1,360 assertions pass. [Native HUD/close smoke](native-ui-validation/final/integration/published-smoke.json) observes this exact source and complete retirement of all three opened roots.
+
+The identified [world/performance report](native-ui-validation/final/performance/report.json) passes **402 checks, zero failures and zero unhandled browser errors**. Chrome152/M3/Metal at1280×900/DPR1 measured599 rAF intervals over10,003.2ms: mean16.666ms,p95≈16.7ms,max≈16.8ms, no intervals above20ms and no Long Tasks. Sampled heap131,234,663 bytes; decoded CPU/GPU-estimated artwork each53,269,284 bytes across44 atlases. [Measurement details](native-ui-validation.md#measured-rendering-performance) distinguish network-throttled49.520s cold readiness, trailing CPU-ring coverage, short host-specific measurements and original-runtime parity.
+
+The final [incoming trade replay](native-ui-validation/final/inventory-trade/invitation.json) passes six additional native groups on that published source: original invitation entrance/accept/decline, side1 atomic exchange and reload, duplicate/cancel handling, real unanswered expiry, portal-owned teardown and recovery from an aborted exact bundle request. This resolves the further invitation gap discovered during the earlier correction wave; exact180-second edge timing and network/Windows parity remain unclaimed.
+
+The acceptance index explicitly retains transient resource503s, unsupported authored script/dialogue/commodity/skill and remote-service boundaries, the110-branch resource ledger and absent Windows reference execution. It does not describe every archived branch or every original-server path as implemented.
+
+## Earlier external-controls acceptance {#current-external-controls-acceptance}
 
 The [simplified-console report](ingame-validation/console-simple/report.json) covers the actual integrated browser and the [task-based console contract](inspection-tools.md). Default desktop controls decreased42→17; Play fits without scrolling. Native profile rejection/correction/reload, preserved drafts, disclosed invalid fields, audio checkpoint/readout restoration, all three scoped themes, world selection, geometry/camera/step controls, hide/show, and390px DPR1/2 layouts were exercised.
 
 Independent review found three regressions and manual play found one more: moved controls lacked no-map disabling, renderer failure stranded navigation, the geometry validator used the old disclosure, and a sticky toolbar intercepted a scrolled control. Retained fault/replay evidence covers each correction. Strict lint and147 tests/876 assertions pass. This milestone changes external controls only; the gameplay evidence below retains its own source/release identities and limitations.
 
-## Current expanded-fidelity acceptance
+## Earlier expanded-fidelity acceptance {#current-expanded-fidelity-acceptance}
 
 The [expanded index](ingame-validation/expanded/report.json) joins three independent native-browser playtests, exact staged source identities, retained failures and corrected replays. Gameplay actions used real mouse/keyboard input; validated temporary profiles are labeled setup, not earned progression. Recording/replay is a separately labeled scenario, not a substitute for native play.
 
@@ -27,7 +39,7 @@ Final source: `713aad43393ae26e4cc57e1a35a412bb3b0930d5cf19368ace8b3b3b893d9fde`
 
 **Measured performance:** Chrome152, Apple M3/Metal/WebGL2,1280×900/DPR1;5,002.7ms and299 rAF intervals, mean16.666ms,p95≈16.7ms,max≈16.8ms, no intervals above20ms and no long tasks. Sampled JS heap107,765,737 bytes; CPU decoded and GPU-estimated artwork each44,157,448 bytes;27 atlases, longest upload batch≈4.4ms. Cold readiness34.365s uses the validator's scoped network emulation, not unrestricted startup. This is a short host-specific measurement, not universal60-FPS or peak-process memory proof.
 
-**Remaining boundaries:**35 of534 catalogued skills have implemented controllers;499 remain explicitly classified by missing consumers. Cosmic's24 SQL schemas/73 tables and13 companion files yield30557 published reference rows;55 tables have no supplied seeds, and1915 inventoried scripts are not executed. Shops/crafting/cards/cash descriptors are reference inputs, not enabled mechanics. Remote social/commerce, inventory-chair/item-script/macro controllers and other documented unsupported behavior do not return fabricated success. Uncollected drops are transient. Native stationary-NPC-name opaque occlusion remains uncaptured; retained Hector attack pose is proved, its pending damage is not. No original Windows-runtime parity is claimed.
+**Boundaries at that historical milestone:** 35 of 534 skills had implemented controllers; 499 remained classified by missing consumers. Cosmic's 24 SQL schemas/73 tables and 13 companion files yielded 30,557 reference rows; 55 tables lacked seeds. Shops/crafting/cards/cash and macro/social controllers were then reference-only or unavailable. Current implemented local behavior supersedes those old limitations in [native binding/domain contracts](offline-binding-actions.md), [UI](ingame-ui.md) and [NPC quests](ingame-quests.md). Remote services, unsupported skills, transient uncollected drops and missing original Windows-runtime reference captures remain separate boundaries. Historical observations are not retroactively relabeled as current-build proof.
 
 ## Earlier interaction-correction acceptance {#current-interaction-correction-acceptance}
 

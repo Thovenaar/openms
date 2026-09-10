@@ -12,7 +12,7 @@ The original unpacked v83 executable dispatches the packed type-4 binding throug
 - `ghidra-client-corrections/local-window-tabs.txt`
 - `ghidra-client/decoded-strings.txt`
 
-Read-only Ghidra 12 analysis was executed on `/tmp/maple-ingame-life`, program `Maplestory_UNPACKED.exe`, with `-readOnly -noanalysis` and `docs/tools/clientFocus.java`. No original C/C++ source or Windows execution is claimed. Cosmic is not the authority for this client mapping.
+Read-only Ghidra12 analysis was executed on the original unpacked executable; exports are binary evidence, not original C/C++ source or Windows execution. Cosmic is authorized **server-semantics reference**, not client input/layout authority. Current native windows operate on schema5 persisted local profiles through existing domain services. Explicit outside-game producers create/fund local peers and supply incoming consent/receipt actions; no remote session, payment or membership is fabricated.
 
 ## Complete type-4 mapping
 
@@ -20,34 +20,34 @@ All numeric entries below are **binding IDs**, not native window IDs.
 
 | ID | Native consumer | Exact meaning / runtime route | Authority classification |
 |---:|---|---|---|
-| 0 | window 1 → `007fde7c` | Equip | Existing local equipment presentation |
-| 1 | window 0 → `0081c414` | Item | Existing local inventory |
-| 2 | window 2 → `008c4842` | Stat | Existing local profile/AP |
-| 3 | window 3 → `008aa5ad`; special job remap to window 33 → `008b981d` | Skill | Existing local skills; native special-book distinction retained as evidence |
-| 4 | window 7, tab 0 → `009196f2` | UserList: Friends | Zero remote friends/presence; explicit server-required operations |
-| 5 | `009e9823` → `009eb366`, then `004edba1` | WorldMap | Original Map.wz world art, spots, field membership and navigation; never teleport |
-| 6 | `0084dd25` → `0084d9ea` → `0084ddb0` | Messenger | Zero remote participants; server messenger session required |
-| 7 | `008590f9` | MiniMap cycle | Existing resident local minimap |
-| 8 | window 6 → `0087e8f3` | Quest | Existing journal and original-NPC quest authority |
-| 9 | window 5 → `00832586` | KeyConfig | Existing durable local binding editor |
-| 10 | key-up → `008d4d43(7)` | ChatAll | Local channel selection; no broadcast server |
-| 11 | key-up → `009e85e7`, `008d4dbf` | ChatWhisper, mode 6 | Selects mode6 and focuses the local message editor; recipient/session admission and delivery remain unavailable |
-| 12 | key-up → `008d4d43(2)` | ChatParty | Local channel selection; no party recipients |
-| 13 | key-up → `008d4d43(0)` | ChatBuddy | Local channel selection; no buddy recipients |
-| 14 | `00a06cbc` | ShortCut | Existing original shortcut popup |
-| 15 | `008df4b1` | QuickSlot | Existing original quickslot visibility |
-| 16 | `008d4a6d(3/1)`, `009e3264(0)` | ExpandChat | Chat expansion toggle, **not a channel selector** |
-| 17 | window 7, tab 2 → `009196f2` | UserList: Guild | Zero membership; server guild registry required |
-| 18 | key-up → `008d4d43(3)` | ChatGuild | Local channel selection; no guild recipients |
-| 19 | window 7, tab 1 → `009196f2` | UserList: Party | Zero membership; server party registry required |
-| 20 | resident singleton → `00888230` | QuestAlarm | Local active quest tracker with actual progress |
-| 21 | key-up → `008d4d43(5)` | ChatSpouse | Local channel selection; no spouse recipient |
-| 22 | window 9 → `00861b12` (475×349), create `00861e99` | MonsterBook | Zero registered cards; explicitly separate original current-field monster information |
-| 23 | `00a04dca` (packet opcode `0x28`, cash-shop gates) | CashShop | Commerce/transition requires server; explicit refusal, no synthetic shop membership |
-| 24 | key-up → `008d4d43(4)` | ChatAlliance | Local channel selection; no alliance recipients |
-| 25 | window 22 → `0087781d`, literal `L"PartySearch"` | PartySearch | Zero search results; registration/matchmaking requires remote players |
-| 26 | window 27 → `00808404` (224×392), create `0080862b` | Family | Zero family/reputation; server family service required |
-| 27 | window 31 → `00840170` (260×374), create `0084056b` | Title / medal | Actual owned medals only; challenge ranking, claim/reissue require original authority |
+| 0 | window1 → `007fde7c` | Equip | Owned equipment, admitted unequip and pet-equipment attachment; no pet lifecycle grant |
+| 1 | window0 → `0081c414` | Item | Slot/UID-aware inventory, gather/move/use/drop/equip through local authority |
+| 2 | window2 → `008c4842` | Stat | Saved AP allocation and attached derived-stat details |
+| 3 | window3 → `008aa5ad`; special job remap to window33 → `008b981d` | Skill | Learned/SP state, supported casts and attached SkillMacro; special-book distinction remains evidence |
+| 4 | window7, tab0 → `009196f2` | UserList: Buddy | Loaded local friends, reciprocal consent, groups and blacklist/settings gates |
+| 5 | `009e9823` → `009eb366` → `004edba1` | WorldMap | Original regional art, spots, current/NPC markers and native navigation; never teleport |
+| 6 | `0084dd25` → `0084d9ea` → `0084ddb0` | Messenger | Local participant invitations, session messages and leave |
+| 7 | `008590f9` | MiniMap cycle | Compact1 → expanded0 → title-only2; initial compact demand-load is browser policy |
+| 8 | window6 → `0087e8f3` | Quest | Original journal/detail, existing NPC quest authority and helper registration |
+| 9 | window5 → `00832586` | KeyConfig | Live outer binding draft, original notices and explicit durable commit |
+| 10 | key-up → `008d4d43(7)` | ChatAll | Resident-avatar local speech, not server broadcast or fabricated received echo |
+| 11 | key-up → `009e85e7`, `008d4dbf` | ChatWhisper, mode6 | Local editor and selected loaded recipient; original `/whisper` route also selects a recipient |
+| 12 | key-up → `008d4d43(2)` | ChatParty | Admitted loaded local party recipients |
+| 13 | key-up → `008d4d43(0)` | ChatBuddy | Reciprocal loaded local buddy recipients |
+| 14 | `00a06cbc` | ShortCut | Original HUD-anchored shortcut popup |
+| 15 | `008df4b1` | QuickSlot | Original quick-slot visibility and current shared bindings |
+| 16 | `008d4a6d(3/1)`, `009e3264(0)` | ExpandChat | Expansion toggle, not a channel selector |
+| 17 | window7, tab2 → `009196f2` | UserList: Guild | Local guild creation/consent/roles/notice/emblem/board/leave/disband |
+| 18 | key-up → `008d4d43(3)` | ChatGuild | Admitted loaded local guild recipients |
+| 19 | window7, tab1 → `009196f2` | UserList: Party | Local creation/invitations/leadership/expel/leave; PartyHP projection |
+| 20 | resident singleton → `00888230` | QuestAlarm | Persisted helper registration and actual quest progress, not independent completion |
+| 21 | key-up → `008d4d43(5)` | ChatSpouse | Channel exists; no local marriage/spouse authority, so delivery refuses |
+| 22 | window9 → `00861b12`, create `00861e99` | MonsterBook | Original475×349 book, real collected-card counts/cover and unlocked details |
+| 23 | `00a04dca`, opcode`0x28` and cash-stage gates | CashShop | Separate800×600 stage and admitted local commodity/locker/gift transactions; no real payment |
+| 24 | key-up → `008d4d43(4)` | ChatAlliance | Admitted loaded local alliance recipients |
+| 25 | window22 → `0087781d`, literal `L"PartySearch"` | PartySearch | Local registration, criteria and consent-based join/invite; no invented remote results |
+| 26 | window27 → `00808404`, create `0080862b` | Family | Local tree/reputation/entitlements and admitted travel/rate consumers |
+| 27 | window31 → `00840170`, create `0084056b` | Title / medal | Actual owned medals and supported original quest challenge/claim/forfeit/equip |
 
 ## Character bindings and map seats
 
@@ -55,47 +55,75 @@ All numeric entries below are **binding IDs**, not native window IDs.
 
 Type5 Sit uses native `0094e45f`/`00536517`: stationary ground contact, first authored map seat within half-open x±10/y±30, and200ms repeat guard. `physics.map.$seats` retains original vectors; the avatar moves to that vector and uses `sit` without synthesizing a foothold or changing authored artwork. Movement, attack, death and an admitted impulse release the seat; resisted hits do not. Relocation clears it. This is map-seat support, not an implementation of inventory-chair item controllers.
 
-Type5 Talk uses native `006d9390`: nearest squared-origin distance among admitted NPCs intersecting the three expanded dc rectangles, excluding `talkMouseOnly`. Pointer interaction retains its own native eligibility. Other recovered binding routes select actual chat channels or open original-resource windows; Cash Shop explicitly refuses absent account-commerce authority. Item scripts, inventory-chair controllers and unassigned macro sequences remain separate unsupported dependencies, not successful no-ops.
+Type5 Talk uses native `006d9390`: nearest squared-origin distance among admitted NPCs intersecting the three expanded dc rectangles, excluding `talkMouseOnly`. Pointer release retains its own native eligibility; neither route invents a120×100 player-distance rule. Type5 Pickup uses actual local drops. Other recovered routes open the current native surfaces or select local chat channels. Inventory-chair, pet/mount and unsupported item/script controllers remain explicit dependencies rather than successful no-ops.
 
 The timing/admission evidence is retained under `ghidra-client-corrections/offline-character-actions.txt`, `offline-character-state.txt`, `offline-character-state-insns.txt`, `offline-expression-duration.txt`, and `offline-expression-map/`. These are decompiled binary evidence, not original source or Windows runtime parity. The [native gameplay replay](ingame-validation/expanded/gameplay/report.json) found and verified the expression-clock ownership fix: cooldown inheritance is valid only for the same ProfileStore, not a new temporary-profile clock.
 
 Important correction: IDs **25/26/27 are PartySearch/Family/Title**, respectively, not Family/Medal/PartySearch. Family creation consumes decoded string IDs `0x11db..0x11e1` (`UI/UIWindow.img/Family/...`); Title creation consumes `0x142a/0x142c` (`UI/UIWindow.img/Title/backgrnd2/backgrnd4`). Messenger creation prints original messenger help lines. WorldMap initialization consumes `0x8e5` (`Map/MapHelper.img/worldMap/mapImage`).
 
-## Local window integration
+## Native window integration and local authority
 
-`ui-local-windows.js` exports `LOCAL_WINDOW_NAMES`, `localWindowSize(name, resource)` and `layoutLocalWindow(panel)`. Unknown names return `null` and `false`, respectively. All local windows use `UISurface`, its borrowed resource lifetime, DOM accessibility plane, bounded controls and normal GameUI close/drag/viewport management. There is no second texture decoder or independent window owner.
+`ui-local-windows.js` registers WorldMap, UserList, UserInfo, QuestAlarm, MonsterBook, PartySearch, Family, Title, Messenger, CashShop, SkillMacro, Shop, TradingRoom, FamilyTree and PartyHP, plus the internally owned TradeInvitation. `localWindowSize(name,resource)` and `layoutLocalWindow(panel)` use the existing surface/resource lifecycle; there is no independent texture decoder or second window owner. TradeInvitation is not a normal bindable/agent window command.
 
-GameUI registers these eight names and their original bundles: `WorldMap`, `UserList`, `QuestAlarm`, `MonsterBook`, `PartySearch`, `Family`, `Title`, `Messenger`. Other than WorldMap and QuestAlarm, dimensions come from original `backgrnd`. WorldMap is 654×521 around original 640×470 art; QuestAlarm is a bounded 223×246 tracker using its authored 25/18/5-pixel chrome segments. Native artwork is retained; contextual text layout, scrolling, pagination and navigation controls are browser policies, **not recovered original font/layout parity**.
+Current logical dimensions and attached relationships are explicit: WorldMap666×524, UserList312×389, UserInfo275×199 with mutually exclusive240×162 attachments at parent+`(270,0)`, Messenger295×364, PartySearch305×407, Family224×392, Title260×374 (565px with detail), FamilyTree578×386, Shop463×339 and TradingRoom565×474. SkillMacro207×289 requires a Skill parent and follows its movement/front/close. QuestAlarm and PartyHP start from segmented223×20 and150×25 chrome; their live contents determine height. CashShop is a distinct800×600 no-drag stage. These source dimensions do not by themselves prove every native extent or browser glyph metric.
 
-- Binding 4/17/19 opens UserList and calls `panel.selectLocalTab(0/2/1)`. Native `00a04f7a` closes the already selected tab, but selects another tab without closing. The routing owner must preserve this distinction.
-- Other local binding routes use the normal GameUI open/toggle path.
-- `panel.localRefresh()` refreshes contextual profile data. Invoke it on profile changes **and field changes**. WorldMap refresh is field-ID-gated; it does not rebuild every frame or every profile notification.
-- QuestAlarm reads active persisted quest states, original completion conditions, kill counters and item inventory. It never accepts/completes a quest independently of its original NPC.
-- MonsterBook clearly labels its field-information view separately from the unimplemented card registry. It does not grant cards or claim that encountering a monster unlocks a card.
-- Title recognizes original medal family `Character.wz:Accessory/0114xxxx.img`; source spot-check `String.wz:Eqp.img/Eqp/Accessory/1142001/name` is `PQ Mania Medal`. Inventory/equipment is the only local ownership authority.
-- Remote action buttons return a negative `server-required` outcome and visibly explain the precise dependency. Counts remain zero; opening a window is not membership, message delivery, matchmaking or commerce.
+- UserList order is **Buddy, Party, Guild, Guild Alliance, Blacklist**. Bindings4/17/19 select tab0/2/1. Native `00a04f7a` closes a repeated active tab, but another tab selection keeps the same window open.
+- `LocalSocial`/its action modules own real loaded-profile transactions, consent requests and membership. Friends support invite/remove/group/block; parties support create/invite/join/leader/expel/leave. PartySearch actor eligibility remains level10 while criteria minimum1 is valid; job/min/max filters do not create a listing or membership by themselves.
+- Guild/Alliance operations enforce costs, founders, ranks, capacity and reciprocal loaded membership. Guild notices, rank titles, emblem selection, board posts/comments and disband are implemented local actions, not permanently empty remote placeholders. Guild Alliance remains the original fourth tab regardless of whether the local profile belongs to one.
+- `LocalChat` delivers Buddy/Group/Party/Guild/Alliance/Whisper only to admitted local recipients; reciprocal relations, blacklist and receiving flags are checked. Unknown slash commands and missing spouse relationships refuse. All stays field-owned speech without a log echo. Messenger uses its saved local session/messages; ordinary HUD mailbox/recall/flood state is transient.
+- Family/FamilyTree project real saved links, precept, reputation and eligible entitlement controls. Reunion and summon prepare authored portal-zero travel with field restrictions and consent. Personal/party EXP/drop benefits and six-descendant bonding use attached local rate consumers, with expiry and calendar-day use reset. Earned kill/level progress enters a separate trusted producer. Explicit seeded reputation/rosters are not proof of acquisition; Cosmic's incomplete FamilyUse handler is not promoted into native-client evidence.
+- UserInfo resolves the **selected** loaded profile for portrait, Party invitation, equipment, wishlist and real book/medal collection. Equipment and wishlist are mutually exclusive attached children; selected original wishes hand their SN/recipient to CashShop gift UI. Empty pet/mount fields do not grant those actors.
+- Title Basic lists actual owned`114xxxx` medals and double-clicks an unequipped UID through the equipment authority. Job/General/Challenge/Event tabs select original medal quests and attached criteria/dialogue; challenge/claim/forfeit use the existing quest owner. Ranking/reissue paths without authority remain unavailable.
+- QuestAlarm reflects real helper registration and progress from the journal/NPC owners. Successful registration opens the helper; it never accepts/completes a quest by itself. Shop/recharge and nine-slot TradingRoom use existing item/meso/capacity/transaction owners.
+- Incoming trade uses original type2 `FadeYesNo/backgrnd`, `icon2`, `BtOK` and `BtCancel`, borrowed from the TradingRoom bundle. The active invitee receives the196×44 notice, not an inert room. Accept transfers the same local authority to TradingRoom; native decline/Escape, timeout and ownership teardown cannot debit either profile. Duplicate live requests refuse; construction failure releases the claimed session. Original1,000ms entrance/180,000ms lifetime are retained; immediate browser retirement after a reply is an explicit adaptation. [Original consumers](ghidra-client-features/trading/invitation-core.txt) and [raw instructions](ghidra-client-features/dialogs/notification-instructions-50-58.txt) identify the resource, placement, buttons and timer.
 
-## World map data and reusable audit
+Retained [social controls](ghidra-client-features/windows/social-controls.txt), [UserInfo handlers](ghidra-client-features/windows/userinfo-handlers.txt), [linked constructors](ghidra-client-features/windows/social-linked-constructors.txt), [Family icon ownership](ghidra-client-features/windows/social-family-icon-owner.txt) and [medal handlers](ghidra-client-features/windows/social-medal-handlers.txt) distinguish original presentation from local producer rules. Browser text metrics, lifecycle and attached-window clamping remain browser adaptations, not original Windows parity.
 
-`tools/worldmap-data.js` extracts original `Map.wz:WorldMap/*.img`, `MapHelper.img/worldMap` and `UI.wz:UIWindow.img/WorldMap` into one demand-loaded UI bundle. `extractWorldMaps(context, canvasRecord)` returns the bundle reference; `extractGameUI` assigns it to `bundles.WorldMap`. Metadata retains exact authored `mapNo`, `spot`, marker `type`, title/description, `parentMap`, `linkMap` and link canvas paths. Runtime current-field selection examines authored membership, never derives coordinates from a minimap. The original `curPos` sprite marks a matching authored node; unrepresented fields are explicitly identified as unrepresented.
+## Binding drafts, macros and focus
 
-Run the focused source audit without generating atlases or extracting playable maps:
+`KeyBindings` retains89 packed key records and eight quick-key indices. The nonmodal outer KeyConfig draft previews live, but only explicit OK or **Yes** on original dirty-close “Save changes?” commits. **No** discards. Default/Delete use their own native notices. QuickSlotConfig owns an isolated nested draft: OK publishes to the outer draft only, Cancel rolls back only that popup. Footer Space activates the focused button; Enter invokes default OK independently of footer focus.
 
-```sh
-bun client/tools/worldmap-data.js /path/to/Maplestory-Client
-```
+Carry begins on left down, survives release, and resolves on the next left down; it is not held-button drag/drop. Inventory carries retain UID identity; terminal item/slot/equipment intents use inventory authority. Key/macro placement uses its own consumer. Failed/occluded placement cancels carry without a premature debit. Modal/pending input ownership and text-editor focus prevent gameplay leakage; blur, scene/profile replacement and teardown clear owned held input/carry. Browser adaptation is not recovered Windows focus timing.
 
-Executed audit results: **21 world maps, 586 map spots, 17 links, zero unresolved link targets**. A scoped original-canvas decode through the extraction traversal decoded **113 canvases / 7,097,914 pixels**. The authored `WorldMap031.info.parentMap` is **`WorldMap30`**, which is absent from the archive. This is preserved and reported; Parent visibly refuses it, rather than silently inventing `WorldMap030`. The region chooser and Current field action remain available. The audit rejects an unreviewed change to the archive's world-map inventory.
+`SkillMacros` stores five groups of three skill cells, a12-character name and shout flag in schema5. The attached editor has native rows/scroll/name/shout controls, explicit save and a browser draft-cancel action. Original type8 IDs0–4 include valid group0. Activation fills a queue from the committed group and calls the **existing** SkillSystem after each30-ms tick; unlearned/expired/unsupported skills cannot bypass its admission. Failed admission waits and cancels only when elapsed exceeds4000ms; successful casts advance once, and death/field change interrupts. Native name filtering, skill exclusions and cooldown handling remain distinct from controller support. See [macro window](ghidra-client-features/camera/macro-window.txt), [execution](ghidra-client-features/camera/macro-execution.txt) and [name rules](ghidra-client-features/camera/macro-name-rules.txt).
 
-## Native-surface acceptance scenarios
+GameOpt/SysOpt are functional native-art draft editors, not unavailable-background notices. Supported social/invitation flags, BGM/SE volume/mute and HP/MP warnings commit through ProfileStore; Cancel discards. Fullscreen invokes browser permission directly. Native Windows quality/screenshot-path/pointer-speed and unconsumed special display modes remain explained limitations; minigame invitations are not fabricated. Details and source links are in [UI surfaces](ingame-ui.md#supported-surfaces-and-boundaries).
 
-The [expanded windows report](ingame-validation/expanded/windows/report.json) records executed native routes, refusals, captures and explicit limits; [gameplay](ingame-validation/expanded/gameplay/report.json) covers expressions, Sit and Talk. The list below remains a broader acceptance checklist, not a claim that every combination was exercised. In particular, quest/medal fixtures are labeled temporary setup, and the windows sweep records mixed-build scope.
+## WorldMap source data and native navigation
 
-1. Press W / binding 5 in Henesys. Verify original Victoria Island art and its actual `mapNo` current marker; click a node and inspect its original title/description and field IDs. Confirm no field transition occurred.
-2. Hover/focus a link image and enter the original linked region; Parent returns to its authored parent. Select WorldMap031 and exercise its broken Parent: show an exact missing-source response and preserve the last complete map. Current field returns to a containing authored map.
-3. Open UserList Friends, switch Party/Guild using both tabs and their bindings, then repeat the same binding to close. Lists remain empty. Create party/Add friend visibly refuse their server dependencies without modifying the profile.
-4. Open QuestAlarm before accepting a quest (zero active), accept from the real NPC, reopen/refresh, kill an eligible monster or acquire a required item, then complete at the real NPC. Verify actual counts and removal after completion, including page bounds.
-5. Open MonsterBook in a field with monsters, page through original current-field data, transition to a different field, and confirm refresh without awarding cards. Open in a monster-free field and verify the explicit empty state.
-6. Open Family, Messenger and PartySearch. Verify the local character/field context, zero remote counts, and visible refusals for junior entry, messenger entry and party-search registration.
-7. Open Title with no medals and with an actually owned `114xxxx` medal. Ownership must reflect the profile only. Claim must not grant an item or fake ranking state.
-8. For all eight windows exercise close, reopen, Escape, drag to viewport edges, scale/resize, retained focus, field change while loading and window-residency limit. WorldMap must remain original art, not fall back to a minimap. Resource cancellation must not resurrect a closed panel.
+`tools/worldmap-data.js` packages original `Map.wz:WorldMap/*.img`, `MapHelper.img/worldMap` and `UI.wz:UIWindow.img/WorldMap` into one demand-loaded bundle. Exact `mapNo`, spot/marker type, title/description, parent/link and link canvases remain authored data. Current-field selection finds the narrowest containing authored region, never infers a spot from minimap or field coordinates. Original animated current/NPC markers and spot tooltips are display-only.
+
+Native `009ee00e` chooses the first authored link whose actual canvas alpha admits the point. `009ee6e5` enters a child on **left release**, and follows the original `parentMap` on **right release**. NPC requests descend only into a link containing all located target fields. There is no developer region chooser, fabricated Parent button or teleport. Missing targets preserve the last complete region and report failure. See [navigation handlers](ghidra-client-features/camera/worldmap-navigation-handlers.txt), [click dispatch](ghidra-client-features/camera/worldmap-click-dispatch.txt) and [parent consumer](ghidra-client-features/camera/worldmap-back-action.txt).
+
+The earlier source audit remains **21 world maps,586 spots,17 links, zero unresolved link targets** and113 decoded canvases/7,097,914 pixels. `WorldMap031.info.parentMap` is authored as **WorldMap30**, absent from the archive; this must not be silently rewritten to WorldMap030. These extraction results are not a runtime proof of every region.
+
+## Monster Book collection
+
+The current MonsterBook is the original book, not the former current-field information substitute. Original category/card grids, search, page selection, animated monster and cover menu use the book service. Basic/Episode/Dropping/Found In unlock at counts **1/3/4/5** (`00866b2d`/`00865782`); unowned cards retain dim original artwork, not encounter-based unlocking. Right-button release opens register/release cover controls; a nonzero cover requires a collected card (`00866ba0`).
+
+Actual `238xxxx` consume-on-pickup cards update the collection in the drop transaction. Counts saturate at5; an already-full pickup is still consumed without granting an inventory stack. Opening/searching/selecting cards never awards one. Details reuse original episode/drop/location data; location/reward hit targets show tooltips, not a fabricated Book→WorldMap route. Unavailable data stays unavailable. The original card handler `00a081b8` sends string`0xa24` (“successfully recorded”) or`0xa25` (“already full…disappear”) to chat type12; it does not report a Use-tab inventory grant. Browser publication now follows that committed card result, using the original12px Arial/`ffffafaf` chat color from`008d0821..008d0858`. [Core consumers](ghidra-client-features/status/monsterbook-core.txt), [interaction](ghidra-client-features/status/monsterbook-interaction.txt), [detail rendering](ghidra-client-features/status/monsterbook-render-details.txt), [card-message instructions](ghidra-client-features/dialogs/shop-range3-instructions.txt) and [cover menu](ghidra-client-features/status/monsterbook-cover-menu.txt) retain original evidence.
+
+## Cash stage and commerce boundary
+
+Binding23 enters the original800×600 Cash stage and suspends the ordinary field surface/input. `CashShopService` owns local balances, wish list, original commodity/package admission, purchase/gift receipts and locker/inventory transfers. Native dialogs have isolated raster/DOM modal ownership; item/package/level/quantity/currency/provenance/capacity checks remain authoritative. Local producer funding and selected-peer gift/claim actions are explicit outside-game operations, not real payment or hidden live-profile switching.
+
+The detached avatar supports original try-on/restore/take-off/buy-avatar, three background tabs, preview-input On/Off, speech and actual bound motion/jump/attack. It consumes canonical preview-map physics and authored weapon actions without changing the field actor or durable equipment. Original category/list keyboard and modular page controls reuse admitted button actions. **No sort selector or stance dropdown was recovered or invented**: sort hints alone do not prove a control, and the white preview strip is a speech editor. [Original control accounting](ghidra-client-features/quests/cash-original-control-accounting.txt) records that scoped negative result and the exact recovered preview/list handlers. See [Cash UI contract](ingame-ui.md#cash-shop-original-control-accounting).
+
+Charge/coupon/account storage expansion, unsupported pet/paired-ring/service products and missing cash-instance provenance remain real refusals. Local IDs are never displayed as fabricated Nexon IDs. Remote payment, ranking and original-server commerce parity are not claimed.
+
+## Retained browser evidence
+
+The [expanded-window report](ingame-validation/expanded/windows/report.json) is a **historical mixed-build sweep**; its empty social/card registries and Cash refusal describe the superseded implementation. The [expanded gameplay report](ingame-validation/expanded/gameplay/report.json) retains actual expression/Sit/Talk behavior and the temporary-profile expression-clock correction, not acceptance of later native domains.
+
+The native UI first-pass reports are findings, not blanket final passes:
+
+- [Bindings](native-ui-validation/bindings/report.json): routes, settings, saved drafts and a real Power Strike macro; Exit experiment failed, while pending-modal loading and native OS IME/blur remained unexercised.
+- [Social](native-ui-validation/social/report.json): retained PartySearch minimum1 rejection, Messenger Enter failure and swapped fourth/fifth tabs; Family travel/rates and selected UserInfo boundaries were not fully exercised.
+- [Cash](native-ui-validation/cash/report.json): purchases/try-on/transfers with local fixtures; modal text stacking failed, and receipt claim used a temporary recipient copy rather than durable peer claim. Sort/stance were reported absent; current raw accounting distinguishes unrecovered dropdowns from real input-driven preview.
+- [Inventory/trade](native-ui-validation/inventory-trade/report.json): retained equipment pause, missing BtClaim and post-completion producer gate failures alongside exact local conservation observations.
+- [NPC/quest](native-ui-validation/npc-quest/report.json): representative original routes/WorldMap/medals, retained medal double-click finding and absent compatible authored text/art variants. Casey/Cloy callback limitations are not established VM defects.
+- [Viewports](native-ui-validation/viewports/report.json): geometry matrix with Stat detail clipping and detached SkillMacro findings.
+
+Corrected source does not retroactively turn those artifacts into passes. Final replay identities, scenario results and unresolved boundaries are consolidated by [validation](validation.md); only an existing final report can establish its particular exercised paths. Neither fixtures nor browser screenshots establish original Windows runtime parity.
+
+The [native acceptance index](native-ui-validation.md) now joins the nine-domain replay, seven targeted correction reports and separately identified final publication evidence. In particular, [Cash](native-ui-validation/final/cash/correction.json) proves latest-complete list/filter publication under held real requests; [trade](native-ui-validation/final/inventory-trade/correction.json) proves native construction, nine-cell exchange, cancellation, capacity rollback, immediate second-room recovery and exact two-profile reload. That trade correction also retained a newly discovered incoming-acceptance gap; the index gives its later source/evidence disposition rather than erasing it.

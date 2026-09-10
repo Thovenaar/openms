@@ -8,16 +8,16 @@ Maple Mono reconstructs an original-asset browser client with plain JavaScript, 
 - **Architecture:** [subsystem interfaces](reconstruction-contract.md), [scene and inspection APIs](scene-contract.md), [agent actions and reversible experiments](agent-interface.md), and [offline integration](offline-integration-contract.md).
 - **Asset decoding and streaming:** [decoder evidence](asset-evidence.md), [inventory coverage](ingame-inventory.md), [release delivery](asset-delivery.md), and [progressive streaming](streaming.md).
 - **Physics:** [recovered motion](physics-evidence.md), [options](physics-options.md), [refinements](physics-refinements.md), [geometry](hitboxes.md), and [avatar actions](avatar-actions.md).
-- **UI:** [in-game controls and windows](ingame-ui.md) and [audio/effects](ingame-audiovisual.md).
+- **UI:** [in-game controls and windows](ingame-ui.md), [complete native binding/domain contracts](offline-binding-actions.md), and [audio/effects](ingame-audiovisual.md).
 - **Offline gameplay:** [current gameplay and acceptance](offline-gameplay.md), [learned skills and capability limits](skills.md), and [validated character development](offline-profile.md), with combat, quests, saves, portals, life, and reactors in the sidebar.
 - **Reverse-engineering evidence:** [original client/rendering findings](client-evidence.md) and [missing Windows reference captures](windows-reference-captures.md).
-- **Browser validation:** [expanded fidelity acceptance](validation.md#current-expanded-fidelity-acceptance), [reproduction method](validation-method.md), and the earlier [integrated](ingame-validation/results.md), [physics](physics-validation/results.md), and [rendering](validation.md#initial-renderer-extraction-and-validation) baselines.
+- **Browser validation:** [native offline UI acceptance](native-ui-validation.md), [reproduction method](validation-method.md), and the earlier [integrated](ingame-validation/results.md), [physics](physics-validation/results.md), and [rendering](validation.md#initial-renderer-extraction-and-validation) baselines.
 
 ## Evidence and scope
 
 Raw reports, source references, captures, and archives stay in their original repository locations. On this site, links to those files and directories open the exact GitHub repository path; Markdown pages stay within the site. No original Windows execution, missing server behavior, or unmeasured fidelity is implied by a documentation build.
 
-The [expanded report](ingame-validation/expanded/report.json) retains independent native UI/gameplay scenarios, actual failures and corrected replays, complete installed-release/server-stopped proof, world comparisons and exact source identities. [Skill coverage](skills.md) separates35 implemented controllers from499 unavailable skills; [server-data conversion](offline-data.md) separates actual seed records from schema-only tables and unexecuted scripts. Historical audit/benchmark counts apply only to their recorded runs.
+The [native UI acceptance](native-ui-validation.md) joins nine independent browser slices, preserved defect reports, exact corrected-build replays and source gates. The earlier [expanded report](ingame-validation/expanded/report.json) retains complete installed-release/server-stopped proof and world comparisons under its own release identity. [Skill coverage](skills.md) separates 35 implemented controllers from 499 unavailable skills; [server-data conversion](offline-data.md) distinguishes supplied seed records from schema-only tables and unexecuted scripts. Historical audit/benchmark counts apply only to their recorded runs.
 
 ## Run this site
 

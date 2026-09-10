@@ -45,6 +45,18 @@ The previous scene and life selectors appended every ID to an undifferentiated d
 - A world-requested life selection resolves that exact placement, even if its ID is a prefix of many other IDs. It reveals **Inspect**, the placement details, and geometry without routing metadata selection through NPC gameplay dialogue.
 - Listener ownership remains explicit: Main owns static console navigation/theme listeners; `Controls.destroy()` aborts scene listeners; `LifeControls.destroy()` / `ProfileControls.destroy()` remove their handlers and roots.
 
+## Local multiplayer simulation
+
+The **Local multiplayer simulation** disclosure is an outside-game producer for real browser-local character records. It is not a simulated server connection. `LocalSimulationControls` exposes bounded character creation, explicit **Act as local character** and **Target local character** selectors, and the selected actor's domain actions.
+
+- Social actions create actual local consent requests and atomically maintain reciprocal Buddy/Party/Guild/Alliance/Family/Messenger state. Receiving actions remain visible; opening a window never fabricates a roster.
+- Peer trade actions invite/accept/decline, offer an actual owned UID/quantity, add mesos, confirm, chat or cancel through `LocalTrade`. The active character uses native UserInfo/TradingRoom; peer controls are not a shortcut around its acceptance surface.
+- Cash funding is explicitly GM setup. Selected-peer gift purchase spends its NX Prepaid through `CashShopService`; receipt claim consumes a real persisted gift envelope for the selected receiver. These controls neither switch the live profile nor synthesize a receipt.
+- Local chat selects an actual sender/channel and reuses recipient, relationship, blacklist and permission admission. It does not invent All-chat delivery or a spouse.
+- A pending action disables conflicting mutation and retains failure feedback. The native UI, atomic profile authority and resource preparation still own the result. Teardown removes subscriptions/listeners; no producer polls the profile every frame.
+
+See [profile transactions](offline-profile.md#atomic-ownership), [native binding/domain contracts](offline-binding-actions.md) and the identity-scoped reports linked by [validation](validation.md). Seeded peer prerequisites and native active-character actions are reported separately.
+
 ## Agent experiments and record/replay
 
 The redesigned header reuses the existing **Allow agent control**, **Stop agent**, ownership status, **Experimental · temporary profile**, and **Exit experiment** controls. Permission is never inferred from theme or profile state.

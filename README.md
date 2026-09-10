@@ -2,7 +2,7 @@
 
 A browser reconstruction of MapleStory's original v83 assets and rendering, written in JavaScript with JSDoc, Bun, and PixiJS.
 
-The client streams a 356-map original route closure with keyboard-driven physics, local mobs/combat/progression, supported data-driven NPC quests, portals/reactors, original UI/audio, Cosmic-reference drops with original item assets, durable saves and a verified complete-release offline installer. Local authority is explicitly provisional; missing server scripts/controllers and original-runtime parity are not fabricated.
+The client streams a 356-map original route closure with keyboard-driven physics, local combat/progression, authored NPC quests/shops, portals/reactors and original UI/audio. Native inventory/equipment/AP, bindings/macros, social/Family, Monster Book, Cash Shop and two-character trade use schema 5 atomic offline authority. The separate local-peer console supplies explicit participants and prerequisites, not a network connection. Missing scripts/controllers and original Windows-runtime parity are not fabricated.
 
 ## Run
 

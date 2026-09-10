@@ -24,7 +24,7 @@ Missing inputs, rejected readiness, failed requests and failed invariants produc
 an error report and nonzero exit status. Use a distinct output directory to keep
 historical evidence; only artifacts named in that run's report belong to it.
 
-Current local-gameplay acceptance is indexed in [offline-gameplay.md](offline-gameplay.md), with the executed world/performance [summary](offline-validation/performance/summary.json) and full [report](offline-validation/performance/report.json). The earlier [in-game results](ingame-validation/results.md) remain a historical presentation/audio baseline. The world command does not enable audio or certify every UI/portal/quest interaction; independent native scenarios remain required.
+Current native acceptance is indexed in [native-ui-validation.md](native-ui-validation.md), with its identified world/performance [summary](native-ui-validation/final/performance/summary.json) and full [report](native-ui-validation/final/performance/report.json). Each captured state retains `sourceBuildId` and asset `buildId`; environment alone is not a build identity. [Offline gameplay](offline-gameplay.md), the earlier [world report](offline-validation/performance/report.json) and [in-game results](ingame-validation/results.md) retain their historical scopes. The world command does not enable audio or certify every UI/portal/quest interaction; independent native scenarios remain required.
 
 ## Evidence boundaries
 
@@ -93,29 +93,25 @@ controls or relax the tolerance merely to turn that failure into a pass.
 
 ## Delegated in-game acceptance
 
-Use workflowz workers with separate browser instances/pages and nonoverlapping
-artifact paths. Do not modify source while accepting the final integrated build.
-Drive actual keyboard/mouse input; use `window.maple.snapshot()` only to observe.
-Do not teleport the player or mutate simulation state to claim portal traversal.
+Use separate isolated browser contexts and nonoverlapping artifact directories. Each run records both `sourceBuildId` and extracted catalog `buildId`; restart after source edits and preserve earlier failures under their original identities. Do not accept a previous startup bundle as the corrected build.
 
-Required slices:
+Drive trusted keyboard/mouse input. `maple.snapshot()` and paginated `maple.agent.observe()` are observations, not mutation shortcuts. Reversible scenarios and canonical stopped-page IndexedDB fixtures may establish prerequisites, but reports must distinguish seeded items/funds/rosters/EXP from actual pickup, purchase, consent or earned progression. Use the outside-game local-peer producer only for the explicitly selected peer; the active character's native feature must still be exercised.
 
-1. Original HUD/window/control presentation: open I/E/S/K windows, operate buttons
-   and tabs, inspect tooltips, focus/close behavior, key-config and minimap. Verify
-   modal/text focus clears movement and that gameplay resumes without stuck keys.
-2. Portals: walk to supported routes, press Up, verify named arrival, return travel,
-   held-key guards, hidden-portal states and safe unavailable-target behavior.
-3. Life: inspect original NPC/mob artwork, facing, names, frame timing, explicit
-   local-preview selection and original geometry. Click an NPC and verify the
-   server-unavailable boundary rather than invented dialogue or inventory state.
-4. Audio/effects: enable audio through its gesture control, exercise accepted UI,
-   jump and portal cues, change map BGM and separate BGM/SE mute/volume, and operate
-   explicitly labeled original-effect preview controls. Check cleanup on replacement.
-5. Integrated performance/lifecycle: move with UI, life and audio active; open/close
-   demand-loaded windows/effects, traverse/reload maps, observe stalls, resident
-   bytes, cancellation, stale work and teardown.
+Required independent slices:
 
-Save screenshots and structured observations under `docs/ingame-validation/`.
+1. **Bindings/focus:** all native binding routes, settings and macros; original Save/Discard semantics; shared HUD/carry state; text/IME, blur/visibility and pending modal loading; single-click Exit after human takeover.
+2. **Inventory/trade:** UID/slot move/merge/equip/use/drop/pickup/gather; real nine-slot two-profile offers/confirmation; cancellation; exact quantity/meso conservation; capacity refusal followed by a valid new room; durable reload.
+3. **NPC/quest:** actual supported authored say/choice/yes-no/number routes, shop buy/sell/recharge and disposal; challenge/claim/equip; journal/helper progress, scrolling and persistence; account unreachable authored text/speaker/artwork variants rather than invent scripts.
+4. **Social/identity:** Buddy/Party/Guild/Alliance/Blacklist and Messenger; permissions/consent/search filters; rank/emblem/board/leave/disband; selected-profile UserInfo and its equipment/wishlist/collection attachments.
+5. **Family:** real local relative links, costs/reputation, all entitlements, incoming/outgoing summon consent and portal-zero travel, party recipient exclusions, bonding, earned kill/level progress, expiry/day reset and reload. Shortened clocks and seeded budgets remain labeled fixtures.
+6. **Cash:** original stage/category/page/search/price controls, complete asynchronous list publication, real purchase/package/gift/receipt/locker transactions, detached avatar motion/try-on/reset, all original backgrounds, editor/modal isolation and measured BGM restoration.
+7. **Monster Book:** empty/owned grids, count-tier details/search/pages/cover, actual card pickup and saturated repeat consumption, correct native chat notification, persistence and the actual tooltip-only location boundary.
+8. **Gameplay:** contact protection/brace/independent regeneration, recoil admission and retained attack pose, temporary-effect icons/durations/expiry/cancellation, reciprocal same-map teleport/camera history, notice/speech fade and revival.
+9. **Viewports/lifecycle:** desktop and compact sizes, actual390px layout, DPR1–4 and explicit higher-density refusal, root CSS zoom separately labeled, attached-window movement/front/close/clamping, minimap alpha/filtering, tooltip wrapping, modal input and cleanup.
+
+For disappearing tooltips, prefer viewport screenshots (`fullPage:false`): a full-page capture can resize the page, legitimately invalidate the layout generation and hide an event-owned tooltip. For native double-click proof, verify the trusted `dblclick` event sequence; a driver's unsupported option is not a product defect. Inspect every cited screenshot rather than equating a successful capture with correct pixels.
+
+Save current screenshots and structured observations under `docs/native-ui-validation/`, retaining older `docs/ingame-validation/` reports as historical evidence.
 Original WZ pixels can support asset identity/placement checks; browser screenshots
 cannot stand in for original runtime reference screenshots.
 

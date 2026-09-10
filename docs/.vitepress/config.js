@@ -83,6 +83,7 @@ const sidebar = [
   {
     text: "Browser validation",
     items: [
+      { text: "Native offline UI acceptance", link: "/native-ui-validation" },
       { text: "Validation method", link: "/validation-method" },
       { text: "Systematic client audit", link: "/client-audit" },
       {
