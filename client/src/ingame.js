@@ -528,6 +528,7 @@ export class InGameSystems {
       root.querySelector(`[data-audio-mute="${category}"]`).checked =
         saved.mute;
     }
+    this.audio.refreshVolumeControls();
     this.ui.chat.applySettings(this.store.profile.settings.chat);
   }
   checkpointSettings() {

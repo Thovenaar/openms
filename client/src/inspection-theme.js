@@ -1,8 +1,56 @@
 const THEME_KEY = "maple-inspection-theme-v1";
 const THEMES = new Set(["xp", "win95", "y2k"]);
-const MAX_DETAILS_DEPTH = 8;
+const PANELS = ["play", "character", "inspect", "settings"];
 
-/** Own theme state on the two external roots; no body/viewport inheritance. */
+/** Select one external task without rebuilding controls or losing draft values. */
+export function showInspectionPanel(id) {
+  if (!PANELS.includes(id)) throw new Error(`Unknown tool section: ${id}`);
+  setConsoleVisible(true);
+  for (const name of PANELS) {
+    const selected = name === id;
+    const tab = document.getElementById(`console-tab-${name}`);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    document.getElementById(`console-${name}`).hidden = !selected;
+  }
+}
+
+function setConsoleVisible(visible) {
+  document.querySelector("#gm-console").hidden = !visible;
+  const button = document.querySelector("#console-toggle");
+  button.setAttribute("aria-expanded", String(visible));
+  button.textContent = visible ? "Hide tools" : "Show tools";
+}
+
+function selectPanel(event) {
+  showInspectionPanel(event.currentTarget.dataset.consolePanel);
+}
+
+function navigatePanels(event) {
+  if (event.altKey || event.ctrlKey || event.metaKey) return;
+  let index = PANELS.indexOf(event.currentTarget.dataset.consolePanel);
+  switch (event.key) {
+    case "ArrowLeft":
+      index = (index + PANELS.length - 1) % PANELS.length;
+      break;
+    case "ArrowRight":
+      index = (index + 1) % PANELS.length;
+      break;
+    case "Home":
+      index = 0;
+      break;
+    case "End":
+      index = PANELS.length - 1;
+      break;
+    default:
+      return;
+  }
+  event.preventDefault();
+  showInspectionPanel(PANELS[index]);
+  document.getElementById(`console-tab-${PANELS[index]}`).focus();
+}
+
+/** Own theme and navigation listeners; no body/viewport theme inheritance. */
 export function initializeInspectionTheme(signal) {
   const select = document.querySelector("#inspection-theme");
   const roots = document.querySelectorAll(".inspection-chrome");
@@ -16,7 +64,7 @@ export function initializeInspectionTheme(signal) {
     apply(select.value);
     try {
       localStorage.setItem(THEME_KEY, select.value);
-      status.textContent = "Console theme saved. Game artwork is unchanged.";
+      status.textContent = "Tool appearance saved. Game artwork is unchanged.";
     } catch (error) {
       status.textContent = `Theme applied for this session only: ${error.message}`;
       status.classList.remove("sr-only");
@@ -29,29 +77,16 @@ export function initializeInspectionTheme(signal) {
     status.classList.remove("sr-only");
   }
   select.addEventListener("change", change, { signal });
-  for (const button of document.querySelectorAll("[data-console-target]")) {
-    button.addEventListener("click", openConsoleSection, { signal });
+  for (const id of PANELS) {
+    const tab = document.getElementById(`console-tab-${id}`);
+    tab.addEventListener("click", selectPanel, { signal });
+    tab.addEventListener("keydown", navigatePanels, { signal });
   }
-}
-
-/** Reveal a bounded chain of console details, then move keyboard focus. */
-function openConsoleSection(event) {
-  const target = document.getElementById(
-    event.currentTarget.dataset.consoleTarget,
+  document.querySelector("#console-toggle").addEventListener(
+    "click",
+    () => {
+      setConsoleVisible(document.querySelector("#gm-console").hidden);
+    },
+    { signal },
   );
-  const status = document.querySelector("#theme-status");
-  if (!target) {
-    status.classList.remove("sr-only");
-    status.textContent =
-      "This console section is unavailable until the field finishes loading.";
-    return;
-  }
-  let node = target;
-  for (let depth = 0; node && depth < MAX_DETAILS_DEPTH; depth++) {
-    if (node.tagName === "DETAILS") node.open = true;
-    if (node.id === "gm-console") break;
-    node = node.parentElement;
-  }
-  target.scrollIntoView({ block: "nearest" });
-  target.querySelector("summary, button, input, select")?.focus();
 }

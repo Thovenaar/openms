@@ -4,20 +4,25 @@ The header and sidebar are browser development tools, not reconstructed native M
 
 ## Workspace and themes
 
-- **Console theme** selects Windows XP blue, Windows 95 classic, or Y2K midnight chrome. The choice persists under `maple-inspection-theme-v1` in browser local storage. Storage failures are reported and leave a usable session-only theme.
-- Theme attributes and variables live only on the two `.inspection-chrome` roots (header and sidebar). No theme attribute, color-scheme, font, or control appearance is installed on the body, viewport, or `.maple-ui-root`. The viewport canvas retains its independent layout and pixel rendering.
-- **Character**, **Entities**, and **Diagnostics** shortcuts reveal their enclosing details, scroll the section into view, and focus its first control. Character reports unavailable until its owner exists rather than silently doing nothing.
-- Pause/resume, key bindings, map selection and reload remain immediately reachable. The sidebar scrolls independently on desktop; below 960px it moves underneath the game, with page scrolling and full-width controls.
-- Original game windows and keyboard behavior remain owned by GameUI. Console controls use native HTML labels, focus outlines, status messages and disclosure controls; advanced skill pools, learned skills, geometry, diagnostics and destructive reset are collapsible.
+- **Play**, **Character**, **Inspect**, and **Settings** are four task-based tabs, not a sequence. Left/Right and Home/End switch tabs. Their existing DOM remains mounted, so switching sections preserves unsaved form values.
+- **Play** keeps map selection and Music/Sound effects controls visible. Movement keys and audio diagnostics are secondary disclosures. Volume readouts show percentages without changing the native 0–128 audio range.
+- **Character** shows identity and HP/MP first. Presets, attributes, progress/wallet, skill editing, and destructive actions remain available behind named disclosures. Apply/Discard are disabled when there is no draft.
+- **Inspect** groups geometry, bounded scene/life searches, camera controls, and runtime stepping. Scene-dependent controls remain disabled until a map exists. A world mob selection reveals this tab and its exact life placement.
+- **Settings** contains the existing XP, Windows95, and Y2K theme choice and offline-release tools. The theme still persists under `maple-inspection-theme-v1`; storage failures are reported.
+- Theme attributes and variables remain on `.inspection-chrome` only. The body, viewport, and `.maple-ui-root` do not inherit the console theme.
+- **Hide tools** expands the canvas; **Show tools** restores it through the existing viewport resize owner. On desktop, the toolbar stays outside each panel's scroll area rather than covering scrolled controls. Below 960px, tools follow the game in ordinary page flow.
+- Pause/resume, key bindings, reload, errors, and agent permission/Exit controls remain available outside the task panels. Static console navigation initializes before renderer startup, so a renderer failure cannot strand the offline controls.
+
+The design follows [NN/G progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/) and the GOV.UK guidance for [details](https://design-system.service.gov.uk/components/details/) and [tabs](https://design-system.service.gov.uk/components/tabs/): keep frequent controls visible, give secondary groups descriptive labels, and use a small set of independent tasks instead of a wizard or deeply nested settings tree. These are external-tool design choices, not reconstructed MapleStory chrome.
 
 ## Character editing and presets
 
-Open **Character editor & presets**. Scalar fields use a two-column form. Editing job or level does not perform a job advancement or grant automatic points/skills.
+Open **Character**. Identity and HP/MP use a two-column form, with full-width name/job fields. Editing job or level does not perform a job advancement or grant automatic points/skills.
 
 1. Choose a preset and press **Preview preset**.
 2. Review the staged form values. The live profile has not changed.
-3. Press **Apply character changes** to call the existing `onProfileEdit` hook and its `CharacterDevelopment.edit` / `ProfileStore.commitProfile` transaction. All normal schema, skill catalog, ownership and persistence checks remain in force.
-4. **Discard unsaved edits** restores the current profile. An existing unsaved draft blocks another preset until explicitly applied/discarded. Failed saves retain the draft and show the failure.
+3. Press **Apply changes** to call the existing `onProfileEdit` hook and its `CharacterDevelopment.edit` / `ProfileStore.commitProfile` transaction. All normal schema, skill catalog, ownership and persistence checks remain in force.
+4. **Discard** restores the current profile. An existing draft blocks another preset until explicitly applied/discarded. Failed saves retain the draft and show the failure; invalid fields automatically reveal their enclosing disclosure. Presets reveal the groups whose values they change.
 
 Presets are explicit GM policies, not native game grants:
 
@@ -37,8 +42,8 @@ The previous scene and life selectors appended every ID to an undifferentiated d
 - Render action/visibility/layer changes are session-only previews. Layer controls reuse `setLayer`; they are not a replacement for the renderer's authored depth rules. Mob combat remains authoritative over its normal runtime animation.
 - **NPC & mob placement inspector** searches authored placement ID, kind and original template name. It can reveal placement/body/interaction/foothold geometry and authored hidden placements. NPC actions are non-authoritative artwork previews. Mob action overrides remain disabled; eligible NPC gameplay dialogue still requires the normal world interaction path.
 - Each search accepts at most 120 input characters, scans at most 16,384 records, and materializes at most 200 dropdown options. Excess matches report the total and ask the user to refine the search; they are not silently presented as the complete result. Exceeding the record budget reports an explicit failure. Empty results disable entity mutation controls.
-- A world-requested life selection resolves that exact placement, even if its ID is a prefix of many other IDs. It reveals the offline details and geometry without routing an inspector click through NPC gameplay interaction.
-- Listener ownership remains per control owner: `Controls.destroy()` aborts scene/theme listeners, and `LifeControls.destroy()` / `ProfileControls.destroy()` remove their handlers and roots.
+- A world-requested life selection resolves that exact placement, even if its ID is a prefix of many other IDs. It reveals **Inspect**, the placement details, and geometry without routing metadata selection through NPC gameplay dialogue.
+- Listener ownership remains explicit: Main owns static console navigation/theme listeners; `Controls.destroy()` aborts scene listeners; `LifeControls.destroy()` / `ProfileControls.destroy()` remove their handlers and roots.
 
 ## Agent experiments and record/replay
 
@@ -48,7 +53,22 @@ Use the existing [`maple.agent` and `maple.dev.scenarios` workflow](agent-interf
 
 There are deliberately no misleading native Record/Replay buttons: trusted pointer/key input anywhere revokes the agent lease before action handlers run. A console button must not bypass that takeover safeguard. Existing Exit remains usable after permission loss. Read-only paginated `maple.agent.observe` and `maple.dev.describe({entityId})` complement the visible search without requiring a lease.
 
-## Executed scoped proof
+## Simplified-console native proof
+
+The [console report](ingame-validation/console-simple/report.json) records the actual integrated browser, not a module fixture. [Before](ingame-validation/console-simple/before.png), [Play](ingame-validation/console-simple/play-desktop.png), [Character draft](ingame-validation/console-simple/character-draft.png), and [390px/DPR2](ingame-validation/console-simple/play-mobile-dpr2.png) captures were inspected.
+
+- Desktop rendered controls fell from 42 to 17 in the tested default view. The previous sidebar needed 2648px of scroll content; the final Play panel fits its 807px viewport without vertical overflow.
+- Native edits survived tab switches and keyboard navigation. STR0 revealed/focused the collapsed Attributes field without changing live STR12. Wallet preview showed100000 while the live wallet stayed0; Discard preserved authority.
+- HP51/maxHP50 rejected atomically and retained the name/HP draft. Correcting HP to50 committed; reload retained `LocalProof`/HP50. The disposable profile was restored to `Maple`.
+- Native Music keyboard changes produced value1/readout1% and mute. Save checkpoint plus reload restored all three; the test restored volume64/unmuted afterward. This proves controls/settings, not speaker output.
+- All three themes left the sampled native button's font, colors, radius and dimensions unchanged. Desktop hide/show changed canvas width1022→1440→1022. At390px and DPR1/2, all four tabs remained on one row with44px height and no horizontal overflow.
+- Clicking the actual visible Blue Snail `life:10` revealed Inspect and selected that exact placement. Geometry references, entity search, camera centering/reset and30ms runtime stepping were exercised through their controls.
+- Review found and fixed missing no-map disabling, late static navigation, and stale geometry-validator navigation. A held catalog request left moved controls disabled until map commit. A deliberately intercepted renderer-initialization rejection left Settings/offline actions reachable; this fault injection is not gameplay evidence.
+- Manual replay found a sticky-toolbar hit interception: a scrolled camera button's center hit the Inspect tab instead. Independent panel scrolling now keeps the toolbar outside the clipping region; replay hit `entity-focus` and set camera(-353,-55)/follow=false.
+
+The retained native validator and focused regression captures are linked in the report. Strict lint and147 tests/876 assertions pass. No new permanent UI tests, gameplay authority, save schema, or native-window styling were introduced.
+
+## Historical isolated-module proof
 
 An isolated local browser harness loaded the actual source modules and stylesheet without rebuilding the project. The profile editor used the real `CharacterDevelopment` authority and `ProfileStore.memory`; scene/life API fixtures supplied bounded inspection records. This is console proof, not a full field playtest or an IndexedDB durability claim.
 
@@ -62,13 +82,13 @@ An isolated local browser harness loaded the actual source modules and styleshee
 
 ## Integrated native acceptance scenarios
 
-The [integrated item report](ingame-validation/expanded/items/evidence.json) now retains native XP/95/Y2K selection,390px layout, unchanged native artwork/fonts, wallet preview/Apply and durable loot/pickup. The [windows report](ingame-validation/expanded/windows/report.json) proves temporary-profile Exit/reload and presentation restoration. The following broader checklist does not imply that every preset/entity combination was exercised:
+The earlier [integrated item report](ingame-validation/expanded/items/evidence.json) retains native XP/95/Y2K selection,390px layout, unchanged native artwork/fonts, wallet preview/Apply and durable loot/pickup. The [windows report](ingame-validation/expanded/windows/report.json) proves temporary-profile Exit/reload and presentation restoration. These precede the simplified layout above. The following broader checklist does not imply that every preset/entity combination was exercised:
 
 1. Load a field, open Inventory, Stats and Key Settings, then switch all three console themes. Native raster artwork, control hit targets and chat typography must remain unchanged. Reload and confirm the selected console theme persists.
 2. Preview and discard each preset, confirming native stats/wallet remain unchanged. Apply the wallet/training presets, confirm the native windows update, then reload to verify the durable commit. Exercise invalid values and profile/map ownership changes while saving; rejected edits must retain a usable draft.
-3. Use Entities to search a late resident ID, toggle a harmless artwork preview, change its layer, center the camera, then restore Follow. Search no matches and verify mutation controls cannot run. Confirm native mob combat still owns its animation.
+3. Use Inspect to search a late resident ID, toggle a harmless artwork preview, change its layer, center the camera, then restore Follow. Search no matches and verify mutation controls cannot run. Confirm native mob combat still owns its animation.
 4. Search an NPC by original name in the placement inspector. Reveal geometry and inspect a preview, then use the NPC's world target for actual dialogue. A mob selection must never offer an action override or trigger NPC dialogue.
-5. At 390px width and with keyboard-only Tab/Enter navigation, reach theme selection, all workspace shortcuts, preset Apply/Discard, map selection, pause and diagnostics. Scroll the console without losing access to the game.
+5. At 390px width and with keyboard-only Tab/Enter navigation, reach theme selection, all four tabs, preset Apply/Discard, map selection, pause and diagnostics. Scroll the console without losing access to the game.
 6. Exercise the existing agent recording/replay sequence on the integrated build. Confirm trusted human takeover still revokes the lease, temporary profile progress cannot become a durable save, and Exit experiment restores the retained baseline under every theme.
 
-Integration requires no new Main hook: `createControls` imports and initializes the theme owner using its existing abort signal. Keep the existing `onProfileEdit` and agent integration unchanged.
+`initialize()` owns the static navigation/theme abort signal before offline/renderer initialization; `destroy()` aborts it. Scene controls retain their own listener lifetime. Offline delivery mounts under Settings in `#offline-controls`. Existing `onProfileEdit`, audio-setting storage and agent ownership/experiment interfaces remain unchanged.

@@ -10,6 +10,7 @@ import {
 } from "./stream-validation.js";
 import { createPlayerInput } from "./player-input.js";
 import { createControls } from "./scene-controls.js";
+import { initializeInspectionTheme } from "./inspection-theme.js";
 import { createDebugOverlay } from "./debug-overlay.js";
 import {
   advanceSimulation,
@@ -41,6 +42,7 @@ fieldFade.setAttribute("aria-hidden", "true");
 viewport.append(fieldFade);
 let displayedFade = 0;
 const network = new Network();
+const consoleEvents = new AbortController();
 const hitboxInspector = new HitboxInspector(network);
 const services = { network, atlases: null };
 const MAX_DISPLAY_DENSITY = 4;
@@ -338,8 +340,9 @@ async function reloadAfterReset(store = profileStore) {
   }
 }
 async function initialize() {
+  initializeInspectionTheme(consoleEvents.signal);
   offlineDelivery = await initializeOfflineDelivery(
-    document.querySelector("#inspection-controls"),
+    document.querySelector("#offline-controls"),
   );
   await app.init({
     preference: "webgl",
@@ -976,6 +979,7 @@ async function destroy() {
   observer?.disconnect();
   document.removeEventListener("visibilitychange", visibilityChanged);
   window.removeEventListener("pagehide", pageLeaving);
+  consoleEvents.abort();
   await current?.fieldSystems.drops.waitForIdle();
   retireSceneResources();
 }

@@ -1,3 +1,5 @@
+import { showInspectionPanel } from "./inspection-theme.js";
+
 const MAX_LIFE_RECORDS = 16384;
 const MAX_LIFE_OPTIONS = 200;
 
@@ -52,7 +54,7 @@ export class LifeControls {
     this.status = element("p", "", this.root);
     this.status.setAttribute("role", "status");
     this.listen();
-    document.querySelector("#inspection-controls").append(this.root);
+    document.querySelector("#life-inspection").append(this.root);
     if (records.length) this.select();
   }
   buildSearch() {
@@ -135,7 +137,7 @@ export class LifeControls {
   /** Mob clicks stay in nondamaging metadata inspection, never the NPC dialogue hook. */
   showSelection(id) {
     this.root.open = true;
-    document.querySelector("#offline-inspection").open = true;
+    showInspectionPanel("inspect");
     this.search.value = id;
     this.populatePlacements(id.toLowerCase(), id);
     this.placement.disabled = false;

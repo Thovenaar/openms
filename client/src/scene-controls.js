@@ -1,5 +1,3 @@
-import { initializeInspectionTheme } from "./inspection-theme.js";
-
 const MAX_INSPECTED_ENTITIES = 16384;
 const MAX_ENTITY_OPTIONS = 200;
 
@@ -16,7 +14,6 @@ class Controls {
     );
     this.lastMap = null;
     this.lastEntities = [];
-    initializeInspectionTheme(this.controller.signal);
     this.bindPlayer();
     this.bindEntity();
     this.bindCamera();
@@ -231,6 +228,8 @@ export function createControls(api) {
 
 function updateReadouts(snapshot) {
   document.querySelector("#scene-controls").disabled = !snapshot.currentMap;
+  document.querySelector("#scene-preview-controls").disabled =
+    !snapshot.currentMap;
   document.querySelector("#input-config").disabled = !snapshot.currentMap;
   document.querySelector("#step").disabled =
     !snapshot.currentMap || snapshot.loading;

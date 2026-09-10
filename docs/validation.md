@@ -1,5 +1,11 @@
 # Validation results
 
+## Current external-controls acceptance
+
+The [simplified-console report](ingame-validation/console-simple/report.json) covers the actual integrated browser and the [task-based console contract](inspection-tools.md). Default desktop controls decreased42→17; Play fits without scrolling. Native profile rejection/correction/reload, preserved drafts, disclosed invalid fields, audio checkpoint/readout restoration, all three scoped themes, world selection, geometry/camera/step controls, hide/show, and390px DPR1/2 layouts were exercised.
+
+Independent review found three regressions and manual play found one more: moved controls lacked no-map disabling, renderer failure stranded navigation, the geometry validator used the old disclosure, and a sticky toolbar intercepted a scrolled control. Retained fault/replay evidence covers each correction. Strict lint and147 tests/876 assertions pass. This milestone changes external controls only; the gameplay evidence below retains its own source/release identities and limitations.
+
 ## Current expanded-fidelity acceptance
 
 The [expanded index](ingame-validation/expanded/report.json) joins three independent native-browser playtests, exact staged source identities, retained failures and corrected replays. Gameplay actions used real mouse/keyboard input; validated temporary profiles are labeled setup, not earned progression. Recording/replay is a separately labeled scenario, not a substitute for native play.

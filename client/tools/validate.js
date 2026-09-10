@@ -303,11 +303,14 @@ async function transition(id) {
   );
 }
 async function geometryPreviews() {
+  await page.click("#console-tab-inspect");
   const closed = await page.$eval(
-    "#scene-inspection",
-    (element) => !element.open,
+    "#debug",
+    (element) => !element.closest("details").open,
   );
-  if (closed) await page.click("#scene-inspection > summary");
+  if (closed) {
+    await page.click("#console-inspect details:has(#debug) > summary");
+  }
   await page.click("#debug");
   await page.waitForFunction(
     () => !document.querySelector("#hitbox-reference").disabled,
@@ -328,6 +331,7 @@ async function geometryPreviews() {
   await capture("original-geometry-overlay");
   await page.select("#hitbox-reference", "");
   await page.click("#debug");
+  await page.click("#console-tab-play");
 }
 /** Preserve URL/status diagnostics rather than parsing HTTP errors as evidence. */
 async function fetchJSON(url) {

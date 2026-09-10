@@ -74,33 +74,46 @@ function button(text, action) {
   return node;
 }
 
+function volumeControls(root, category) {
+  const name = category === "BGM" ? "Music" : "Sound effects";
+  const row = document.createElement("div");
+  row.className = "audio-channel";
+  const label = document.createElement("label");
+  label.textContent = name;
+  label.htmlFor = `audio-volume-${category}`;
+  const output = document.createElement("output");
+  output.dataset.audioLevel = category;
+  output.setAttribute("for", label.htmlFor);
+  output.value = "50%";
+  const range = document.createElement("input");
+  range.id = label.htmlFor;
+  range.type = "range";
+  range.min = "0";
+  range.max = "128";
+  range.step = "1";
+  range.value = "64";
+  range.dataset.audioVolume = category;
+  range.setAttribute("aria-label", `${name} volume`);
+  const muteLabel = document.createElement("label");
+  muteLabel.className = "check";
+  const mute = document.createElement("input");
+  mute.type = "checkbox";
+  mute.dataset.audioMute = category;
+  mute.setAttribute("aria-label", `${name} mute`);
+  muteLabel.append(mute, "Mute");
+  row.append(label, output, range, muteLabel);
+  root.append(row);
+}
+
 /** Browser controls are clearly reconstruction controls, not fabricated original UI artwork. */
 function makeControls() {
   const root = document.createElement("section");
   root.dataset.audiovisualControls = "true";
   root.append(button("Enable / resume audio", "enable"));
-  for (const category of ["BGM", "SE"]) {
-    const label = document.createElement("label");
-    label.style.cssText = "display:block;margin:6px 0";
-    label.append(`${category} backend volume `);
-    const range = document.createElement("input");
-    range.type = "range";
-    range.min = "0";
-    range.max = "128";
-    range.step = "1";
-    range.value = "64";
-    range.dataset.audioVolume = category;
-    range.setAttribute("aria-label", `${category} volume`);
-    const mute = document.createElement("input");
-    mute.type = "checkbox";
-    mute.dataset.audioMute = category;
-    mute.setAttribute("aria-label", `${category} mute`);
-    label.append(range, mute, "Mute");
-    root.append(label);
-  }
+  for (const category of ["BGM", "SE"]) volumeControls(root, category);
   const advanced = document.createElement("details");
   const summary = document.createElement("summary");
-  summary.textContent = "Original effect previews / live audio capture";
+  summary.textContent = "Effects & audio diagnostics";
   advanced.append(summary);
   const select = document.createElement("select");
   select.setAttribute("aria-label", "Original effect preview");
@@ -113,8 +126,8 @@ function makeControls() {
   root.append(advanced);
   const status = document.createElement("p");
   status.setAttribute("role", "status");
-  status.textContent =
-    "Sound is unmuted by default; the first supported interaction unlocks playback.";
+  status.className = "hint";
+  status.textContent = "Click the game or enable audio to start playback.";
   root.append(status);
   document.querySelector("#audio-controls").append(root);
   return { root, select, status };
@@ -184,8 +197,7 @@ export class AudiovisualSystem {
       await this.audio.enable();
       if (this.destroyed) return;
       this.listenForGesture(false);
-      this.controls.status.textContent =
-        "Original MP3 playback enabled. Independent original backend volume curve.";
+      this.controls.status.textContent = "Audio ready.";
       await this.hooks.onEnabled?.();
     } finally {
       this.unlocking = null;
@@ -233,6 +245,19 @@ export class AudiovisualSystem {
       Number(root.querySelector(`[data-audio-volume="${category}"]`).value),
       root.querySelector(`[data-audio-mute="${category}"]`).checked,
     );
+    this.refreshVolumeControls();
+  }
+  refreshVolumeControls() {
+    for (const category of ["BGM", "SE"]) {
+      const range = this.controls.root.querySelector(
+        `[data-audio-volume="${category}"]`,
+      );
+      const text = `${Math.round((Number(range.value) * 100) / 128)}%`;
+      this.controls.root.querySelector(
+        `[data-audio-level="${category}"]`,
+      ).value = text;
+      range.setAttribute("aria-valuetext", text);
+    }
   }
   async prepare(index, signal) {
     check(signal);
@@ -265,8 +290,8 @@ export class AudiovisualSystem {
     }
     this.setMapAudio(record?.bgm ?? null, this.sceneGeneration);
     this.controls.status.textContent = record?.effect
-      ? `Authored map effect: ${record.effect}. Preview placement/trigger is local, not original live activation.`
-      : "Original map BGM selected. Server-driven effects are local previews only.";
+      ? "This map has an effect available in previews."
+      : "";
   }
   async setMapAudio(descriptor, generation) {
     try {

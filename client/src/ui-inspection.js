@@ -477,25 +477,37 @@ function inspectionElement(tag, text, parent) {
 }
 
 const PROFILE_FIELDS = [
-  ["name", "Name", null],
-  ["level", "Level", 1],
-  ["exp", "EXP", 0],
-  ["hp", "HP", 0],
-  ["maxHP", "Maximum HP", 1],
-  ["mp", "MP", 0],
-  ["maxMP", "Maximum MP", 0],
-  ["remainingAp", "Ability points (AP)", 0],
-  ["str", "STR", 1],
-  ["dex", "DEX", 1],
-  ["int", "INT", 1],
-  ["luk", "LUK", 1],
-  ["meso", "Meso", 0],
-  ["fame", "Fame", Number.MIN_SAFE_INTEGER],
+  ["name", "Name", null, "identity"],
+  ["level", "Level", 1, "identity"],
+  ["hp", "HP", 0, "resources"],
+  ["maxHP", "Maximum HP", 1, "resources"],
+  ["mp", "MP", 0, "resources"],
+  ["maxMP", "Maximum MP", 0, "resources"],
+  ["str", "STR", 1, "attributes"],
+  ["dex", "DEX", 1, "attributes"],
+  ["int", "INT", 1, "attributes"],
+  ["luk", "LUK", 1, "attributes"],
+  ["remainingAp", "Ability points (AP)", 0, "progress"],
+  ["exp", "EXP", 0, "progress"],
+  ["meso", "Meso", 0, "progress"],
+  ["fame", "Fame", Number.MIN_SAFE_INTEGER, "progress"],
 ];
+
+function profileGroup(parent, title, collapsed = false) {
+  const section = inspectionElement(
+    collapsed ? "details" : "fieldset",
+    "",
+    parent,
+  );
+  section.className = "profile-group";
+  inspectionElement(collapsed ? "summary" : "legend", title, section);
+  const grid = inspectionElement("div", "", section);
+  grid.className = "profile-grid";
+  return grid;
+}
 
 function profileInput(parent, label, minimum) {
   const wrapper = inspectionElement("label", `${label} `, parent);
-  wrapper.style.display = "block";
   const input = inspectionElement("input", "", wrapper);
   input.setAttribute("aria-label", label);
   input.type = minimum === null ? "text" : "number";
@@ -522,24 +534,26 @@ export class ProfileControls {
     this.dirty = false;
     this.fields = new Map();
     this.skillRows = new Map();
-    this.root = document.createElement("details");
+    this.root = document.createElement("section");
     this.root.id = "character-controls";
-    this.root.open = true;
-    inspectionElement("summary", "Character editor & presets", this.root);
-    this.status = inspectionElement("p", "", this.root);
-    this.status.setAttribute("role", "status");
+    this.root.setAttribute("aria-label", "Character editor");
+    this.buildEditor();
     const actions = inspectionElement("div", "", this.root);
     actions.className = "profile-actions";
     this.save = profileButton(actions, "Save checkpoint");
     this.recover = profileButton(actions, "Revive character");
+    this.status = inspectionElement("p", "", this.root);
+    this.status.setAttribute("role", "status");
+    this.status.className = "hint";
     const advanced = inspectionElement("details", "", this.root);
     inspectionElement("summary", "Destructive actions", advanced);
     this.reset = profileButton(advanced, "Reset character…");
-    this.buildEditor();
-    this.items = inspectionElement("select", "", this.root);
+    const offering = inspectionElement("details", "", this.root);
+    inspectionElement("summary", "Reactor testing", offering);
+    this.items = inspectionElement("select", "", offering);
     this.items.setAttribute("aria-label", "Local reactor offering item");
-    this.offer = profileButton(this.root, "Offer nearby");
-    this.feedback = inspectionElement("p", "", this.root);
+    this.offer = profileButton(offering, "Offer nearby");
+    this.feedback = inspectionElement("p", "", offering);
     this.feedback.setAttribute("role", "status");
     this.listeners = [
       [this.save, "click", owner.saveProfile.bind(owner)],
@@ -547,14 +561,15 @@ export class ProfileControls {
       [this.recover, "click", owner.recoverProfile.bind(owner)],
       [this.form, "submit", this.submit.bind(this)],
       [this.form, "input", this.markEdited.bind(this)],
+      [this.form, "invalid", this.revealInvalid.bind(this), true],
       [this.form, "click", this.removeSkill.bind(this)],
       [this.revert, "click", this.revertEdits.bind(this)],
       [this.add, "click", this.addSkill.bind(this)],
       [this.offer, "click", this.offerItem.bind(this)],
       [this.stagePreset, "click", this.preparePreset.bind(this)],
     ];
-    for (const [node, type, handler] of this.listeners) {
-      node.addEventListener(type, handler);
+    for (const [node, type, handler, capture = false] of this.listeners) {
+      node.addEventListener(type, handler, capture);
     }
     document.querySelector("#inspection-controls").append(this.root);
     this.refresh();
@@ -563,29 +578,49 @@ export class ProfileControls {
   buildEditor() {
     this.form = inspectionElement("form", "", this.root);
     this.editor = inspectionElement("fieldset", "", this.form);
-    inspectionElement("legend", "Character stats", this.editor);
-    inspectionElement(
-      "p",
-      "Change values, then save all changes together. Changing job or level does not award points or skills.",
-      this.editor,
-    );
+    inspectionElement("legend", "Edit character", this.editor);
     this.buildPresets();
-    const grid = inspectionElement("div", "", this.editor);
-    grid.className = "profile-grid";
-    for (const [key, label, minimum] of PROFILE_FIELDS) {
-      const input = profileInput(grid, label, minimum);
+    this.buildFields();
+    this.buildPointPools();
+    this.buildSkillEditor();
+    const bar = inspectionElement("div", "", this.editor);
+    bar.className = "profile-savebar";
+    const actions = inspectionElement("div", "", bar);
+    actions.className = "profile-actions";
+    this.apply = inspectionElement("button", "Apply changes", actions);
+    this.apply.type = "submit";
+    this.apply.className = "primary";
+    this.apply.setAttribute("aria-label", "Apply character changes");
+    this.revert = profileButton(actions, "Discard");
+    this.revert.setAttribute("aria-label", "Discard unsaved edits");
+    this.editStatus = inspectionElement("p", "No unsaved changes.", bar);
+    this.editStatus.setAttribute("role", "status");
+    this.editStatus.setAttribute("aria-live", "polite");
+  }
+
+  buildFields() {
+    const groups = {
+      identity: profileGroup(this.editor, "Identity"),
+      resources: profileGroup(this.editor, "HP & MP"),
+      attributes: profileGroup(this.editor, "Attributes", true),
+      progress: profileGroup(this.editor, "Progress & wallet", true),
+    };
+    for (const [key, label, minimum, group] of PROFILE_FIELDS) {
+      const input = profileInput(groups[group], label, minimum);
       input.name = key;
-      if (key === "name") input.maxLength = PROFILE_LIMITS.name;
+      if (key === "name") {
+        input.maxLength = PROFILE_LIMITS.name;
+        input.parentElement.className = "profile-wide";
+      }
       this.fields.set(key, input);
     }
-    const label = inspectionElement("label", "Job ", grid);
-    label.style.display = "block";
+    const label = inspectionElement("label", "Job", groups.identity);
+    label.className = "profile-wide";
     this.job = inspectionElement("select", "", label);
     this.job.setAttribute("aria-label", "Job");
     this.job.required = true;
     this.fields.set("job", this.job);
-    const jobs = this.owner.index.coverage.skillCoverage.playerBooks;
-    for (const id of jobs) {
+    for (const id of this.owner.index.coverage.skillCoverage.playerBooks) {
       const option = inspectionElement(
         "option",
         `${JOB_LABELS[id] || "Job"} [${id}]`,
@@ -593,20 +628,16 @@ export class ProfileControls {
       );
       option.value = String(id);
     }
-    this.buildPointPools();
-    this.buildSkillEditor();
-    const actions = inspectionElement("div", "", this.editor);
-    actions.className = "profile-actions";
-    this.apply = inspectionElement(
-      "button",
-      "Apply character changes",
-      actions,
-    );
-    this.apply.type = "submit";
-    this.revert = profileButton(actions, "Discard unsaved edits");
-    this.editStatus = inspectionElement("p", "", this.form);
-    this.editStatus.setAttribute("role", "status");
-    this.editStatus.setAttribute("aria-live", "polite");
+  }
+
+  revealInvalid(event) {
+    let node = event.target.parentElement;
+    for (let depth = 0; node && node !== this.form && depth < 8; depth++) {
+      if (node.tagName === "DETAILS") node.open = true;
+      node = node.parentElement;
+    }
+    this.editStatus.textContent =
+      "Check the highlighted field before applying.";
   }
   buildPointPools() {
     const pointDetails = inspectionElement("details", "", this.editor);
@@ -627,12 +658,8 @@ export class ProfileControls {
     }
   }
   buildPresets() {
-    const section = inspectionElement("fieldset", "", this.editor);
-    inspectionElement(
-      "legend",
-      "GM presets — preview before applying",
-      section,
-    );
+    const section = inspectionElement("details", "", this.editor);
+    inspectionElement("summary", "Presets", section);
     this.preset = inspectionElement("select", "", section);
     this.preset.setAttribute("aria-label", "Character preset");
     for (const [id, label] of [
@@ -646,7 +673,7 @@ export class ProfileControls {
     this.stagePreset = profileButton(section, "Preview preset");
     inspectionElement(
       "p",
-      "Presets replace only the named fields. Review staged values below, then Apply; no job advancement or skills are granted automatically.",
+      "Preview stages only these values. Apply saves them; job and level changes do not grant points or skills.",
       section,
     );
   }
@@ -667,11 +694,13 @@ export class ProfileControls {
         break;
       case "training":
         this.fields.get("remainingAp").value = "20";
+        this.fields.get("remainingAp").closest("details").open = true;
         this.spFields[0].value = "10";
         this.spFields[0].closest("details").open = true;
         break;
       case "mesos":
         this.fields.get("meso").value = "100000";
+        this.fields.get("meso").closest("details").open = true;
         break;
       default:
         this.editStatus.textContent = "Choose a supported preset.";
@@ -765,6 +794,7 @@ export class ProfileControls {
     }
     this.dirty = true;
     this.editStatus.textContent = "Unsaved profile edits.";
+    this.updateEditActions();
   }
 
   revertEdits() {
@@ -821,9 +851,19 @@ export class ProfileControls {
     this.recover.disabled = !profile || profile.hp !== 0 || busy;
     this.editor.disabled = !profile || busy;
     this.form.setAttribute("aria-busy", String(Boolean(this.request)));
-    this.apply.disabled = typeof owner.hooks.onProfileEdit !== "function";
+    this.updateEditActions();
     if (!this.dirty && !this.request) this.refreshEditor(profile);
     this.refreshItems(profile);
+  }
+
+  updateEditActions() {
+    const busy = this.isBusy();
+    this.apply.disabled =
+      !this.dirty ||
+      busy ||
+      typeof this.owner.hooks.onProfileEdit !== "function";
+    this.revert.disabled = !this.dirty || busy;
+    this.apply.textContent = this.request ? "Saving…" : "Apply changes";
   }
 
   refreshEditor(profile) {
@@ -986,8 +1026,8 @@ export class ProfileControls {
   destroy() {
     this.destroyed = true;
     this.request = null;
-    for (const [node, type, handler] of this.listeners) {
-      node.removeEventListener(type, handler);
+    for (const [node, type, handler, capture = false] of this.listeners) {
+      node.removeEventListener(type, handler, capture);
     }
     this.root.remove();
   }
