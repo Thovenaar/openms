@@ -248,6 +248,7 @@ export function readPhysicsData(map, physics) {
   }
   const unknown = unrecognizedSections(map, unsupported);
   mapInfo.$portalProperties = portalTree;
+  mapInfo.$seats = properties(map.children.seat, "seat", unsupported);
   mapInfo.$objectPhysics = objectPhysics(map, unsupported);
   mapInfo.$unrecognized = properties(
     { type: "Property", name: "map", parent: null, children: unknown },

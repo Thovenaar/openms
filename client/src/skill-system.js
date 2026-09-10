@@ -5,7 +5,19 @@ const MAX_SKILLS = 4096;
 const MAX_ACTIVE = 64;
 // 00765e9e sums all four original beginner triples, even after a job-family edit.
 const BEGINNER_ROOTS = [0, 10000000, 20000000, 20010000];
-const STATS = ["pad", "pdd", "mad", "mdd", "acc", "eva", "speed", "jump"];
+const STATS = [
+  "pad",
+  "pdd",
+  "mad",
+  "mdd",
+  "acc",
+  "eva",
+  "speed",
+  "jump",
+  "stance",
+];
+// Cosmic Character.java4492..4523: ordinary Recovery ticks every five seconds (not ultra mode).
+const RECOVERY_INTERVAL_MS = 5000;
 const OK = Object.freeze({ ok: true });
 function refusal(reason) {
   return { ok: false, reason };
@@ -59,9 +71,11 @@ export class SkillSystem {
         skill.classification.activation !== "passive"
       ) {
         this.states.set(skill.id, {
+          id: skill.id,
           cooldown: 0,
           remaining: 0,
           rank: 0,
+          recoveryElapsed: 0,
           expiresAt: null,
         });
       }
@@ -226,6 +240,17 @@ export class SkillSystem {
     if (skill.flags.disabled || skill.flags.timeLimited) {
       return "Skill requires disabled/time-limited authority";
     }
+    if (
+      skill.properties.reqLev &&
+      this.store.profile.level < skill.properties.reqLev
+    ) {
+      return "Character level requirement not met";
+    }
+    for (const requirement of skill.prerequisites) {
+      if (this.level(requirement.skillId) < requirement.rank) {
+        return `Requires skill ${requirement.skillId} rank ${requirement.rank}`;
+      }
+    }
     if (!skill.classification.supported) return skill.classification.reason;
     if (skill.classification.activation === "passive") {
       return "Passive skill has no active cast";
@@ -262,6 +287,16 @@ export class SkillSystem {
   }
 
   costError(skill, info) {
+    return (
+      this.originalCostError(info) ??
+      this.buffValueError(skill, info) ??
+      this.consumptionError(info) ??
+      this.buffBudgetError(skill)
+    );
+  }
+
+  /** Optional authored costs and seconds must be finite and nonnegative before debit/timers. */
+  originalCostError(info) {
     for (const key of ["hpCon", "mpCon", "time", "cooltime"]) {
       if (
         info[key] !== undefined &&
@@ -270,7 +305,24 @@ export class SkillSystem {
         return `Invalid original ${key}`;
       }
     }
-    return this.consumptionError(info) ?? this.buffBudgetError(skill);
+    return null;
+  }
+
+  /** Guard consumes x, Stance consumes prop, and Recovery requires positive integral HP ticks. */
+  buffValueError(skill, info) {
+    const controller = skill.classification.hooks[0];
+    if (controller === "magic-guard" || controller === "stance") {
+      const percent = controller === "stance" ? info.prop : info.x;
+      if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+        return "Invalid original resistance percentage";
+      }
+    }
+    if (controller === "periodic-recovery") {
+      if (!Number.isInteger(info.x) || info.x <= 0) {
+        return "Invalid original periodic recovery amount";
+      }
+    }
+    return null;
   }
 
   consumptionError(info) {
@@ -315,22 +367,62 @@ export class SkillSystem {
     // No asynchronous boundary: field admission is guaranteed by its immediately preceding validation.
     if (skill.classification.activation === "melee") {
       this.hooks.admitAttack(skill, info, this.onHit);
-    } else this.hooks.startAction(skill.actions[0]);
+    } else if (skill.actions.length) this.hooks.startAction(skill.actions[0]);
     const state = this.states.get(id),
       profile = this.store.profile;
     profile.hp -= info.hpCon ?? 0;
     profile.mp -= info.mpCon ?? 0;
     state.cooldown = (info.cooltime ?? 0) * 1000;
     if (skill.classification.activation === "self-buff") {
-      state.remaining = info.time * 1000;
-      state.rank = rank;
-      state.expiresAt = profile.skills[id].expiresAt;
-      this.recompute();
+      this.startBuff(skill, rank, info);
     }
     this.store.markDirty();
     this.resources.sound(skill, "Use");
     this.resources.play(skill, "Use", this.scene.simulation);
     return OK;
+  }
+
+  startBuff(skill, rank, info) {
+    const state = this.states.get(skill.id);
+    const controller = skill.classification.hooks[0];
+    if (controller !== "derived-stats" && controller !== "solo-party-stats") {
+      for (const [id, other] of this.states) {
+        if (this.catalog[id].classification.hooks[0] === controller) {
+          other.remaining = 0;
+        }
+      }
+    }
+    state.remaining = info.time * 1000;
+    state.recoveryElapsed = 0;
+    state.rank = rank;
+    state.expiresAt = this.store.profile.skills[skill.id].expiresAt;
+    this.recompute();
+  }
+
+  /** Cosmic TakeDamageHandler253..263: MP shortfall falls through to HP, never negates damage. */
+  absorbDamage(amount) {
+    if (!Number.isSafeInteger(amount) || amount < 0) {
+      throw new Error("Invalid incoming damage");
+    }
+    if (this.destroyed || this.store.profileTransactionPending) return amount;
+    const profile = this.store.profile;
+    if (profile.hp <= 0) return amount;
+    let percent = 0;
+    for (const state of this.states.values()) {
+      const id = state.id;
+      if (
+        state.remaining > 0 &&
+        this.catalog[id].classification.hooks[0] === "magic-guard"
+      ) {
+        percent = Math.max(percent, this.info(id, state.rank).x);
+      }
+    }
+    const spent = Math.min(profile.mp, Math.trunc((amount * percent) / 100));
+    if (spent > 0) {
+      profile.mp -= spent;
+      this.store.markDirty();
+    }
+    return amount - spent;
   }
 
   /** OfflineField calls once per admitted target at its authored hit phase, never on button press. */
@@ -345,11 +437,16 @@ export class SkillSystem {
   /** Self-stat overlap uses strongest positive/negative modifier, not additive recast stacking. */
   recompute() {
     for (const key of STATS) this.derivedStats[key] = 0;
-    for (const [id, state] of this.states) {
+    for (const state of this.states.values()) {
+      const id = state.id;
       if (state.remaining <= 0) continue;
       const info = this.info(id, state.rank);
       for (const key of STATS) {
-        const amount = info?.[key] ?? 0;
+        const amount =
+          key === "stance" &&
+          this.catalog[id].classification.hooks[0] === "stance"
+            ? Math.max(0, Math.min(100, info.prop))
+            : (info?.[key] ?? 0);
         if (Math.abs(amount) > Math.abs(this.derivedStats[key])) {
           this.derivedStats[key] = amount;
         }
@@ -376,6 +473,7 @@ export class SkillSystem {
     for (const state of this.states.values()) {
       if (state.cooldown > 0) state.cooldown = Math.max(0, state.cooldown - ms);
       if (state.remaining <= 0) continue;
+      this.advanceRecovery(state.id, state, ms);
       state.remaining = Math.max(0, state.remaining - ms);
       if (state.expiresAt !== null && state.expiresAt <= this.wallTime) {
         state.remaining = 0;
@@ -383,6 +481,42 @@ export class SkillSystem {
       if (!state.remaining) expired = true;
     }
     if (expired) this.recompute();
+  }
+
+  /** Bounded arithmetic catch-up includes the last authored tick, never ticks past learned expiry. */
+  advanceRecovery(id, state, ms) {
+    if (this.catalog[id].classification.hooks[0] !== "periodic-recovery") {
+      return;
+    }
+    const untilExpiry =
+      state.expiresAt === null
+        ? state.remaining
+        : Math.max(0, state.expiresAt - (this.wallTime - ms));
+    const activeMs = Math.min(ms, state.remaining, untilExpiry);
+    const elapsed = state.recoveryElapsed + activeMs;
+    let ticks = Math.floor(elapsed / RECOVERY_INTERVAL_MS);
+    state.recoveryElapsed = elapsed % RECOVERY_INTERVAL_MS;
+    if (
+      ticks > 0 &&
+      state.recoveryElapsed === 0 &&
+      state.expiresAt !== null &&
+      state.expiresAt <= this.wallTime &&
+      activeMs === untilExpiry
+    ) {
+      ticks--;
+    }
+    const profile = this.store.profile;
+    if (!ticks || profile.hp <= 0 || this.store.profileTransactionPending) {
+      return;
+    }
+    const hp = Math.min(
+      profile.maxHP,
+      profile.hp + ticks * this.info(id, state.rank).x,
+    );
+    if (hp !== profile.hp) {
+      profile.hp = hp;
+      this.store.markDirty();
+    }
   }
 
   /** Ordinary map commits preserve the same character's timers; temporary stores remain isolated. */

@@ -1,3 +1,6 @@
+const MAX_LIFE_RECORDS = 16384;
+const MAX_LIFE_OPTIONS = 200;
+
 /** Bounded DOM controls belong to the life preview, not original game chrome. */
 function element(tag, text, parent) {
   const node = document.createElement(tag);
@@ -8,32 +11,31 @@ function element(tag, text, parent) {
 
 export class LifeControls {
   constructor(system, records) {
+    if (records.length > MAX_LIFE_RECORDS) {
+      throw new Error(`Life inspection exceeds ${MAX_LIFE_RECORDS} placements`);
+    }
+    this.records = records;
     this.system = system;
     this.root = document.createElement("details");
     this.root.dataset.lifePreview = "";
-    element("summary", "Life metadata and previews", this.root);
+    element("summary", "NPC & mob placement inspector", this.root);
     element(
       "p",
       "Original life metadata. These controls inspect only; eligible NPC world targets use normal dialogue interaction.",
       this.root,
     );
+    this.buildSearch();
     this.placement = element("select", "", this.root);
     this.placement.setAttribute("aria-label", "Life metadata placement");
     this.placement.style.maxWidth = "100%";
-    for (const slot of records) {
-      const option = element(
-        "option",
-        `${slot.record.id} ${slot.template.name ?? slot.template.originalId}`,
-        this.placement,
-      );
-      option.value = slot.record.id;
-    }
+    this.populatePlacements("");
     this.action = element("select", "", this.root);
     this.action.setAttribute(
       "aria-label",
       "Non-authoritative life action preview",
     );
-    this.inspect = element("button", "Inspect metadata", this.root);
+    this.inspect = element("button", "Show placement geometry", this.root);
+    this.inspect.type = "button";
     this.inspect.disabled = records.length === 0;
     this.action.disabled = records.length === 0;
     this.placement.disabled = records.length === 0;
@@ -53,6 +55,51 @@ export class LifeControls {
     document.querySelector("#inspection-controls").append(this.root);
     if (records.length) this.select();
   }
+  buildSearch() {
+    const label = element("label", "Find NPC / mob by name or ID", this.root);
+    this.search = element("input", "", label);
+    this.search.type = "search";
+    this.search.maxLength = 120;
+    this.search.placeholder = "Name, placement ID, npc or mob";
+    this.count = element("p", "", this.root);
+    this.count.setAttribute("role", "status");
+  }
+
+  populatePlacements(query, exactId = null) {
+    const previous = this.placement.value;
+    this.placement.replaceChildren();
+    let count = 0;
+    for (const slot of this.records) {
+      if (exactId !== null && slot.record.id !== exactId) continue;
+      const text = `${slot.record.kind} · ${slot.record.id} · ${slot.template.name ?? slot.template.originalId}`;
+      if (!text.toLowerCase().includes(query)) continue;
+      count++;
+      if (count > MAX_LIFE_OPTIONS) continue;
+      const option = element("option", text, this.placement);
+      option.value = slot.record.id;
+    }
+    for (const option of this.placement.options) {
+      if (option.value === previous) this.placement.value = previous;
+    }
+    this.count.textContent =
+      count > MAX_LIFE_OPTIONS
+        ? `${count} matches; showing first ${MAX_LIFE_OPTIONS}. Refine your search.`
+        : `${count} matching placements.`;
+  }
+
+  searchPlacements() {
+    this.populatePlacements(this.search.value.trim().toLowerCase());
+    this.placement.disabled = !this.placement.options.length;
+    this.inspect.disabled = this.placement.disabled;
+    if (this.placement.disabled) {
+      this.action.replaceChildren();
+      this.action.disabled = true;
+      this.status.textContent =
+        "No placement matches. Clear or refine the search.";
+      return;
+    }
+    this.select();
+  }
   /** Register only once per owner; never from update or selection. */
   listen() {
     this.onSelection = this.select.bind(this);
@@ -61,6 +108,8 @@ export class LifeControls {
     this.onGeometry = this.toggleGeometry.bind(this);
     this.onHidden = this.toggleHidden.bind(this);
     this.onKey = this.stopKey.bind(this);
+    this.onSearch = this.searchPlacements.bind(this);
+    this.search.addEventListener("input", this.onSearch);
     this.placement.addEventListener("change", this.onSelection);
     this.action.addEventListener("change", this.onAction);
     this.inspect.addEventListener("click", this.onInspect);
@@ -86,6 +135,11 @@ export class LifeControls {
   /** Mob clicks stay in nondamaging metadata inspection, never the NPC dialogue hook. */
   showSelection(id) {
     this.root.open = true;
+    document.querySelector("#offline-inspection").open = true;
+    this.search.value = id;
+    this.populatePlacements(id.toLowerCase(), id);
+    this.placement.disabled = false;
+    this.inspect.disabled = false;
     this.placement.value = id;
     this.select();
     this.geometry.checked = true;
@@ -93,7 +147,21 @@ export class LifeControls {
   }
 
   selectAction() {
-    this.system.setPreviewAction(this.placement.value, this.action.value);
+    try {
+      if (this.system.destroyed) {
+        throw new Error("Life system has been disposed");
+      }
+      const result = this.system.setPreviewAction(
+        this.placement.value,
+        this.action.value,
+      );
+      this.status.textContent =
+        result === false
+          ? "Mob actions are controlled by offline combat; metadata preview cannot override them."
+          : `NPC preview action: ${this.action.value}. No gameplay rewards or damage applied.`;
+    } catch (error) {
+      this.status.textContent = `Preview unavailable: ${error.message}`;
+    }
   }
 
   inspectSelection() {
@@ -113,6 +181,7 @@ export class LifeControls {
   }
 
   destroy() {
+    this.search.removeEventListener("input", this.onSearch);
     this.placement.removeEventListener("change", this.onSelection);
     this.action.removeEventListener("change", this.onAction);
     this.inspect.removeEventListener("click", this.onInspect);

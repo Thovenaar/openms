@@ -21,7 +21,7 @@ export function approach(value, target, amount) {
   return Math.min(target, value + amount);
 }
 
-/** Original flat/slope ground branch 009b23f2; base avatar modifiers only. */
+/** Original flat/slope ground branch 009b23f2; effective player speed modifier. */
 export function groundVelocity(sim, direction, seconds) {
   const g = sim.effectiveSettings;
   if (unresolvedConveyor(sim, direction)) return sim.speed;
@@ -124,7 +124,8 @@ export function airVelocity(sim, direction, seconds) {
   }
   sim.vy = accelerate(sim.vy, g.gravityAcc * g.gravity, fallLimit, seconds);
   const drag = g.floatDrag2 * g.drag;
-  const limit = (g.walkSpeed / g.walkForce) * drag;
+  // 009b2cfb reads Physics.img directly: player Speed does not scale air steering.
+  const limit = (g.baseWalkSpeed / g.walkForce) * drag;
   if (direction !== 0) {
     sim.vx = accelerate(sim.vx, (direction * drag * 2) / MASS, limit, seconds);
     return;

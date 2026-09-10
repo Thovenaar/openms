@@ -1,3 +1,5 @@
+import { EXPRESSION_NAMES } from "./character-bindings.js";
+
 // Native tables: 00bd8bcc (89 packed records), 00bdafac (8 quickslots),
 // 00be27e0 (key/palette coordinates); consumers 008354e4 and 00836619.
 export const KEY_COUNT = 89;
@@ -331,12 +333,31 @@ const WINDOW_ACTIONS = Object.freeze({
   0: "Equip",
   1: "Item",
   3: "Skill",
+  4: "Friends",
+  5: "WorldMap",
+  6: "Messenger",
   7: "MiniMap", // 00a0788f ->008590f9 cycles the resident minimap.
   9: "KeyConfig",
+  10: "ChatAll",
+  11: "ChatWhisper",
+  12: "ChatParty",
+  13: "ChatBuddy",
   8: "Quest",
   2: "Stat",
   14: "ShortCut", // 00a078da ->00a06cbc constructs0084a560 shortcut menu.
   15: "QuickSlot",
+  16: "ExpandChat",
+  17: "Guild",
+  18: "ChatGuild",
+  19: "Party",
+  20: "QuestAlarm",
+  21: "ChatSpouse",
+  22: "MonsterBook",
+  23: "CashShop",
+  24: "ChatAlliance",
+  25: "PartySearch",
+  26: "Family",
+  27: "Title",
 });
 const CHARACTER_ACTIONS = Object.freeze({
   50: "Pickup",
@@ -349,6 +370,9 @@ const CHARACTER_ACTIONS = Object.freeze({
 export function bindingAction(binding) {
   if (binding?.type === 4) return WINDOW_ACTIONS[binding.id] ?? null;
   if (binding?.type === 5) return CHARACTER_ACTIONS[binding.id] ?? null;
+  if (binding?.type === 6 && binding.id >= 100 && binding.id <= 106) {
+    return `Expression:${EXPRESSION_NAMES[binding.id - 99]}`;
+  }
   return null;
 }
 

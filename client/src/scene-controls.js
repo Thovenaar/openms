@@ -1,3 +1,8 @@
+import { initializeInspectionTheme } from "./inspection-theme.js";
+
+const MAX_INSPECTED_ENTITIES = 16384;
+const MAX_ENTITY_OPTIONS = 200;
+
 /** DOM controls are inspection policy, not original game UI. */
 class Controls {
   constructor(api) {
@@ -6,8 +11,12 @@ class Controls {
     this.options = { signal: this.controller.signal };
     this.entitySelect = document.querySelector("#entity");
     this.actionSelect = document.querySelector("#action");
+    this.entityInputs = document.querySelectorAll(
+      "#entity, #action, #visible, #entity-focus, .inspection-chrome [data-layer]",
+    );
     this.lastMap = null;
-    this.lastEntities = "";
+    this.lastEntities = [];
+    initializeInspectionTheme(this.controller.signal);
     this.bindPlayer();
     this.bindEntity();
     this.bindCamera();
@@ -59,6 +68,20 @@ class Controls {
   }
   bindEntity() {
     this.listen("#entity", "change", () => this.entityChanged());
+    this.listen("#entity-search", "input", () =>
+      this.invoke(() => this.filterEntities(this.api.snapshot().entities)),
+    );
+    this.listen("#entity-focus", "click", () =>
+      this.invoke(() => {
+        const entity = this.api
+          .snapshot()
+          .entities.find((value) => value.id === this.entitySelect.value);
+        if (!entity) {
+          throw new Error("Select an entity before centering the camera");
+        }
+        this.api.setCamera(entity.x, entity.y);
+      }),
+    );
     this.listen("#action", "change", () =>
       this.invoke(() =>
         this.api.setAction(this.entitySelect.value, this.actionSelect.value),
@@ -73,12 +96,24 @@ class Controls {
       button.addEventListener(
         "click",
         () => {
-          const values = this.api.snapshot().entities.map((entity) => entity.z);
-          const depth =
-            button.dataset.layer === "front"
-              ? Math.max(...values) + 1
-              : Math.min(...values) - 1;
-          this.invoke(() => this.api.setLayer(this.entitySelect.value, depth));
+          this.invoke(() => {
+            const entities = this.api.snapshot().entities;
+            if (!entities.length || entities.length > MAX_INSPECTED_ENTITIES) {
+              throw new Error(
+                "Entity list is empty or exceeds inspection budget",
+              );
+            }
+            let depth = entities[0].z;
+            for (const entity of entities) {
+              depth =
+                button.dataset.layer === "front"
+                  ? Math.max(depth, entity.z)
+                  : Math.min(depth, entity.z);
+            }
+            depth += button.dataset.layer === "front" ? 1 : -1;
+            this.api.setLayer(this.entitySelect.value, depth);
+            this.entityChanged();
+          });
         },
         this.options,
       );
@@ -103,13 +138,58 @@ class Controls {
     const entity = this.api
       .snapshot()
       .entities.find((value) => value.id === this.entitySelect.value);
-    if (!entity) return;
+    this.setEntityAvailability(Boolean(entity));
+    if (!entity) {
+      this.actionSelect.replaceChildren();
+      document.querySelector("#layer-value").value = "—";
+      return;
+    }
     this.actionSelect.replaceChildren(
       ...entity.actions.map((name) => new Option(name, name)),
     );
     this.actionSelect.value = entity.action;
     document.querySelector("#visible").checked = entity.visible;
     document.querySelector("#layer-value").value = entity.z;
+  }
+  setEntityAvailability(available) {
+    for (const input of this.entityInputs) {
+      input.disabled = !available;
+    }
+  }
+
+  /** Search one bounded snapshot; cap DOM rows explicitly and ask users to refine. */
+  filterEntities(entities) {
+    if (entities.length > MAX_INSPECTED_ENTITIES) {
+      throw new Error(
+        `Entity inspection exceeds ${MAX_INSPECTED_ENTITIES} records`,
+      );
+    }
+    const query = document
+      .querySelector("#entity-search")
+      .value.trim()
+      .toLowerCase();
+    const selected = this.entitySelect.value;
+    this.entitySelect.replaceChildren();
+    let matched = 0;
+    for (const entity of entities) {
+      if (!`${entity.kind} ${entity.id}`.toLowerCase().includes(query)) {
+        continue;
+      }
+      matched++;
+      if (matched <= MAX_ENTITY_OPTIONS) {
+        this.entitySelect.add(
+          new Option(`${entity.kind} · ${entity.id}`, entity.id),
+        );
+      }
+    }
+    for (const option of this.entitySelect.options) {
+      if (option.value === selected) this.entitySelect.value = selected;
+    }
+    document.querySelector("#entity-search-status").textContent =
+      matched > MAX_ENTITY_OPTIONS
+        ? `${matched} matches; showing first ${MAX_ENTITY_OPTIONS}. Refine the search to reach remaining entities.`
+        : `${matched} matching entities. Preview changes are session-only.`;
+    this.entityChanged();
   }
   refresh(snapshot) {
     if (snapshot.currentMap !== this.lastMap) {
@@ -119,19 +199,27 @@ class Controls {
         .replaceChildren(...snapshot.maps.map((id) => new Option(id, id)));
       document.querySelector("#map").value = this.lastMap;
     }
-    const ids = snapshot.entities.map((entity) => entity.id).join("\n");
-    if (ids !== this.lastEntities) {
-      const selected = this.entitySelect.value;
-      this.lastEntities = ids;
-      this.entitySelect.replaceChildren(
-        ...snapshot.entities.map((entity) => new Option(entity.id, entity.id)),
+    let changed = snapshot.entities.length !== this.lastEntities.length;
+    if (snapshot.entities.length > MAX_INSPECTED_ENTITIES) {
+      this.report(
+        new Error(
+          `Entity inspection exceeds ${MAX_INSPECTED_ENTITIES} records`,
+        ),
       );
-      if (snapshot.entities.some((entity) => entity.id === selected)) {
-        this.entitySelect.value = selected;
-      }
-      this.entityChanged();
+      this.setEntityAvailability(false);
+      return;
+    }
+    for (let index = 0; index < snapshot.entities.length && !changed; index++) {
+      changed = snapshot.entities[index].id !== this.lastEntities[index];
+    }
+    if (changed) {
+      this.lastEntities = snapshot.entities.map((entity) => entity.id);
+      this.filterEntities(snapshot.entities);
     }
     updateReadouts(snapshot);
+    this.setEntityAvailability(
+      Boolean(this.entitySelect.value) && !snapshot.loading,
+    );
   }
   destroy() {
     this.controller.abort();

@@ -1,108 +1,11 @@
-:root {
-  color-scheme: dark;
-  font:
-    14px/1.45 system-ui,
-    sans-serif;
-  color: #dce5ef;
-  background: #101820;
-}
-* {
-  box-sizing: border-box;
-}
+/* Theme variables live on external chrome only, never the game viewport. */
 body {
   margin: 0;
   height: 100dvh;
   min-height: 420px;
   display: flex;
   flex-direction: column;
-}
-header {
-  min-height: 56px;
-  padding: 10px 18px;
-  display: flex;
-  align-items: center;
-  background: #17232e;
-  border-bottom: 1px solid #344554;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-#agent-controls,
-.maple-agent-control {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  min-width: 0;
-}
-#agent-controls {
-  margin-left: auto;
-  font-size: 12px;
-}
-#agent-controls [role="status"] {
-  overflow-wrap: anywhere;
-}
-#agent-controls[data-experimental] {
-  border-left: 3px solid #e7bc63;
-  padding-left: 10px;
-}
-#agent-development-status:empty {
-  display: none;
-}
-h1 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 650;
-  letter-spacing: -0.5px;
-}
-button,
-select,
-input {
-  font: inherit;
-  color: inherit;
-  border: 1px solid #496075;
-  border-radius: 5px;
-  background: #213343;
-}
-button {
-  cursor: pointer;
-  min-height: 34px;
-  padding: 5px 11px;
-  white-space: nowrap;
-}
-button:hover {
-  background: #304b60;
-}
-button:active,
-button[aria-pressed="true"] {
-  background: #365874;
-}
-button:disabled,
-select:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-:focus-visible {
-  outline: 2px solid #83cef4;
-  outline-offset: 2px;
-}
-.transport,
-.button-row {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-}
-.transport {
-  flex-wrap: wrap;
-  margin: 14px 0 18px;
-}
-.step-label {
-  white-space: nowrap;
-  color: #a5b7c9;
-}
-#step-ms {
-  width: 62px;
-  height: 34px;
-  padding-left: 8px;
+  background: #101820;
 }
 main {
   display: flex;
@@ -116,123 +19,301 @@ main {
   overflow: hidden;
   background: #101820;
 }
-canvas {
+#viewport canvas {
   display: block;
   image-rendering: pixelated;
   touch-action: none;
 }
-aside {
-  width: 280px;
+.inspection-chrome {
+  --console-bg: #ece9d8;
+  --console-panel: #fffef7;
+  --console-text: #182b48;
+  --console-muted: #465770;
+  --console-border: #849abd;
+  --console-accent: #164fa5;
+  --console-title: linear-gradient(#388bf2, #1552b1);
+  --console-button: linear-gradient(#fff, #e4eaf2);
+  --console-radius: 7px;
+  --console-shadow: inset 0 1px #fff;
+  color-scheme: light;
+  color: var(--console-text);
+  background: var(--console-bg);
+  font:
+    13px/1.5 Tahoma,
+    Verdana,
+    sans-serif;
+}
+.inspection-chrome[data-inspection-theme="win95"] {
+  --console-bg: #c0c0c0;
+  --console-panel: #d4d0c8;
+  --console-text: #101010;
+  --console-muted: #303030;
+  --console-border: #707070;
+  --console-accent: #000080;
+  --console-title: linear-gradient(90deg, #000080, #1084d0);
+  --console-button: #c0c0c0;
+  --console-radius: 0;
+  --console-shadow: inset 1px 1px #fff, inset -1px -1px #404040;
+  font-family: "MS Sans Serif", Tahoma, sans-serif;
+}
+.inspection-chrome[data-inspection-theme="y2k"] {
+  --console-bg: #172234;
+  --console-panel: #202f45;
+  --console-text: #f0f7ff;
+  --console-muted: #b8d0e5;
+  --console-border: #658da8;
+  --console-accent: #a1eaff;
+  --console-title: linear-gradient(110deg, #285583, #543d7e, #174d62);
+  --console-button: linear-gradient(#425a76, #263b53);
+  --console-radius: 12px;
+  --console-shadow: inset 0 1px #8ca9c2;
+  color-scheme: dark;
+}
+.inspection-chrome,
+.inspection-chrome * {
+  box-sizing: border-box;
+}
+header.inspection-chrome {
   flex-shrink: 0;
-  padding: 18px;
-  border-left: 1px solid #344554;
-  background: #17232e;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  border-bottom: 2px solid var(--console-border);
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.inspection-chrome h1 {
+  margin: 0;
+  font-size: 19px;
+  letter-spacing: -0.5px;
+}
+.inspection-chrome h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.inspection-chrome .console-brand .hint {
+  margin: 0;
+}
+.inspection-chrome .theme-picker {
+  font-size: 12px;
+  min-width: 170px;
+}
+#agent-controls,
+.inspection-chrome .maple-agent-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+#agent-controls {
+  margin-left: auto;
+  font-size: 12px;
+  flex: 1 1 430px;
+}
+#agent-controls[data-experimental] {
+  border-left: 3px solid var(--console-accent);
+  padding-left: 10px;
+}
+#agent-development-status:empty {
+  display: none;
+}
+.inspection-chrome :is(button, select, input) {
+  font: inherit;
+  color: var(--console-text);
+  border: 1px solid var(--console-border);
+  border-radius: var(--console-radius);
+  max-width: 100%;
+}
+.inspection-chrome button {
+  cursor: pointer;
+  min-height: 36px;
+  padding: 6px 11px;
+  background: var(--console-button);
+  box-shadow: var(--console-shadow);
+  white-space: normal;
+}
+.inspection-chrome button:hover:not(:disabled) {
+  filter: brightness(1.12);
+  border-color: var(--console-accent);
+}
+.inspection-chrome button:active:not(:disabled),
+.inspection-chrome button[aria-pressed="true"] {
+  box-shadow: inset 1px 2px 3px #0005;
+}
+.inspection-chrome :is(button, select, input):disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.inspection-chrome :focus-visible {
+  outline: 3px solid var(--console-accent);
+  outline-offset: 2px;
+}
+.inspection-chrome
+  :is(select, input:not([type="checkbox"]):not([type="range"])) {
+  background: var(--console-panel);
+  min-height: 36px;
+  padding: 6px;
+  width: 100%;
+}
+.inspection-chrome :is(.transport, .button-row, .console-shortcuts) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+.inspection-chrome .transport {
+  margin: 14px 0;
+}
+.inspection-chrome .console-shortcuts {
+  margin-top: 12px;
+}
+.inspection-chrome .console-shortcuts button {
+  flex: 1;
+}
+.inspection-chrome .step-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.inspection-chrome #step-ms {
+  width: 80px;
+}
+aside.inspection-chrome {
+  width: clamp(320px, 29vw, 440px);
+  flex-shrink: 0;
+  padding: 16px;
+  border-left: 2px solid var(--console-border);
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
-aside h2 {
-  margin: 0;
-  font-size: 15px;
-}
-aside > .hint {
-  margin: 8px 0 14px;
-}
-aside details {
-  margin: 0 0 12px;
-  padding: 8px;
-  border: 1px solid #607080;
-  border-radius: 4px;
-  background: #15202b;
-  color: #fff;
-  font:
-    12px/1.45 system-ui,
-    sans-serif;
+.inspection-chrome details {
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid var(--console-border);
+  border-radius: var(--console-radius);
+  background: var(--console-panel);
   overflow-wrap: anywhere;
 }
-aside button,
-aside select,
-aside input {
-  max-width: 100%;
+.inspection-chrome details > summary {
+  cursor: pointer;
+  font-weight: 700;
+  padding: 7px 9px;
+  margin: -10px;
+  border-radius: var(--console-radius);
+  min-height: 36px;
 }
-aside button {
-  white-space: normal;
+.inspection-chrome details[open] > summary {
+  margin-bottom: 10px;
 }
-fieldset {
-  margin: 0;
+.inspection-chrome
+  :is(#scene-inspection, #offline-inspection, #runtime-inspection)
+  > summary {
+  color: #fff;
+  background: var(--console-title);
+}
+.inspection-chrome fieldset {
+  margin: 12px 0;
   padding: 0;
   border: 0;
   min-width: 0;
 }
-legend {
+.inspection-chrome legend {
   margin-bottom: 8px;
-  font-weight: 650;
-  font-size: 15px;
+  font-weight: 700;
+  font-size: 14px;
 }
-aside label:not(.check):not(.sr-only) {
+.inspection-chrome label:not(.check):not(.sr-only):not(.theme-picker) {
   display: block;
-  margin: 14px 0 5px;
-  color: #a5b7c9;
+  margin: 10px 0 5px;
+  color: var(--console-muted);
 }
-select {
-  width: 100%;
-  min-height: 35px;
-  padding: 5px;
-}
-.check {
+.inspection-chrome .check {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin: 16px 0;
+  margin: 14px 0;
 }
-.check input {
-  accent-color: #7cbbec;
+.inspection-chrome .check input {
+  accent-color: var(--console-accent);
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
 }
-.label-row {
+.inspection-chrome .label-row {
   display: flex;
   justify-content: space-between;
-  margin: 20px 0 8px;
-  color: #a5b7c9;
+  margin: 16px 0 8px;
+  color: var(--console-muted);
 }
-output {
+.inspection-chrome output {
   font-variant-numeric: tabular-nums;
 }
-.camera-buttons {
+.inspection-chrome .camera-buttons {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
 }
-.camera-buttons .button-row {
-  gap: 4px;
-}
-.camera-buttons button {
-  padding-inline: 9px;
-}
-.hint {
-  margin: 18px 0 0;
-  color: #8da3b8;
+.inspection-chrome .hint {
+  margin: 8px 0;
+  color: var(--console-muted);
   font-size: 12px;
 }
-#status {
-  display: block;
+.inspection-chrome :is(p, [role="status"]) {
   overflow-wrap: anywhere;
 }
-#ui-status:empty {
+.inspection-chrome #status {
+  display: block;
+}
+.inspection-chrome #ui-status:empty {
   display: none;
 }
-#error {
+.inspection-chrome #error {
   margin: 14px 0;
   padding: 12px;
-  border: 1px solid #b87551;
-  border-radius: 6px;
-  background: #30251ff2;
-  color: #ffceb3;
+  border: 2px solid #b34815;
+  background: #fff0df;
+  color: #732800;
   overflow-wrap: anywhere;
 }
-[hidden] {
+.inspection-chrome [hidden] {
   display: none !important;
 }
-@media (max-width: 900px) {
+.inspection-chrome :is(#settings, .physics-debug-readout) {
+  max-width: 100%;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.inspection-chrome #audio-controls input[type="range"] {
+  width: 100%;
+}
+.inspection-chrome .profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 10px;
+}
+.inspection-chrome .profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 12px 0;
+}
+.inspection-chrome .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 960px) {
   body {
     height: auto;
     min-height: 100dvh;
@@ -246,69 +327,18 @@ output {
     height: min(75vw, 600px);
     min-height: 240px;
   }
-  aside {
+  aside.inspection-chrome {
     width: 100%;
-    padding: 16px;
     overflow: visible;
     border-left: 0;
-    border-top: 1px solid #344554;
+    border-top: 2px solid var(--console-border);
+  }
+  #agent-controls {
+    flex-basis: 100%;
   }
 }
-
-#settings,
-.physics-debug-readout {
-  max-width: 100%;
-  max-height: 320px;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 11px;
-}
-
-aside summary {
-  cursor: pointer;
-  font-weight: 650;
-  padding: 4px 0;
-}
-
-aside details {
-  margin-top: 14px;
-}
-
-aside details > details,
-#inspection-controls > details {
-  margin-bottom: 0;
-}
-
-#audio-controls:not(:empty) {
-  margin-top: 16px;
-}
-
-#audio-controls input[type="range"] {
-  width: 100%;
-}
-
-aside button + button {
-  margin-left: 4px;
-}
-
-aside .transport button + button,
-aside .button-row button + button {
-  margin-left: 0;
-}
-
-aside p {
-  overflow-wrap: anywhere;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
+@media (prefers-reduced-motion: reduce) {
+  .inspection-chrome * {
+    scroll-behavior: auto;
+  }
 }

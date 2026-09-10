@@ -57,6 +57,7 @@ export class KeyBindings {
     this.listeners = new Set();
     this.items = new ItemUse(store, catalog, hooks);
     this.lastSkillUse = null;
+    this.lastActionUse = null;
     this.onStoreChange = this._storeChanged.bind(this);
     this.unsubscribeStore = store.subscribe(this.onStoreChange);
   }
@@ -97,14 +98,36 @@ export class KeyBindings {
     if (binding.type === 0) return false;
     if (binding.type === 2) return this.useItem(binding.id);
     if (binding.type === 1) return this.useSkill(binding.id);
+    if (binding.type === 3 && this.hooks.onCashExpression) {
+      return this.hooks.onCashExpression(binding.id);
+    }
     const action = bindingAction(binding);
-    if (action && this.hooks.onAction(action)) return true;
-    this.hooks.report(
-      action
-        ? `${action} is unavailable in this offline field.`
-        : "This original binding has no implemented local action.",
-    );
-    return true;
+    if (action) {
+      const accepted = this.hooks.onAction(action);
+      if (typeof accepted !== "boolean") {
+        throw new TypeError("Binding authority must report boolean admission");
+      }
+      this.lastActionUse = { action, accepted };
+      return accepted;
+    }
+    return this.rejectBinding(binding);
+  }
+
+  rejectBinding(binding) {
+    const dependency =
+      binding.type === 7
+        ? "The original item-script/effect controller is not available."
+        : binding.type === 8
+          ? "No original skill-macro sequence is assigned."
+          : "The original binding category or identifier is not supported.";
+    this.hooks.report(dependency);
+    this.lastActionUse = {
+      type: binding.type,
+      id: binding.id,
+      accepted: false,
+      dependency,
+    };
+    return false;
   }
 
   useItem(id) {

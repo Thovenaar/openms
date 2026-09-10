@@ -6,7 +6,7 @@ import { createProfile } from "../src/profile-validation.js";
 const LOCATION = { mapId: "100040000", x: 0, y: 0, facing: 1 };
 const ITEM = 4000004;
 const ITEMS = { [ITEM]: { descriptor: {}, info: { slotMax: 100 } } };
-const GROUND = [{ x1: -100, y1: 0, x2: 100, y2: 0 }];
+const GROUND = [{ x1: -100, y1: 0, x2: 100, y2: 0, layer: 0, group: 0 }];
 const MOB = { templateId: 210100, x: 0, y: 0 };
 
 function row(itemId = ITEM, questId = 0) {
@@ -25,14 +25,20 @@ function system(store, rows = [row()], items = ITEMS) {
     { schemaVersion: 1, mobs: { 210100: { rows } } },
     store,
     GROUND,
-    { items, random: () => 0 },
+    { items, random: () => 0, pickupHeight: () => 60 },
   );
 }
 
 function land(drops) {
-  for (let index = 0; index < DROP_POLICY.launchMs / 30; index++) {
+  for (let index = 0; index < 100; index++) {
+    if (
+      drops.slots.every((slot) => !slot.active || slot.state === "grounded")
+    ) {
+      return;
+    }
     drops.step(30);
   }
+  throw new Error("Drop landing exceeded smoke bound");
 }
 
 test("two pickup intents cannot credit one drop twice before durable completion", async () => {

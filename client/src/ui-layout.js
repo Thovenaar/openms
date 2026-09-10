@@ -188,6 +188,11 @@ function layoutInventory(panel) {
   panel.currencyValue.setAttribute("aria-label", "Mesos");
   panel.currencyValue.style.cssText +=
     "text-align:right;white-space:nowrap;overflow:hidden;line-height:13px;";
+  panel.button("Item/BtCoin", 7, 266, {
+    label: "Drop Mesos",
+    action: () =>
+      panel.owner.open("MesoDrop").catch((error) => panel.owner.report(error)),
+  });
   panel.listen(panel.element, "wheel", (event) => {
     event.preventDefault();
     panel.owner.hideTooltip();

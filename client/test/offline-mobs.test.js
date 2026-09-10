@@ -105,7 +105,7 @@ test("noFlip fixes body mirroring without fixing the movement direction", () => 
   expect(mob.body.right).toBeCloseTo(mob.x + 6, 8);
 });
 
-test("the original pushed threshold separates HP loss from interruption and knockback", () => {
+test("pushed separates HP loss from recoil, while an active attack keeps its pose and impact", () => {
   const mob = groundedMob({ pushed: 10 }, 180);
   mob.state = "attack";
   const attack = { properties: { attackAfter: 90 } };
@@ -116,8 +116,8 @@ test("the original pushed threshold separates HP loss from interruption and knoc
   expect(mob.pendingAttack).toBe(attack);
   damageMob(mob, 10, 1);
   expect(mob.hp).toBe(1);
-  expect(mob.state).toBe("hit");
-  expect(mob.pendingAttack).toBeNull();
+  expect(mob.state).toBe("attack");
+  expect(mob.pendingAttack).toBe(attack);
   stepMob(mob, 30);
   // Native midpoint integration: (130 + 118)/2 * .03, not constant-speed 120.
   expect(mob.x).toBeCloseTo(13.72, 8);
@@ -125,6 +125,24 @@ test("the original pushed threshold separates HP loss from interruption and knoc
   advance(mob, 5);
   expect(mob.x).toBeCloseTo(26.92, 8);
   expect(mob.knockbackMs).toBe(0);
+});
+
+test("a hit deadline prevents repeated recoil without preventing damage, and weapon chance selects stronger motion", () => {
+  const mob = groundedMob({ maxHP: 100, pushed: 10 }, 180);
+  const attack = { skillId: 0, knockbackChance: 30, roll: 30 };
+  damageMob(mob, 10, 1, attack);
+  stepMob(mob, 30);
+  expect(mob.x).toBeCloseTo(13.72, 8);
+  damageMob(mob, 10, -1, attack);
+  expect(mob.hp).toBe(80);
+  stepMob(mob, 30);
+  expect(mob.x).toBeGreaterThan(13.72);
+  advance(mob, 4);
+  attack.roll = 29;
+  damageMob(mob, 10, -1, attack);
+  const before = mob.x;
+  stepMob(mob, 30);
+  expect(before - mob.x).toBeCloseTo(((300 + 294) / 2) * 0.03, 8);
 });
 
 test("knockback crosses patrol limits but respects connected floor ends without teleporting back", () => {
@@ -150,14 +168,15 @@ test("knockback crosses patrol limits but respects connected floor ends without 
 test("selected-skill admission and a missing hit pose do not fabricate immunity or reaction", () => {
   const mob = groundedMob();
   mob.selectedSkills = [1001004];
+  const attack = { skillId: 1001004, knockbackChance: 0, roll: 0 };
   damageMob(mob, 5, 1);
   expect(mob.hp).toBe(20);
-  damageMob(mob, 5, 1, 1001004);
+  damageMob(mob, 5, 1, attack);
   expect(mob.hp).toBe(15);
   expect(mob.state).toBe("idle");
   expect(mob.knockbackMs).toBe(0);
-  expect(damageMob(mob, 15, 1, 1001004)).toBe(true);
-  expect(damageMob(mob, 15, 1, 1001004)).toBe(false);
+  expect(damageMob(mob, 15, 1, attack)).toBe(true);
+  expect(damageMob(mob, 15, 1, attack)).toBe(false);
   expect(mob.deaths).toBe(1);
   expect(mob.body.active).toBe(false);
 });

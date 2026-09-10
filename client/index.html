@@ -9,8 +9,20 @@
     <link rel="icon" href="/app-icon.svg" type="image/svg+xml" />
   </head>
   <body>
-    <header>
-      <h1>Maple</h1>
+    <header class="inspection-chrome" data-inspection-theme="xp">
+      <div class="console-brand">
+        <h1>Maple GM Console</h1>
+        <p class="hint">Local offline workspace · not native game UI</p>
+      </div>
+      <label class="theme-picker" for="inspection-theme"
+        >Console theme
+        <select id="inspection-theme">
+          <option value="xp">Windows XP · blue</option>
+          <option value="win95">Windows 95 · classic</option>
+          <option value="y2k">Y2K · midnight chrome</option>
+        </select>
+      </label>
+      <output id="theme-status" class="sr-only" role="status"></output>
       <section
         id="agent-controls"
         aria-label="Agent and experiment controls"
@@ -18,14 +30,33 @@
     </header>
     <main>
       <section id="viewport" aria-label="Scene viewport"></section>
-      <aside aria-label="Development inspection">
-        <h2>Play controls</h2>
-        <p class="hint">Original assets · local offline play</p>
+      <aside
+        id="gm-console"
+        class="inspection-chrome"
+        data-inspection-theme="xp"
+        aria-label="Game master console"
+      >
+        <h2>Field workspace</h2>
+        <p class="hint">
+          Changes affect this local session. Character edits persist after
+          Apply.
+        </p>
+        <nav class="console-shortcuts" aria-label="Console sections">
+          <button type="button" data-console-target="character-controls">
+            Character
+          </button>
+          <button type="button" data-console-target="scene-inspection">
+            Entities
+          </button>
+          <button type="button" data-console-target="runtime-inspection">
+            Diagnostics
+          </button>
+        </nav>
         <div id="error" role="alert" hidden></div>
         <div class="transport">
           <button id="pause" type="button" aria-pressed="false">Pause</button>
           <button id="input-config" type="button" disabled>Key bindings</button>
-          <button id="reload" type="button">Reload</button>
+          <button id="reload" type="button">Reload field</button>
         </div>
         <fieldset id="scene-controls" disabled>
           <legend>Map</legend>
@@ -39,7 +70,7 @@
           </div>
           <p id="ui-status" class="hint" role="status"></p>
           <details id="scene-inspection">
-            <summary>Scene and geometry</summary>
+            <summary>Entities, camera &amp; geometry</summary>
             <label class="check"
               ><input id="debug" type="checkbox" /> Physics debug overlay</label
             >
@@ -59,6 +90,15 @@
               ><input id="follow" type="checkbox" checked /> Follow player
               (browser policy)</label
             >
+            <label for="entity-search">Find entity by ID</label>
+            <input
+              id="entity-search"
+              type="search"
+              maxlength="120"
+              placeholder="e.g. mob, npc, object…"
+              aria-describedby="entity-search-status"
+            />
+            <p id="entity-search-status" class="hint" role="status"></p>
             <label for="entity">Entity</label>
             <select id="entity" disabled aria-label="Entity"></select>
             <label for="action">Action</label>
@@ -73,6 +113,7 @@
             <div class="button-row">
               <button type="button" data-layer="back">To back</button
               ><button type="button" data-layer="front">To front</button>
+              <button type="button" id="entity-focus">Center camera</button>
             </div>
             <div class="label-row">
               <span>Camera</span><output id="camera-position">—</output>
@@ -105,8 +146,8 @@
           </details>
         </fieldset>
         <section id="audio-controls" aria-label="Audio"></section>
-        <details id="offline-inspection">
-          <summary>Offline data</summary>
+        <details id="offline-inspection" open>
+          <summary>Character &amp; offline systems</summary>
           <div id="inspection-controls"></div>
         </details>
         <details id="runtime-inspection">

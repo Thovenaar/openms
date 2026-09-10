@@ -298,11 +298,17 @@ function placementPlanes(map) {
         if (planes.size >= 65536) {
           throw new Error("Life foothold count exceeds policy");
         }
-        const z = 29995 + (Number(layer.name) * 3000 - Number(group.name)) * 10;
-        if (!Number.isSafeInteger(z)) {
+        const plane = (Number(layer.name) * 3000 - Number(group.name)) * 10;
+        if (!Number.isSafeInteger(plane)) {
           throw new Error("Invalid life foothold plane");
         }
-        planes.set(Number(segment.name), z);
+        planes.set(Number(segment.name), {
+          plane,
+          x1: value(segment, "x1"),
+          y1: value(segment, "y1"),
+          x2: value(segment, "x2"),
+          y2: value(segment, "y2"),
+        });
       }
     }
   }
@@ -311,13 +317,25 @@ function placementPlanes(map) {
 
 /** World entities use the shared region/atlas contract, never a second life texture loader. */
 function lifeEntity(record, template, planes) {
+  const segment = planes.get(record.authored.fh);
+  let x = record.authored.x;
+  let y = record.authored.y;
+  // 006d089a -> 009c1d70 -> 009b12a8/009b1553 initializes on the supplied
+  // contact segment, not on the slightly airborne map-editor placement.
+  if (record.kind === "npc" && segment && segment.x2 > segment.x1) {
+    x = Math.max(segment.x1, Math.min(segment.x2, x));
+    y =
+      segment.y1 +
+      ((x - segment.x1) * (segment.y2 - segment.y1)) /
+        (segment.x2 - segment.x1);
+  }
   return {
     id: record.id,
     kind: record.kind,
     order: 100000 + Number(record.id.slice(5)),
-    x: record.authored.x,
-    y: record.authored.y,
-    z: planes.get(record.authored.fh) ?? 29995,
+    x: Math.trunc(x),
+    y: Math.trunc(y),
+    z: (record.kind === "npc" ? 29995 : 29991) + (segment?.plane ?? 210000),
     visible: record.authored.hide !== 1,
     flip: record.authored.f === 0,
     opacity: 1,
@@ -338,7 +356,9 @@ function lifeManifest(mapId, placements, templates) {
       placementFacing:
         "preview mapping f=0 mirrors, f=1 retains artwork; placement-to-actor bit unproved",
       depth:
-        "NPC 006d267d with authored foothold plane; mob plane and missing-fh fallback are preview policies",
+        "NPC006d267d, ordinary mob00664e35; authored foothold plane, native uncontacted plane7/group0; special controller/boss overrides unavailable",
+      ground:
+        "NPC anchor projected to authored finite floor via009b1553; canvas origin remains literal; map y/cy retained separately",
       placementHide: "preview suppression only; live server activation unknown",
       actionSelection:
         "stand or explicit local preview; no automatic transitions",

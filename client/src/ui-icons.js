@@ -1,6 +1,7 @@
 import { loadVisualBundle } from "./visual-resources.js";
 import { itemBindingType } from "./keymap.js";
 import { PROFILE_LIMITS } from "./profile-validation.js";
+import { itemTooltip } from "./ui-tooltip.js";
 
 const MAX_VISIBLE_ICONS = Math.max(96, PROFILE_LIMITS.equipment);
 const ICON_CONCURRENCY = 4;
@@ -97,18 +98,26 @@ export function itemIcon(layer, entry, rect) {
     layer.image(path, rect.x, rect.y + 32, true);
   }
   const label = `${entry.template?.name || `Item ${entry.id}`} × ${entry.count}`;
-  const button = layer.hit(label, rect, {
-    pointerdown: (event) => {
-      if (event.button !== 0 || !path) return;
-      layer.owner.beginBindingDrag(
-        event,
-        { type: itemBindingType(entry.template), id: entry.id },
-        null,
-        { source: layer, path },
-      );
+  const button = layer.hit(
+    label,
+    rect,
+    {
+      pointerdown: (event) => {
+        if (event.button !== 0 || !path) return;
+        layer.owner.beginBindingDrag(
+          event,
+          { type: itemBindingType(entry.template), id: entry.id },
+          null,
+          { source: layer, path },
+        );
+      },
+      dblclick: () => layer.owner.bindings?.useItem(entry.id),
     },
-    dblclick: () => layer.owner.bindings?.useItem(entry.id),
-  });
+    () => ({
+      ...itemTooltip(layer.owner, entry.template, entry.id),
+      source: { surface: layer, path },
+    }),
+  );
   button.dataset.itemId = String(entry.id);
   const category = Math.floor(entry.id / 1000000);
   if ((category >= 2 && category <= 4) || entry.count > 1) {

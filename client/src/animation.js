@@ -1,6 +1,6 @@
 import { Container, Sprite } from "pixi.js";
 
-/** @typedef {{texture:string,x:number,y:number,z:number,flip?:boolean,opacity?:number,expression?:'default'|'hit'}} Part */
+/** @typedef {{texture:string,x:number,y:number,z:number,flip?:boolean,opacity?:number,expression?:string,expressionStart?:number,expressionEnd?:number,expressionLoopMs?:number,expressionDuration?:number}} Part */
 /** @typedef {{delay:number,parts:Part[],alphaEnd?:number,sourceSize?:{width:number,height:number}}} Frame */
 /** @typedef {{type:number,rx:number,ry:number,cx:number,cy:number}} Background */
 /** @typedef {{id:string,order:number,kind:string,x:number,y:number,z:number,visible:boolean,flip:boolean,opacity:number,action:string,actions:Record<string,Frame[]>,background?:Background}} Entity */
@@ -75,10 +75,18 @@ export class EntityAnimation {
     this.elapsedMs = 0;
     this.expression = "default";
     this.expressionMs = 0;
+    this.expressionElapsedMs = 0;
+    this.expressionTimeMs = 0;
+    this.expressionLoopMs = 0;
+    this.expressionLoops = new Map();
+    this.expressionDurations = new Map();
     this.actions = new Map();
+    this.expressions = new Set(["default"]);
+    this.tint = 0xffffff;
     this.container = new Container({ label: entity.id });
     this.setPosition(entity.x, entity.y);
     this.container.zIndex = entity.z;
+    this.container.depthOrder = entity.order;
     this.container.visible = entity.visible !== false;
     this.container.alpha = entity.opacity ?? 1;
     this.container.scale.x = entity.flip ? -1 : 1;
@@ -88,6 +96,9 @@ export class EntityAnimation {
       this.actions.set(name, action);
       for (const parts of action.parts) {
         capacity = Math.max(capacity, parts.length);
+        for (const part of parts) {
+          this.registerExpression(part);
+        }
       }
     }
     this.sprites = new Array(capacity);
@@ -102,6 +113,25 @@ export class EntityAnimation {
     this.actionTimeMs = 0;
     this.holdFrame = false;
     this.setAction(entity.action);
+  }
+
+  /** Compile immutable expression periods outside animation updates. */
+  registerExpression(part) {
+    if (!part.expression) return;
+    this.expressions.add(part.expression);
+    if (part.expressionDuration !== undefined) {
+      const duration = this.expressionDurations.get(part.expression);
+      if (duration !== undefined && duration !== part.expressionDuration) {
+        throw new Error("Inconsistent avatar expression duration");
+      }
+      this.expressionDurations.set(part.expression, part.expressionDuration);
+    }
+    if (part.expressionLoopMs === undefined) return;
+    const previous = this.expressionLoops.get(part.expression);
+    if (previous !== undefined && previous !== part.expressionLoopMs) {
+      throw new Error("Inconsistent avatar expression period");
+    }
+    this.expressionLoops.set(part.expression, part.expressionLoopMs);
   }
 
   /** Repeating the same name/mode is idempotent. Once holds its final frame.
@@ -123,10 +153,16 @@ export class EntityAnimation {
     this.selectTimedFrame();
   }
 
-  /** Select face parts independently from the current body action clock. */
+  /** Original avatar tint does not propagate into independent name overlays. */
+  setTint(tint) {
+    if (tint === this.tint) return;
+    this.tint = tint;
+    for (const sprite of this.sprites) sprite.tint = tint;
+  }
+  /** Select a packaged face family independently from the body action clock. */
   setExpression(name, duration) {
     if (
-      (name !== "default" && name !== "hit") ||
+      !this.expressions.has(name) ||
       !Number.isFinite(duration) ||
       duration < 0
     ) {
@@ -134,6 +170,9 @@ export class EntityAnimation {
     }
     this.expression = name;
     this.expressionMs = duration;
+    this.expressionElapsedMs = 0;
+    this.expressionTimeMs = 0;
+    this.expressionLoopMs = this.expressionLoops.get(name) ?? 0;
     if (this.frame >= 0) this.applyFrame(this.frame);
   }
 
@@ -141,7 +180,31 @@ export class EntityAnimation {
     if (this.expressionMs <= 0) return;
     this.expressionMs = Math.max(0, this.expressionMs - ms);
     // 004534a2..bd selects default, not a saved previous emotion.
-    if (this.expressionMs === 0) this.setExpression("default", 0);
+    if (this.expressionMs === 0) {
+      this.setExpression("default", 0);
+      return;
+    }
+    this.expressionElapsedMs += ms;
+    this.expressionTimeMs =
+      this.expressionLoopMs > 0
+        ? this.expressionElapsedMs % this.expressionLoopMs
+        : 0;
+    const parts = this.current.parts[this.frame];
+    for (let i = 0; i < this.sprites.length; i++) {
+      this.sprites[i].visible = this.expressionVisible(parts[i]);
+    }
+  }
+
+  /** Half-open authored face-frame intervals advance independently of body frames. */
+  expressionVisible(part) {
+    if (!part) return false;
+    if (!part.expression) return true;
+    if (part.expression !== this.expression) return false;
+    return (
+      part.expressionStart === undefined ||
+      (this.expressionTimeMs >= part.expressionStart &&
+        this.expressionTimeMs < part.expressionEnd)
+    );
   }
 
   /** Player callers supply only the simulation's executed quantum.
@@ -216,10 +279,10 @@ export class EntityAnimation {
     for (let i = 0; i < this.sprites.length; i++) {
       const sprite = this.sprites[i];
       const part = parts[i];
-      sprite.visible =
-        !!part && (!part.expression || part.expression === this.expression);
+      sprite.visible = this.expressionVisible(part);
       if (!part) continue;
       const texture = this.textures.get(part.texture);
+      sprite.tint = this.tint;
       sprite.texture = texture;
       sprite.position.set(part.x + (part.flip ? texture.width : 0), part.y);
       sprite.scale.set(part.flip ? -1 : 1, 1);
@@ -399,11 +462,14 @@ export class EntityAnimation {
       elapsedMs: this.elapsedMs,
       expression: this.expression,
       expressionMs: this.expressionMs,
+      expressionElapsedMs: this.expressionElapsedMs,
       actions: [...this.actions.keys()],
       visible: node.visible,
       x: this.background ? this.baseX : node.x,
       y: this.background ? this.baseY : node.y,
       z: node.zIndex,
+      depthOrder: node.depthOrder,
+      geometry: { ...this.current.geometry[this.frame] },
       flip: node.scale.x < 0,
       opacity: node.alpha,
     };

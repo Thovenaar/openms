@@ -1,4 +1,11 @@
 import { PROFILE_LIMITS, profileError } from "./profile-validation.js";
+import {
+  DROP_MOTION,
+  launchDrop,
+  stepDropFlight,
+  hoverDrop,
+  collectDrop,
+} from "./drop-motion.js";
 
 /** Rates/ownership/limits are declared offline policy, not original Nexon server rules. */
 export const DROP_POLICY = Object.freeze({
@@ -6,19 +13,13 @@ export const DROP_POLICY = Object.freeze({
   capacity: 256,
   maximumRows: 256,
   lifetimeMs: 180000,
-  launchMs: 600,
-  launchHeight: 48,
-  pickupMs: 300,
+  minimumMesoDrop: 10,
+  maximumMesoDrop: 50000,
   pickupX: 40,
   pickupY: 60,
   categorySlots: 96,
   mesoLimit: 2147483647,
   spread: 25,
-  currencyFrameMs: 120,
-  motion:
-    "local launch/pickup curves; native settled hover at 00504d98..00504e44",
-  hoverAmplitude: 3,
-  hoverPhasePer30Ms: 0.09424769999999999,
   defaultStackLimit: 100,
   ownership:
     "local character only; transient field drops expire and do not survive map replacement",
@@ -27,6 +28,7 @@ export const DROP_POLICY = Object.freeze({
 function dropSlot() {
   return {
     active: false,
+    reserved: false,
     generation: 0,
     itemId: 0,
     quantity: 0,
@@ -40,14 +42,19 @@ function dropSlot() {
     sourceY: 0,
     groundX: 0,
     groundY: 0,
-    targetX: 0,
-    targetY: 0,
+    targetHeight: 0,
+    durationMs: 0,
+    launchSpeed: 400,
+    rotation: 0,
+    alpha: 1,
+    target: null,
+    foothold: null,
   };
 }
 
 function outcome(code, reason, extra = {}) {
   return {
-    ok: code === "picked-up" || code === "spawned",
+    ok: code === "picked-up" || code === "spawned" || code === "mesos-dropped",
     code,
     reason,
     ...extra,
@@ -218,6 +225,27 @@ function occupiedSlots(entry, limit, category) {
   return category === 1 ? entry.count : Math.ceil(entry.count / limit);
 }
 
+/** Native dialog 0081dac6..0081dadd; Cosmic MesoDropHandler confirms 10..50000. */
+function debitMesos(profile, amount) {
+  if (
+    !Number.isSafeInteger(amount) ||
+    amount < DROP_POLICY.minimumMesoDrop ||
+    amount > DROP_POLICY.maximumMesoDrop
+  ) {
+    throw profileError(
+      "invalid-meso-amount",
+      "Drop between 10 and 50,000 mesos.",
+    );
+  }
+  if (profile.hp <= 0) {
+    throw profileError("character-dead", "You cannot drop mesos while dead.");
+  }
+  if (amount > profile.meso) {
+    throw profileError("insufficient-mesos", "You do not have enough mesos.");
+  }
+  profile.meso -= amount;
+}
+
 /** Sole gameplay owner; renderer borrows slots and may not award or remove loot. */
 export class DropSystem {
   constructor(data, store, footholds, options = {}) {
@@ -230,7 +258,9 @@ export class DropSystem {
     for (const segment of footholds) {
       if (
         !validPoint({ x: segment.x1, y: segment.y1 }) ||
-        !validPoint({ x: segment.x2, y: segment.y2 })
+        !validPoint({ x: segment.x2, y: segment.y2 }) ||
+        !Number.isSafeInteger(segment.layer) ||
+        !Number.isSafeInteger(segment.group)
       ) {
         throw new Error("Invalid drop foothold");
       }
@@ -244,11 +274,16 @@ export class DropSystem {
     this.positions = Array.from({ length: DROP_POLICY.maximumRows }, () => ({
       x: 0,
       y: 0,
+      foothold: null,
     }));
     this.count = 0;
     this.clock = 0;
-    this.lastDropSound = 0;
+    this.lastDropSound = -Infinity;
     this.pending = false;
+    this.pendingPromise = null;
+    this.resolveIdle = null;
+    this.remainderMs = 0;
+    this.reserved = 0;
     this.destroyed = false;
     this.lastResult = null;
   }
@@ -278,12 +313,14 @@ export class DropSystem {
 
   /** Native server-reference spread uses 25px; slope placement uses original footholds. */
   place(point, mob, index) {
+    const order = index + 1;
     const offset =
-      index % 2 === 0
-        ? 25 * Math.floor((index + 1) / 2)
-        : -25 * Math.floor(index / 2);
+      order % 2 === 0
+        ? DROP_POLICY.spread * Math.floor((order + 1) / 2)
+        : -DROP_POLICY.spread * Math.floor(order / 2);
     point.x = mob.x + offset;
     point.y = Infinity;
+    point.foothold = null;
     for (const segment of this.footholds) {
       if (
         segment.x2 <= segment.x1 ||
@@ -296,12 +333,16 @@ export class DropSystem {
         segment.y1 +
         ((point.x - segment.x1) * (segment.y2 - segment.y1)) /
           (segment.x2 - segment.x1);
-      if (y >= mob.y - 85 && y < point.y) point.y = y;
+      if (y >= mob.y - 85 && y < point.y) {
+        point.y = y;
+        point.foothold = segment;
+      }
     }
     if (Number.isFinite(point.y)) return true;
     if (index === 0) return false;
     point.x = this.positions[0].x;
     point.y = this.positions[0].y;
+    point.foothold = this.positions[0].foothold;
     return Number.isFinite(point.y);
   }
 
@@ -317,7 +358,7 @@ export class DropSystem {
       );
     }
     const count = this.roll(rows);
-    if (count > DROP_POLICY.capacity - this.count) {
+    if (count > DROP_POLICY.capacity - this.count - this.reserved) {
       return this.result(
         "drop-capacity",
         "Field drop capacity is full; this loot batch was not spawned.",
@@ -334,7 +375,7 @@ export class DropSystem {
     let index = 0;
     for (const slot of this.slots) {
       if (index === count) break;
-      if (slot.active) continue;
+      if (slot.active || slot.reserved) continue;
       this.activate(slot, mob, index++);
     }
     this.count += count;
@@ -349,13 +390,8 @@ export class DropSystem {
     slot.itemId = row.itemId;
     slot.quantity = this.quantities[index];
     slot.questId = row.questId;
-    slot.state = "launching";
-    slot.age = 0;
-    slot.phaseAge = 0;
-    slot.sourceX = slot.x = mob.x;
-    slot.sourceY = slot.y = mob.y - 20;
-    slot.groundX = point.x;
-    slot.groundY = point.y;
+    slot.foothold = point.foothold;
+    launchDrop(slot, mob, point);
   }
 
   step(deltaMs) {
@@ -363,39 +399,41 @@ export class DropSystem {
       throw new Error("Invalid drop simulation quantum");
     }
     if (this.destroyed) return;
-    this.clock += deltaMs;
+    this.remainderMs += deltaMs;
+    const ticks = Math.floor(this.remainderMs / DROP_MOTION.quantumMs);
+    this.remainderMs -= ticks * DROP_MOTION.quantumMs;
+    for (let tick = 0; tick < ticks; tick++) this.stepQuantum();
+  }
+
+  stepQuantum() {
+    this.clock += DROP_MOTION.quantumMs;
     for (const slot of this.slots) {
-      if (!slot.active) continue;
-      slot.age += deltaMs;
-      slot.phaseAge += deltaMs;
-      if (slot.state === "pending") continue;
+      if (!slot.active || slot.state === "pending") continue;
+      slot.age += DROP_MOTION.quantumMs;
+      slot.phaseAge += DROP_MOTION.quantumMs;
       if (slot.age >= DROP_POLICY.lifetimeMs) {
         this.remove(slot);
         continue;
       }
-      if (slot.state === "launching") this.launch(slot);
-      else if (slot.state === "collecting") this.collect(slot);
-      else {
-        slot.y = Math.trunc(
-          slot.groundY +
-            DROP_POLICY.hoverAmplitude *
-              Math.sin((slot.phaseAge / 30) * DROP_POLICY.hoverPhasePer30Ms),
-        );
-      }
+      if (
+        slot.state === "waiting" ||
+        slot.state === "launching" ||
+        slot.state === "falling"
+      ) {
+        this.launch(slot);
+      } else if (slot.state === "collecting") this.collect(slot);
+      else hoverDrop(slot);
     }
   }
 
   launch(slot) {
-    const t = Math.min(1, slot.phaseAge / DROP_POLICY.launchMs);
-    slot.x = slot.sourceX + (slot.groundX - slot.sourceX) * t;
-    slot.y =
-      slot.sourceY +
-      (slot.groundY - slot.sourceY) * t -
-      4 * DROP_POLICY.launchHeight * t * (1 - t);
-    if (t < 1) return;
-    slot.state = "grounded";
+    if (slot.state !== "waiting") {
+      stepDropFlight(slot);
+      return;
+    }
+    slot.state = "launching";
     slot.phaseAge = 0;
-    // 0050563e..00505687: settlement sound is globally throttled, strictly >300ms.
+    // 0050542d..00505687: launch visibility/sound, globally throttled strictly >300ms.
     if (this.clock - this.lastDropSound > 300) {
       this.lastDropSound = this.clock;
       this.hooks.onSound?.("DropItem");
@@ -403,13 +441,11 @@ export class DropSystem {
   }
 
   collect(slot) {
-    const t = Math.min(1, slot.phaseAge / DROP_POLICY.pickupMs);
-    slot.x = slot.sourceX + (slot.targetX - slot.sourceX) * t;
-    slot.y =
-      slot.sourceY +
-      (slot.targetY - slot.sourceY) * t -
-      24 * Math.sin(t * Math.PI);
-    if (t === 1) this.remove(slot);
+    const height = this.hooks.pickupHeight?.();
+    if (Number.isFinite(height) && height >= 0 && height <= 4096) {
+      slot.targetHeight = height;
+    }
+    if (!validPoint(slot.target) || collectDrop(slot)) this.remove(slot);
   }
 
   nearest(position) {
@@ -456,29 +492,130 @@ export class DropSystem {
     } catch (error) {
       return this.result(error.code ?? "pickup-invalid", error.message);
     }
-    this.pending = true;
+    const targetHeight = this.hooks.pickupHeight?.();
+    if (
+      !Number.isFinite(targetHeight) ||
+      targetHeight < 0 ||
+      targetHeight > 4096
+    ) {
+      return this.result(
+        "pickup-anchor-unavailable",
+        "Original character canvas height is unavailable.",
+      );
+    }
+    slot.targetHeight = targetHeight;
+    return this.commitPickup(slot, position);
+  }
+
+  /** Own the pending credit barrier and publish collection only after durable success. */
+  async commitPickup(slot, position) {
+    this.beginPending();
     slot.state = "pending";
-    slot.targetX = position.x;
-    slot.targetY = position.y - 24;
+    slot.target = position;
     try {
       await this.store.commitProfile((draft) => {
         creditDrop(draft, slot, this.items);
       });
     } catch (error) {
-      slot.state = "grounded";
-      this.pending = false;
+      if (slot.active) slot.state = "grounded";
+      slot.target = null;
       return this.result(error.code ?? "pickup-save-failed", error.message);
+    } finally {
+      this.finishPending();
     }
-    this.pending = false;
+    if (this.destroyed || !slot.active) {
+      return this.result("picked-up", null, {
+        itemId: slot.itemId,
+        quantity: slot.quantity,
+      });
+    }
     slot.state = "collecting";
     slot.phaseAge = 0;
-    slot.sourceX = slot.x;
-    slot.sourceY = slot.y;
+    slot.sourceX = slot.groundX;
+    slot.sourceY = slot.groundY;
+    slot.rotation = 0;
     if (!this.destroyed) this.hooks.onSound?.("PickUpItem");
     return this.result("picked-up", null, {
       itemId: slot.itemId,
       quantity: slot.quantity,
     });
+  }
+  /** Reserve world capacity, durably debit, then publish. No value-bearing visual before commit. */
+  async dropMesos(amount, simulation) {
+    if (this.destroyed || !validPoint(simulation)) {
+      return this.result("invalid-field", "Drop position is unavailable.");
+    }
+    if (this.pending) {
+      return this.result(
+        "drop-busy",
+        "A drop transaction is already being saved.",
+      );
+    }
+    try {
+      debitMesos(structuredClone(this.store.profile), amount);
+    } catch (error) {
+      return this.result(error.code ?? "invalid-meso-amount", error.message);
+    }
+    const slot = this.slots.find((entry) => !entry.active && !entry.reserved);
+    if (!slot) {
+      return this.result("drop-capacity", "Field drop capacity is full.");
+    }
+    const point = { x: 0, y: 0, foothold: null };
+    if (!this.place(point, simulation, 0)) {
+      return this.result(
+        "no-drop-ground",
+        "No authored foothold supports this drop.",
+      );
+    }
+    const source = { x: simulation.x, y: simulation.y };
+    slot.reserved = true;
+    this.reserved++;
+    this.beginPending();
+    try {
+      await this.store.commitProfile((draft) => {
+        if (this.destroyed) {
+          throw profileError(
+            "field-cancelled",
+            "Field was closed before the debit.",
+          );
+        }
+        debitMesos(draft, amount);
+      });
+      slot.itemId = 0;
+      slot.quantity = amount;
+      slot.questId = 0;
+      slot.foothold = point.foothold;
+      slot.generation++;
+      launchDrop(slot, source, point);
+      slot.active = true;
+      this.count++;
+      return this.result("mesos-dropped", null, { quantity: amount });
+    } catch (error) {
+      return this.result(error.code ?? "drop-save-failed", error.message);
+    } finally {
+      slot.reserved = false;
+      this.reserved--;
+      this.finishPending();
+    }
+  }
+
+  beginPending() {
+    this.pending = true;
+    this.pendingPromise = new Promise((resolve) => {
+      this.resolveIdle = resolve;
+    });
+  }
+
+  finishPending() {
+    this.pending = false;
+    this.resolveIdle?.();
+    this.resolveIdle = null;
+    this.pendingPromise = null;
+  }
+
+  /** Lifecycle barrier: map replacement must await before destroying this field. */
+  waitForIdle() {
+    return this.pendingPromise ?? Promise.resolve();
   }
 
   result(code, reason, extra) {
@@ -488,8 +625,10 @@ export class DropSystem {
   }
 
   remove(slot) {
+    if (!slot.active) return;
     slot.active = false;
     slot.state = "empty";
+    slot.target = null;
     this.count--;
   }
 
@@ -509,18 +648,28 @@ export class DropSystem {
         groundX: slot.groundX,
         groundY: slot.groundY,
         questId: slot.questId,
+        rotation: slot.rotation,
+        alpha: slot.alpha,
+        durationMs: slot.durationMs,
         age: slot.age,
       });
     }
     return {
       count: this.count,
       pending: this.pending,
+      reserved: this.reserved,
       lastResult: this.lastResult ? { ...this.lastResult } : null,
       drops,
     };
   }
 
   destroy() {
+    if (this.pending) {
+      throw profileError(
+        "field-busy",
+        "Await waitForIdle before destroying pending drop transactions.",
+      );
+    }
     this.destroyed = true;
     for (const slot of this.slots) slot.active = false;
     this.count = 0;

@@ -97,6 +97,7 @@ export function createSimulation(world, spawn) {
     ladderId: 0,
     foothold: null,
     ladder: null,
+    seat: null,
     position: 0,
     speed: 0,
     contactLayer: 7,
@@ -144,6 +145,7 @@ export function relocateSimulation(sim, arrival) {
   sim.previousY = sim.y;
   sim.vx = 0;
   sim.vy = 0;
+  sim.seat = null;
   sim.foothold = null;
   sim.footholdId = 0;
   sim.ladder = null;
@@ -168,6 +170,33 @@ export function relocateSimulation(sim, arrival) {
   return sim;
 }
 
+/** Local acceptance of an authored map seat; the immutable point is borrowed.
+ * 00536517 supplies its original position. Leaving resumes normal collision. */
+export function setSimulationSeat(sim, seat) {
+  if (seat !== null) {
+    validateSpawn(seat);
+    if (sim.state !== "ground") {
+      throw new Error("A map seat requires ground contact");
+    }
+    sim.seat = seat;
+    sim.x = seat.x;
+    sim.y = seat.y;
+    sim.previousX = seat.x;
+    sim.previousY = seat.y;
+    sim.vx = 0;
+    sim.vy = 0;
+    sim.speed = 0;
+    sim.horizontalInput = 0;
+    sim.crouching = false;
+    sim.action = "sit";
+    return;
+  }
+  if (!sim.seat) return;
+  sim.seat = null;
+  detachGround(sim);
+  updateAction(sim);
+}
+
 /** Original 007a6353: detach contact, enter air, merge requested px/s components.
  * Grounded motion starts from zero; airborne motion keeps stronger aligned speed.
  * Clearing the separate browser ladder reference maps the same air transition. */
@@ -175,6 +204,7 @@ export function applyExternalImpulse(sim, vx, vy) {
   if (!Number.isFinite(vx) || !Number.isFinite(vy)) {
     throw new Error("Invalid external motion impulse");
   }
+  sim.seat = null;
   if (sim.state === "ground") {
     sim.vx = 0;
     sim.vy = 0;
@@ -255,6 +285,7 @@ function validateInput(input, elapsedMs) {
 function step(sim, input) {
   sim.previousX = sim.x;
   sim.previousY = sim.y;
+  if (sim.seat) return;
   updateEnvironment(sim);
   const horizontal = sim.movementLocked
     ? 0
@@ -372,6 +403,10 @@ function beginDrop(sim) {
 }
 
 function updateAction(sim) {
+  if (sim.seat) {
+    sim.action = "sit";
+    return;
+  }
   if (sim.state === "ladder") {
     sim.action = sim.ladder.ladder ? "ladder" : "rope";
   } else if (sim.state === "swim" || sim.state === "fly") sim.action = "fly";
@@ -395,6 +430,7 @@ export function snapshotSimulation(sim) {
     accumulatorMs: sim.accumulatorMs,
     footholdId: sim.footholdId,
     ladderId: sim.ladderId,
+    seat: sim.seat ? { ...sim.seat } : null,
     ignoredFootholdId: sim.ignoredFootholdId,
     contactLayer: sim.contactLayer,
     contactGroup: sim.contactGroup,

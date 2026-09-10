@@ -1,4 +1,5 @@
 import { placeBody, sweepBody } from "./life-geometry.js";
+import { knockbackChance } from "./combat-knockback.js";
 
 export const MOB_POLICY = Object.freeze({
   authority: "offline-local-policy",
@@ -15,6 +16,8 @@ export const MOB_POLICY = Object.freeze({
 export const MOB_HIT = Object.freeze({
   velocity: 130,
   deceleration: 40000 / 100,
+  strongVelocity: 300,
+  strongDeceleration: 20000 / 100,
   minimumMotionMs: 90,
 });
 const MAX_MOBS = 4096;
@@ -230,9 +233,12 @@ function mobInitialState(definition, inactiveReason) {
     respawnMs: 0,
     cooldownMs: MOB_POLICY.attackCooldownMs,
     recoveryMs: 0,
+    hitRemainingMs: 0,
     knockbackMs: 0,
     knockbackSpeed: 0,
     knockbackFacing: 0,
+    knockbackDeceleration: MOB_HIT.deceleration,
+    lastReaction: "none",
     pendingAttack: null,
     attackFired: false,
     attackIndex: 0,
@@ -328,6 +334,7 @@ export function stepMob(mob, ms) {
     stepDeadMob(mob, ms);
     return;
   }
+  mob.hitRemainingMs = Math.max(0, mob.hitRemainingMs - ms);
   mob.cooldownMs = Math.max(0, mob.cooldownMs - ms);
   if (mob.state === "hit" && mob.stateMs >= mob.actions[mob.action].duration) {
     mob.state = "idle";
@@ -353,7 +360,10 @@ function stepMobMotion(mob, ms) {
   if (mob.knockbackMs > 0) {
     const seconds = Math.min(ms, mob.knockbackMs) / 1000;
     const before = mob.knockbackSpeed;
-    mob.knockbackSpeed = Math.max(0, before - MOB_HIT.deceleration * seconds);
+    mob.knockbackSpeed = Math.max(
+      0,
+      before - mob.knockbackDeceleration * seconds,
+    );
     const segment = mob.foothold;
     const horizontal = segment.dx / Math.hypot(segment.dx, segment.dy);
     moveMob(
@@ -465,6 +475,8 @@ function stepDeadMob(mob, ms) {
   mob.cooldownMs = MOB_POLICY.attackCooldownMs;
   mob.recoveryMs = 0;
   mob.knockbackMs = 0;
+  mob.hitRemainingMs = 0;
+  mob.lastReaction = "none";
   mob.knockbackSpeed = 0;
   mob.pendingAttack = null;
   setMobAction(mob, "stand");
@@ -472,8 +484,10 @@ function stepDeadMob(mob, ms) {
 }
 
 /** Returns true exactly for the lethal transition, never for repeated dead hits. */
-export function damageMob(mob, amount, facing, skillId = 0) {
+export function damageMob(mob, amount, facing, attack = null) {
+  const skillId = attack?.skillId ?? 0;
   validateMobHit(amount, facing, skillId);
+  validateReaction(attack);
   if (
     !mob.alive ||
     !mob.active ||
@@ -492,6 +506,8 @@ export function damageMob(mob, amount, facing, skillId = 0) {
     mob.frame = 0;
     mob.pendingAttack = null;
     mob.knockbackMs = 0;
+    mob.hitRemainingMs = 0;
+    mob.lastReaction = "lethal";
     mob.knockbackSpeed = 0;
     mob.alive = false;
     mob.state = "dying";
@@ -502,9 +518,7 @@ export function damageMob(mob, amount, facing, skillId = 0) {
     mob.sweptBody.active = false;
     return true;
   }
-  if (amount >= (mob.template.info.pushed ?? 1) && mob.actions.hit1) {
-    beginMobHit(mob, facing);
-  }
+  receiveMobReaction(mob, amount, facing, attack);
   return false;
 }
 
@@ -517,19 +531,48 @@ function validateMobHit(amount, facing, skillId) {
   }
 }
 
-/** Hit1 is an authored pose, not the player's signed damage-protection blink. */
-function beginMobHit(mob, facing) {
-  mob.state = "hit";
-  mob.stateMs = 0;
-  mob.actionMs = 0;
-  mob.frame = 0;
-  mob.pendingAttack = null;
-  setMobAction(mob, "hit1");
+/** The owner supplies one native-modulo roll, never a guessed admission chance. */
+function validateReaction(attack) {
+  if (attack === null) return;
+  knockbackChance(attack.knockbackChance);
+  if (!Number.isInteger(attack.roll) || attack.roll < 0 || attack.roll > 99) {
+    throw new Error("Invalid mob knockback roll");
+  }
+}
+
+function receiveMobReaction(mob, amount, facing, attack) {
+  mob.lastReaction = "below-threshold";
+  if (amount < (mob.template.info.pushed ?? 1)) return;
+  mob.lastReaction = "hit-deadline";
+  if (mob.hitRemainingMs > 0) return;
+  mob.lastReaction = "missing-hit-artwork";
+  if (!mob.actions.hit1) return;
+  const strong =
+    attack !== null && attack.roll < knockbackChance(attack.knockbackChance);
+  beginMobHit(mob, facing, strong);
+}
+
+/** 0066b7c6..822 preserves an attack pose; 00668d51 gates repeat hit reactions. */
+function beginMobHit(mob, facing, strong) {
+  const attacking = mob.state === "attack";
+  if (!attacking) {
+    mob.state = "hit";
+    mob.stateMs = 0;
+    mob.actionMs = 0;
+    mob.frame = 0;
+    setMobAction(mob, "hit1");
+  }
   const duration = mob.actions.hit1.duration;
+  mob.hitRemainingMs = Math.min(duration, 1000);
+  mob.lastReaction = strong ? "strong" : "ordinary";
   const moving =
     mob.movement === "ground-patrol" && duration >= MOB_HIT.minimumMotionMs;
   mob.knockbackMs = moving ? duration : 0;
-  mob.knockbackSpeed = moving ? MOB_HIT.velocity : 0;
+  const velocity = strong ? MOB_HIT.strongVelocity : MOB_HIT.velocity;
+  mob.knockbackSpeed = moving ? velocity : 0;
+  mob.knockbackDeceleration = strong
+    ? MOB_HIT.strongDeceleration
+    : MOB_HIT.deceleration;
   mob.knockbackFacing = facing;
   updateMobBody(mob);
 }

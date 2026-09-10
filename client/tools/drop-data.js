@@ -1,14 +1,21 @@
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { at, value } from "../src/assets/image.js";
+import { parseSql, MAX_SQL_BYTES } from "./sql-data.js";
+import { serverReferenceRoot } from "./server-data.js";
 
 const MAX_MAPS = 512;
 const MAX_LIFE = 65536;
-const MAX_ROWS = 100000;
-const MAX_SQL_BYTES = 16000000;
 const MAX_MOB_ROWS = 256;
 const MAX_ITEMS = 5000;
 const DROP_TABLE = "src/main/resources/db/data/152-drop-data.sql";
+// Client00506e62 InsertCanvas delays (ms): docs/ghidra-drop-motion/drop-native-helpers.txt.
+const MESO_FRAME_DELAYS = Object.freeze([
+  Object.freeze([80, 80, 80, 80]),
+  Object.freeze([80, 80, 80, 80]),
+  Object.freeze([200, 200, 200, 200]),
+  Object.freeze([4000, 120, 120, 120]),
+]);
 
 function selectedMobs(context) {
   if (!Array.isArray(context.mapIds) || context.mapIds.length > MAX_MAPS) {
@@ -33,21 +40,37 @@ function selectedMobs(context) {
   return mobs;
 }
 
-/** Bounded parser for the authorized SQL's explicit six-column INSERT tuples. */
+/** Uses the shared SQL reader; only the six authored drop columns are accepted. */
 export function parseDropRows(text) {
-  if (typeof text !== "string" || text.length > MAX_SQL_BYTES) {
-    throw new Error("Cosmic drop SQL exceeds byte limit");
+  const parsed = parseSql(text);
+  if (parsed.unsupported.length || parsed.schemas.length) {
+    throw new Error("Unsupported statement in Cosmic drop SQL");
   }
+  const columns = [
+    "dropperid",
+    "itemid",
+    "minimum_quantity",
+    "maximum_quantity",
+    "questid",
+    "chance",
+  ];
   const rows = [];
-  const pattern =
-    /\(\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*\)/g;
-  for (const match of text.matchAll(pattern)) {
-    if (rows.length >= MAX_ROWS) throw new Error("Cosmic drop row limit");
-    const row = match.slice(1).map(Number);
-    if (!row.every(Number.isSafeInteger)) {
-      throw new Error("Invalid Cosmic drop integer");
+  for (const insert of parsed.inserts) {
+    if (
+      insert.table !== "drop_data" ||
+      insert.columns.length !== columns.length
+    ) {
+      throw new Error("Unexpected Cosmic drop table or columns");
     }
-    rows.push(row);
+    const indices = columns.map((column) => insert.columns.indexOf(column));
+    if (indices.includes(-1)) throw new Error("Missing Cosmic drop column");
+    for (const values of insert.rows) {
+      const row = indices.map((index) => values[index]);
+      if (!row.every((number) => Number.isSafeInteger(number) && number >= 0)) {
+        throw new Error("Invalid Cosmic drop integer");
+      }
+      rows.push(row);
+    }
   }
   if (!rows.length) throw new Error("No six-column Cosmic drop rows found");
   return rows;
@@ -55,10 +78,7 @@ export function parseDropRows(text) {
 
 /** Cosmic is an authorized SERVER reference, never original Nexon drop authority. */
 export async function extractDropData(context, options = {}) {
-  const serverRoot =
-    options.serverRoot ??
-    Bun.env.MAPLE_SERVER_REFERENCE ??
-    "/Users/k/Development/tensorfish/MapleStory-Server";
+  const serverRoot = serverReferenceRoot(options.serverRoot);
   const file = Bun.file(resolve(serverRoot, DROP_TABLE));
   if (file.size > MAX_SQL_BYTES) {
     throw new Error("Cosmic drop SQL exceeds byte limit");
@@ -161,9 +181,10 @@ export async function extractDropArtwork(context, canvasRecord) {
       }
       const path = `drop/meso/${variant}/${frame}`;
       const record = await canvasRecord(context, node, path, entities.length);
+      record.asset.delay = MESO_FRAME_DELAYS[variant][frame];
       entities.push(record.entity);
       assets[path] = record.asset;
-      frames.push({ path, delay: record.asset.delay ?? 120 });
+      frames.push({ path, delay: record.asset.delay });
     }
     variants.push(frames);
   }

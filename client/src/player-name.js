@@ -13,14 +13,15 @@ export class PlayerName {
     this.resolution = 0;
     this.destroyed = false;
     this.container = new Container({ label: "player-world-name" });
-    this.container.zIndex = 1999999999;
+    this.container.zIndex = 2; // 005f17bb: relative to the supplied actor layer.
     this.background = new Graphics();
     this.text = new Text({
       text: "",
       style: { fontFamily: "Arial", fontSize: 12, fill: 0xffffff },
     });
     this.container.addChild(this.background, this.text);
-    scene.overlays.addChild(this.container);
+    scene.actor.container.addChild(this.container);
+    scene.registerPresentationContainer(this.container);
   }
 
   /** Project after updatePresentation; density is the renderer's actual resolution.
@@ -34,13 +35,10 @@ export class PlayerName {
     if (this.name !== name || this.resolution !== resolution) {
       this.rebuild(name, resolution);
     }
-    const pose = this.scene.presentation;
-    // Native origin vector is user+11a4, not the current artwork's lower bound.
-    // Match EntityAnimation.setPosition's logical-pixel quantization of this pose.
-    this.container.position.set(
-      Math.trunc(pose.x) + this.offsetX,
-      Math.trunc(pose.y) + 2,
-    );
+    // Native name overlay is an actor child, but its origin vector is not flipped.
+    const direction = this.scene.actor.container.scale.x;
+    this.container.scale.x = direction;
+    this.container.position.set(this.offsetX * direction, 2);
   }
 
   /** Native005f12e5..1694: measured width+5, font height+4, text(2,0),
@@ -65,6 +63,7 @@ export class PlayerName {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.scene.unregisterPresentationContainer(this.container);
     this.container.destroy(DESTROY);
   }
 }

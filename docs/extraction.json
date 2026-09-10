@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
-  "buildId": "a2803d8b95eb1ebc7d64c22de07c8134f7179629c86d79d349af71168fff3a1e",
+  "buildId": "f30d7d8f367fe8a432c43733817fb440d9d0b1d36b9025c4fa0ccdd0539ff0a4",
   "inputDirectory": "/Users/k/Development/tensorfish/Maplestory-Client",
   "maps": [
     {
       "id": "100000000",
       "entities": 1153,
       "regions": 20,
-      "textures": 988,
+      "textures": 1020,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -300,6 +300,124 @@
             "tn": ""
           }
         },
+        "$seats": {
+          "0": {
+            "x": 4909,
+            "y": -120
+          },
+          "1": {
+            "x": 4976,
+            "y": -120
+          },
+          "2": {
+            "x": 5699,
+            "y": 453
+          },
+          "3": {
+            "x": 5722,
+            "y": 453
+          },
+          "4": {
+            "x": 5743,
+            "y": 453
+          },
+          "5": {
+            "x": 5609,
+            "y": 453
+          },
+          "6": {
+            "x": 5632,
+            "y": 453
+          },
+          "7": {
+            "x": 5653,
+            "y": 453
+          },
+          "8": {
+            "x": 5422,
+            "y": 453
+          },
+          "9": {
+            "x": 5445,
+            "y": 453
+          },
+          "10": {
+            "x": 5466,
+            "y": 453
+          },
+          "11": {
+            "x": 5812,
+            "y": -177
+          },
+          "12": {
+            "x": 5835,
+            "y": -177
+          },
+          "13": {
+            "x": 5856,
+            "y": -177
+          },
+          "14": {
+            "x": 5899,
+            "y": -177
+          },
+          "15": {
+            "x": 5922,
+            "y": -177
+          },
+          "16": {
+            "x": 5943,
+            "y": -177
+          },
+          "17": {
+            "x": 4015,
+            "y": 123
+          },
+          "18": {
+            "x": 4038,
+            "y": 123
+          },
+          "19": {
+            "x": 4059,
+            "y": 123
+          },
+          "20": {
+            "x": 3594,
+            "y": 123
+          },
+          "21": {
+            "x": 3617,
+            "y": 123
+          },
+          "22": {
+            "x": 3638,
+            "y": 123
+          },
+          "23": {
+            "x": 220,
+            "y": 273
+          },
+          "24": {
+            "x": 243,
+            "y": 273
+          },
+          "25": {
+            "x": 264,
+            "y": 273
+          },
+          "26": {
+            "x": 2525,
+            "y": 333
+          },
+          "27": {
+            "x": 2548,
+            "y": 333
+          },
+          "28": {
+            "x": 2569,
+            "y": 333
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -308,7 +426,7 @@
       "id": "100000001",
       "entities": 112,
       "regions": 8,
-      "textures": 534,
+      "textures": 566,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -339,6 +457,7 @@
             "tn": "in02"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -347,7 +466,7 @@
       "id": "100000002",
       "entities": 277,
       "regions": 12,
-      "textures": 597,
+      "textures": 629,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -421,6 +540,7 @@
             "tn": "in03"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -429,7 +549,7 @@
       "id": "100000003",
       "entities": 472,
       "regions": 16,
-      "textures": 570,
+      "textures": 602,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -509,6 +629,7 @@
             "tn": "st00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -517,7 +638,7 @@
       "id": "100000004",
       "entities": 360,
       "regions": 14,
-      "textures": 567,
+      "textures": 599,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -573,6 +694,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -581,7 +703,7 @@
       "id": "100000005",
       "entities": 165,
       "regions": 10,
-      "textures": 592,
+      "textures": 624,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -638,6 +760,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -646,7 +769,7 @@
       "id": "100000006",
       "entities": 114,
       "regions": 9,
-      "textures": 524,
+      "textures": 556,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -687,6 +810,7 @@
             "tn": "st00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -695,7 +819,7 @@
       "id": "100000100",
       "entities": 934,
       "regions": 16,
-      "textures": 692,
+      "textures": 724,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -906,6 +1030,44 @@
             "tn": "hp00"
           }
         },
+        "$seats": {
+          "0": {
+            "x": 3859,
+            "y": -176
+          },
+          "1": {
+            "x": 3882,
+            "y": -176
+          },
+          "2": {
+            "x": 3903,
+            "y": -176
+          },
+          "3": {
+            "x": 3957,
+            "y": -176
+          },
+          "4": {
+            "x": 3980,
+            "y": -176
+          },
+          "5": {
+            "x": 4001,
+            "y": -176
+          },
+          "6": {
+            "x": 3108,
+            "y": -116
+          },
+          "7": {
+            "x": 3131,
+            "y": -116
+          },
+          "8": {
+            "x": 3152,
+            "y": -116
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -914,7 +1076,7 @@
       "id": "100000101",
       "entities": 14,
       "regions": 4,
-      "textures": 502,
+      "textures": 534,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1013,6 +1175,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -1021,7 +1184,7 @@
       "id": "100000102",
       "entities": 23,
       "regions": 4,
-      "textures": 512,
+      "textures": 544,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1064,6 +1227,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -1072,7 +1236,7 @@
       "id": "100000103",
       "entities": 9,
       "regions": 4,
-      "textures": 513,
+      "textures": 545,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1187,6 +1351,7 @@
             "tn": "in04"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -1195,7 +1360,7 @@
       "id": "100000104",
       "entities": 13,
       "regions": 3,
-      "textures": 520,
+      "textures": 552,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1262,6 +1427,7 @@
             "tn": "in05"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -1270,7 +1436,7 @@
       "id": "100000105",
       "entities": 46,
       "regions": 4,
-      "textures": 528,
+      "textures": 560,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1338,6 +1504,7 @@
             "tn": "in06"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -1346,7 +1513,7 @@
       "id": "100000200",
       "entities": 722,
       "regions": 13,
-      "textures": 710,
+      "textures": 742,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1538,6 +1705,80 @@
             "tn": "out00"
           }
         },
+        "$seats": {
+          "0": {
+            "x": 721,
+            "y": 424
+          },
+          "1": {
+            "x": 744,
+            "y": 424
+          },
+          "2": {
+            "x": 765,
+            "y": 424
+          },
+          "3": {
+            "x": 1169,
+            "y": 423
+          },
+          "4": {
+            "x": 1192,
+            "y": 423
+          },
+          "5": {
+            "x": 1213,
+            "y": 423
+          },
+          "6": {
+            "x": 3689,
+            "y": 694
+          },
+          "7": {
+            "x": 3712,
+            "y": 694
+          },
+          "8": {
+            "x": 3733,
+            "y": 694
+          },
+          "9": {
+            "x": 2164,
+            "y": 574
+          },
+          "10": {
+            "x": 2187,
+            "y": 574
+          },
+          "11": {
+            "x": 2208,
+            "y": 574
+          },
+          "12": {
+            "x": 2463,
+            "y": 574
+          },
+          "13": {
+            "x": 2486,
+            "y": 574
+          },
+          "14": {
+            "x": 2507,
+            "y": 574
+          },
+          "15": {
+            "x": 3008,
+            "y": 573
+          },
+          "16": {
+            "x": 3031,
+            "y": 573
+          },
+          "17": {
+            "x": 3052,
+            "y": 573
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -1546,7 +1787,7 @@
       "id": "100000202",
       "entities": 807,
       "regions": 18,
-      "textures": 612,
+      "textures": 644,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1659,6 +1900,80 @@
             "tn": ""
           }
         },
+        "$seats": {
+          "0": {
+            "x": 966,
+            "y": -117
+          },
+          "1": {
+            "x": 989,
+            "y": -117
+          },
+          "2": {
+            "x": 1010,
+            "y": -117
+          },
+          "3": {
+            "x": 1300,
+            "y": -57
+          },
+          "4": {
+            "x": 1323,
+            "y": -57
+          },
+          "5": {
+            "x": 1344,
+            "y": -57
+          },
+          "6": {
+            "x": 601,
+            "y": -627
+          },
+          "7": {
+            "x": 624,
+            "y": -627
+          },
+          "8": {
+            "x": 645,
+            "y": -627
+          },
+          "9": {
+            "x": 83,
+            "y": 153
+          },
+          "10": {
+            "x": 106,
+            "y": 153
+          },
+          "11": {
+            "x": 127,
+            "y": 153
+          },
+          "12": {
+            "x": -201,
+            "y": 153
+          },
+          "13": {
+            "x": -178,
+            "y": 153
+          },
+          "14": {
+            "x": -157,
+            "y": 153
+          },
+          "15": {
+            "x": 180,
+            "y": 153
+          },
+          "16": {
+            "x": 203,
+            "y": 153
+          },
+          "17": {
+            "x": 224,
+            "y": 153
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -1667,7 +1982,7 @@
       "id": "100000203",
       "entities": 876,
       "regions": 14,
-      "textures": 570,
+      "textures": 602,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -1871,6 +2186,92 @@
             "image": ""
           }
         },
+        "$seats": {
+          "0": {
+            "x": -385,
+            "y": -1677
+          },
+          "1": {
+            "x": -362,
+            "y": -1677
+          },
+          "2": {
+            "x": -341,
+            "y": -1677
+          },
+          "3": {
+            "x": -297,
+            "y": -1677
+          },
+          "4": {
+            "x": -274,
+            "y": -1677
+          },
+          "5": {
+            "x": -253,
+            "y": -1677
+          },
+          "6": {
+            "x": 665,
+            "y": -956
+          },
+          "7": {
+            "x": 688,
+            "y": -956
+          },
+          "8": {
+            "x": 709,
+            "y": -956
+          },
+          "9": {
+            "x": 751,
+            "y": -956
+          },
+          "10": {
+            "x": 774,
+            "y": -956
+          },
+          "11": {
+            "x": 795,
+            "y": -956
+          },
+          "12": {
+            "x": 459,
+            "y": -956
+          },
+          "13": {
+            "x": 482,
+            "y": -956
+          },
+          "14": {
+            "x": 503,
+            "y": -956
+          },
+          "15": {
+            "x": 1271,
+            "y": 213
+          },
+          "16": {
+            "x": 1294,
+            "y": 213
+          },
+          "17": {
+            "x": 1315,
+            "y": 213
+          },
+          "18": {
+            "x": 1365,
+            "y": 213
+          },
+          "19": {
+            "x": 1388,
+            "y": 213
+          },
+          "20": {
+            "x": 1409,
+            "y": 213
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -1879,7 +2280,7 @@
       "id": "100010000",
       "entities": 604,
       "regions": 12,
-      "textures": 631,
+      "textures": 663,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -2040,6 +2441,16 @@
             "tn": "out00"
           }
         },
+        "$seats": {
+          "0": {
+            "x": 1350,
+            "y": -62
+          },
+          "1": {
+            "x": 1417,
+            "y": -62
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -2048,7 +2459,7 @@
       "id": "100010100",
       "entities": 361,
       "regions": 10,
-      "textures": 558,
+      "textures": 590,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -2116,6 +2527,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -2124,7 +2536,7 @@
       "id": "100020000",
       "entities": 398,
       "regions": 10,
-      "textures": 637,
+      "textures": 669,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -2212,6 +2624,7 @@
             "script": "MD_pig"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -2220,7 +2633,7 @@
       "id": "100030000",
       "entities": 1332,
       "regions": 19,
-      "textures": 647,
+      "textures": 679,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -2394,6 +2807,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -2402,7 +2816,7 @@
       "id": "100030001",
       "entities": 359,
       "regions": 12,
-      "textures": 549,
+      "textures": 581,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -2481,6 +2895,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -2489,7 +2904,7 @@
       "id": "100040000",
       "entities": 352,
       "regions": 44,
-      "textures": 601,
+      "textures": 633,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -2609,6 +3024,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -2617,7 +3033,7 @@
       "id": "100040001",
       "entities": 476,
       "regions": 10,
-      "textures": 537,
+      "textures": 569,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -2668,6 +3084,7 @@
             "tn": "in01_1"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "dungeon",
@@ -2713,7 +3130,7 @@
       "id": "100040002",
       "entities": 492,
       "regions": 10,
-      "textures": 539,
+      "textures": 571,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -2780,6 +3197,7 @@
             "tn": "in02_1"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "dungeon",
@@ -2837,7 +3255,7 @@
       "id": "100040003",
       "entities": 479,
       "regions": 10,
-      "textures": 542,
+      "textures": 574,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -2888,6 +3306,7 @@
             "tn": "in03"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "dungeon",
@@ -2933,7 +3352,7 @@
       "id": "100040004",
       "entities": 480,
       "regions": 10,
-      "textures": 538,
+      "textures": 570,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -3008,6 +3427,7 @@
             "tn": "in04"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "dungeon",
@@ -3041,7 +3461,7 @@
       "id": "100040100",
       "entities": 402,
       "regions": 27,
-      "textures": 557,
+      "textures": 589,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -3201,6 +3621,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -3209,7 +3630,7 @@
       "id": "100040101",
       "entities": 473,
       "regions": 21,
-      "textures": 573,
+      "textures": 605,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -3360,6 +3781,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -3368,7 +3790,7 @@
       "id": "100040102",
       "entities": 512,
       "regions": 10,
-      "textures": 540,
+      "textures": 572,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -3436,6 +3858,7 @@
             "tn": "in02"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/25": {
             "oS": "dungeon",
@@ -3493,7 +3916,7 @@
       "id": "100040103",
       "entities": 493,
       "regions": 24,
-      "textures": 568,
+      "textures": 600,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -3646,6 +4069,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -3654,7 +4078,7 @@
       "id": "100040104",
       "entities": 530,
       "regions": 10,
-      "textures": 540,
+      "textures": 572,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -3729,6 +4153,7 @@
             "tn": "in02"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/14": {
             "oS": "dungeon",
@@ -3786,7 +4211,7 @@
       "id": "100040105",
       "entities": 429,
       "regions": 22,
-      "textures": 550,
+      "textures": 582,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -3970,6 +4395,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -3978,7 +4404,7 @@
       "id": "100040106",
       "entities": 398,
       "regions": 21,
-      "textures": 549,
+      "textures": 581,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -4136,6 +4562,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -4144,7 +4571,7 @@
       "id": "100040110",
       "entities": 426,
       "regions": 21,
-      "textures": 536,
+      "textures": 568,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -4281,6 +4708,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -4289,7 +4717,7 @@
       "id": "100050000",
       "entities": 185,
       "regions": 23,
-      "textures": 594,
+      "textures": 626,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -4437,6 +4865,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -4445,7 +4874,7 @@
       "id": "101000000",
       "entities": 613,
       "regions": 64,
-      "textures": 866,
+      "textures": 898,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -4906,6 +5335,7 @@
             "tn": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -4914,7 +5344,7 @@
       "id": "101000001",
       "entities": 20,
       "regions": 4,
-      "textures": 516,
+      "textures": 548,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -4966,6 +5396,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -4974,7 +5405,7 @@
       "id": "101000002",
       "entities": 23,
       "regions": 4,
-      "textures": 513,
+      "textures": 545,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -5018,6 +5449,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -5026,7 +5458,7 @@
       "id": "101000200",
       "entities": 53,
       "regions": 17,
-      "textures": 538,
+      "textures": 570,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -5116,6 +5548,7 @@
             "tn": "in02"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -5124,7 +5557,7 @@
       "id": "101000300",
       "entities": 82,
       "regions": 42,
-      "textures": 568,
+      "textures": 600,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -5167,6 +5600,7 @@
             "tn": "in03"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {
           "shipObj": {
@@ -5186,7 +5620,7 @@
       "id": "101010000",
       "entities": 123,
       "regions": 24,
-      "textures": 564,
+      "textures": 596,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -5330,6 +5764,7 @@
             "script": "minar_elli"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -5338,7 +5773,7 @@
       "id": "101010100",
       "entities": 115,
       "regions": 21,
-      "textures": 551,
+      "textures": 583,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -5513,6 +5948,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -5521,7 +5957,7 @@
       "id": "101010101",
       "entities": 158,
       "regions": 23,
-      "textures": 546,
+      "textures": 578,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -5712,6 +6148,7 @@
             "tn": "dw00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -5720,7 +6157,7 @@
       "id": "101010102",
       "entities": 139,
       "regions": 22,
-      "textures": 576,
+      "textures": 608,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -5903,6 +6340,7 @@
             "tn": "under00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -5911,7 +6349,7 @@
       "id": "101010103",
       "entities": 48,
       "regions": 20,
-      "textures": 514,
+      "textures": 546,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -6064,6 +6502,7 @@
             "onlyOnce": 1
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -6072,7 +6511,7 @@
       "id": "101020000",
       "entities": 512,
       "regions": 59,
-      "textures": 605,
+      "textures": 637,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -6332,6 +6771,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -6340,7 +6780,7 @@
       "id": "101020001",
       "entities": 573,
       "regions": 10,
-      "textures": 540,
+      "textures": 572,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -6463,6 +6903,7 @@
             "tn": "in01_3"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/19": {
             "oS": "dungeon",
@@ -6508,7 +6949,7 @@
       "id": "101020002",
       "entities": 586,
       "regions": 10,
-      "textures": 540,
+      "textures": 572,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -6607,6 +7048,7 @@
             "tn": "in02_1"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "dungeon",
@@ -6640,7 +7082,7 @@
       "id": "101020003",
       "entities": 491,
       "regions": 10,
-      "textures": 531,
+      "textures": 563,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -6723,6 +7165,7 @@
             "tn": "in03_1"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "dungeon",
@@ -6756,7 +7199,7 @@
       "id": "101020004",
       "entities": 456,
       "regions": 10,
-      "textures": 537,
+      "textures": 569,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -6871,6 +7314,7 @@
             "tn": "in04_1"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "dungeon",
@@ -6892,7 +7336,7 @@
       "id": "101020005",
       "entities": 444,
       "regions": 10,
-      "textures": 540,
+      "textures": 572,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -6959,6 +7403,7 @@
             "tn": "in05"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/2": {
             "oS": "dungeon",
@@ -6980,7 +7425,7 @@
       "id": "101020006",
       "entities": 495,
       "regions": 10,
-      "textures": 540,
+      "textures": 572,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -7047,6 +7492,7 @@
             "tn": "in06"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "dungeon",
@@ -7104,7 +7550,7 @@
       "id": "101020007",
       "entities": 452,
       "regions": 10,
-      "textures": 525,
+      "textures": 557,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -7171,6 +7617,7 @@
             "tn": "in07_1"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "dungeon",
@@ -7216,7 +7663,7 @@
       "id": "101020008",
       "entities": 505,
       "regions": 10,
-      "textures": 536,
+      "textures": 568,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -7291,6 +7738,7 @@
             "tn": "in08_1"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/7": {
             "oS": "dungeon",
@@ -7336,7 +7784,7 @@
       "id": "101020009",
       "entities": 447,
       "regions": 10,
-      "textures": 525,
+      "textures": 557,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -7435,6 +7883,7 @@
             "tn": "in09_1"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/1": {
             "oS": "dungeon",
@@ -7456,7 +7905,7 @@
       "id": "101020010",
       "entities": 447,
       "regions": 10,
-      "textures": 522,
+      "textures": 554,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -7513,6 +7962,7 @@
             "tn": "in10"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "dungeon",
@@ -7534,7 +7984,7 @@
       "id": "101030000",
       "entities": 765,
       "regions": 31,
-      "textures": 617,
+      "textures": 649,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -7659,6 +8109,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -7667,7 +8118,7 @@
       "id": "101030001",
       "entities": 361,
       "regions": 24,
-      "textures": 573,
+      "textures": 605,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -7746,6 +8197,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -7754,7 +8206,7 @@
       "id": "101030100",
       "entities": 264,
       "regions": 25,
-      "textures": 561,
+      "textures": 593,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -7798,6 +8250,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -7806,7 +8259,7 @@
       "id": "101030101",
       "entities": 376,
       "regions": 20,
-      "textures": 629,
+      "textures": 661,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -7881,6 +8334,7 @@
             "tn": "east01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -7889,7 +8343,7 @@
       "id": "101030102",
       "entities": 505,
       "regions": 22,
-      "textures": 644,
+      "textures": 676,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -7964,6 +8418,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -7972,7 +8427,7 @@
       "id": "101030103",
       "entities": 257,
       "regions": 20,
-      "textures": 607,
+      "textures": 639,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -8032,6 +8487,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8040,7 +8496,7 @@
       "id": "101030104",
       "entities": 306,
       "regions": 24,
-      "textures": 586,
+      "textures": 618,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -8102,6 +8558,7 @@
             "script": "s4hitman"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8110,7 +8567,7 @@
       "id": "101030105",
       "entities": 233,
       "regions": 9,
-      "textures": 591,
+      "textures": 623,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -8161,6 +8618,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8169,7 +8627,7 @@
       "id": "101030106",
       "entities": 228,
       "regions": 10,
-      "textures": 592,
+      "textures": 624,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -8238,6 +8696,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8246,7 +8705,7 @@
       "id": "101030107",
       "entities": 212,
       "regions": 9,
-      "textures": 601,
+      "textures": 633,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -8333,6 +8792,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8341,7 +8801,7 @@
       "id": "101030108",
       "entities": 232,
       "regions": 10,
-      "textures": 611,
+      "textures": 643,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -8418,6 +8878,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8426,7 +8887,7 @@
       "id": "101030109",
       "entities": 183,
       "regions": 10,
-      "textures": 592,
+      "textures": 624,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -8640,6 +9101,7 @@
             "tn": "top01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8648,7 +9110,7 @@
       "id": "101030110",
       "entities": 274,
       "regions": 11,
-      "textures": 572,
+      "textures": 604,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -8716,6 +9178,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8724,7 +9187,7 @@
       "id": "101030111",
       "entities": 273,
       "regions": 11,
-      "textures": 572,
+      "textures": 604,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -8793,6 +9256,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8801,7 +9265,7 @@
       "id": "101030112",
       "entities": 253,
       "regions": 11,
-      "textures": 563,
+      "textures": 595,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -8878,6 +9342,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8886,7 +9351,7 @@
       "id": "101030200",
       "entities": 265,
       "regions": 24,
-      "textures": 570,
+      "textures": 602,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -8986,6 +9451,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -8994,7 +9460,7 @@
       "id": "101030300",
       "entities": 294,
       "regions": 24,
-      "textures": 579,
+      "textures": 611,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -9095,6 +9561,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -9103,7 +9570,7 @@
       "id": "101030400",
       "entities": 342,
       "regions": 23,
-      "textures": 573,
+      "textures": 605,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -9230,6 +9697,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -9238,7 +9706,7 @@
       "id": "101030401",
       "entities": 352,
       "regions": 24,
-      "textures": 578,
+      "textures": 610,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -9365,6 +9833,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -9373,7 +9842,7 @@
       "id": "101030402",
       "entities": 362,
       "regions": 23,
-      "textures": 581,
+      "textures": 613,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -9500,6 +9969,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -9508,7 +9978,7 @@
       "id": "101030403",
       "entities": 366,
       "regions": 22,
-      "textures": 575,
+      "textures": 607,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -9635,6 +10105,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -9643,7 +10114,7 @@
       "id": "101030404",
       "entities": 252,
       "regions": 19,
-      "textures": 569,
+      "textures": 601,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -9770,6 +10241,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -9778,7 +10250,7 @@
       "id": "101030405",
       "entities": 227,
       "regions": 18,
-      "textures": 570,
+      "textures": 602,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -9906,6 +10378,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -9914,7 +10387,7 @@
       "id": "101030406",
       "entities": 308,
       "regions": 21,
-      "textures": 558,
+      "textures": 590,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -10007,6 +10480,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -10015,7 +10489,7 @@
       "id": "101040000",
       "entities": 729,
       "regions": 29,
-      "textures": 617,
+      "textures": 649,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -10140,6 +10614,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -10148,7 +10623,7 @@
       "id": "101040001",
       "entities": 554,
       "regions": 27,
-      "textures": 633,
+      "textures": 665,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -10303,6 +10778,7 @@
             "tn": "h001"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -10311,7 +10787,7 @@
       "id": "101040002",
       "entities": 280,
       "regions": 24,
-      "textures": 581,
+      "textures": 613,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -10426,6 +10902,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -10434,7 +10911,7 @@
       "id": "101040003",
       "entities": 400,
       "regions": 25,
-      "textures": 592,
+      "textures": 624,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -10519,6 +10996,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -10527,7 +11005,7 @@
       "id": "102000000",
       "entities": 575,
       "regions": 30,
-      "textures": 870,
+      "textures": 902,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -10837,6 +11315,92 @@
             "tn": ""
           }
         },
+        "$seats": {
+          "0": {
+            "x": 1473,
+            "y": 70
+          },
+          "1": {
+            "x": 1490,
+            "y": 70
+          },
+          "2": {
+            "x": 1508,
+            "y": 70
+          },
+          "3": {
+            "x": 1601,
+            "y": 57
+          },
+          "4": {
+            "x": 1618,
+            "y": 57
+          },
+          "5": {
+            "x": 1636,
+            "y": 57
+          },
+          "6": {
+            "x": 2364,
+            "y": 1604
+          },
+          "7": {
+            "x": 2381,
+            "y": 1604
+          },
+          "8": {
+            "x": 2399,
+            "y": 1604
+          },
+          "9": {
+            "x": 2227,
+            "y": 1724
+          },
+          "10": {
+            "x": 2244,
+            "y": 1724
+          },
+          "11": {
+            "x": 2262,
+            "y": 1724
+          },
+          "12": {
+            "x": 1992,
+            "y": 1934
+          },
+          "13": {
+            "x": 2009,
+            "y": 1934
+          },
+          "14": {
+            "x": 2027,
+            "y": 1934
+          },
+          "15": {
+            "x": 2101,
+            "y": 1934
+          },
+          "16": {
+            "x": 2118,
+            "y": 1934
+          },
+          "17": {
+            "x": 2136,
+            "y": 1934
+          },
+          "18": {
+            "x": 2211,
+            "y": 1934
+          },
+          "19": {
+            "x": 2228,
+            "y": 1934
+          },
+          "20": {
+            "x": 2246,
+            "y": 1934
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -10845,7 +11409,7 @@
       "id": "102000001",
       "entities": 20,
       "regions": 4,
-      "textures": 524,
+      "textures": 556,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -10895,6 +11459,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -10903,7 +11468,7 @@
       "id": "102000002",
       "entities": 8,
       "regions": 4,
-      "textures": 503,
+      "textures": 535,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -11001,6 +11566,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -11009,7 +11575,7 @@
       "id": "102000003",
       "entities": 16,
       "regions": 4,
-      "textures": 536,
+      "textures": 568,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -11121,6 +11687,7 @@
             "onlyOnce": 1
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -11129,7 +11696,7 @@
       "id": "102010000",
       "entities": 523,
       "regions": 29,
-      "textures": 583,
+      "textures": 615,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -11285,6 +11852,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -11293,7 +11861,7 @@
       "id": "102020000",
       "entities": 588,
       "regions": 28,
-      "textures": 586,
+      "textures": 618,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -11401,6 +11969,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -11409,7 +11978,7 @@
       "id": "102020100",
       "entities": 360,
       "regions": 26,
-      "textures": 575,
+      "textures": 607,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -11502,6 +12071,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -11510,7 +12080,7 @@
       "id": "102020200",
       "entities": 412,
       "regions": 28,
-      "textures": 573,
+      "textures": 605,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -11586,6 +12156,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -11594,7 +12165,7 @@
       "id": "102020300",
       "entities": 403,
       "regions": 27,
-      "textures": 583,
+      "textures": 615,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -11656,6 +12227,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -11664,7 +12236,7 @@
       "id": "102030000",
       "entities": 931,
       "regions": 27,
-      "textures": 595,
+      "textures": 627,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -11860,6 +12432,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -11868,7 +12441,7 @@
       "id": "102040000",
       "entities": 787,
       "regions": 24,
-      "textures": 628,
+      "textures": 660,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -11991,6 +12564,7 @@
             "script": "met_in"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -11999,7 +12573,7 @@
       "id": "102040001",
       "entities": 152,
       "regions": 15,
-      "textures": 560,
+      "textures": 592,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -12033,6 +12607,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -12041,7 +12616,7 @@
       "id": "102050000",
       "entities": 605,
       "regions": 13,
-      "textures": 600,
+      "textures": 632,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -12238,6 +12813,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -12246,7 +12822,7 @@
       "id": "103000000",
       "entities": 1333,
       "regions": 17,
-      "textures": 865,
+      "textures": 897,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -12695,6 +13271,7 @@
             "tn": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -12703,7 +13280,7 @@
       "id": "103000001",
       "entities": 10,
       "regions": 4,
-      "textures": 503,
+      "textures": 535,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -12818,6 +13395,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -12826,7 +13404,7 @@
       "id": "103000002",
       "entities": 6,
       "regions": 2,
-      "textures": 497,
+      "textures": 529,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -12916,6 +13494,7 @@
             "tn": "in02"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -12924,7 +13503,7 @@
       "id": "103000003",
       "entities": 61,
       "regions": 3,
-      "textures": 538,
+      "textures": 570,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -12995,6 +13574,7 @@
             "onlyOnce": 1
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13003,7 +13583,7 @@
       "id": "103000004",
       "entities": 14,
       "regions": 2,
-      "textures": 508,
+      "textures": 540,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -13051,6 +13631,7 @@
             "tn": "in04"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13059,7 +13640,7 @@
       "id": "103000005",
       "entities": 13,
       "regions": 3,
-      "textures": 506,
+      "textures": 538,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -13107,6 +13688,7 @@
             "tn": "in05"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13115,7 +13697,7 @@
       "id": "103000006",
       "entities": 10,
       "regions": 4,
-      "textures": 502,
+      "textures": 534,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -13220,6 +13802,7 @@
             "tn": "in06_1"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13228,7 +13811,7 @@
       "id": "103000100",
       "entities": 13,
       "regions": 4,
-      "textures": 513,
+      "textures": 545,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -13276,6 +13859,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13284,7 +13868,7 @@
       "id": "103000310",
       "entities": 11,
       "regions": 8,
-      "textures": 515,
+      "textures": 547,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -13335,6 +13919,7 @@
             "script": "Depart_ToKerning"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13343,7 +13928,7 @@
       "id": "103010000",
       "entities": 1361,
       "regions": 22,
-      "textures": 669,
+      "textures": 701,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -13484,6 +14069,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13492,7 +14078,7 @@
       "id": "103010001",
       "entities": 156,
       "regions": 16,
-      "textures": 560,
+      "textures": 592,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -13524,6 +14110,7 @@
             "tn": "hiden00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13532,7 +14119,7 @@
       "id": "103020000",
       "entities": 651,
       "regions": 11,
-      "textures": 583,
+      "textures": 615,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -13675,6 +14262,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13683,7 +14271,7 @@
       "id": "103020100",
       "entities": 653,
       "regions": 11,
-      "textures": 567,
+      "textures": 599,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -13786,6 +14374,16 @@
             "tn": "east00"
           }
         },
+        "$seats": {
+          "0": {
+            "x": 3861,
+            "y": -454
+          },
+          "1": {
+            "x": 3928,
+            "y": -454
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13794,7 +14392,7 @@
       "id": "103020200",
       "entities": 888,
       "regions": 13,
-      "textures": 578,
+      "textures": 610,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -13915,6 +14513,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -13923,7 +14522,7 @@
       "id": "103030000",
       "entities": 700,
       "regions": 15,
-      "textures": 581,
+      "textures": 613,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -14058,6 +14657,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -14066,7 +14666,7 @@
       "id": "103030100",
       "entities": 487,
       "regions": 13,
-      "textures": 568,
+      "textures": 600,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -14153,6 +14753,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -14161,7 +14762,7 @@
       "id": "103030200",
       "entities": 516,
       "regions": 14,
-      "textures": 567,
+      "textures": 599,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -14241,6 +14842,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -14249,7 +14851,7 @@
       "id": "103040000",
       "entities": 150,
       "regions": 12,
-      "textures": 674,
+      "textures": 706,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -14316,6 +14918,92 @@
             "delay": 0
           }
         },
+        "$seats": {
+          "0": {
+            "x": 460,
+            "y": 89
+          },
+          "1": {
+            "x": 479,
+            "y": 89
+          },
+          "2": {
+            "x": 497,
+            "y": 89
+          },
+          "3": {
+            "x": 582,
+            "y": 89
+          },
+          "4": {
+            "x": 601,
+            "y": 89
+          },
+          "5": {
+            "x": 619,
+            "y": 89
+          },
+          "6": {
+            "x": 219,
+            "y": 416
+          },
+          "7": {
+            "x": 238,
+            "y": 416
+          },
+          "8": {
+            "x": 256,
+            "y": 416
+          },
+          "9": {
+            "x": 310,
+            "y": 416
+          },
+          "10": {
+            "x": 329,
+            "y": 416
+          },
+          "11": {
+            "x": 347,
+            "y": 416
+          },
+          "12": {
+            "x": 260,
+            "y": 89
+          },
+          "13": {
+            "x": 279,
+            "y": 89
+          },
+          "14": {
+            "x": 297,
+            "y": 89
+          },
+          "15": {
+            "x": 156,
+            "y": 89
+          },
+          "16": {
+            "x": 175,
+            "y": 89
+          },
+          "17": {
+            "x": 193,
+            "y": 89
+          },
+          "18": {
+            "x": -1125,
+            "y": 89
+          },
+          "19": {
+            "x": -1106,
+            "y": 89
+          },
+          "20": {
+            "x": -1088,
+            "y": 89
+          }
+        },
         "$objectPhysics": {
           "1/obj/1": {
             "oS": "Tdungeon3",
@@ -14377,7 +15065,7 @@
       "id": "103040100",
       "entities": 233,
       "regions": 12,
-      "textures": 629,
+      "textures": 661,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -14498,6 +15186,68 @@
             "delay": 0
           }
         },
+        "$seats": {
+          "0": {
+            "x": 49,
+            "y": 416
+          },
+          "1": {
+            "x": 68,
+            "y": 416
+          },
+          "2": {
+            "x": 86,
+            "y": 416
+          },
+          "3": {
+            "x": 234,
+            "y": 430
+          },
+          "4": {
+            "x": 253,
+            "y": 430
+          },
+          "5": {
+            "x": 271,
+            "y": 430
+          },
+          "6": {
+            "x": 248,
+            "y": 445
+          },
+          "7": {
+            "x": 267,
+            "y": 445
+          },
+          "8": {
+            "x": 285,
+            "y": 445
+          },
+          "9": {
+            "x": 263,
+            "y": 461
+          },
+          "10": {
+            "x": 282,
+            "y": 461
+          },
+          "11": {
+            "x": 300,
+            "y": 461
+          },
+          "12": {
+            "x": 130,
+            "y": 416
+          },
+          "13": {
+            "x": 149,
+            "y": 416
+          },
+          "14": {
+            "x": 167,
+            "y": 416
+          }
+        },
         "$objectPhysics": {
           "1/obj/1": {
             "oS": "Tdungeon3",
@@ -14559,7 +15309,7 @@
       "id": "103040101",
       "entities": 256,
       "regions": 12,
-      "textures": 662,
+      "textures": 694,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -14644,6 +15394,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "2/obj/0": {
             "oS": "Tdungeon3",
@@ -14679,7 +15430,7 @@
       "id": "103040102",
       "entities": 213,
       "regions": 12,
-      "textures": 635,
+      "textures": 667,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -14762,6 +15513,24 @@
             "hideTooltip": 0,
             "onlyOnce": 0,
             "delay": 0
+          }
+        },
+        "$seats": {
+          "0": {
+            "x": 70,
+            "y": 87
+          },
+          "1": {
+            "x": 100,
+            "y": 87
+          },
+          "2": {
+            "x": -58,
+            "y": 87
+          },
+          "3": {
+            "x": -28,
+            "y": 87
           }
         },
         "$objectPhysics": {
@@ -14799,7 +15568,7 @@
       "id": "103040103",
       "entities": 190,
       "regions": 12,
-      "textures": 613,
+      "textures": 645,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -14884,6 +15653,32 @@
             "delay": 0
           }
         },
+        "$seats": {
+          "0": {
+            "x": 1082,
+            "y": 416
+          },
+          "1": {
+            "x": 1101,
+            "y": 416
+          },
+          "2": {
+            "x": 1119,
+            "y": 416
+          },
+          "3": {
+            "x": 1175,
+            "y": 416
+          },
+          "4": {
+            "x": 1194,
+            "y": 416
+          },
+          "5": {
+            "x": 1212,
+            "y": 416
+          }
+        },
         "$objectPhysics": {
           "2/obj/0": {
             "oS": "Tdungeon3",
@@ -14919,7 +15714,7 @@
       "id": "103040200",
       "entities": 198,
       "regions": 12,
-      "textures": 614,
+      "textures": 646,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -15056,6 +15851,32 @@
             "delay": 0
           }
         },
+        "$seats": {
+          "0": {
+            "x": 248,
+            "y": 416
+          },
+          "1": {
+            "x": 267,
+            "y": 416
+          },
+          "2": {
+            "x": 285,
+            "y": 416
+          },
+          "3": {
+            "x": 65,
+            "y": 416
+          },
+          "4": {
+            "x": 84,
+            "y": 416
+          },
+          "5": {
+            "x": 102,
+            "y": 416
+          }
+        },
         "$objectPhysics": {
           "1/obj/1": {
             "oS": "Tdungeon3",
@@ -15117,7 +15938,7 @@
       "id": "103040201",
       "entities": 199,
       "regions": 12,
-      "textures": 624,
+      "textures": 656,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -15202,6 +16023,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "2/obj/0": {
             "oS": "Tdungeon3",
@@ -15237,7 +16059,7 @@
       "id": "103040202",
       "entities": 193,
       "regions": 12,
-      "textures": 602,
+      "textures": 634,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -15320,6 +16142,20 @@
             "hideTooltip": 0,
             "onlyOnce": 0,
             "delay": 0
+          }
+        },
+        "$seats": {
+          "0": {
+            "x": -255,
+            "y": 416
+          },
+          "1": {
+            "x": -236,
+            "y": 416
+          },
+          "2": {
+            "x": -218,
+            "y": 416
           }
         },
         "$objectPhysics": {
@@ -15357,7 +16193,7 @@
       "id": "103040203",
       "entities": 195,
       "regions": 12,
-      "textures": 607,
+      "textures": 639,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -15442,6 +16278,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "2/obj/0": {
             "oS": "Tdungeon3",
@@ -15477,7 +16314,7 @@
       "id": "103040300",
       "entities": 195,
       "regions": 12,
-      "textures": 591,
+      "textures": 623,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -15614,6 +16451,40 @@
             "delay": 0
           }
         },
+        "$seats": {
+          "0": {
+            "x": 265,
+            "y": 414
+          },
+          "1": {
+            "x": 295,
+            "y": 414
+          },
+          "2": {
+            "x": 328,
+            "y": 414
+          },
+          "3": {
+            "x": 358,
+            "y": 414
+          },
+          "4": {
+            "x": -183,
+            "y": 414
+          },
+          "5": {
+            "x": -153,
+            "y": 414
+          },
+          "6": {
+            "x": -120,
+            "y": 414
+          },
+          "7": {
+            "x": -90,
+            "y": 414
+          }
+        },
         "$objectPhysics": {
           "1/obj/1": {
             "oS": "Tdungeon3",
@@ -15675,7 +16546,7 @@
       "id": "103040301",
       "entities": 217,
       "regions": 12,
-      "textures": 644,
+      "textures": 676,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -15758,6 +16629,44 @@
             "hideTooltip": 0,
             "onlyOnce": 0,
             "delay": 0
+          }
+        },
+        "$seats": {
+          "0": {
+            "x": -852,
+            "y": 88
+          },
+          "1": {
+            "x": -833,
+            "y": 88
+          },
+          "2": {
+            "x": -815,
+            "y": 88
+          },
+          "3": {
+            "x": -1078,
+            "y": 89
+          },
+          "4": {
+            "x": -1059,
+            "y": 89
+          },
+          "5": {
+            "x": -1041,
+            "y": 89
+          },
+          "6": {
+            "x": 987,
+            "y": 416
+          },
+          "7": {
+            "x": 1006,
+            "y": 416
+          },
+          "8": {
+            "x": 1024,
+            "y": 416
           }
         },
         "$objectPhysics": {
@@ -15795,7 +16704,7 @@
       "id": "103040302",
       "entities": 190,
       "regions": 12,
-      "textures": 652,
+      "textures": 684,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -15880,6 +16789,32 @@
             "delay": 0
           }
         },
+        "$seats": {
+          "0": {
+            "x": -1078,
+            "y": 416
+          },
+          "1": {
+            "x": -1059,
+            "y": 416
+          },
+          "2": {
+            "x": -1041,
+            "y": 416
+          },
+          "3": {
+            "x": -982,
+            "y": 416
+          },
+          "4": {
+            "x": -963,
+            "y": 416
+          },
+          "5": {
+            "x": -945,
+            "y": 416
+          }
+        },
         "$objectPhysics": {
           "2/obj/0": {
             "oS": "Tdungeon3",
@@ -15915,7 +16850,7 @@
       "id": "103040303",
       "entities": 211,
       "regions": 12,
-      "textures": 633,
+      "textures": 665,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -16000,6 +16935,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "2/obj/0": {
             "oS": "Tdungeon3",
@@ -16035,7 +16971,7 @@
       "id": "103040400",
       "entities": 148,
       "regions": 12,
-      "textures": 626,
+      "textures": 658,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -16103,6 +17039,7 @@
             "script": "Depart_topOut"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "2/obj/0": {
             "oS": "Tdungeon3",
@@ -16138,7 +17075,7 @@
       "id": "104000000",
       "entities": 1614,
       "regions": 35,
-      "textures": 911,
+      "textures": 943,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -16563,6 +17500,44 @@
             "tn": ""
           }
         },
+        "$seats": {
+          "0": {
+            "x": 2404,
+            "y": 525
+          },
+          "1": {
+            "x": 2427,
+            "y": 525
+          },
+          "2": {
+            "x": 2448,
+            "y": 525
+          },
+          "3": {
+            "x": 2606,
+            "y": 525
+          },
+          "4": {
+            "x": 2629,
+            "y": 525
+          },
+          "5": {
+            "x": 2650,
+            "y": 525
+          },
+          "6": {
+            "x": 2504,
+            "y": 525
+          },
+          "7": {
+            "x": 2527,
+            "y": 525
+          },
+          "8": {
+            "x": 2548,
+            "y": 525
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -16571,7 +17546,7 @@
       "id": "104000001",
       "entities": 19,
       "regions": 4,
-      "textures": 515,
+      "textures": 547,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -16622,6 +17597,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -16630,7 +17606,7 @@
       "id": "104000002",
       "entities": 31,
       "regions": 4,
-      "textures": 518,
+      "textures": 550,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -16673,6 +17649,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -16681,7 +17658,7 @@
       "id": "104000003",
       "entities": 18,
       "regions": 4,
-      "textures": 514,
+      "textures": 546,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -16733,6 +17710,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -16741,7 +17719,7 @@
       "id": "104000100",
       "entities": 676,
       "regions": 22,
-      "textures": 598,
+      "textures": 630,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -16860,6 +17838,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -16868,7 +17847,7 @@
       "id": "104000200",
       "entities": 626,
       "regions": 27,
-      "textures": 591,
+      "textures": 623,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -17035,6 +18014,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -17043,7 +18023,7 @@
       "id": "104000300",
       "entities": 619,
       "regions": 26,
-      "textures": 562,
+      "textures": 594,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -17138,6 +18118,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -17146,7 +18127,7 @@
       "id": "104000400",
       "entities": 324,
       "regions": 23,
-      "textures": 559,
+      "textures": 591,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -17227,6 +18208,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -17235,7 +18217,7 @@
       "id": "104010000",
       "entities": 2174,
       "regions": 36,
-      "textures": 627,
+      "textures": 659,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -17379,6 +18361,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -17387,7 +18370,7 @@
       "id": "104010001",
       "entities": 607,
       "regions": 26,
-      "textures": 591,
+      "textures": 623,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -17427,6 +18410,7 @@
             "tn": "h_out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -17435,7 +18419,7 @@
       "id": "104010002",
       "entities": 818,
       "regions": 26,
-      "textures": 585,
+      "textures": 617,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -17530,6 +18514,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -17538,7 +18523,7 @@
       "id": "104020000",
       "entities": 897,
       "regions": 18,
-      "textures": 592,
+      "textures": 624,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -17746,6 +18731,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -17754,7 +18740,7 @@
       "id": "104030000",
       "entities": 1068,
       "regions": 18,
-      "textures": 629,
+      "textures": 661,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -17897,6 +18883,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -17905,7 +18892,7 @@
       "id": "104030001",
       "entities": 375,
       "regions": 11,
-      "textures": 569,
+      "textures": 601,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -17976,6 +18963,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -17984,7 +18972,7 @@
       "id": "104040000",
       "entities": 471,
       "regions": 12,
-      "textures": 601,
+      "textures": 633,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -18143,6 +19131,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -18151,7 +19140,7 @@
       "id": "104040001",
       "entities": 413,
       "regions": 12,
-      "textures": 596,
+      "textures": 628,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -18249,6 +19238,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -18257,7 +19247,7 @@
       "id": "104040002",
       "entities": 455,
       "regions": 12,
-      "textures": 595,
+      "textures": 627,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -18334,6 +19324,7 @@
             "tn": "st01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -18342,7 +19333,7 @@
       "id": "105030000",
       "entities": 1209,
       "regions": 17,
-      "textures": 589,
+      "textures": 621,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -18523,6 +19514,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -18531,7 +19523,7 @@
       "id": "105040000",
       "entities": 969,
       "regions": 16,
-      "textures": 569,
+      "textures": 601,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -18720,6 +19712,7 @@
             "tn": "dun00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -18728,7 +19721,7 @@
       "id": "105040100",
       "entities": 801,
       "regions": 11,
-      "textures": 558,
+      "textures": 590,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -18897,6 +19890,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -18905,7 +19899,7 @@
       "id": "105040200",
       "entities": 626,
       "regions": 11,
-      "textures": 541,
+      "textures": 573,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -19018,6 +20012,7 @@
             "tn": "east01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -19026,7 +20021,7 @@
       "id": "105040201",
       "entities": 3,
       "regions": 2,
-      "textures": 494,
+      "textures": 526,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -19080,6 +20075,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -19088,7 +20084,7 @@
       "id": "105040300",
       "entities": 482,
       "regions": 13,
-      "textures": 715,
+      "textures": 747,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -19295,6 +20291,7 @@
             "tn": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -19303,7 +20300,7 @@
       "id": "105040301",
       "entities": 311,
       "regions": 12,
-      "textures": 546,
+      "textures": 578,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -19382,6 +20379,7 @@
             "tn": "st00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -19390,7 +20388,7 @@
       "id": "105040302",
       "entities": 462,
       "regions": 13,
-      "textures": 537,
+      "textures": 569,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -19485,6 +20483,7 @@
             "tn": "st01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -19493,7 +20492,7 @@
       "id": "105040303",
       "entities": 446,
       "regions": 14,
-      "textures": 533,
+      "textures": 565,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -19700,6 +20699,7 @@
             "tn": "st00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -19708,7 +20708,7 @@
       "id": "105040304",
       "entities": 341,
       "regions": 13,
-      "textures": 609,
+      "textures": 641,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -19812,6 +20812,7 @@
             "tn": "st01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -19820,7 +20821,7 @@
       "id": "105040305",
       "entities": 668,
       "regions": 16,
-      "textures": 576,
+      "textures": 608,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -19901,6 +20902,7 @@
             "tn": "st01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -19909,7 +20911,7 @@
       "id": "105040306",
       "entities": 362,
       "regions": 11,
-      "textures": 571,
+      "textures": 603,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -19972,6 +20974,7 @@
             "tn": "hiden00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -19980,7 +20983,7 @@
       "id": "105040400",
       "entities": 14,
       "regions": 4,
-      "textures": 518,
+      "textures": 550,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20040,6 +21043,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20048,7 +21052,7 @@
       "id": "105050000",
       "entities": 1148,
       "regions": 18,
-      "textures": 557,
+      "textures": 589,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20120,6 +21124,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20128,7 +21133,7 @@
       "id": "105050100",
       "entities": 1088,
       "regions": 16,
-      "textures": 561,
+      "textures": 593,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20265,6 +21270,7 @@
             "script": "MD_mushroom"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20273,7 +21279,7 @@
       "id": "105050200",
       "entities": 1025,
       "regions": 17,
-      "textures": 574,
+      "textures": 606,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20385,6 +21391,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20393,7 +21400,7 @@
       "id": "105050300",
       "entities": 1245,
       "regions": 20,
-      "textures": 558,
+      "textures": 590,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20481,6 +21488,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20489,7 +21497,7 @@
       "id": "105050400",
       "entities": 660,
       "regions": 12,
-      "textures": 554,
+      "textures": 586,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20530,6 +21538,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20538,7 +21547,7 @@
       "id": "105060000",
       "entities": 1755,
       "regions": 20,
-      "textures": 578,
+      "textures": 610,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20667,6 +21676,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20675,7 +21685,7 @@
       "id": "105060100",
       "entities": 1089,
       "regions": 18,
-      "textures": 585,
+      "textures": 617,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20747,6 +21757,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20755,7 +21766,7 @@
       "id": "105070000",
       "entities": 1529,
       "regions": 20,
-      "textures": 597,
+      "textures": 629,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20827,6 +21838,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20835,7 +21847,7 @@
       "id": "105070001",
       "entities": 1545,
       "regions": 24,
-      "textures": 601,
+      "textures": 633,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20932,6 +21944,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20940,7 +21953,7 @@
       "id": "105070002",
       "entities": 392,
       "regions": 11,
-      "textures": 588,
+      "textures": 620,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -20988,6 +22001,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -20996,7 +22010,7 @@
       "id": "105070100",
       "entities": 876,
       "regions": 12,
-      "textures": 587,
+      "textures": 619,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21072,6 +22086,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21080,7 +22095,7 @@
       "id": "105070200",
       "entities": 704,
       "regions": 10,
-      "textures": 588,
+      "textures": 620,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21124,6 +22139,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21132,7 +22148,7 @@
       "id": "105070300",
       "entities": 937,
       "regions": 10,
-      "textures": 586,
+      "textures": 618,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21185,6 +22201,7 @@
             "script": "enterDollcave"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21193,7 +22210,7 @@
       "id": "105070400",
       "entities": 937,
       "regions": 10,
-      "textures": 586,
+      "textures": 618,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21261,6 +22278,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21269,7 +22287,7 @@
       "id": "105080000",
       "entities": 785,
       "regions": 13,
-      "textures": 594,
+      "textures": 626,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21318,6 +22336,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21326,7 +22345,7 @@
       "id": "105090000",
       "entities": 1926,
       "regions": 24,
-      "textures": 590,
+      "textures": 622,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21398,6 +22417,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21406,7 +22426,7 @@
       "id": "105090100",
       "entities": 1520,
       "regions": 19,
-      "textures": 593,
+      "textures": 625,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21493,6 +22513,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21501,7 +22522,7 @@
       "id": "105090200",
       "entities": 28,
       "regions": 9,
-      "textures": 513,
+      "textures": 545,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21597,6 +22618,7 @@
             "script": "balogTemple"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21605,7 +22627,7 @@
       "id": "105090300",
       "entities": 1298,
       "regions": 18,
-      "textures": 592,
+      "textures": 624,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21681,6 +22703,7 @@
             "tn": "under00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21689,7 +22712,7 @@
       "id": "105090301",
       "entities": 322,
       "regions": 10,
-      "textures": 557,
+      "textures": 589,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21730,6 +22753,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21738,7 +22762,7 @@
       "id": "105090310",
       "entities": 1169,
       "regions": 24,
-      "textures": 598,
+      "textures": 630,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21823,6 +22847,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21831,7 +22856,7 @@
       "id": "105090311",
       "entities": 756,
       "regions": 16,
-      "textures": 610,
+      "textures": 642,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21907,6 +22932,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21915,7 +22941,7 @@
       "id": "105090312",
       "entities": 590,
       "regions": 12,
-      "textures": 604,
+      "textures": 636,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -21976,6 +23002,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -21984,7 +23011,7 @@
       "id": "105090400",
       "entities": 776,
       "regions": 15,
-      "textures": 546,
+      "textures": 578,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -22049,6 +23076,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22057,7 +23085,7 @@
       "id": "105090500",
       "entities": 378,
       "regions": 13,
-      "textures": 589,
+      "textures": 621,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -22123,6 +23151,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22131,7 +23160,7 @@
       "id": "105090600",
       "entities": 418,
       "regions": 17,
-      "textures": 596,
+      "textures": 628,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -22212,6 +23241,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22220,7 +23250,7 @@
       "id": "105090700",
       "entities": 488,
       "regions": 16,
-      "textures": 629,
+      "textures": 661,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -22288,6 +23318,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22296,7 +23327,7 @@
       "id": "105090800",
       "entities": 383,
       "regions": 14,
-      "textures": 620,
+      "textures": 652,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -22356,6 +23387,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22364,7 +23396,7 @@
       "id": "105090900",
       "entities": 170,
       "regions": 12,
-      "textures": 570,
+      "textures": 602,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -22422,6 +23454,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22430,7 +23463,7 @@
       "id": "106000000",
       "entities": 596,
       "regions": 29,
-      "textures": 609,
+      "textures": 641,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -22507,6 +23540,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22515,7 +23549,7 @@
       "id": "106000001",
       "entities": 322,
       "regions": 24,
-      "textures": 582,
+      "textures": 614,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -22594,6 +23628,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22602,7 +23637,7 @@
       "id": "106000002",
       "entities": 343,
       "regions": 23,
-      "textures": 572,
+      "textures": 604,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -22657,6 +23692,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22665,7 +23701,7 @@
       "id": "106000100",
       "entities": 400,
       "regions": 25,
-      "textures": 581,
+      "textures": 613,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -22742,6 +23778,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22750,7 +23787,7 @@
       "id": "106000101",
       "entities": 459,
       "regions": 26,
-      "textures": 581,
+      "textures": 613,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -22813,6 +23850,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22821,7 +23859,7 @@
       "id": "106000110",
       "entities": 364,
       "regions": 26,
-      "textures": 577,
+      "textures": 609,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -22913,6 +23951,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -22921,7 +23960,7 @@
       "id": "106000120",
       "entities": 304,
       "regions": 24,
-      "textures": 577,
+      "textures": 609,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -23013,6 +24052,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23021,7 +24061,7 @@
       "id": "106000130",
       "entities": 339,
       "regions": 24,
-      "textures": 575,
+      "textures": 607,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -23113,6 +24153,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23121,7 +24162,7 @@
       "id": "106000140",
       "entities": 354,
       "regions": 26,
-      "textures": 560,
+      "textures": 592,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -23205,6 +24246,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23213,7 +24255,7 @@
       "id": "106000200",
       "entities": 317,
       "regions": 25,
-      "textures": 579,
+      "textures": 611,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -23314,6 +24356,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23322,7 +24365,7 @@
       "id": "106000300",
       "entities": 369,
       "regions": 25,
-      "textures": 583,
+      "textures": 615,
       "physics": {
         "version": 10,
         "cloud": 1,
@@ -23407,6 +24450,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23415,7 +24459,7 @@
       "id": "106010000",
       "entities": 1032,
       "regions": 14,
-      "textures": 611,
+      "textures": 643,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -23587,6 +24631,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23595,7 +24640,7 @@
       "id": "106010100",
       "entities": 861,
       "regions": 14,
-      "textures": 590,
+      "textures": 622,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -23695,6 +24740,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23703,7 +24749,7 @@
       "id": "106010101",
       "entities": 303,
       "regions": 10,
-      "textures": 589,
+      "textures": 621,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -23763,6 +24809,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23771,7 +24818,7 @@
       "id": "106010102",
       "entities": 201,
       "regions": 9,
-      "textures": 577,
+      "textures": 609,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -23848,6 +24895,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23856,7 +24904,7 @@
       "id": "106010103",
       "entities": 191,
       "regions": 10,
-      "textures": 602,
+      "textures": 634,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -23901,6 +24949,7 @@
             "tn": "in03"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23909,7 +24958,7 @@
       "id": "106010104",
       "entities": 153,
       "regions": 10,
-      "textures": 583,
+      "textures": 615,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -23954,6 +25003,7 @@
             "tn": "in04"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -23962,7 +25012,7 @@
       "id": "106010105",
       "entities": 258,
       "regions": 11,
-      "textures": 597,
+      "textures": 629,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -24007,6 +25057,7 @@
             "tn": "in05"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -24015,7 +25066,7 @@
       "id": "106010106",
       "entities": 190,
       "regions": 11,
-      "textures": 577,
+      "textures": 609,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -24063,6 +25114,7 @@
             "tn": "in06"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -24071,7 +25123,7 @@
       "id": "107000000",
       "entities": 470,
       "regions": 17,
-      "textures": 553,
+      "textures": 585,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -24232,6 +25284,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -24240,7 +25293,7 @@
       "id": "107000001",
       "entities": 311,
       "regions": 17,
-      "textures": 551,
+      "textures": 583,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -24356,6 +25409,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -24364,7 +25418,7 @@
       "id": "107000100",
       "entities": 440,
       "regions": 17,
-      "textures": 572,
+      "textures": 604,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -24405,6 +25459,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -24413,7 +25468,7 @@
       "id": "107000200",
       "entities": 388,
       "regions": 17,
-      "textures": 547,
+      "textures": 579,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -24558,6 +25613,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -24566,7 +25622,7 @@
       "id": "107000300",
       "entities": 455,
       "regions": 17,
-      "textures": 560,
+      "textures": 592,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -24759,6 +25815,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -24767,7 +25824,7 @@
       "id": "107000301",
       "entities": 37,
       "regions": 2,
-      "textures": 499,
+      "textures": 531,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -24802,6 +25859,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -24810,7 +25868,7 @@
       "id": "107000400",
       "entities": 427,
       "regions": 17,
-      "textures": 551,
+      "textures": 583,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -24991,6 +26049,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -24999,7 +26058,7 @@
       "id": "107000401",
       "entities": 388,
       "regions": 18,
-      "textures": 552,
+      "textures": 584,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -25107,6 +26166,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -25115,7 +26175,7 @@
       "id": "107000402",
       "entities": 311,
       "regions": 18,
-      "textures": 574,
+      "textures": 606,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -25207,6 +26267,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -25215,7 +26276,7 @@
       "id": "107000403",
       "entities": 290,
       "regions": 18,
-      "textures": 549,
+      "textures": 581,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -25307,6 +26368,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -25315,7 +26377,7 @@
       "id": "107000500",
       "entities": 608,
       "regions": 13,
-      "textures": 583,
+      "textures": 615,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -25442,6 +26504,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -25450,7 +26513,7 @@
       "id": "107000501",
       "entities": 357,
       "regions": 11,
-      "textures": 545,
+      "textures": 577,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -25567,6 +26630,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -25575,7 +26639,7 @@
       "id": "108000500",
       "entities": 118,
       "regions": 10,
-      "textures": 543,
+      "textures": 575,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -25602,6 +26666,7 @@
             "tn": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "5/obj/29": {
             "oS": "guild",
@@ -25691,7 +26756,7 @@
       "id": "120000000",
       "entities": 408,
       "regions": 25,
-      "textures": 805,
+      "textures": 837,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -25855,6 +26920,24 @@
             "tn": ""
           }
         },
+        "$seats": {
+          "0": {
+            "x": 707,
+            "y": 108
+          },
+          "1": {
+            "x": 714,
+            "y": 108
+          },
+          "2": {
+            "x": 2666,
+            "y": -334
+          },
+          "3": {
+            "x": 2677,
+            "y": -334
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {
           "swimArea": {
@@ -25872,7 +26955,7 @@
       "id": "120000100",
       "entities": 121,
       "regions": 10,
-      "textures": 599,
+      "textures": 631,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -25959,6 +27042,7 @@
             "tn": "ph00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -25967,7 +27051,7 @@
       "id": "120000101",
       "entities": 40,
       "regions": 12,
-      "textures": 567,
+      "textures": 599,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26040,6 +27124,7 @@
             "onlyOnce": 1
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26048,7 +27133,7 @@
       "id": "120000102",
       "entities": 20,
       "regions": 4,
-      "textures": 524,
+      "textures": 556,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26083,6 +27168,7 @@
             "tn": "ai01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26091,7 +27177,7 @@
       "id": "120000103",
       "entities": 17,
       "regions": 4,
-      "textures": 511,
+      "textures": 543,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26130,6 +27216,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26138,7 +27225,7 @@
       "id": "120000104",
       "entities": 19,
       "regions": 4,
-      "textures": 521,
+      "textures": 553,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26177,6 +27264,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26185,7 +27273,7 @@
       "id": "120000200",
       "entities": 166,
       "regions": 14,
-      "textures": 693,
+      "textures": 725,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26306,6 +27394,7 @@
             "tn": "bo01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26314,7 +27403,7 @@
       "id": "120000201",
       "entities": 20,
       "regions": 4,
-      "textures": 520,
+      "textures": 552,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26353,6 +27442,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26361,7 +27451,7 @@
       "id": "120000202",
       "entities": 18,
       "regions": 4,
-      "textures": 510,
+      "textures": 542,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26396,6 +27486,7 @@
             "tn": "bi01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26404,7 +27495,7 @@
       "id": "120000300",
       "entities": 131,
       "regions": 10,
-      "textures": 631,
+      "textures": 663,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26463,6 +27554,7 @@
             "tn": "ph00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26471,7 +27563,7 @@
       "id": "120000301",
       "entities": 28,
       "regions": 8,
-      "textures": 572,
+      "textures": 604,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26506,6 +27598,7 @@
             "tn": "ci00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {
           "swimArea": {
@@ -26523,7 +27616,7 @@
       "id": "120010000",
       "entities": 30,
       "regions": 17,
-      "textures": 552,
+      "textures": 584,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26578,6 +27671,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26586,7 +27680,7 @@
       "id": "200000000",
       "entities": 971,
       "regions": 40,
-      "textures": 876,
+      "textures": 908,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26943,6 +28037,212 @@
             "tn": ""
           }
         },
+        "$seats": {
+          "0": {
+            "x": 1141,
+            "y": -485
+          },
+          "1": {
+            "x": 1158,
+            "y": -485
+          },
+          "2": {
+            "x": 1175,
+            "y": -485
+          },
+          "3": {
+            "x": 1116,
+            "y": -140
+          },
+          "4": {
+            "x": 1133,
+            "y": -140
+          },
+          "5": {
+            "x": 1150,
+            "y": -140
+          },
+          "6": {
+            "x": -1227,
+            "y": -65
+          },
+          "7": {
+            "x": -1211,
+            "y": -65
+          },
+          "8": {
+            "x": -1194,
+            "y": -65
+          },
+          "9": {
+            "x": -1355,
+            "y": -98
+          },
+          "10": {
+            "x": -1339,
+            "y": -98
+          },
+          "11": {
+            "x": -1322,
+            "y": -98
+          },
+          "12": {
+            "x": 1312,
+            "y": -77
+          },
+          "13": {
+            "x": 1329,
+            "y": -77
+          },
+          "14": {
+            "x": 1346,
+            "y": -77
+          },
+          "15": {
+            "x": 1213,
+            "y": -108
+          },
+          "16": {
+            "x": 1230,
+            "y": -108
+          },
+          "17": {
+            "x": 1247,
+            "y": -108
+          },
+          "18": {
+            "x": -168,
+            "y": -420
+          },
+          "19": {
+            "x": -152,
+            "y": -420
+          },
+          "20": {
+            "x": -135,
+            "y": -420
+          },
+          "21": {
+            "x": -43,
+            "y": -386
+          },
+          "22": {
+            "x": -27,
+            "y": -386
+          },
+          "23": {
+            "x": -10,
+            "y": -386
+          },
+          "24": {
+            "x": -1241,
+            "y": -1290
+          },
+          "25": {
+            "x": -1225,
+            "y": -1290
+          },
+          "26": {
+            "x": -1208,
+            "y": -1290
+          },
+          "27": {
+            "x": -311,
+            "y": -1290
+          },
+          "28": {
+            "x": -295,
+            "y": -1290
+          },
+          "29": {
+            "x": -278,
+            "y": -1290
+          },
+          "30": {
+            "x": 1247,
+            "y": -461
+          },
+          "31": {
+            "x": 1264,
+            "y": -461
+          },
+          "32": {
+            "x": 1281,
+            "y": -461
+          },
+          "33": {
+            "x": -498,
+            "y": -1245
+          },
+          "34": {
+            "x": -481,
+            "y": -1245
+          },
+          "35": {
+            "x": -464,
+            "y": -1245
+          },
+          "36": {
+            "x": -406,
+            "y": -1270
+          },
+          "37": {
+            "x": -389,
+            "y": -1270
+          },
+          "38": {
+            "x": -372,
+            "y": -1270
+          },
+          "39": {
+            "x": -1057,
+            "y": -1245
+          },
+          "40": {
+            "x": -1040,
+            "y": -1245
+          },
+          "41": {
+            "x": -1023,
+            "y": -1245
+          },
+          "42": {
+            "x": -1150,
+            "y": -1270
+          },
+          "43": {
+            "x": -1133,
+            "y": -1270
+          },
+          "44": {
+            "x": -1116,
+            "y": -1270
+          },
+          "45": {
+            "x": 2925,
+            "y": -435
+          },
+          "46": {
+            "x": 2942,
+            "y": -435
+          },
+          "47": {
+            "x": 2959,
+            "y": -435
+          },
+          "48": {
+            "x": 2813,
+            "y": -435
+          },
+          "49": {
+            "x": 2830,
+            "y": -435
+          },
+          "50": {
+            "x": 2847,
+            "y": -435
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26951,7 +28251,7 @@
       "id": "200000001",
       "entities": 13,
       "regions": 7,
-      "textures": 508,
+      "textures": 540,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -26986,6 +28286,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -26994,7 +28295,7 @@
       "id": "200000002",
       "entities": 18,
       "regions": 8,
-      "textures": 525,
+      "textures": 557,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27028,6 +28329,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27036,7 +28338,7 @@
       "id": "200000100",
       "entities": 293,
       "regions": 33,
-      "textures": 552,
+      "textures": 584,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27094,6 +28396,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27102,7 +28405,7 @@
       "id": "200000200",
       "entities": 497,
       "regions": 31,
-      "textures": 699,
+      "textures": 731,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27175,6 +28478,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27183,7 +28487,7 @@
       "id": "200000201",
       "entities": 17,
       "regions": 8,
-      "textures": 525,
+      "textures": 557,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27218,6 +28522,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27226,7 +28531,7 @@
       "id": "200000202",
       "entities": 16,
       "regions": 7,
-      "textures": 520,
+      "textures": 552,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27260,6 +28565,20 @@
             "tn": "in01"
           }
         },
+        "$seats": {
+          "0": {
+            "x": -11,
+            "y": 54
+          },
+          "1": {
+            "x": 106,
+            "y": 194
+          },
+          "2": {
+            "x": 206,
+            "y": 194
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27268,7 +28587,7 @@
       "id": "200000203",
       "entities": 20,
       "regions": 7,
-      "textures": 512,
+      "textures": 544,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27302,6 +28621,7 @@
             "tn": "in02"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27310,7 +28630,7 @@
       "id": "200000300",
       "entities": 300,
       "regions": 24,
-      "textures": 590,
+      "textures": 622,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27424,6 +28744,32 @@
             "tn": "out00"
           }
         },
+        "$seats": {
+          "0": {
+            "x": -681,
+            "y": 102
+          },
+          "1": {
+            "x": -664,
+            "y": 102
+          },
+          "2": {
+            "x": -647,
+            "y": 102
+          },
+          "3": {
+            "x": -904,
+            "y": 102
+          },
+          "4": {
+            "x": -887,
+            "y": 102
+          },
+          "5": {
+            "x": -870,
+            "y": 102
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27432,7 +28778,7 @@
       "id": "200000301",
       "entities": 30,
       "regions": 5,
-      "textures": 522,
+      "textures": 554,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27474,6 +28820,32 @@
             "tn": "in00"
           }
         },
+        "$seats": {
+          "0": {
+            "x": -177,
+            "y": -144
+          },
+          "1": {
+            "x": -142,
+            "y": -144
+          },
+          "2": {
+            "x": -106,
+            "y": -144
+          },
+          "3": {
+            "x": 547,
+            "y": -148
+          },
+          "4": {
+            "x": 582,
+            "y": -148
+          },
+          "5": {
+            "x": 618,
+            "y": -148
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27482,7 +28854,7 @@
       "id": "200010000",
       "entities": 441,
       "regions": 28,
-      "textures": 594,
+      "textures": 626,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27576,6 +28948,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27584,7 +28957,7 @@
       "id": "200010100",
       "entities": 361,
       "regions": 26,
-      "textures": 597,
+      "textures": 629,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27671,6 +29044,7 @@
             "tn": "top01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27679,7 +29053,7 @@
       "id": "200010110",
       "entities": 372,
       "regions": 25,
-      "textures": 564,
+      "textures": 596,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27734,6 +29108,7 @@
             "tn": "under00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27742,7 +29117,7 @@
       "id": "200010111",
       "entities": 333,
       "regions": 25,
-      "textures": 580,
+      "textures": 612,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27805,6 +29180,7 @@
             "tn": "under00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27813,7 +29189,7 @@
       "id": "200010120",
       "entities": 390,
       "regions": 27,
-      "textures": 572,
+      "textures": 604,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27868,6 +29244,7 @@
             "tn": "under00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27876,7 +29253,7 @@
       "id": "200010121",
       "entities": 302,
       "regions": 25,
-      "textures": 565,
+      "textures": 597,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -27939,6 +29316,7 @@
             "tn": "under01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -27947,7 +29325,7 @@
       "id": "200010130",
       "entities": 360,
       "regions": 24,
-      "textures": 567,
+      "textures": 599,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28010,6 +29388,7 @@
             "tn": "under00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28018,7 +29397,7 @@
       "id": "200010131",
       "entities": 352,
       "regions": 26,
-      "textures": 579,
+      "textures": 611,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28089,6 +29468,7 @@
             "tn": "under02"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28097,7 +29477,7 @@
       "id": "200010200",
       "entities": 510,
       "regions": 27,
-      "textures": 654,
+      "textures": 686,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28191,6 +29571,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28199,7 +29580,7 @@
       "id": "200010300",
       "entities": 300,
       "regions": 24,
-      "textures": 578,
+      "textures": 610,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28264,6 +29645,7 @@
             "script": "eliza_Garden"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28272,7 +29654,7 @@
       "id": "200010301",
       "entities": 249,
       "regions": 23,
-      "textures": 584,
+      "textures": 616,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28326,6 +29708,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28334,7 +29717,7 @@
       "id": "200010302",
       "entities": 268,
       "regions": 23,
-      "textures": 585,
+      "textures": 617,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28388,6 +29771,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28396,7 +29780,7 @@
       "id": "200020000",
       "entities": 455,
       "regions": 25,
-      "textures": 645,
+      "textures": 677,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28475,6 +29859,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28483,7 +29868,7 @@
       "id": "200030000",
       "entities": 510,
       "regions": 26,
-      "textures": 657,
+      "textures": 689,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28554,6 +29939,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28562,7 +29948,7 @@
       "id": "200040000",
       "entities": 516,
       "regions": 32,
-      "textures": 650,
+      "textures": 682,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28641,6 +30027,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28649,7 +30036,7 @@
       "id": "200040001",
       "entities": 385,
       "regions": 29,
-      "textures": 603,
+      "textures": 635,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28720,6 +30107,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28728,7 +30116,7 @@
       "id": "200050000",
       "entities": 516,
       "regions": 31,
-      "textures": 635,
+      "textures": 667,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28823,6 +30211,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28831,7 +30220,7 @@
       "id": "200050001",
       "entities": 7,
       "regions": 2,
-      "textures": 506,
+      "textures": 538,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28861,6 +30250,7 @@
             "tn": "house00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28869,7 +30259,7 @@
       "id": "200060000",
       "entities": 614,
       "regions": 26,
-      "textures": 649,
+      "textures": 681,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -28950,6 +30340,7 @@
             "script": "enterNepenthes"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -28958,7 +30349,7 @@
       "id": "200070000",
       "entities": 552,
       "regions": 32,
-      "textures": 639,
+      "textures": 671,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29053,6 +30444,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29061,7 +30453,7 @@
       "id": "200080000",
       "entities": 515,
       "regions": 32,
-      "textures": 645,
+      "textures": 677,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29141,6 +30533,7 @@
             "tn": "under00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29149,7 +30542,7 @@
       "id": "200080100",
       "entities": 35,
       "regions": 14,
-      "textures": 521,
+      "textures": 553,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29215,6 +30608,7 @@
             "onlyOnce": 1
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29223,7 +30617,7 @@
       "id": "200080101",
       "entities": 41,
       "regions": 13,
-      "textures": 525,
+      "textures": 557,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29259,6 +30653,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29267,7 +30662,7 @@
       "id": "200080200",
       "entities": 316,
       "regions": 30,
-      "textures": 565,
+      "textures": 597,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29318,6 +30713,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29326,7 +30722,7 @@
       "id": "200080300",
       "entities": 300,
       "regions": 33,
-      "textures": 565,
+      "textures": 597,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29385,6 +30781,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29393,7 +30790,7 @@
       "id": "200080400",
       "entities": 249,
       "regions": 32,
-      "textures": 556,
+      "textures": 588,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29462,6 +30859,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29470,7 +30868,7 @@
       "id": "200080500",
       "entities": 276,
       "regions": 34,
-      "textures": 602,
+      "textures": 634,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29531,6 +30929,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29539,7 +30938,7 @@
       "id": "200080600",
       "entities": 299,
       "regions": 34,
-      "textures": 601,
+      "textures": 633,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29608,6 +31007,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29616,7 +31016,7 @@
       "id": "200080700",
       "entities": 287,
       "regions": 34,
-      "textures": 586,
+      "textures": 618,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29685,6 +31085,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29693,7 +31094,7 @@
       "id": "200080800",
       "entities": 305,
       "regions": 33,
-      "textures": 604,
+      "textures": 636,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29754,6 +31155,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29762,7 +31164,7 @@
       "id": "200080900",
       "entities": 279,
       "regions": 33,
-      "textures": 590,
+      "textures": 622,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29831,6 +31233,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29839,7 +31242,7 @@
       "id": "200081000",
       "entities": 299,
       "regions": 33,
-      "textures": 632,
+      "textures": 664,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29892,6 +31295,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29900,7 +31304,7 @@
       "id": "200081100",
       "entities": 260,
       "regions": 33,
-      "textures": 589,
+      "textures": 621,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -29953,6 +31357,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -29961,7 +31366,7 @@
       "id": "200081200",
       "entities": 348,
       "regions": 33,
-      "textures": 650,
+      "textures": 682,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30030,6 +31435,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30038,7 +31444,7 @@
       "id": "200081201",
       "entities": 8,
       "regions": 3,
-      "textures": 504,
+      "textures": 536,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30073,6 +31479,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30081,7 +31488,7 @@
       "id": "200081300",
       "entities": 221,
       "regions": 31,
-      "textures": 605,
+      "textures": 637,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30142,6 +31549,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30150,7 +31558,7 @@
       "id": "200081400",
       "entities": 282,
       "regions": 35,
-      "textures": 604,
+      "textures": 636,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30219,6 +31627,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30227,7 +31636,7 @@
       "id": "200081500",
       "entities": 285,
       "regions": 32,
-      "textures": 554,
+      "textures": 586,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30304,6 +31713,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30312,7 +31722,7 @@
       "id": "200081600",
       "entities": 233,
       "regions": 30,
-      "textures": 550,
+      "textures": 582,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30381,6 +31791,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30389,7 +31800,7 @@
       "id": "200081700",
       "entities": 321,
       "regions": 32,
-      "textures": 568,
+      "textures": 600,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30458,6 +31869,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30466,7 +31878,7 @@
       "id": "200081800",
       "entities": 289,
       "regions": 27,
-      "textures": 554,
+      "textures": 586,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30535,6 +31947,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30543,7 +31956,7 @@
       "id": "200081900",
       "entities": 313,
       "regions": 25,
-      "textures": 555,
+      "textures": 587,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30612,6 +32025,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30620,7 +32034,7 @@
       "id": "200082000",
       "entities": 318,
       "regions": 29,
-      "textures": 571,
+      "textures": 603,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30689,6 +32103,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30697,7 +32112,7 @@
       "id": "200082100",
       "entities": 391,
       "regions": 34,
-      "textures": 576,
+      "textures": 608,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30774,6 +32189,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30782,7 +32198,7 @@
       "id": "200082200",
       "entities": 270,
       "regions": 21,
-      "textures": 529,
+      "textures": 561,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30841,6 +32257,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30849,7 +32266,7 @@
       "id": "200082300",
       "entities": 341,
       "regions": 55,
-      "textures": 625,
+      "textures": 657,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30904,6 +32321,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30912,7 +32330,7 @@
       "id": "200082301",
       "entities": 7,
       "regions": 4,
-      "textures": 493,
+      "textures": 525,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -30955,6 +32373,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -30963,7 +32382,7 @@
       "id": "200090500",
       "entities": 94,
       "regions": 13,
-      "textures": 506,
+      "textures": 538,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -31408,6 +32827,7 @@
             "script": "undodraco"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -31416,7 +32836,7 @@
       "id": "200090510",
       "entities": 115,
       "regions": 33,
-      "textures": 527,
+      "textures": 559,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -31873,6 +33293,7 @@
             "script": "undodraco"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -31881,7 +33302,7 @@
       "id": "211000000",
       "entities": 682,
       "regions": 19,
-      "textures": 806,
+      "textures": 838,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32083,6 +33504,80 @@
             "tn": ""
           }
         },
+        "$seats": {
+          "0": {
+            "x": 276,
+            "y": -519
+          },
+          "1": {
+            "x": 298,
+            "y": -519
+          },
+          "2": {
+            "x": 377,
+            "y": -519
+          },
+          "3": {
+            "x": 402,
+            "y": -519
+          },
+          "4": {
+            "x": -106,
+            "y": -520
+          },
+          "5": {
+            "x": -78,
+            "y": -520
+          },
+          "6": {
+            "x": -231,
+            "y": -520
+          },
+          "7": {
+            "x": -203,
+            "y": -520
+          },
+          "8": {
+            "x": -2082,
+            "y": 91
+          },
+          "9": {
+            "x": -2054,
+            "y": 91
+          },
+          "10": {
+            "x": -2273,
+            "y": 92
+          },
+          "11": {
+            "x": -2245,
+            "y": 92
+          },
+          "12": {
+            "x": 227,
+            "y": -100
+          },
+          "13": {
+            "x": 255,
+            "y": -100
+          },
+          "14": {
+            "x": 307,
+            "y": -100
+          },
+          "15": {
+            "x": 335,
+            "y": -100
+          },
+          "16": {
+            "x": 146,
+            "y": -100
+          },
+          "17": {
+            "x": 174,
+            "y": -100
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32091,7 +33586,7 @@
       "id": "211000001",
       "entities": 23,
       "regions": 4,
-      "textures": 516,
+      "textures": 548,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32133,6 +33628,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32141,7 +33637,7 @@
       "id": "211000100",
       "entities": 519,
       "regions": 19,
-      "textures": 652,
+      "textures": 684,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32240,6 +33736,56 @@
             "script": "market03"
           }
         },
+        "$seats": {
+          "0": {
+            "x": 1066,
+            "y": 94
+          },
+          "1": {
+            "x": 1088,
+            "y": 94
+          },
+          "2": {
+            "x": 1167,
+            "y": 94
+          },
+          "3": {
+            "x": 1192,
+            "y": 94
+          },
+          "4": {
+            "x": -676,
+            "y": 94
+          },
+          "5": {
+            "x": -648,
+            "y": 94
+          },
+          "6": {
+            "x": 2206,
+            "y": 93
+          },
+          "7": {
+            "x": 2234,
+            "y": 93
+          },
+          "8": {
+            "x": 2121,
+            "y": 93
+          },
+          "9": {
+            "x": 2149,
+            "y": 93
+          },
+          "10": {
+            "x": 1773,
+            "y": 94
+          },
+          "11": {
+            "x": 1801,
+            "y": 94
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32248,7 +33794,7 @@
       "id": "211000101",
       "entities": 20,
       "regions": 4,
-      "textures": 504,
+      "textures": 536,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32283,6 +33829,7 @@
             "tn": "in01"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32291,7 +33838,7 @@
       "id": "211000102",
       "entities": 19,
       "regions": 4,
-      "textures": 508,
+      "textures": 540,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32326,6 +33873,7 @@
             "tn": "in02"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32334,7 +33882,7 @@
       "id": "211000200",
       "entities": 914,
       "regions": 17,
-      "textures": 584,
+      "textures": 616,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32429,6 +33977,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32437,7 +33986,7 @@
       "id": "211010000",
       "entities": 420,
       "regions": 13,
-      "textures": 642,
+      "textures": 674,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32501,6 +34050,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32509,7 +34059,7 @@
       "id": "211020000",
       "entities": 471,
       "regions": 15,
-      "textures": 656,
+      "textures": 688,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32581,6 +34131,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32589,7 +34140,7 @@
       "id": "211030000",
       "entities": 367,
       "regions": 13,
-      "textures": 579,
+      "textures": 611,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32648,6 +34199,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32656,7 +34208,7 @@
       "id": "211040000",
       "entities": 485,
       "regions": 15,
-      "textures": 590,
+      "textures": 622,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32730,6 +34282,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32738,7 +34291,7 @@
       "id": "211040001",
       "entities": 318,
       "regions": 11,
-      "textures": 568,
+      "textures": 600,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32788,6 +34341,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32796,7 +34350,7 @@
       "id": "211040100",
       "entities": 198,
       "regions": 31,
-      "textures": 631,
+      "textures": 663,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32850,6 +34404,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32858,7 +34413,7 @@
       "id": "211040101",
       "entities": 134,
       "regions": 29,
-      "textures": 660,
+      "textures": 692,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -32935,6 +34490,7 @@
             "tn": "st00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -32943,7 +34499,7 @@
       "id": "211040102",
       "entities": 55,
       "regions": 20,
-      "textures": 533,
+      "textures": 565,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33084,6 +34640,7 @@
             "tn": "st00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33092,7 +34649,7 @@
       "id": "211040200",
       "entities": 132,
       "regions": 31,
-      "textures": 606,
+      "textures": 638,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33138,6 +34695,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33146,7 +34704,7 @@
       "id": "211050000",
       "entities": 423,
       "regions": 13,
-      "textures": 654,
+      "textures": 686,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33212,6 +34770,7 @@
             "script": "enterRider"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33220,7 +34779,7 @@
       "id": "222000000",
       "entities": 1189,
       "regions": 31,
-      "textures": 881,
+      "textures": 913,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33435,6 +34994,7 @@
             "tn": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33443,7 +35003,7 @@
       "id": "222000001",
       "entities": 36,
       "regions": 4,
-      "textures": 506,
+      "textures": 538,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33499,6 +35059,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33507,7 +35068,7 @@
       "id": "222010000",
       "entities": 498,
       "regions": 30,
-      "textures": 616,
+      "textures": 648,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33574,6 +35135,7 @@
             "tn": "under00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33582,7 +35144,7 @@
       "id": "222010001",
       "entities": 535,
       "regions": 28,
-      "textures": 623,
+      "textures": 655,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33651,6 +35213,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33659,7 +35222,7 @@
       "id": "222010002",
       "entities": 687,
       "regions": 29,
-      "textures": 633,
+      "textures": 665,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33719,6 +35282,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33727,7 +35291,7 @@
       "id": "222010100",
       "entities": 618,
       "regions": 30,
-      "textures": 642,
+      "textures": 674,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33797,6 +35361,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33805,7 +35370,7 @@
       "id": "222010101",
       "entities": 548,
       "regions": 32,
-      "textures": 639,
+      "textures": 671,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33889,6 +35454,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33897,7 +35463,7 @@
       "id": "222010102",
       "entities": 512,
       "regions": 31,
-      "textures": 644,
+      "textures": 676,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -33949,6 +35515,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -33957,7 +35524,7 @@
       "id": "222010200",
       "entities": 425,
       "regions": 30,
-      "textures": 631,
+      "textures": 663,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34038,6 +35605,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34046,7 +35614,7 @@
       "id": "222010201",
       "entities": 321,
       "regions": 30,
-      "textures": 632,
+      "textures": 664,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34098,6 +35666,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34106,7 +35675,7 @@
       "id": "222010300",
       "entities": 687,
       "regions": 33,
-      "textures": 677,
+      "textures": 709,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34250,6 +35819,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34258,7 +35828,7 @@
       "id": "222010310",
       "entities": 339,
       "regions": 29,
-      "textures": 593,
+      "textures": 625,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34304,6 +35874,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34312,7 +35883,7 @@
       "id": "222010400",
       "entities": 479,
       "regions": 34,
-      "textures": 591,
+      "textures": 623,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34380,6 +35951,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34388,7 +35960,7 @@
       "id": "222010401",
       "entities": 210,
       "regions": 29,
-      "textures": 577,
+      "textures": 609,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34431,6 +36003,7 @@
             "tn": "out00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34439,7 +36012,7 @@
       "id": "222010402",
       "entities": 149,
       "regions": 29,
-      "textures": 575,
+      "textures": 607,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34477,6 +36050,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34485,7 +36059,7 @@
       "id": "222020000",
       "entities": 30,
       "regions": 4,
-      "textures": 516,
+      "textures": 548,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34538,6 +36112,7 @@
             "tn": "tower00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34546,7 +36121,7 @@
       "id": "222020100",
       "entities": 294,
       "regions": 40,
-      "textures": 573,
+      "textures": 605,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34615,6 +36190,7 @@
             "script": "elevator"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "4/obj/20": {
             "oS": "tower",
@@ -34636,7 +36212,7 @@
       "id": "230000000",
       "entities": 378,
       "regions": 42,
-      "textures": 775,
+      "textures": 807,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34800,6 +36376,7 @@
             "tn": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34808,7 +36385,7 @@
       "id": "230000001",
       "entities": 65,
       "regions": 20,
-      "textures": 576,
+      "textures": 608,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34875,6 +36452,20 @@
             "tn": "in00"
           }
         },
+        "$seats": {
+          "0": {
+            "x": -286,
+            "y": -69
+          },
+          "1": {
+            "x": -316,
+            "y": -69
+          },
+          "2": {
+            "x": -256,
+            "y": -69
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34883,7 +36474,7 @@
       "id": "230000002",
       "entities": 143,
       "regions": 28,
-      "textures": 591,
+      "textures": 623,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -34950,6 +36541,32 @@
             "tn": "market00"
           }
         },
+        "$seats": {
+          "0": {
+            "x": -287,
+            "y": -1190
+          },
+          "1": {
+            "x": -317,
+            "y": -1190
+          },
+          "2": {
+            "x": -257,
+            "y": -1190
+          },
+          "3": {
+            "x": 265,
+            "y": 82
+          },
+          "4": {
+            "x": 235,
+            "y": 82
+          },
+          "5": {
+            "x": 295,
+            "y": 82
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -34958,7 +36575,7 @@
       "id": "230000003",
       "entities": 135,
       "regions": 27,
-      "textures": 629,
+      "textures": 661,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -35001,6 +36618,20 @@
             "tn": "in01"
           }
         },
+        "$seats": {
+          "0": {
+            "x": 266,
+            "y": 7
+          },
+          "1": {
+            "x": 236,
+            "y": 7
+          },
+          "2": {
+            "x": 296,
+            "y": 7
+          }
+        },
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -35009,7 +36640,7 @@
       "id": "230010000",
       "entities": 656,
       "regions": 62,
-      "textures": 645,
+      "textures": 677,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -35193,6 +36824,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -35201,7 +36833,7 @@
       "id": "230010001",
       "entities": 830,
       "regions": 42,
-      "textures": 741,
+      "textures": 773,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -35315,6 +36947,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "0/obj/14": {
             "oS": "acc5",
@@ -35590,7 +37223,7 @@
       "id": "230010100",
       "entities": 600,
       "regions": 56,
-      "textures": 696,
+      "textures": 728,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -35708,6 +37341,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "0/obj/4": {
             "oS": "acc5",
@@ -35769,7 +37403,7 @@
       "id": "230010200",
       "entities": 924,
       "regions": 56,
-      "textures": 768,
+      "textures": 800,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -35890,6 +37524,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "0/obj/1": {
             "oS": "acc5",
@@ -36048,7 +37683,7 @@
       "id": "230010201",
       "entities": 32,
       "regions": 23,
-      "textures": 516,
+      "textures": 548,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -36201,6 +37836,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -36209,7 +37845,7 @@
       "id": "230010300",
       "entities": 635,
       "regions": 54,
-      "textures": 697,
+      "textures": 729,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -36359,6 +37995,7 @@
             "tn": "west00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -36367,7 +38004,7 @@
       "id": "230010400",
       "entities": 391,
       "regions": 54,
-      "textures": 702,
+      "textures": 734,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -36436,6 +38073,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "acc5",
@@ -36510,7 +38148,7 @@
       "id": "230020000",
       "entities": 433,
       "regions": 51,
-      "textures": 653,
+      "textures": 685,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -36579,6 +38217,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "acc5",
@@ -36653,7 +38292,7 @@
       "id": "230020100",
       "entities": 942,
       "regions": 55,
-      "textures": 679,
+      "textures": 711,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -36753,6 +38392,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "2/obj/2": {
             "oS": "acc5",
@@ -36827,7 +38467,7 @@
       "id": "230020101",
       "entities": 742,
       "regions": 51,
-      "textures": 693,
+      "textures": 725,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -36885,6 +38525,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/75": {
             "oS": "acc5",
@@ -37048,7 +38689,7 @@
       "id": "230020200",
       "entities": 1099,
       "regions": 56,
-      "textures": 701,
+      "textures": 733,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -37188,6 +38829,7 @@
             "tn": "st00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "3/obj/89": {
             "oS": "acc5",
@@ -37327,7 +38969,7 @@
       "id": "230020201",
       "entities": 30,
       "regions": 20,
-      "textures": 512,
+      "textures": 544,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -37480,6 +39122,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -37488,7 +39131,7 @@
       "id": "230020300",
       "entities": 772,
       "regions": 53,
-      "textures": 699,
+      "textures": 731,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -37532,6 +39175,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "3/obj/47": {
             "oS": "acc5",
@@ -37710,7 +39354,7 @@
       "id": "230030000",
       "entities": 434,
       "regions": 38,
-      "textures": 659,
+      "textures": 691,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -37800,6 +39444,7 @@
             "tn": "east00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "1/obj/0": {
             "oS": "acc5",
@@ -37861,7 +39506,7 @@
       "id": "230030001",
       "entities": 743,
       "regions": 38,
-      "textures": 653,
+      "textures": 685,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -37903,6 +39548,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -37911,7 +39557,7 @@
       "id": "230030100",
       "entities": 374,
       "regions": 39,
-      "textures": 690,
+      "textures": 722,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -38058,6 +39704,7 @@
             "tn": "st00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "3/obj/8": {
             "oS": "acc5",
@@ -38158,7 +39805,7 @@
       "id": "230030101",
       "entities": 33,
       "regions": 21,
-      "textures": 528,
+      "textures": 560,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -38310,6 +39957,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -38318,7 +39966,7 @@
       "id": "230030200",
       "entities": 495,
       "regions": 36,
-      "textures": 686,
+      "textures": 718,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -38386,6 +40034,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {
           "2/obj/21": {
             "oS": "acc5",
@@ -38538,7 +40187,7 @@
       "id": "230040000",
       "entities": 192,
       "regions": 20,
-      "textures": 672,
+      "textures": 704,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -38599,6 +40248,7 @@
             "tn": "top00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -38607,7 +40257,7 @@
       "id": "230040001",
       "entities": 66,
       "regions": 22,
-      "textures": 535,
+      "textures": 567,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -38643,6 +40293,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -38651,7 +40302,7 @@
       "id": "230040100",
       "entities": 204,
       "regions": 22,
-      "textures": 681,
+      "textures": 713,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -38711,6 +40362,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -38719,7 +40371,7 @@
       "id": "230040200",
       "entities": 182,
       "regions": 23,
-      "textures": 715,
+      "textures": 747,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -38787,6 +40439,7 @@
             "tn": "in00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -38795,7 +40448,7 @@
       "id": "230040300",
       "entities": 263,
       "regions": 23,
-      "textures": 679,
+      "textures": 711,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -38882,6 +40535,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -38890,7 +40544,7 @@
       "id": "230040301",
       "entities": 60,
       "regions": 20,
-      "textures": 524,
+      "textures": 556,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -38927,6 +40581,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -38935,7 +40590,7 @@
       "id": "230040400",
       "entities": 443,
       "regions": 31,
-      "textures": 763,
+      "textures": 795,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -39011,6 +40666,7 @@
             "tn": "under00"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -39019,7 +40675,7 @@
       "id": "230040401",
       "entities": 13,
       "regions": 2,
-      "textures": 502,
+      "textures": 534,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -39056,6 +40712,7 @@
             "script": ""
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -39064,7 +40721,7 @@
       "id": "230040410",
       "entities": 129,
       "regions": 23,
-      "textures": 582,
+      "textures": 614,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -39110,6 +40767,7 @@
             "script": "Pianus"
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -39118,7 +40776,7 @@
       "id": "680000004",
       "entities": 85,
       "regions": 18,
-      "textures": 562,
+      "textures": 594,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -39184,6 +40842,7 @@
             "onlyOnce": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -39192,7 +40851,7 @@
       "id": "922200000",
       "entities": 260,
       "regions": 28,
-      "textures": 606,
+      "textures": 638,
       "physics": {
         "version": 10,
         "cloud": 0,
@@ -39230,6 +40889,7 @@
             "delay": 0
           }
         },
+        "$seats": {},
         "$objectPhysics": {},
         "$unrecognized": {}
       }
@@ -39242,28 +40902,28 @@
     "maxMaps": 512
   },
   "counts": {
-    "textures": 22702,
-    "atlases": 5409,
-    "images": 2367,
+    "textures": 23437,
+    "atlases": 5421,
+    "images": 2388,
     "regions": 7013
   },
   "bytes": {
-    "originalRGBA": 1610041596,
-    "roundTripCompared": 1608782824,
-    "atlasPNG": 166488457,
+    "originalRGBA": 1655801868,
+    "roundTripCompared": 1654543096,
+    "atlasPNG": 174183154,
     "tileReconstructionCompared": 5200920,
-    "mapJSON": 149396099,
+    "mapJSON": 439568928,
     "hitboxReferencesJSON": 5005,
-    "catalogJSON": 19478825,
-    "regionJSON": 44451811,
-    "atlasDecodedRGBA": 2402154568
+    "catalogJSON": 19481194,
+    "regionJSON": 44451805,
+    "atlasDecodedRGBA": 2503557536
   },
   "pixelRoundTrip": {
     "passed": true,
     "method": "PNG IDAT independently inflated and each RGBA subrect row compared byte-for-byte"
   },
   "formats": {
-    "1/0": 22723,
+    "1/0": 23458,
     "513/4": 2,
     "2/0": 18
   },
@@ -39654,6 +41314,27 @@
     "UI.wz:Basic.img",
     "UI.wz:UIWindow.img",
     "Map.wz:MapHelper.img",
+    "Map.wz:WorldMap/WorldMap.img",
+    "Map.wz:WorldMap/WorldMap000.img",
+    "Map.wz:WorldMap/WorldMap010.img",
+    "Map.wz:WorldMap/WorldMap011.img",
+    "Map.wz:WorldMap/WorldMap012.img",
+    "Map.wz:WorldMap/WorldMap013.img",
+    "Map.wz:WorldMap/WorldMap020.img",
+    "Map.wz:WorldMap/WorldMap021.img",
+    "Map.wz:WorldMap/WorldMap030.img",
+    "Map.wz:WorldMap/WorldMap031.img",
+    "Map.wz:WorldMap/WorldMap040.img",
+    "Map.wz:WorldMap/WorldMap050.img",
+    "Map.wz:WorldMap/WorldMap051.img",
+    "Map.wz:WorldMap/WorldMap060.img",
+    "Map.wz:WorldMap/WorldMap070.img",
+    "Map.wz:WorldMap/WorldMap080.img",
+    "Map.wz:WorldMap/WorldMap090.img",
+    "Map.wz:WorldMap/WorldMap100.img",
+    "Map.wz:WorldMap/WorldMap140.img",
+    "Map.wz:WorldMap/WorldMap141.img",
+    "Map.wz:WorldMap/WorldMap142.img",
     "String.wz:ToolTipHelp.img",
     "Item.wz:Cash/0501.img",
     "Item.wz:Cash/0502.img",
@@ -41636,7 +43317,7 @@
     "Mob.wz:9500332.img",
     "Morph.wz:0001.img"
   ],
-  "durationMs": 33964.966540999994,
+  "durationMs": 35389.254834,
   "limitations": [
     "Camera fallback derived from footholds; exact original fallback remains unverified.",
     "Map metadata retains active unsupported physics in physics.unsupported.",
@@ -45502,6 +47183,216 @@
       "offset": 18769595,
       "sha256": "ea1cf9eeaf6b35809cfca421337e1d6f49ac1f4b2d6852a59f67063653cdf013",
       "bytes": 2358480
+    },
+    "Map.wz:WorldMap/WorldMap.img": {
+      "path": "WorldMap/WorldMap.img",
+      "name": "WorldMap.img",
+      "type": 4,
+      "size": 399329,
+      "checksum": 52524055,
+      "offset": 28848431,
+      "sha256": "0cdf7ffe0c2084f6cecd49d454234695b92bc477ab019ab56ba734d08e31a42e",
+      "bytes": 399329
+    },
+    "Map.wz:WorldMap/WorldMap000.img": {
+      "path": "WorldMap/WorldMap000.img",
+      "name": "WorldMap000.img",
+      "type": 4,
+      "size": 201850,
+      "checksum": 26930497,
+      "offset": 29511980,
+      "sha256": "60b3b837b95fd0d87f5dfa12190ab25537d09776a28c12ddf3b6e0e720382f35",
+      "bytes": 201850
+    },
+    "Map.wz:WorldMap/WorldMap010.img": {
+      "path": "WorldMap/WorldMap010.img",
+      "name": "WorldMap010.img",
+      "type": 4,
+      "size": 313324,
+      "checksum": 41124868,
+      "offset": 26748760,
+      "sha256": "b277797dbf146a2c2b91039d5343237e034171146a191ae7dac987ef30e9e644",
+      "bytes": 313324
+    },
+    "Map.wz:WorldMap/WorldMap011.img": {
+      "path": "WorldMap/WorldMap011.img",
+      "name": "WorldMap011.img",
+      "type": 4,
+      "size": 215401,
+      "checksum": 29033086,
+      "offset": 27305625,
+      "sha256": "3854285b33fae89f7917c8e616a5f5528dd2837d36df3b8e283ecbe4d1323869",
+      "bytes": 215401
+    },
+    "Map.wz:WorldMap/WorldMap012.img": {
+      "path": "WorldMap/WorldMap012.img",
+      "name": "WorldMap012.img",
+      "type": 4,
+      "size": 243539,
+      "checksum": 32201297,
+      "offset": 28604892,
+      "sha256": "129fefee8b1258ffce65a3d2f3aba5e22b75838ff6339fbb272fc3b516428dbc",
+      "bytes": 243539
+    },
+    "Map.wz:WorldMap/WorldMap013.img": {
+      "path": "WorldMap/WorldMap013.img",
+      "name": "WorldMap013.img",
+      "type": 4,
+      "size": 208000,
+      "checksum": 27620407,
+      "offset": 29933484,
+      "sha256": "8286f0e037373f40f4b144e8ee9e428731dd9a1a25065bc8447141556acc2c8f",
+      "bytes": 208000
+    },
+    "Map.wz:WorldMap/WorldMap020.img": {
+      "path": "WorldMap/WorldMap020.img",
+      "name": "WorldMap020.img",
+      "type": 4,
+      "size": 229875,
+      "checksum": 30297026,
+      "offset": 30811780,
+      "sha256": "10aed0f400d1431cec395b7f27413dc830e2813470622cc4ec6cba455cd8a90b",
+      "bytes": 229875
+    },
+    "Map.wz:WorldMap/WorldMap021.img": {
+      "path": "WorldMap/WorldMap021.img",
+      "name": "WorldMap021.img",
+      "type": 4,
+      "size": 206330,
+      "checksum": 27295030,
+      "offset": 30141484,
+      "sha256": "7c729edffaa87482cb46bbe6a5193a2e684a89c580e8358a0dbca4ecec365159",
+      "bytes": 206330
+    },
+    "Map.wz:WorldMap/WorldMap030.img": {
+      "path": "WorldMap/WorldMap030.img",
+      "name": "WorldMap030.img",
+      "type": 4,
+      "size": 237188,
+      "checksum": 31269320,
+      "offset": 28367704,
+      "sha256": "7bff4a322a8ea9ab1f9a7ed21fd6ec32af7e89b53716a6b8db686e9994329282",
+      "bytes": 237188
+    },
+    "Map.wz:WorldMap/WorldMap031.img": {
+      "path": "WorldMap/WorldMap031.img",
+      "name": "WorldMap031.img",
+      "type": 4,
+      "size": 243541,
+      "checksum": 32740449,
+      "offset": 27062084,
+      "sha256": "45d9705b523f930ab7f5ff67f78693f6642bdcfc6acff569ccef3873cad2672d",
+      "bytes": 243541
+    },
+    "Map.wz:WorldMap/WorldMap040.img": {
+      "path": "WorldMap/WorldMap040.img",
+      "name": "WorldMap040.img",
+      "type": 4,
+      "size": 192971,
+      "checksum": 25880370,
+      "offset": 27687178,
+      "sha256": "a84ed41c77652eb818e9e8bf14d6daf2cc2e53627eebe8072ecc997b714337cf",
+      "bytes": 192971
+    },
+    "Map.wz:WorldMap/WorldMap050.img": {
+      "path": "WorldMap/WorldMap050.img",
+      "name": "WorldMap050.img",
+      "type": 4,
+      "size": 264220,
+      "checksum": 35000811,
+      "offset": 29247760,
+      "sha256": "1afcff92069212bb5d8d9a696173f09c5486c81fdc2aa925dc3bf633177270c0",
+      "bytes": 264220
+    },
+    "Map.wz:WorldMap/WorldMap051.img": {
+      "path": "WorldMap/WorldMap051.img",
+      "name": "WorldMap051.img",
+      "type": 4,
+      "size": 245426,
+      "checksum": 32715585,
+      "offset": 27880149,
+      "sha256": "0b0d4508ed92ff04fc73fadb7d18efe62e684f4a86eb7715689597007a437fd4",
+      "bytes": 245426
+    },
+    "Map.wz:WorldMap/WorldMap060.img": {
+      "path": "WorldMap/WorldMap060.img",
+      "name": "WorldMap060.img",
+      "type": 4,
+      "size": 219654,
+      "checksum": 29079715,
+      "offset": 29713830,
+      "sha256": "a3c11249bdb2d12464238b6b27275905299a6410c102c8113ef18dd8d41fc4c0",
+      "bytes": 219654
+    },
+    "Map.wz:WorldMap/WorldMap070.img": {
+      "path": "WorldMap/WorldMap070.img",
+      "name": "WorldMap070.img",
+      "type": 4,
+      "size": 191654,
+      "checksum": 25574108,
+      "offset": 31283318,
+      "sha256": "2dfc55af68dea76088dcb1309c19fd785d72eb26336998764bce5467b8b9807b",
+      "bytes": 191654
+    },
+    "Map.wz:WorldMap/WorldMap080.img": {
+      "path": "WorldMap/WorldMap080.img",
+      "name": "WorldMap080.img",
+      "type": 4,
+      "size": 260850,
+      "checksum": 34749264,
+      "offset": 26487910,
+      "sha256": "52ff388a0c026138fe70f85508f13fa8d12c61be28e865fb470c2a14ec1360b0",
+      "bytes": 260850
+    },
+    "Map.wz:WorldMap/WorldMap090.img": {
+      "path": "WorldMap/WorldMap090.img",
+      "name": "WorldMap090.img",
+      "type": 4,
+      "size": 242129,
+      "checksum": 32465974,
+      "offset": 28125575,
+      "sha256": "148a44c1eac0fa43c60a3381be2432fa9f13bdf91235af45724db6e0665dec51",
+      "bytes": 242129
+    },
+    "Map.wz:WorldMap/WorldMap100.img": {
+      "path": "WorldMap/WorldMap100.img",
+      "name": "WorldMap100.img",
+      "type": 4,
+      "size": 234400,
+      "checksum": 31186117,
+      "offset": 30577380,
+      "sha256": "ae8992f08187868861a470d8f5bff9f4007558efc1578e72ea96a24a2e13bf34",
+      "bytes": 234400
+    },
+    "Map.wz:WorldMap/WorldMap140.img": {
+      "path": "WorldMap/WorldMap140.img",
+      "name": "WorldMap140.img",
+      "type": 4,
+      "size": 229566,
+      "checksum": 30636260,
+      "offset": 30347814,
+      "sha256": "b4509faa3d138c3c31d461f661320c668cb46efac1647d43ea4a1cd018ed2383",
+      "bytes": 229566
+    },
+    "Map.wz:WorldMap/WorldMap141.img": {
+      "path": "WorldMap/WorldMap141.img",
+      "name": "WorldMap141.img",
+      "type": 4,
+      "size": 241663,
+      "checksum": 32105312,
+      "offset": 31041655,
+      "sha256": "e49c7b2cfc519e9c9b3d2c8cdf2a307dff56163a09a82c6f96b2f0dcb74eee30",
+      "bytes": 241663
+    },
+    "Map.wz:WorldMap/WorldMap142.img": {
+      "path": "WorldMap/WorldMap142.img",
+      "name": "WorldMap142.img",
+      "type": 4,
+      "size": 166152,
+      "checksum": 22567301,
+      "offset": 27521026,
+      "sha256": "309bea27ad11d08e41c332e72870bfe09b9e2f605a8022597ab7b5f05e02aa83",
+      "bytes": 166152
     },
     "String.wz:ToolTipHelp.img": {
       "path": "ToolTipHelp.img",

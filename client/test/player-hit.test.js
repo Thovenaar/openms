@@ -59,7 +59,14 @@ async function fieldFixture() {
         action: "stand1",
         actions: {
           stand1: [
-            { delay: 150, parts: [{ texture: "pixel", x: 0, y: 0, z: 0 }] },
+            {
+              delay: 150,
+              parts: [
+                { texture: "pixel", x: 0, y: 0, z: 0 },
+                { texture: "pixel", x: 0, y: -24, z: 1, expression: "default" },
+                { texture: "pixel", x: 1, y: -24, z: 1, expression: "hit" },
+              ],
+            },
           ],
         },
       },
@@ -179,11 +186,11 @@ test("hits preserve movement, lethal impulse, and the authorized death-admission
   expect(field.tryReceiveHit(hit(100, false, 1))).toBe(true);
   expect(field.dead).toBe(true);
   expect(field.blinkTint).toBe(0xffffff);
-  expect(field.simulation.vx).toBe(200);
-  expect(field.simulation.vy).toBe(-200);
+  expect(field.simulation.vx).toBe(270);
+  expect(field.simulation.vy).toBe(-270);
   expect(field.tryReceiveHit(hit(1, true, -1))).toBe(false);
   expect(field.tryReceiveHit(hit(0, false, -1))).toBe(true);
-  expect(field.simulation.vx).toBe(0);
+  expect(field.simulation.vx).toBe(270);
   expect(field.store.profile.hp).toBe(0);
   field.destroy();
 });
@@ -193,6 +200,29 @@ test("an ordinary attack pose does not confer incoming-hit immunity", async () =
   field.phase = "attack";
   expect(field.tryReceiveHit(hit(10))).toBe(true);
   expect(field.store.profile.hp).toBe(90);
+  field.destroy();
+});
+
+test("miss, no-direction and resisted damage retain ground contact; failed stance admits impulse", async () => {
+  const field = await fieldFixture();
+  const simulation = field.simulation;
+  field.random = () => 99 / 0x100000000;
+  field.tryReceiveHit(hit(0, false, -1));
+  expect(simulation.state).toBe("ground");
+  expect(simulation.foothold.id).toBe(1);
+  field.tryReceiveHit(hit(5, false));
+  expect(simulation.state).toBe("ground");
+  expect(field.store.profile.hp).toBe(95);
+  field.hooks.derivedStats = () => ({ stance: 100 });
+  field.tryReceiveHit(hit(5, false, -1));
+  expect(simulation.state).toBe("ground");
+  expect(field.store.profile.hp).toBe(90);
+  field.hooks.derivedStats = () => ({ stance: 99 });
+  field.tryReceiveHit(hit(5, false, -1));
+  expect(simulation.state).toBe("air");
+  expect(simulation.vx).toBe(-270);
+  expect(simulation.vy).toBe(-270);
+  expect(field.store.profile.hp).toBe(85);
   field.destroy();
 });
 

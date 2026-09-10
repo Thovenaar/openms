@@ -1,3 +1,5 @@
+import { EXPRESSION_NAMES } from "./character-bindings.js";
+
 /** Browser engineering limits, not recovered game constants. */
 export const LIMITS = Object.freeze({
   fetches: 4,
@@ -20,6 +22,7 @@ export const LIMITS = Object.freeze({
   sprites: 65536,
   atlasSide: 2048,
 });
+const FACE_EXPRESSIONS = new Set(["default", ...EXPRESSION_NAMES]);
 
 /** Reject corrupt boundaries before allocating renderer resources. */
 export function finite(value) {
@@ -205,13 +208,45 @@ function frameParts(value, map, background) {
     alpha(part.opacity);
     if (
       part.expression !== undefined &&
-      part.expression !== "default" &&
-      part.expression !== "hit"
+      !FACE_EXPRESSIONS.has(part.expression)
     ) {
       throw new Error("Invalid avatar face expression");
     }
+    expressionTiming(part);
   }
 }
+/** Face frame timelines are independent of the body frame containing their anchors. */
+function expressionTiming(part) {
+  if (
+    part.expressionDuration !== undefined &&
+    (!Number.isSafeInteger(part.expressionDuration) ||
+      part.expressionDuration < 0)
+  ) {
+    throw new Error("Invalid avatar expression duration");
+  }
+  expressionInterval(part);
+}
+
+/** Validate the complete half-open interval; untimed face parts remain supported. */
+function expressionInterval(part) {
+  const start = part.expressionStart;
+  const end = part.expressionEnd;
+  const loop = part.expressionLoopMs;
+  if (start === undefined && end === undefined && loop === undefined) return;
+  if (
+    !part.expression ||
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    !Number.isSafeInteger(loop) ||
+    start < 0 ||
+    end < start ||
+    end > loop ||
+    loop <= 0
+  ) {
+    throw new Error("Invalid avatar expression frame interval");
+  }
+}
+
 function background(value) {
   if (!Number.isInteger(value.type) || value.type < 0 || value.type > 7) {
     throw new Error("Unsupported background mode");

@@ -101,6 +101,23 @@ function compactState(state) {
     metrics: state.metrics,
   };
 }
+/** Compare WebGL pixels, not CSS decorations such as native keyboard focus rings. */
+async function captureCanvas(file, oracle) {
+  if (oracle) {
+    const capture = await page.evaluate(() => window.maple.agent.capture());
+    const bytes = Buffer.from(capture.dataUrl.split(",")[1], "base64");
+    await Bun.write(join(output, file), bytes);
+    return bytes;
+  }
+  const canvas = await page.$("#scene-canvas");
+  if (!canvas) throw new Error("WebGL surface missing");
+  try {
+    return await canvas.screenshot({ path: join(output, file) });
+  } finally {
+    await canvas.dispose();
+  }
+}
+
 /** The atlas oracle covers world sprites, not UI text/nameplate composition. */
 async function capture(label, oracle = false) {
   await page.evaluate(() => window.maple.pause(true));
@@ -109,17 +126,12 @@ async function capture(label, oracle = false) {
     await page.evaluate(() => window.maple.setPresentationVisible(false));
   }
   try {
-    const canvas = await page.$("#scene-canvas");
-    if (!canvas) throw new Error("WebGL surface missing");
     const file = `${label}.png`;
-    const actual = decodePNG(
-      await canvas.screenshot({ path: join(output, file) }),
-    );
-    await canvas.dispose();
+    const actual = decodePNG(await captureCanvas(file, oracle));
     const state = await snapshot();
     report.captures.push({
       file,
-      scope: oracle ? "world-artwork-only" : "full-visible-surface",
+      scope: oracle ? "world-artwork-backbuffer" : "visible-canvas-element",
       state: compactState(state),
     });
     if (oracle) await compareOracle(state, actual, label);

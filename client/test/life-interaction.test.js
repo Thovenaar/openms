@@ -4,6 +4,7 @@ import "pixi.js/events";
 import { EntityAnimation } from "../src/animation.js";
 import { npcRectangle } from "../src/life-geometry.js";
 import { LifeSystem } from "../src/life-system.js";
+import { StreamScene } from "../src/stream-scene.js";
 
 const owners = [];
 afterEach(() => {
@@ -60,14 +61,18 @@ function fixture(info = {}) {
     inspected = [];
   const life = Object.create(LifeSystem.prototype);
   Object.assign(life, {
-    scene: {
+    scene: Object.assign(Object.create(StreamScene.prototype), {
       container: stage,
       overlays,
+      presentationContainers: new Set(),
+      presentationVisible: true,
+      worldContainers: new Set(),
+      depthSerial: 0,
       byId: new Map([[record.id, entity]]),
       simulation: { x: -10000, y: -10000, geometry: { byId: new Map() } },
       offlineField: { prepared: true, dead: false, byId: new Map() },
       manifest: { life: { templates: { [record.template]: template } } },
-    },
+    }),
     hooks: {
       onInteract: (npc) => delivered.push(npc),
       onError: (error) => {
@@ -254,4 +259,47 @@ test("an open NPC dialogue permits its live continuation but blocks all new worl
   expect(life.interactWorld(slot.record.id)).toBe(false);
   expect(release(target).stopped).toBe(false);
   expect(delivered.length).toBe(1);
+});
+
+test("presentation gating survives NPC recreation and late effects without hiding gameplay or overriding expiry", () => {
+  const { life, slot, entity } = fixture();
+  const scene = life.scene;
+  const effect = new Container();
+  scene.addWorldContainer(effect, 398500);
+  scene.setPresentationVisible(false);
+  life.update(0);
+  expect(scene.overlays.visible).toBe(false);
+  expect(slot.label.renderable).toBe(false);
+  expect(effect.renderable).toBe(false);
+  expect(entity.container.renderable).toBe(true);
+  expect(entity.sprites[0].visible).toBe(true);
+
+  entity.container.destroy({ children: true });
+  scene.byId.delete(slot.record.id);
+  life.refresh();
+  const replacement = npcResources({}).entity;
+  scene.container.addChild(replacement.container);
+  scene.byId.set(slot.record.id, replacement);
+  life.refresh();
+  expect(slot.label.renderable).toBe(false);
+  expect(replacement.container.renderable).toBe(true);
+
+  const lateEffect = new Container();
+  scene.addWorldContainer(lateEffect, 398500);
+  expect(lateEffect.renderable).toBe(false);
+  effect.visible = false;
+  slot.template.info.hideName = 1;
+  life.update(0);
+  scene.setPresentationVisible(true);
+  expect(scene.overlays.visible).toBe(true);
+  expect(slot.label.renderable).toBe(true);
+  expect(slot.label.visible).toBe(false);
+  expect(effect.renderable).toBe(true);
+  expect(effect.visible).toBe(false);
+  expect(lateEffect.renderable).toBe(true);
+  expect(lateEffect.visible).toBe(true);
+  scene.removeWorldContainer(effect);
+  scene.removeWorldContainer(lateEffect);
+  effect.destroy();
+  lateEffect.destroy();
 });

@@ -470,6 +470,8 @@ async function prepareExperiment(session, externalSignal) {
   const signal = AbortSignal.any([externalSignal, transition.signal]);
   loading = true;
   try {
+    await current?.fieldSystems.drops.waitForIdle();
+    check(signal);
     const candidate = await prepareCandidate(session.spec.mapId, signal, null, {
       store: session.store,
       travelGate: session.gate,
@@ -497,7 +499,7 @@ function installExperiment(scene, store, gate) {
   follow = true;
   debug = false;
   presentationVisible = true;
-  current.overlays.visible = true;
+  current.setPresentationVisible(true);
   inGame.ui.setVisible(true);
   inGame.setScene(scene);
   inGame.restoreSettings();
@@ -511,7 +513,7 @@ function restoreExperimentView(baseline) {
   follow = baseline.follow;
   debug = baseline.debug;
   presentationVisible = baseline.presentationVisible;
-  current.overlays.visible = presentationVisible;
+  current.setPresentationVisible(presentationVisible);
   inGame.ui.setVisible(presentationVisible);
   lastNow = performance.now();
   render();
@@ -756,7 +758,7 @@ function commitCandidate(candidate, revival = false) {
       candidate.fieldSystems.gameplay.synchronizeProfile();
     }
     inGame.setScene(candidate);
-    candidate.overlays.visible = presentationVisible;
+    candidate.setPresentationVisible(presentationVisible);
     render();
   } catch (error) {
     if (revival) profileStore.profile.hp = oldHP;
@@ -845,6 +847,12 @@ function assertCurrentLoad(request, context) {
   }
 }
 
+async function awaitCandidateCommit(request, context, fade, signal) {
+  if (fade && !(await fade.covered)) throw aborted();
+  check(signal);
+  assertCurrentLoad(request, context);
+}
+
 async function loadMap(id, refreshCatalog, portalName, context = {}) {
   const { request, signal } = beginMapLoad(context.signal);
   const fade =
@@ -853,11 +861,11 @@ async function loadMap(id, refreshCatalog, portalName, context = {}) {
   let candidate = null;
   try {
     check(signal);
+    await current?.fieldSystems.drops.waitForIdle();
+    check(signal);
     id = await resolveMapId(id, refreshCatalog, signal);
     candidate = await prepareCandidate(id, signal, portalName, context);
-    if (fade && !(await fade.covered)) throw aborted();
-    check(signal);
-    assertCurrentLoad(request, context);
+    await awaitCandidateCommit(request, context, fade, signal);
     commitCandidate(candidate, Boolean(context.revivalSource));
     candidate = null;
     if (fade) fieldTransition.reveal(request);
@@ -954,7 +962,7 @@ function destroyAgentSystems() {
   development?.destroy();
 }
 
-function destroy() {
+async function destroy() {
   if (destroyed) return;
   destroyed = true;
   generation++;
@@ -968,6 +976,11 @@ function destroy() {
   observer?.disconnect();
   document.removeEventListener("visibilitychange", visibilityChanged);
   window.removeEventListener("pagehide", pageLeaving);
+  await current?.fieldSystems.drops.waitForIdle();
+  retireSceneResources();
+}
+
+function retireSceneResources() {
   destroyAgentSystems();
   input?.destroy();
   controls?.destroy();
@@ -996,7 +1009,7 @@ const api = {
   setPresentationVisible(value) {
     presentationVisible = Boolean(value);
     inGame.ui.setVisible(presentationVisible);
-    if (current) current.overlays.visible = presentationVisible;
+    if (current) current.setPresentationVisible(presentationVisible);
     render();
   },
   reload() {

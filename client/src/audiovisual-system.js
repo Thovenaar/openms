@@ -369,8 +369,16 @@ export class AudiovisualSystem {
         owner.textures,
       );
       animation.setPosition(scene.simulation.x, scene.simulation.y);
-      scene.overlays.addChild(animation.container);
-      this.effect = { name, owner, animation, remaining: record.durationMs };
+      // 0093780b supplies native root B+398500 for LevelUp, not a UI overlay.
+      // Other explicit previews share this world-effect plane as preview policy.
+      scene.addWorldContainer(animation.container, 398500);
+      this.effect = {
+        scene,
+        name,
+        owner,
+        animation,
+        remaining: record.durationMs,
+      };
       owner = null;
       this.controls.status.textContent = `${name}: original frames/timing; ${trigger} trigger is local policy.`;
     } finally {
@@ -389,6 +397,10 @@ export class AudiovisualSystem {
       this.clearEffect();
       return;
     }
+    if (effect.name === "LevelUp") {
+      const pose = effect.scene.presentation ?? effect.scene.simulation;
+      effect.animation.setPosition(pose.x, pose.y);
+    }
     effect.animation.advance(ms);
   }
   clearEffect() {
@@ -398,6 +410,7 @@ export class AudiovisualSystem {
     if (!this.effect) return;
     const effect = this.effect;
     this.effect = null;
+    effect.scene.removeWorldContainer(effect.animation.container);
     effect.animation.container.destroy(DESTROY_DISPLAY);
     effect.owner.destroy();
   }

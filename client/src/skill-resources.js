@@ -49,6 +49,14 @@ export class SkillResources {
   }
 
   async loadBatch(skills) {
+    // Profile/job changes release no-longer-owned leases before admitting the replacement batch.
+    const retained = new Set(skills.map((skill) => skill.id));
+    for (const [id, record] of this.records) {
+      if (!retained.has(id)) {
+        this.release(record);
+        this.records.delete(id);
+      }
+    }
     for (const skill of skills) {
       check(this.controller.signal);
       const existing = this.records.get(skill.id);
@@ -135,12 +143,27 @@ export class SkillResources {
     return this.soundAdmissionError(skill, record);
   }
 
+  /** Authored unavailable sounds refuse admission even before the audio gesture. */
   soundAdmissionError(skill, record) {
-    if (this.hooks.audio?.context?.state === "running") {
-      for (const leaf of ["Use", "Hit"]) {
-        if (skill.sounds.leaves[leaf]?.available && !record.sounds.has(leaf)) {
-          return "Skill sound resources require preparation after audio enable";
-        }
+    for (const leaf of ["Use", "Hit"]) {
+      const sound = skill.sounds.leaves[leaf];
+      if (sound && !sound.available) {
+        return `Original ${leaf} sound unavailable: ${sound.reason}`;
+      }
+    }
+    if (this.hooks.audio?.context?.state !== "running") return null;
+    return this.preparedSoundError(skill, record);
+  }
+
+  /** Enabled audio requires both a free Use voice and every available decoded leaf. */
+  preparedSoundError(skill, record) {
+    for (const voice of this.voices) if (voice.ended) this.voices.delete(voice);
+    if (record.sounds.has("Use") && this.voices.size >= MAX_VOICES) {
+      return "Skill voice budget exceeded";
+    }
+    for (const leaf of ["Use", "Hit"]) {
+      if (skill.sounds.leaves[leaf]?.available && !record.sounds.has(leaf)) {
+        return "Skill sound resources require preparation after audio enable";
       }
     }
     return null;

@@ -150,6 +150,7 @@ export class OfflineMobRenderer {
         order: 100000 + Number(mob.id.slice(5)),
         x: mob.x,
         y: mob.y,
+        z: 239991, // Native uncontacted plane7/group0; synchronize applies live contact.
       };
       const presentation = new EntityAnimation(source, slot.resources.textures);
       presentation.gameplayOwned = true;
@@ -166,12 +167,14 @@ export class OfflineMobRenderer {
       });
       label.anchor.set(0.5, 0);
       label.eventMode = "none";
-      this.scene.overlays.addChild(label);
+      presentation.container.addChild(label);
       mob.nameLabel = label;
       this.synchronizeMob(mob);
       try {
         this.scene.addDynamicEntity(presentation);
+        this.scene.registerPresentationContainer(label);
       } catch (error) {
+        this.scene.unregisterPresentationContainer(label);
         mob.presentation = null;
         presentation.container.destroy({ children: true });
         label.destroy();
@@ -188,12 +191,26 @@ export class OfflineMobRenderer {
     entity.setPosition(mob.x, mob.y);
     entity.container.scale.x = mobFlipped(mob) ? -1 : 1;
     entity.container.visible = mob.visible;
+    // 00664e35: ordinary mob is below NPC/user/drop on its current contact plane.
+    const foothold = mob.foothold;
+    if (foothold) {
+      this.scene.setEntityDepth(
+        entity,
+        29991 + (foothold.layer * 3000 - foothold.group) * 10,
+      );
+    }
     const once = !mob.alive || mob.state === "hit" || mob.state === "attack";
     entity.setAction(mob.action, once ? "once" : "loop");
     entity.seek(mob.actionMs);
+    this.synchronizeName(mob);
+  }
+
+  /** Nameplates counter the body's flip and obey authored suppression flags. */
+  synchronizeName(mob) {
     const label = mob.nameLabel;
     if (label) {
-      label.position.set(mob.x, mob.y + 4);
+      label.position.set(0, 4);
+      label.scale.x = mob.presentation.container.scale.x;
       label.visible =
         mob.visible &&
         mob.nameRemainingMs > 0 &&
@@ -210,6 +227,9 @@ export class OfflineMobRenderer {
 
   remove(mob) {
     if (!mob.presentation) return;
+    if (mob.nameLabel) {
+      this.scene.unregisterPresentationContainer(mob.nameLabel);
+    }
     mob.nameLabel?.destroy();
     mob.nameLabel = null;
     this.scene.removeDynamicEntity(mob.id);

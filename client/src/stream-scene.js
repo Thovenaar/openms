@@ -100,14 +100,18 @@ export class StreamScene {
     this.atlases = services.atlases;
     this.viewport = viewport;
     this.camera = { ...manifest.camera };
-    this.container = new Container();
-    // Pixi enables parent sorting when actor depth changes; previews stay above world art.
+    this.container = new Container({ sortableChildren: true });
+    // Diagnostic hit targets/geometry are not native world layers.
     this.overlays = new Container({ zIndex: Number.MAX_SAFE_INTEGER });
     this.regions = new Map();
     this.entities = [];
     this.backgrounds = [];
     this.byId = new Map();
     this.dynamicEntities = new Map();
+    this.worldContainers = new Set();
+    this.presentationContainers = new Set();
+    this.presentationVisible = true;
+    this.depthSerial = 1000000;
     this.offlineField = null;
     this.actorRegion = new Region(this, null);
     this.simulation = null;
@@ -185,13 +189,17 @@ export class StreamScene {
     this.entities.sort(
       (left, right) =>
         left.container.zIndex - right.container.zIndex ||
-        left.order - right.order,
+        left.container.depthOrder - right.container.depthOrder,
     );
     this.container.removeChildren();
     for (const entity of this.entities) {
       this.container.addChild(entity.container);
     }
     this.container.addChild(this.overlays);
+    for (const container of this.worldContainers) {
+      this.container.addChild(container);
+    }
+    this.container.sortChildren();
     this.fieldSystems?.refresh();
   }
   /** Initialize and update the same pose contract, including paused map entry. */
@@ -201,8 +209,8 @@ export class StreamScene {
     actor.setPosition(pose.x, pose.y);
     // Original extracted artwork faces left; positive direction mirrors it.
     actor.container.scale.x = pose.facing > 0 ? -1 : 1;
-    // 00930b27 modulates RGB, not alpha; parent tint covers every resident/future part.
-    actor.container.tint = pose.tint ?? 0xffffff;
+    // 00930b27 modulates actor artwork, not independent name/effect layers.
+    actor.setTint(pose.tint ?? 0xffffff);
     const playback =
       pose.playback ?? (actor.action === action ? actor.playback : "loop");
     actor.setAction(action, playback);
@@ -227,6 +235,7 @@ export class StreamScene {
       throw new Error("Dynamic entity residency backpressure");
     }
     this.dynamicEntities.set(entity.id, entity);
+    entity.container.depthOrder = ++this.depthSerial;
     this.refreshEntities();
   }
   removeDynamicEntity(id) {
@@ -236,33 +245,91 @@ export class StreamScene {
     entity.container.removeFromParent();
     this.refreshEntities();
   }
+  /** Gate presentation independently from each owner's authored/timed visibility. */
+  setPresentationVisible(value) {
+    this.presentationVisible = value;
+    this.overlays.visible = value;
+    for (const container of this.presentationContainers) {
+      container.renderable = value;
+    }
+  }
+
+  /** Registration borrows the container; its subsystem retains teardown ownership. */
+  registerPresentationContainer(container) {
+    this.presentationContainers.add(container);
+    container.renderable = this.presentationVisible;
+  }
+
+  unregisterPresentationContainer(container) {
+    this.presentationContainers.delete(container);
+    if (!container.destroyed) container.renderable = true;
+  }
+
+  /** Independent native world layers (names/numbers), retained across region refresh. */
+  addWorldContainer(container, z) {
+    container.zIndex = z;
+    container.depthOrder = ++this.depthSerial;
+    this.worldContainers.delete(container);
+    this.worldContainers.add(container);
+    this.registerPresentationContainer(container);
+    this.container.addChild(container);
+    this.container.sortChildren();
+  }
+  removeWorldContainer(container) {
+    this.worldContainers.delete(container);
+    this.unregisterPresentationContainer(container);
+    container.removeFromParent();
+  }
   /** 0092fd16 local-user depth; update sorted ownership only when its plane changes. */
   updateActorDepth() {
-    const actor = this.actor;
     const sim = this.simulation;
+    // 0092fd37..46: active local controller adds five, independently of ground contact.
     const z = 29997 + (sim.contactLayer * 3000 - sim.contactGroup) * 10;
+    this.setEntityDepth(this.actor, z);
+  }
+  /** 50403a4b/50409efd: equal world z uses latest depth mutation serial, not y.
+   * Update both owned entity order and the flattened display list without allocation. */
+  setEntityDepth(actor, z) {
     const previous = actor.container.zIndex;
     if (z === previous) return;
     actor.container.zIndex = z;
+    actor.container.depthOrder = ++this.depthSerial;
     const oldIndex = this.entities.indexOf(actor);
-    if (oldIndex < 0) {
-      throw new Error("Live actor missing from scene ownership");
-    }
+    // Initial pose/deferred dynamic preparation can precede scene registration.
+    if (oldIndex < 0) return;
     let index = oldIndex;
     const direction = z > previous ? 1 : -1;
     for (let count = 0; count < this.entities.length; count++) {
       const nextIndex = index + direction;
       if (nextIndex < 0 || nextIndex >= this.entities.length) break;
       const next = this.entities[nextIndex];
-      const comparison = z - next.container.zIndex || actor.order - next.order;
+      const comparison =
+        z - next.container.zIndex ||
+        actor.container.depthOrder - next.container.depthOrder;
       if (comparison * direction <= 0) break;
       this.entities[index] = next;
       index = nextIndex;
     }
     this.entities[index] = actor;
-    if (index !== oldIndex) {
-      this.container.setChildIndex(actor.container, index);
+    this.reorderDisplayChild(actor.container, direction);
+  }
+
+  /** Move the flattened display child across peers, including independent world layers. */
+  reorderDisplayChild(container, direction) {
+    const children = this.container.children;
+    let childIndex = this.container.getChildIndex(container);
+    for (let count = 0; count < children.length; count++) {
+      const nextIndex = childIndex + direction;
+      if (nextIndex < 0 || nextIndex >= children.length) break;
+      const next = children[nextIndex];
+      const comparison =
+        container.zIndex - next.zIndex ||
+        container.depthOrder - next.depthOrder;
+      if (comparison * direction <= 0) break;
+      childIndex = nextIndex;
     }
+    this.container.setChildIndex(container, childIndex);
+    this.container.sortDirty = false;
   }
 
   collect(region) {
@@ -332,6 +399,10 @@ export class StreamScene {
     this.actorRegion.destroy();
     for (const region of this.regions.values()) region.destroy();
     this.regions.clear();
+    // External presentation systems retain their own containers/textures.
+    for (const container of this.worldContainers) container.removeFromParent();
+    this.worldContainers.clear();
+    this.presentationContainers.clear();
     this.container.destroy({ children: true });
     this.entities.length = 0;
     this.backgrounds.length = 0;

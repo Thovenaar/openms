@@ -1,4 +1,5 @@
 import { at, value, resolveNode } from "../src/assets/image.js";
+import { EXPRESSION_NAMES } from "../src/character-bindings.js";
 
 // Original ordinary action table 004a38e7, unique names for indices 0..39.
 const STANDARD_ACTIONS = Object.freeze([
@@ -104,7 +105,7 @@ function bodyPose(body, action, index) {
 
 /** Death is an original composition substitution, not a guessed pose alias.
  * 00407757 strips clothing/weapon; 0041272c uses jump for the head/hair/face. */
-function equipmentFrame(item, slot, pose, expression = "default") {
+function equipmentFrame(item, slot, pose, expression = null) {
   const dead = pose.action === "dead";
   if (dead && slot >= 4) return null;
   if (slot === 3) return faceFrame(item, pose, expression);
@@ -119,10 +120,13 @@ function equipmentFrame(item, slot, pose, expression = "default") {
   return authoredEquipmentFrame(root, index, item.source);
 }
 
-/** The body face flag admits exactly the authored default or first hit frame. */
+/** The body face flag admits the selected original expression's frame. */
 function faceFrame(item, pose, expression) {
   if (!value(pose.frame, "face", 0)) return null;
-  return at(item, expression === "default" ? "default" : "hit/0");
+  return at(
+    item,
+    expression ? `${expression.name}/${expression.index}` : "default",
+  );
 }
 
 /** Keep missing frames distinct from an entirely unauthored weapon family. */
@@ -161,7 +165,7 @@ function appendFrameCanvases(candidates, frame) {
 }
 
 /** Retain every selected authored canvas; absent weapon families remain absent. */
-function candidatesFor(equipment, pose, expression = "default") {
+function candidatesFor(equipment, pose, expression = null) {
   const candidates = [];
   for (let slot = 0; slot < equipment.length; slot++) {
     const frame = equipmentFrame(equipment[slot], slot, pose, expression);
@@ -303,7 +307,16 @@ async function avatarFrame(context, equipment, zmap, request) {
     if (canvas.name === "face") part.expression = "default";
     parts.push(part);
   }
-  await appendHitFaceParts(context, equipment, zmap, { pose, parts });
+  for (const expression of request.expressions) {
+    await appendExpressionParts(context, equipment, zmap, {
+      pose,
+      parts,
+      expression,
+    });
+  }
+  if (parts.length > MAX_PARTS) {
+    throw new Error("Avatar expression part bound exceeded");
+  }
   const authoredDelay = value(original, "delay", ORIGINAL_DELAY_MS);
   // 00406abd: negative alias delays become absolute durations and also contribute
   // to the original pre-action sum. That sum is not a local damaging-frame rule.
@@ -319,11 +332,11 @@ async function avatarFrame(context, equipment, zmap, request) {
   return { delay: Math.abs(authoredDelay), parts };
 }
 
-/** Hit expressions use their own anchor composition, but publish only the face. */
-async function appendHitFaceParts(context, equipment, zmap, composition) {
-  const { pose, parts } = composition;
+/** Each expression uses its own anchor composition; publish only its face. */
+async function appendExpressionParts(context, equipment, zmap, composition) {
+  const { pose, parts, expression } = composition;
   if (!value(pose.frame, "face", 0)) return;
-  const hitCandidates = candidatesFor(equipment, pose, "hit");
+  const hitCandidates = candidatesFor(equipment, pose, expression);
   const hitPositions = placeCandidates(hitCandidates, pose);
   for (const canvas of hitCandidates) {
     if (canvas.name !== "face") continue;
@@ -334,9 +347,46 @@ async function appendHitFaceParts(context, equipment, zmap, composition) {
       throw new Error(`Unknown face z ${z}`);
     }
     const part = await context.part(canvas, position.x, position.y, -rank);
-    part.expression = "hit";
+    part.expression = expression.name;
+    part.expressionStart = expression.start;
+    part.expressionEnd = expression.end;
+    part.expressionLoopMs = expression.loopMs;
+    part.expressionDuration = expression.duration;
     parts.push(part);
   }
+}
+
+/** 00407a36: expression root scalar duration overrides the5000-ms default.
+ * Frame delays animate independently from the body and use the150-ms fallback. */
+function expressionFrames(face) {
+  const output = [];
+  for (const name of EXPRESSION_NAMES) {
+    const root = at(face, name);
+    const duration = value(root, "delay", 5000);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      throw new Error(`Invalid original expression duration ${name}`);
+    }
+    const first = output.length;
+    let end = 0;
+    for (const index of frameIndices(root)) {
+      const delay = value(at(root, index), "delay", ORIGINAL_DELAY_MS);
+      if (!Number.isFinite(delay) || delay <= 0) {
+        throw new Error(
+          `Invalid original expression frame delay ${name}/${index}`,
+        );
+      }
+      const start = end;
+      end += delay;
+      output.push({ name, index, duration, start, end, loopMs: 0 });
+      if (output.length > MAX_PARTS) {
+        throw new Error("Expression frame bound exceeded");
+      }
+    }
+    for (let index = first; index < output.length; index++) {
+      output[index].loopMs = end;
+    }
+  }
+  return output;
 }
 
 function frameIndices(bodyAction) {
@@ -361,13 +411,18 @@ function frameIndices(bodyAction) {
 export async function extractAvatar(context) {
   const zmap = Object.keys(context.image("Base", "zmap.img").children);
   const equipment = EQUIPMENT.map((path) => context.image("Character", path));
+  const expressions = expressionFrames(equipment[3]);
   const actions = Object.create(null);
   for (const action of [...STANDARD_ACTIONS, ...POSE_ALIASES]) {
     const indices = frameIndices(at(equipment[0], action));
     const frames = [];
     for (const index of indices) {
       frames.push(
-        await avatarFrame(context, equipment, zmap, { action, index }),
+        await avatarFrame(context, equipment, zmap, {
+          action,
+          index,
+          expressions,
+        }),
       );
     }
     // 004a38e7 marks these direct actions bidirectional; 00406abd appends N-2..1.

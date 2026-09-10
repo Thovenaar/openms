@@ -14,6 +14,13 @@ const MAX_PLACEMENTS = 4096;
 const MAX_ACTIONS = 128;
 const MAX_FRAMES = 1024;
 const MAX_TARGET_ANCESTORS = 32;
+// 006d9390 / 0094f2ed, original float32 constant at00afc9f0.
+const TALK_RADIUS = 200;
+const TALK_EDGE = Math.trunc((1.4140000343322754 - 1) * TALK_RADIUS);
+const TALK_CORNER = Math.trunc(TALK_RADIUS / 1.4140000343322754);
+const TALK_HORIZONTAL = { horizontal: TALK_RADIUS, vertical: TALK_EDGE };
+const TALK_VERTICAL = { horizontal: TALK_EDGE, vertical: TALK_RADIUS };
+const TALK_DIAGONAL = { horizontal: TALK_CORNER, vertical: TALK_CORNER };
 
 /** Validate the independent metadata boundary before allocating preview graphics. */
 function validateLife(life) {
@@ -158,7 +165,6 @@ export class LifeSystem {
       slot.body.graphic,
       slot.interaction.graphic,
     );
-    if (label) this.root.addChild(label);
     return slot;
   }
 
@@ -193,8 +199,14 @@ export class LifeSystem {
     if (slot.entity && !slot.entity.container.destroyed) {
       slot.entity.container.off("pointertap", slot.handler);
     }
+    if (slot.label) this.scene.unregisterPresentationContainer(slot.label);
     slot.entity = entity ?? null;
     if (!entity) return;
+    if (slot.label) {
+      if (slot.label.destroyed) slot.label = createLabel(slot.template);
+      entity.container.addChild(slot.label);
+      this.scene.registerPresentationContainer(slot.label);
+    }
     slot.previousX = entity.container.x;
     slot.previousY = entity.container.y;
     if (!entity.gameplayOwned) {
@@ -260,9 +272,11 @@ export class LifeSystem {
   }
 
   updateLabel(slot, visible, entity) {
+    if (slot.label.destroyed) return;
     slot.label.visible = visible && slot.template.info.hideName !== 1;
     if (entity) {
-      slot.label.position.set(entity.container.x, entity.container.y);
+      slot.label.position.set(0, 0);
+      slot.label.scale.x = entity.container.scale.x;
     }
   }
 
@@ -343,6 +357,35 @@ export class LifeSystem {
       this.hooks.onError(error);
       return false;
     }
+  }
+  /** Native keyboard Talk selects nearest eligible origin inside the expanded dc union. */
+  talkNearest() {
+    if (this.destroyed) return false;
+    const player = this.scene.simulation;
+    let selected = null;
+    let distance = Infinity;
+    for (const slot of this.slots) {
+      if (!this.canInteract(slot.record.id, true)) continue;
+      // 006dd71d..754: talkMouseOnly writes template+0x44; pointer talk is unaffected.
+      if (slot.template.info.talkMouseOnly) continue;
+      const origin = slot.entity.container;
+      const x = Math.trunc(player.x) - origin.x;
+      const y = Math.trunc(player.y) - origin.y;
+      const rectangle = slot.interactionLocal;
+      if (
+        !expandedContains(rectangle, x, y, TALK_HORIZONTAL) &&
+        !expandedContains(rectangle, x, y, TALK_VERTICAL) &&
+        !expandedContains(rectangle, x, y, TALK_DIAGONAL)
+      ) {
+        continue;
+      }
+      const candidate = x * x + y * y;
+      if (candidate < distance) {
+        selected = slot;
+        distance = candidate;
+      }
+    }
+    return selected ? this.interactWorld(selected.record.id) : false;
   }
 
   /** Metadata selection is a separate route; failed world actions never open the inspector. */
@@ -440,6 +483,10 @@ export class LifeSystem {
     this.destroyed = true;
     this.controls.destroy();
     for (const slot of this.slots) {
+      if (slot.label) this.scene.unregisterPresentationContainer(slot.label);
+      if (slot.label && !slot.label.destroyed) {
+        slot.label.destroy({ children: true });
+      }
       if (slot.entity && !slot.entity.container.destroyed) {
         slot.entity.container.off("pointertap", slot.handler);
       }
@@ -497,9 +544,19 @@ function renderedInScene(container, root) {
   return !container && resident;
 }
 
+/** Win32 PtInRect excludes right/bottom, including the expanded dc union. */
+function expandedContains(rectangle, x, y, expansion) {
+  return (
+    x >= rectangle.left - expansion.horizontal &&
+    x < rectangle.right + expansion.horizontal &&
+    y >= rectangle.top - expansion.vertical &&
+    y < rectangle.bottom + expansion.vertical
+  );
+}
+
 /** 006d5c9a types1001/1002 → 005f10f3..11d0: Arial12, yellow, A0 black. */
 function createLabel(template) {
-  const label = new Container({ label: "npc-nameplate" });
+  const label = new Container({ label: "npc-nameplate", zIndex: 2 });
   let y = 2; // 005f1691 sets canvas originY=-2.
   for (const value of [template.name, template.function]) {
     if (!value) continue;
@@ -534,6 +591,8 @@ function snapshotRectangle(rectangle) {
 }
 
 function snapshotSlot(slot) {
+  const entity = slot.entity;
+  const frame = slot.template.actions[slot.action]?.frames[entity?.frame ?? 0];
   return {
     id: slot.record.id,
     templateId: slot.template.originalId,
@@ -546,6 +605,16 @@ function snapshotSlot(slot) {
     nameHidden: slot.template.info.hideName === 1,
     authored: slot.record.authored,
     contactStatus: slot.contactStatus,
+    anchor: entity
+      ? {
+          x: entity.container.x,
+          y: entity.container.y,
+          z: entity.container.zIndex,
+        }
+      : null,
+    canvas: frame
+      ? { origin: frame.origin, width: frame.width, height: frame.height }
+      : null,
     body: snapshotRectangle(slot.body),
     sweptBody: snapshotRectangle(slot.sweep),
     npcInteraction: snapshotRectangle(slot.interaction),

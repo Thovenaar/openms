@@ -296,6 +296,21 @@ function drawPart(draw, part) {
   }
 }
 
+function selectedPart(part, entity) {
+  if (!part.expression) return true;
+  if (part.expression !== entity.expression) return false;
+  if (part.expressionStart === undefined) return true;
+  if (
+    !Number.isFinite(entity.expressionElapsedMs) ||
+    !Number.isFinite(part.expressionLoopMs) ||
+    part.expressionLoopMs <= 0
+  ) {
+    throw new Error("Invalid oracle expression clock");
+  }
+  const time = entity.expressionElapsedMs % part.expressionLoopMs;
+  return time >= part.expressionStart && time < part.expressionEnd;
+}
+
 function drawEntity(draw, entity) {
   if (!entity.visible) return;
   const frames = entity.actions[entity.action];
@@ -320,12 +335,7 @@ function drawEntity(draw, entity) {
   for (const part of [...draw.frame.parts].sort(
     (left, right) => left.z - right.z,
   )) {
-    if (
-      part.expression &&
-      part.expression !== (entity.expression ?? "default")
-    ) {
-      continue;
-    }
+    if (!selectedPart(part, entity)) continue;
     drawPart(draw, part);
   }
   context.restore();
@@ -371,6 +381,7 @@ export async function compose(state, size) {
             state.simulation.contactGroup) *
             10;
       }
+      entity.order = entity.depthOrder;
       if (![entity.z, entity.order].every(Number.isFinite)) {
         throw new Error("Invalid oracle drawing order");
       }

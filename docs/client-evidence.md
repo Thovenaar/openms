@@ -44,7 +44,7 @@ The string-pool recovery itself is independently reproducible: `0x0079e993` read
 
 ## Map draw ordering
 
-Let `B = -0x40000000`; increasing depth is the intended layer ordering. Exact equal-depth stability has not been established.
+Let `B = -0x40000000`; increasing depth is the intended layer ordering. The browser subtracts `B` from every root world depth. Renderer ties are **not world Y sorting**: `50403a4b` compares the first distinct overlay ancestors' signed depth, then their renderer serial (`virtual +0x0c(1)`). `5040399b` assigns the serial on insertion; `50409efd` assigns a new serial on depth mutation. Nested overlays stay with their ancestor group. Fresh read-only exports are `ghidra-client/depth-renderer*.txt`; `depth-renderer-ties.txt` resolves the accessors. The browser uses authored extraction order as the static initial serial (native initial map creation order remains unproved), and monotonic serials for dynamic insertion/depth changes. Stream reload preserves the authored static tie seed instead of making network completion order visible.
 
 | Entity | Original depth expression | Evidence |
 |---|---|---|
@@ -52,6 +52,18 @@ Let `B = -0x40000000`; increasing depth is the intended layer ordering. Exact eq
 | object | `B + 2000 + layer*30000 + obj.z` | `0x0063c212`; assembly `0x0063c27b IMUL ... 0x7530`, `0x0063c289 LEA ... +0xc00007d0` |
 | back (`front=0`) | `B - 128000 + index*1000` | `0x0063cd4e` |
 | front (`front!=0`) | `B + 272000 + index*1000` | `0x0063cd4e` |
+| ordinary mob | `B + 29991 + (layer*3000-group)*10` | `00664e35`, `depth-actors.txt`, `depth-actor-instructions.txt` |
+| NPC | `B + 29995 + (layer*3000-group)*10` | `006d267d` |
+| local player | `B + 29992 + (activeController?5:0) + (layer*3000-group)*10` | `0092fd16`; local active controller selects `29997` |
+| drop | `B + 29999 + (layer*3000-group)*10` | `00505900`, instruction `00505f82` |
+| combat number, miss, LevelUp | `B + 398500` (`0xc00614a4`) | `0043849c`, `0043dee8`, `0093780b`; `depth-label-instructions.txt` and `depth-effect-instructions.txt` |
+| ordinary name/function | relative overlay `z=2`, **parented to the actor's layer**, separately attached to its unflipped position vector | `005f1775`, `005f17bb`, `005f1805`; NPC passes artwork `+0xe4` in `006d5e6c` |
+
+Do not mistake vector `+0x18` for a foothold pointer: `009b12a8` writes its first activation argument there; the foothold is `+0x110`. Jumping does not remove the active local user's five-depth increment. Last contact layer/group survive ordinary flight; an initially uncontacted vector uses layer7/group0. Mob `00664e35` also contains controller-mode3 (`B+270100`) and explicit Zakum/Horntail/Pink Bean template overrides. These special controller/boss depth paths are retained as evidence, **not generalized ordinary-mob behavior**; their complete runtime controllers remain unavailable.
+
+The scene's `setEntityDepth` now maintains both the entity and actual flattened display ordering without rebuilding display objects or sorting every frame. `addWorldContainer/removeWorldContainer` retain independent native root layers through region refresh; only diagnostic geometry/hit targets use the always-front inspection overlay. Every damage/miss event has its own pooled root layer, so a later hit correctly sorts after an equal-depth LevelUp effect rather than being trapped inside a permanent number-group container. LevelUp follows the actor's original unflipped position vector (`004ad42b`); other explicit effect previews use the same world-effect plane as a documented preview policy, not a recovered automatic MapEff depth. Player/NPC/mob labels belong to actor groups, counter-mirror their position vector, and no longer pierce higher map/front artwork. Avatar RGB modulation affects artwork sprites rather than incorrectly tinting those independent name layers.
+
+`docs/tools/clientDepthRefs.java` was built and executed against the original executable to inventory all instructions with operands in `0xc0007500..0xc0007600`; `depth-operands.txt` led directly to ordinary mob and drop consumers. It bounds instruction visits at ten million and does not patch original bytes.
 
 Do not sort tile placement `zM` as if it were an ordinary ascending object `z`: it enters with a negative multiplier. Do not discard the tile canvas's `z`.
 
@@ -124,6 +136,30 @@ The client consumes each action frame's `delay`, canvases' `origin`, and named `
 Gr2D `0x5040b26c` adjusts a layer's geometry when its canvas changes, preserving placement relative to old/new canvas origins; `0x5040d98b` implements integral affine placement and optional horizontal reflection `x = 2*pivot - x`. This is evidence against bounding-box centering. The complete avatar anchor graph resolution, action remapping, equipment hiding via smap, zmap tie behavior, weapon-specific transitions, and original actor/foothold z relationship were not completely reconstructed in this scoped pass. Any independently written anchor-graph assembler must label its untraced rules as inference rather than claim exact original composition parity.
 
 Subsequent address-directed work recovered the standard fixed-loadout anchor forest, disconnected components, centroid merge and death composition in [avatar-actions.md](avatar-actions.md); arbitrary equipment arbitration remains qualified. The browser now projects each complete world composition and camera vector to signed integer pixels before GPU submission. This is an explicit interpolation/viewport policy consistent with integral placement, not a claim that original camera smoothing was recovered. Per-vertex GPU rounding was rejected because half-pixel ties distorted individual parts. The final [world oracle](offline-validation/performance/summary.json) has zero pixels outside its unchanged tolerance across seven captures, including moving mobs.
+
+### NPC ground alignment and reusable origin inspection
+
+`bun client/tools/inspect-origins.js SOURCE MAP_ID[,MAP_ID...] OUTPUT.json` reads the original WZ archives through the production parser/decoder, with bounded maps, placements, footholds and frames. It reports every stand-frame origin, canvas extent and bottommost nontransparent pixel relative to that origin; exact authored `x/y/cy/fh`, finite foothold geometry and placement-to-ground gap; and background origin, front/depth, camera ratios, repeat periods and original source paths. It writes evidence JSON, not replacement assets, and never recenters artwork using its opaque bounds.
+
+An actual run over `100000000,100000001,103000000,108000500,230000000` produced `ghidra-client/origin-layer-probe.json`: **69 NPC placements and51 backgrounds**. Sixty-seven placements were more than one pixel above their authored foothold when drawn literally at map-editor `y`. Representative anchors:
+
+| Map/entity | authored anchor | authored `cy` / finite ground | first stand opaque bottom relative to origin |
+|---|---|---|---|
+| `100000000/1012000` | `(149,267)` | `274 / 274` | `0` |
+| `100000001/1012101` Maya | `(-17,36)` | `38 / 38` | `0`; origin `(23,77)` |
+| `103000000/2042002` | `(-1390,303)` | `308 / 307.6771653543307` | `0` |
+| `108000500/1072008` Kyrin | `(-227,137)` | `150 / 150` | `2` |
+| `230000000/9250023` | `(-362,85)` | `100 / 100` | `-42`, deliberately floating artwork |
+
+Native `006d089a` reads packet position, direction and foothold, creates its NPC vector, then initializes through `009c1d70 -> 009b12a8 -> 009b1553`. The latter resolves contact distance from the foothold tangent and clamps to `[0,length]`; the usual finite floor has `x=clamp(authoredX,x1,x2)` and `y=y1+(x-x1)*(y2-y1)/(x2-x1)`. The offline extractor now resolves that authored floor before integer world placement; it retains raw map `y/cy`, never substitutes an arbitrary pixel offset, and leaves wall/missing-contact cases authored. This is initialization on the supplied authored contact, not a claim to reconstruct network NPC activation or movement. The camera attachment baseline for backgrounds, special canvas scaling and deliberate canvas-origin floating remain separate questions: no compensating background shift was invented.
+
+Native/browser overlap scenarios for integration: Henesys1012000 and Maya should touch their original floors; Kyrin retains the original two-pixel canvas overhang; Aqua9250023 retains its authored floating stand art. Walk/jump behind higher objects/fronts with the player and its name together; move ordinary mobs across connected foothold groups; settle/pick up a drop against tile edges; cross equal-depth dynamic entities and refresh regions without art reordering. Numerical production-scene smoke exercised dynamic equal-depth insertion/mutation (`npc,mob,front` then `mob,npc,front`), root damage numbers above ordinary fronts, and extracted smile expression expiry to default. This worker ran no project extraction/build/lint/tests and makes no new integrated visual-parity claim; Main owns browser acceptance.
+
+Expression rendering now accepts the packaged original families rather than only `default/hit`. Timed face parts retain `expressionStart`, `expressionEnd`, `expressionLoopMs` and root `expressionDuration`; the manifest boundary validates the shared native family table and complete integer intervals. `EntityAnimation` compiles per-family periods/durations once and advances a separate expression clock even while the body frame is held/completed. Main owns the original face extraction, cash-item ownership and activation/cooldown. A second actual-Pixi numerical smoke kept body frame0 fixed and exercised a120/120-ms face cycle: frame0 at0/119ms, frame1 at120ms, frame0 again at240ms, then default exactly at the supplied500-ms expiry. This is frame-clock proof, not native cash-emotion UI acceptance.
+
+A production-scene ownership smoke registered numberA, LevelUp, then reused numberA at equal z398500: draw order was`LevelUp,numberA`, remained identical after region refresh, and removing numberA retained LevelUp. Scene teardown detached rather than destroyed the externally owned effect container. Native-browser alpha overlap and the new pooled-number rendering still require Main's integrated playtest.
+
+A direct original`Character.wz:Face/00020000.img` metadata-to-production-animation probe also compiled `vomit` duration5000/period240 and `oops` duration1640/period150. It used actual original frame delays/root duration with ordinary Texture.WHITE stand-ins solely to exercise timing compilation; it did not claim face pixel rendering or run release extraction.
 
 ### Texture formats and blend state — verified
 

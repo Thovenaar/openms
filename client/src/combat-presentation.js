@@ -13,8 +13,6 @@ export class CombatPresentation {
     this.app = app;
     this.services = services;
     this.scene = null;
-    this.container = new Container({ label: "combat-numbers" });
-    this.container.zIndex = 2000000000;
     this.owner = null;
     this.glyphs = null;
     this.slots = [];
@@ -31,7 +29,6 @@ export class CombatPresentation {
         container.addChild(sprite);
         sprites.push(sprite);
       }
-      this.container.addChild(container);
       this.slots.push({ container, sprites, age: 1000, x: 0, y: 0 });
     }
   }
@@ -58,18 +55,17 @@ export class CombatPresentation {
     }
   }
   setScene(scene) {
-    this.container.removeFromParent();
-    this.scene = scene;
     for (const slot of this.slots) {
+      this.scene?.removeWorldContainer(slot.container);
       slot.age = 1000;
       slot.container.visible = false;
     }
-    if (scene) scene.overlays.addChild(this.container);
+    this.scene = scene;
   }
   onPlayerHit(hit, simulation) {
     if (hit.amount < 0) return;
     // 00959320..b9 subtracts damage before the signed vital-number consumer.
-    this.onVitalNumber(-hit.amount, simulation);
+    this.onVitalNumber(-(hit.hpDamage ?? hit.amount), simulation);
   }
 
   onRecovery(amount, simulation) {
@@ -93,6 +89,7 @@ export class CombatPresentation {
   show(amount, family, x, y) {
     if (
       !this.owner ||
+      !this.scene ||
       !Number.isSafeInteger(amount) ||
       amount < 0 ||
       amount > 9999999999
@@ -108,6 +105,8 @@ export class CombatPresentation {
     slot.container.visible = true;
     slot.container.alpha = 1;
     this.layoutDigits(slot, amount, family);
+    // 0043849c/0043dee8: each numeric event is its own native root layer.
+    this.scene.addWorldContainer(slot.container, 398500);
     this.emitted++;
   }
   layoutDigits(slot, amount, family) {
@@ -140,6 +139,7 @@ export class CombatPresentation {
       if (slot.age >= 1000) continue;
       slot.age = Math.min(1000, slot.age + ms);
       slot.container.visible = slot.age < 1000;
+      if (slot.age === 1000) this.scene?.removeWorldContainer(slot.container);
       slot.container.y = slot.y - (30 * slot.age) / 1000;
       slot.container.alpha = slot.age <= 400 ? 1 : (1000 - slot.age) / 600;
     }
@@ -157,7 +157,11 @@ export class CombatPresentation {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.container.destroy(DESTROY);
+    for (const slot of this.slots) {
+      this.scene?.removeWorldContainer(slot.container);
+      slot.container.destroy(DESTROY);
+    }
+    this.scene = null;
     this.owner?.destroy();
     this.owner = null;
     this.glyphs = null;

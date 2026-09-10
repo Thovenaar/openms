@@ -66,14 +66,16 @@ state using original atlas subrects, origins, stable ordering, selected animatio
 frames, mirrored positions, alpha and background repetition. It does not call the
 Pixi animation/rendering implementation.
 
-Dynamic mobs resolve original artwork from authored placements/templates and use their captured live pose/frame plus authored-placement display tie order. Reports retain entity state so a comparison is reproducible. The browser's whole-pixel world/camera projection precedes GPU submission; rounding individual sprite vertices is not equivalent at half-pixel ties. Pixel captures explicitly use device-pixel ratio1; a CSS-element screenshot at another ratio is not a one-to-one backbuffer comparison.
+Dynamic mobs resolve original artwork from authored placements/templates and use their captured live pose/frame and native mutation-order serial. Reports retain entity state so a comparison is reproducible. The browser's whole-pixel world/camera projection precedes GPU submission; rounding individual sprite vertices is not equivalent at half-pixel ties. Pixel captures explicitly use device-pixel ratio1.
 
-For these captures only, the inspection API hides screen-space UI and the separate
-world presentation overlay (nameplates, preview geometry and effects). A `finally`
-block restores their prior visibility. The report explicitly labels these images
-`world-artwork-only`. This isolates the oracle's actual contract; it is **not** a UI,
-nameplate or effects parity check. Full visible UI/life/effect screenshots belong
-to separate input-driven acceptance below.
+For oracle captures only, the inspection API hides screen-space UI and registered
+world presentation layers (nameplates, preview geometry and effects). A `finally`
+block restores their prior visibility. Actual pixels come from the rendered WebGL
+canvas readback, not a DOM element screenshot: Chrome's keyboard-focus outline is
+a CSS decoration and is intentionally retained in the UI, not compared to atlas
+pixels. Reports label these images `world-artwork-backbuffer`. This isolates the
+oracle's actual contract; it is **not** a UI, nameplate or effects parity check.
+Full visible UI/life/effect screenshots belong to separate input-driven acceptance below.
 
 Both actual WebGL PNG and independently composed PNG are decoded into RGBA pixels.
 Comparison permits at most four 8-bit levels per channel for raster/alpha rounding;

@@ -6,6 +6,7 @@ import { skillBooks } from "./ui-skill-books.js";
 import { updateSkillTabs } from "./ui-layout.js";
 import { PROFILE_LIMITS } from "./profile-validation.js";
 import { skillPointPool } from "./skill-system.js";
+import { itemTooltip, skillTooltip } from "./ui-tooltip.js";
 import {
   minimapGeometry,
   createMinimapMarkers,
@@ -122,14 +123,10 @@ function updateEquipment(panel, profile) {
     const rect = { x: point[0], y: point[1], width: 32, height: 32 };
     const path = entry.template.iconPath;
     layer.image(path, rect.x, rect.y + 32, true);
-    layer.hit(entry.template.name, rect, {
-      click: () =>
-        panel.owner.showTooltip(
-          `${entry.template.name}\n${entry.template.description}`,
-          panel.x + rect.x,
-          panel.y + rect.y,
-        ),
-    });
+    layer.hit(entry.template.name, rect, {}, () => ({
+      ...itemTooltip(panel.owner, entry.template, entry.id, true),
+      source: { surface: layer, path },
+    }));
   }).catch((error) => panel.owner.report(error));
 }
 
@@ -195,18 +192,6 @@ function statDisabledMask(job) {
   return 0;
 }
 
-function skillTooltip(template, learned, rank) {
-  const classification = template.classification;
-  const runtime = classification?.supported
-    ? classification.reason || classification.activation
-    : classification?.reason || "Runtime unavailable";
-  const expiration =
-    learned && learned.expiresAt !== null
-      ? `\nExpires at epoch ms ${learned.expiresAt}`
-      : "";
-  return `${template.name}\n${template.description}\nRank ${rank}; master ${learned?.masterLevel || 0}\n${runtime}${expiration}`;
-}
-
 function skillLearningDisabled(panel, template) {
   return Boolean(
     panel.skillLearning ||
@@ -235,9 +220,8 @@ function skillRow(panel, layer, entry, row) {
     120 + 40 * row,
     88,
   );
-  const tooltip = skillTooltip(template, learned, rank);
   layer.hit(
-    tooltip,
+    template.name,
     { x: 7, y: 99 + 40 * row, width: 126, height: 38 },
     {
       pointerdown: (event) => {
@@ -250,6 +234,10 @@ function skillRow(panel, layer, entry, row) {
         );
       },
     },
+    () => ({
+      ...skillTooltip(panel.owner, template),
+      source: { surface: layer, path },
+    }),
   );
   // 008aad45..b3: original BtSpUp, x131/y119, four rows spaced40 pixels.
   layer.button("Skill/BtSpUp", 131, 119 + 40 * row, {
@@ -535,11 +523,18 @@ export class ProfileControls {
     this.fields = new Map();
     this.skillRows = new Map();
     this.root = document.createElement("details");
-    inspectionElement("summary", "Edit character", this.root);
+    this.root.id = "character-controls";
+    this.root.open = true;
+    inspectionElement("summary", "Character editor & presets", this.root);
     this.status = inspectionElement("p", "", this.root);
-    this.save = profileButton(this.root, "Save character");
-    this.reset = profileButton(this.root, "Reset character");
-    this.recover = profileButton(this.root, "Revive character");
+    this.status.setAttribute("role", "status");
+    const actions = inspectionElement("div", "", this.root);
+    actions.className = "profile-actions";
+    this.save = profileButton(actions, "Save checkpoint");
+    this.recover = profileButton(actions, "Revive character");
+    const advanced = inspectionElement("details", "", this.root);
+    inspectionElement("summary", "Destructive actions", advanced);
+    this.reset = profileButton(advanced, "Reset character…");
     this.buildEditor();
     this.items = inspectionElement("select", "", this.root);
     this.items.setAttribute("aria-label", "Local reactor offering item");
@@ -556,6 +551,7 @@ export class ProfileControls {
       [this.revert, "click", this.revertEdits.bind(this)],
       [this.add, "click", this.addSkill.bind(this)],
       [this.offer, "click", this.offerItem.bind(this)],
+      [this.stagePreset, "click", this.preparePreset.bind(this)],
     ];
     for (const [node, type, handler] of this.listeners) {
       node.addEventListener(type, handler);
@@ -573,13 +569,16 @@ export class ProfileControls {
       "Change values, then save all changes together. Changing job or level does not award points or skills.",
       this.editor,
     );
+    this.buildPresets();
+    const grid = inspectionElement("div", "", this.editor);
+    grid.className = "profile-grid";
     for (const [key, label, minimum] of PROFILE_FIELDS) {
-      const input = profileInput(this.editor, label, minimum);
+      const input = profileInput(grid, label, minimum);
       input.name = key;
       if (key === "name") input.maxLength = PROFILE_LIMITS.name;
       this.fields.set(key, input);
     }
-    const label = inspectionElement("label", "Job ", this.editor);
+    const label = inspectionElement("label", "Job ", grid);
     label.style.display = "block";
     this.job = inspectionElement("select", "", label);
     this.job.setAttribute("aria-label", "Job");
@@ -594,7 +593,25 @@ export class ProfileControls {
       );
       option.value = String(id);
     }
-    const pools = inspectionElement("fieldset", "", this.editor);
+    this.buildPointPools();
+    this.buildSkillEditor();
+    const actions = inspectionElement("div", "", this.editor);
+    actions.className = "profile-actions";
+    this.apply = inspectionElement(
+      "button",
+      "Apply character changes",
+      actions,
+    );
+    this.apply.type = "submit";
+    this.revert = profileButton(actions, "Discard unsaved edits");
+    this.editStatus = inspectionElement("p", "", this.form);
+    this.editStatus.setAttribute("role", "status");
+    this.editStatus.setAttribute("aria-live", "polite");
+  }
+  buildPointPools() {
+    const pointDetails = inspectionElement("details", "", this.editor);
+    inspectionElement("summary", "Advanced: skill point pools", pointDetails);
+    const pools = inspectionElement("fieldset", "", pointDetails);
     inspectionElement("legend", "Unused skill points (SP)", pools);
     this.spFields = [];
     for (let i = 0; i < 10; i++) {
@@ -608,13 +625,61 @@ export class ProfileControls {
         ),
       );
     }
-    this.buildSkillEditor();
-    this.apply = inspectionElement("button", "Save changes", this.editor);
-    this.apply.type = "submit";
-    this.revert = profileButton(this.editor, "Discard unsaved edits");
-    this.editStatus = inspectionElement("p", "", this.form);
-    this.editStatus.setAttribute("role", "status");
-    this.editStatus.setAttribute("aria-live", "polite");
+  }
+  buildPresets() {
+    const section = inspectionElement("fieldset", "", this.editor);
+    inspectionElement(
+      "legend",
+      "GM presets — preview before applying",
+      section,
+    );
+    this.preset = inspectionElement("select", "", section);
+    this.preset.setAttribute("aria-label", "Character preset");
+    for (const [id, label] of [
+      ["restore", "Restore HP / MP to current maxima"],
+      ["training", "Training budget: 20 AP + 10 SP (first pool)"],
+      ["mesos", "Drop testing: set wallet to 100,000 mesos"],
+    ]) {
+      const option = inspectionElement("option", label, this.preset);
+      option.value = id;
+    }
+    this.stagePreset = profileButton(section, "Preview preset");
+    inspectionElement(
+      "p",
+      "Presets replace only the named fields. Review staged values below, then Apply; no job advancement or skills are granted automatically.",
+      section,
+    );
+  }
+
+  /** Stage form values only; submit retains the validated authority transaction. */
+  preparePreset() {
+    if (this.isBusy() || !this.owner.store.profile) return;
+    if (this.dirty) {
+      this.editStatus.textContent =
+        "Apply or discard your unsaved edits before previewing a preset.";
+      return;
+    }
+    const profile = this.owner.store.profile;
+    switch (this.preset.value) {
+      case "restore":
+        this.fields.get("hp").value = String(profile.maxHP);
+        this.fields.get("mp").value = String(profile.maxMP);
+        break;
+      case "training":
+        this.fields.get("remainingAp").value = "20";
+        this.spFields[0].value = "10";
+        this.spFields[0].closest("details").open = true;
+        break;
+      case "mesos":
+        this.fields.get("meso").value = "100000";
+        break;
+      default:
+        this.editStatus.textContent = "Choose a supported preset.";
+        return;
+    }
+    this.markEdited();
+    this.editStatus.textContent = `Preset staged: ${this.preset.selectedOptions[0].textContent}. Review and Apply character changes to save.`;
+    this.apply.focus();
   }
 
   buildSkillEditor() {
@@ -691,7 +756,13 @@ export class ProfileControls {
   }
 
   markEdited(event) {
-    if (event?.target === this.skillChoice || this.isBusy()) return;
+    if (
+      event?.target === this.skillChoice ||
+      event?.target === this.preset ||
+      this.isBusy()
+    ) {
+      return;
+    }
     this.dirty = true;
     this.editStatus.textContent = "Unsaved profile edits.";
   }

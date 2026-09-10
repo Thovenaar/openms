@@ -29,6 +29,17 @@ import {
   quickKeyAtPoint,
 } from "./ui-quickslots.js";
 import { REVIVAL_POLICY } from "./revival.js";
+import { renderTooltip } from "./ui-tooltip.js";
+import {
+  layoutMesoDialog,
+  refreshMesoDialog,
+  submitMesoDrop,
+} from "./ui-meso-dialog.js";
+import {
+  LOCAL_WINDOW_NAMES,
+  layoutLocalWindow,
+  localWindowSize,
+} from "./ui-local-windows.js";
 
 const MAX_OPEN_WINDOWS = 4;
 const MAX_WINDOWS_WITH_MODALS = MAX_OPEN_WINDOWS + 2;
@@ -37,6 +48,7 @@ const MODAL_WINDOWS = new Set([
   "QuickSlotConfig",
   "KeyConfigNotice",
   "Revive",
+  "MesoDrop",
 ]);
 const WINDOWS = new Set([
   "Item",
@@ -49,11 +61,13 @@ const WINDOWS = new Set([
   "MiniMap",
   "UtilDlgEx",
   "Revive",
+  "MesoDrop",
   "QuickSlotConfig",
   "KeyConfigNotice",
   "GameOpt",
   "Quest",
   "SysOpt",
+  ...LOCAL_WINDOW_NAMES,
 ]);
 /** Normal command names exclude constructing internal modal windows without their owners. */
 export const NORMAL_UI_NAMES = Object.freeze([
@@ -72,6 +86,7 @@ const SIZES = {
   QuickSlotConfig: [266, 238],
   KeyConfigNotice: [266, 116],
   Revive: [286, 146],
+  MesoDrop: [266, 160],
   GameMenu: [93, 140],
   ShortCut: [93, 271],
 };
@@ -91,11 +106,12 @@ const FOCUSABLE =
 /** Resolve retained window sizes or original background dimensions within the logical viewport. */
 function windowSize(name, resource) {
   const asset = resource.manifest.metadata.assets?.[`${name}/backgrnd`];
-  const size = SIZES[name] || [asset?.width, asset?.height];
+  const size = SIZES[name] ||
+    localWindowSize(name, resource) || [asset?.width, asset?.height];
   if (
     !size.every((value) => Number.isFinite(value) && value > 0) ||
     size[0] > 800 ||
-    size[1] > HUD_TOP
+    size[1] > (LOCAL_WINDOW_NAMES.includes(name) ? 600 : HUD_TOP)
   ) {
     throw new Error(`Invalid UI dimensions: ${name}`);
   }
@@ -122,6 +138,10 @@ export class GameUI {
     this.tooltip = document.createElement("div");
     this.tooltip.className = "maple-ui-tooltip";
     this.tooltip.hidden = true;
+    this.tooltip.setAttribute("role", "tooltip");
+    this.tooltip.id = "maple-context-tooltip";
+    this.tooltip.style.cssText =
+      "box-sizing:border-box;background:rgba(0,0,64,.62745);color:white;border:1px solid white;padding:8px;font:12px Arial,sans-serif;line-height:16px;overflow-wrap:anywhere;min-height:32px;";
     this.host.append(this.tooltip);
     this.windows = new Map();
     this.pending = new Map();
@@ -333,6 +353,7 @@ export class GameUI {
   }
 
   refreshProfile() {
+    this.hideTooltip();
     if (this.disposed) return;
     this.syncBindingCarry();
     this.profileControls?.refresh();
@@ -346,6 +367,8 @@ export class GameUI {
 
   refreshProfilePanel(panel) {
     if (panel.name === "KeyConfig") refreshKeys(panel);
+    else if (panel.name === "MesoDrop") refreshMesoDialog(panel);
+    else if (panel.localRefresh) panel.localRefresh();
     else updateProfilePanel(panel, this.store);
   }
 
@@ -575,6 +598,9 @@ export class GameUI {
       this.hooks.clearInput();
       if (name === "QuickSlotConfig") {
         panel.element.focus({ preventScroll: true });
+      } else if (name === "MesoDrop") {
+        panel.mesoInput.focus();
+        panel.mesoInput.select();
       } else panel.element.querySelector("button")?.focus();
       if (name === "MiniMap") this.refreshMinimap(panel);
       this.refreshProfilePanel(panel);
@@ -589,6 +615,8 @@ export class GameUI {
   compose(panel) {
     if (panel.name === "QuickSlotConfig") return layoutQuickSlotConfig(panel);
     if (panel.name === "KeyConfigNotice") return layoutKeyNotice(panel);
+    if (panel.name === "MesoDrop") return layoutMesoDialog(panel);
+    if (layoutLocalWindow(panel)) return;
     layoutWindow(panel);
     if (panel.name === "UtilDlgEx" || panel.name === "Quest") {
       this.mountDialog(panel);
@@ -600,7 +628,7 @@ export class GameUI {
     if (POPUP_POSITIONS[panel.name]) return;
     const offset = this.windows.size * 18;
     this.positionWindow(panel, (800 - panel.width) / 2 + offset, 70 + offset);
-    if (panel.name === "KeyConfigNotice") return;
+    if (panel.name === "KeyConfigNotice" || panel.name === "MesoDrop") return;
     const strip = document.createElement("div");
     strip.className = "maple-ui-drag";
     strip.dataset.cursorState = "5";
@@ -683,6 +711,13 @@ export class GameUI {
 
   canCloseWindow(name, committed) {
     if (name === "Revive" && !committed) return false;
+    if (
+      name === "MesoDrop" &&
+      this.windows.get(name)?.mesoPending &&
+      !committed
+    ) {
+      return false;
+    }
     const modal = this.modal();
     if (modal && modal.name !== name && !committed) return false;
     return !(name === "KeyConfig" && this.bindings?.saving);
@@ -878,23 +913,33 @@ export class GameUI {
     panel.dialogCleanup = cleanup;
   }
 
-  showTooltip(text, x, y) {
-    if (this.bindingDrag) return;
-    this.tooltip.textContent = String(text).slice(0, 1800);
+  showTooltip(content, x, y, anchor = null) {
+    if (this.bindingDrag || !this.visible) return;
+    this.hideTooltip();
+    this.tooltipAnchor = anchor;
+    if (anchor) anchor.setAttribute("aria-describedby", this.tooltip.id);
+    renderTooltip(this, content, content?.source);
     this.tooltip.hidden = false;
-    this.tooltip.style.maxHeight = "560px";
-    this.tooltip.style.overflow = "hidden";
-    const width = this.tooltip.offsetWidth,
-      height = this.tooltip.offsetHeight;
     const left = -this.offsetX / this.scale;
     const top = -this.offsetY / this.scale;
     const right = left + this.viewportWidth / this.scale;
     const bottom = top + this.viewportHeight / this.scale;
-    this.tooltip.style.left = `${Math.max(left, Math.min(right - width, x))}px`;
-    this.tooltip.style.top = `${Math.max(top, Math.min(bottom - height, y - height - 6))}px`;
+    this.tooltip.style.maxWidth = `${Math.min(360, right - left)}px`;
+    this.tooltip.style.maxHeight = `${bottom - top}px`;
+    this.tooltip.style.overflow = "hidden";
+    const width = this.tooltip.offsetWidth,
+      height = this.tooltip.offsetHeight;
+    this.tooltip.style.left = `${Math.max(left, Math.min(right - width, x + 12))}px`;
+    const targetY = y + 20 + height <= bottom ? y + 20 : y - height - 6;
+    this.tooltip.style.top = `${Math.max(top, Math.min(bottom - height, targetY))}px`;
+    this.tooltipIcon?.renderArtwork();
   }
 
   hideTooltip() {
+    this.tooltipAnchor?.removeAttribute("aria-describedby");
+    this.tooltipAnchor = null;
+    this.tooltipIcon?.destroy();
+    this.tooltipIcon = null;
     this.tooltip.hidden = true;
   }
 
@@ -925,11 +970,14 @@ export class GameUI {
   }
 
   setScene(scene) {
+    if (this.scene !== scene) this.close("MesoDrop", true);
+    this.hideTooltip();
     if (this.scene !== scene) this.close("Revive", true);
     this.endBindingDrag();
     this.scene = scene;
     const panel = this.windows.get("MiniMap");
     if (panel) this.refreshMinimap(panel);
+    for (const window of this.windows.values()) window.localRefresh?.();
   }
 
   refreshMinimap(panel) {
@@ -996,6 +1044,7 @@ export class GameUI {
   }
 
   resize(width, height) {
+    this.hideTooltip();
     if (
       !Number.isFinite(width) ||
       !Number.isFinite(height) ||
@@ -1191,12 +1240,24 @@ export class GameUI {
       this.modal() ||
       this.pending.has("UtilDlgEx") ||
       this.pending.has("Revive") ||
+      this.pending.has("MesoDrop") ||
       this.keyNotice !== null ||
       this.quickCapture !== null,
     );
   }
 
   captureModalKey(event, panel) {
+    if (
+      panel.name === "MesoDrop" &&
+      event.key === "Enter" &&
+      !event.isComposing
+    ) {
+      if (event.target === panel.mesoCancel.element) return false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat) submitMesoDrop(panel);
+      return true;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -1211,6 +1272,11 @@ export class GameUI {
       return true;
     }
     if (event.key !== "Tab") return false;
+    this.cycleModalFocus(event, panel);
+    return false;
+  }
+
+  cycleModalFocus(event, panel) {
     const buttons = Array.from(
       panel.element.querySelectorAll(FOCUSABLE),
     ).filter((element) => element.getClientRects().length > 0);
@@ -1219,7 +1285,6 @@ export class GameUI {
       event.preventDefault();
       buttons[event.shiftKey ? buttons.length - 1 : 0]?.focus();
     }
-    return false;
   }
 
   onPointer(event) {
@@ -1327,6 +1392,7 @@ export class GameUI {
     }
     if (!this.screenScaleX || !this.screenScaleY) return;
     event.preventDefault();
+    this.hideTooltip();
     this.front(panel);
     this.hooks.clearInput();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1361,6 +1427,7 @@ export class GameUI {
 
   endDrag(event) {
     if (!this.acceptsDragRelease(event)) return;
+    if (event?.type !== "pointerup") this.hideTooltip();
     this.releaseWindowDrag();
     if (event?.type !== "pointerup") this.pressedControl?.cancelPointer();
     this.chat?.endResize();

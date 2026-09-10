@@ -3,6 +3,7 @@ import { applyExternalImpulse } from "./physics/simulation.js";
 import { placeBody } from "./life-geometry.js";
 import { OfflineMobRenderer } from "./offline-mob-renderer.js";
 import { PassiveRecovery } from "./passive-recovery.js";
+import { knockbackChance, knockbackRoll } from "./combat-knockback.js";
 import {
   createMobs,
   stepMob,
@@ -31,6 +32,8 @@ export const COMBAT_POLICY = Object.freeze({
   impact: "first fixed tick at/after half original equipped action duration",
   attackMP: 0,
   regeneration: "native independent HP/MP timers; see passive-recovery.js",
+  random:
+    "injected offline [0,1) stream -> uint32 % 100; not native seed parity",
   respawn: REVIVAL_POLICY,
 });
 
@@ -38,19 +41,18 @@ export const COMBAT_POLICY = Object.freeze({
 export const PLAYER_HIT = Object.freeze({
   timerMs: 1500,
   tickMs: 30,
-  horizontalImpulse: 200,
-  verticalImpulse: -200,
+  horizontalImpulse: 270,
+  verticalImpulse: -270,
   noDirection: 0x7fffffff,
   normalTint: 0xffffff,
   hitTint: 0x808080,
 });
 
 function applyHitImpulse(simulation, direction) {
-  const noDirection = direction === PLAYER_HIT.noDirection;
   applyExternalImpulse(
     simulation,
-    noDirection ? 0 : (direction < 0 ? -1 : 1) * PLAYER_HIT.horizontalImpulse,
-    noDirection ? 0 : PLAYER_HIT.verticalImpulse,
+    (direction < 0 ? -1 : 1) * PLAYER_HIT.horizontalImpulse,
+    PLAYER_HIT.verticalImpulse,
   );
 }
 
@@ -60,6 +62,10 @@ export class OfflineField {
     this.scene = scene;
     this.store = store;
     this.hooks = hooks;
+    this.random = hooks.random ?? Math.random;
+    if (typeof this.random !== "function") {
+      throw new Error("Missing combat RNG");
+    }
     this.simulation = scene.simulation;
     this.combat = scene.manifest.combat;
     validateCombat(this.combat);
@@ -84,8 +90,12 @@ export class OfflineField {
     this.hitTimerMs = 0;
     this.blinkCounter = 0;
     this.blinkTint = PLAYER_HIT.normalTint;
+    this.lastKnockback = "none";
+    this.lastKnockbackRoll = -1;
+    this.mobHit = { skillId: 0, knockbackChance: 0, roll: 0 };
     this.localHit = {
       amount: 0,
+      hpDamage: 0,
       direction: 0,
       locallyInitiated: true,
       source: null,
@@ -365,11 +375,16 @@ export class OfflineField {
         Math.floor(this.attackPower - (target.template.info.PDDamage ?? 0) / 2),
       ),
     );
+    this.mobHit.skillId = this.attackSkill?.id ?? 0;
+    this.mobHit.knockbackChance = knockbackChance(
+      this.combat.equipment.knockback ?? 0,
+    );
+    this.mobHit.roll = knockbackRoll(this.random);
     const killed = damageMob(
       target,
       amount,
       this.simulation.facing,
-      this.attackSkill?.id ?? 0,
+      this.mobHit,
     );
     this.hooks.onMobHit?.(target, amount);
     if (this.attackSkill) this.attackOnHit(this.attackSkill.id, target);
@@ -504,9 +519,9 @@ export class OfflineField {
   tryReceiveHit(hit) {
     validatePlayerHit(hit);
     if (this.rejectsHit(hit)) return false;
-    applyHitImpulse(this.simulation, hit.direction);
+    this.receiveHitImpulse(hit);
     const profile = this.store.profile;
-    if (hit.amount > 0) profile.hp = Math.max(0, profile.hp - hit.amount);
+    this.applyHitDamage(hit, profile);
     this.lastDamage = hit.amount;
     this.hitTimerMs = hit.amount > 0 ? PLAYER_HIT.timerMs : -PLAYER_HIT.timerMs;
     if (hit.amount > 0) {
@@ -522,6 +537,42 @@ export class OfflineField {
     if (killed) this.hooks.onPlayerDeath?.();
     this.changed();
     return true;
+  }
+
+  /** Absorption changes HP loss only, not the admitted damage, impulse, or protection. */
+  applyHitDamage(hit, profile) {
+    const hpDamage =
+      hit.amount > 0
+        ? (this.hooks.absorbDamage?.(hit.amount) ?? hit.amount)
+        : 0;
+    if (
+      !Number.isSafeInteger(hpDamage) ||
+      hpDamage < 0 ||
+      hpDamage > Math.max(0, hit.amount)
+    ) {
+      throw new Error("Invalid absorbed damage outcome");
+    }
+    if (hit.amount > 0) profile.hp = Math.max(0, profile.hp - hpDamage);
+    hit.hpDamage = hpDamage;
+  }
+
+  /** Damage and protection still commit when the native impulse is refused. */
+  receiveHitImpulse(hit) {
+    this.lastKnockbackRoll = -1;
+    this.lastKnockback = "nonpositive-damage";
+    if (hit.amount <= 0) return;
+    const stance = knockbackChance(this.hooks.derivedStats?.().stance ?? 0);
+    this.lastKnockbackRoll = knockbackRoll(this.random);
+    if (this.lastKnockbackRoll < stance) {
+      this.lastKnockback = "stance";
+      return;
+    }
+    if (hit.direction === PLAYER_HIT.noDirection) {
+      this.lastKnockback = "no-direction";
+      return;
+    }
+    applyHitImpulse(this.simulation, hit.direction);
+    this.lastKnockback = "ordinary";
   }
 
   projectHitState(hit) {
@@ -583,6 +634,8 @@ export class OfflineField {
       hitTimerMs: this.hitTimerMs,
       blinkTint: this.blinkTint,
       lastDamage: this.lastDamage,
+      lastKnockback: this.lastKnockback,
+      lastKnockbackRoll: this.lastKnockbackRoll,
       player: {
         ...this.store.profile,
         nextLevelExp: experienceRequired(this.store.profile.level),
@@ -677,6 +730,10 @@ function snapshotMob(mob) {
     deaths: mob.deaths,
     respawnMs: mob.respawnMs,
     lastDamage: mob.lastDamage,
+    lastReaction: mob.lastReaction,
+    hitRemainingMs: mob.hitRemainingMs,
+    knockbackMs: mob.knockbackMs,
+    knockbackSpeed: mob.knockbackSpeed,
     resident: !!mob.presentation,
     authored: mob.record.authored,
     selectedSkills: mob.selectedSkills,

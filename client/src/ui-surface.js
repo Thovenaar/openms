@@ -88,7 +88,7 @@ export class UISurface {
     return layer;
   }
 
-  hit(label, rect, handlers = {}) {
+  hit(label, rect, handlers = {}, tooltip = null) {
     const element = document.createElement("button");
     element.type = "button";
     element.className = "maple-ui-hit";
@@ -98,12 +98,26 @@ export class UISurface {
     for (const [type, handler] of Object.entries(handlers)) {
       this.listen(element, type, handler);
     }
-    this.listen(element, "pointerenter", (event) => {
-      const point = this.owner.logicalPointer(event);
-      this.owner.showTooltip(label, point.x, point.y);
-    });
-    this.listen(element, "pointerleave", () => {
-      this.owner.hideTooltip();
+    const show = (event) => {
+      const box = element.getBoundingClientRect();
+      const point = this.owner.logicalPointer(
+        event.type === "focus"
+          ? { clientX: box.left, clientY: box.top }
+          : event,
+      );
+      this.owner.showTooltip(
+        tooltip ? tooltip() : label,
+        point.x,
+        point.y,
+        element,
+      );
+    };
+    this.listen(element, "pointerenter", show);
+    this.listen(element, "focus", show);
+    this.listen(element, "pointerleave", () => this.owner.hideTooltip());
+    this.listen(element, "blur", () => this.owner.hideTooltip());
+    this.cleanups.push(() => {
+      if (this.owner.tooltipAnchor === element) this.owner.hideTooltip();
     });
     this.element.append(element);
     return element;
@@ -359,14 +373,30 @@ class UIControl {
       this.activationKey = null;
       this.options.action?.();
     }
-    if (event.type === "pointerenter") {
-      if (!this.options.disabled) this.panel.owner.sound("BtMouseOver");
-      const point = this.panel.owner.logicalPointer(event);
-      this.panel.owner.showTooltip(this.options.label, point.x, point.y);
+    this.updateTooltip(event);
+    this.render();
+  }
+
+  updateTooltip(event) {
+    if (event.type === "pointerenter" || event.type === "focus") {
+      if (event.type === "pointerenter" && !this.options.disabled) {
+        this.panel.owner.sound("BtMouseOver");
+      }
+      const box = this.element.getBoundingClientRect();
+      const point = this.panel.owner.logicalPointer(
+        event.type === "focus"
+          ? { clientX: box.left, clientY: box.top }
+          : event,
+      );
+      this.panel.owner.showTooltip(
+        this.options.label,
+        point.x,
+        point.y,
+        this.element,
+      );
     }
     if (event.type === "pointerleave") this.panel.owner.hideTooltip();
     if (event.type === "blur") this.panel.owner.hideTooltip();
-    this.render();
   }
 
   acceptsPointerEvent(event) {

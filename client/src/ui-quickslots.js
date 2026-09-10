@@ -3,6 +3,7 @@ import { ACTION_PALETTE, canonicalKeyIndex } from "./keymap.js";
 import { replaceIcons, drawItemCount, retireBindingLayer } from "./ui-icons.js";
 import { drawKeyLabel } from "./ui-keyconfig.js";
 import { HUD_CLIENT_Y } from "./ui-hud.js";
+import { bindingTooltip } from "./ui-tooltip.js";
 
 // 008de8d5 / DAT_00be2db0: CWnd-local647,427; add the native window origin.
 export const QUICK_SLOT_COORDINATES = Object.freeze([
@@ -178,6 +179,14 @@ function quickHit(layer, record, path) {
         }
       },
     },
+    () => ({
+      ...bindingTooltip(
+        layer.owner,
+        record.binding,
+        `Quick slot ${record.slot + 1}`,
+      ),
+      source: path ? { surface: layer, path } : null,
+    }),
   );
   button.dataset.quickSlot = String(record.slot);
   if (!record.binding.type) button.dataset.cursorState = "0";

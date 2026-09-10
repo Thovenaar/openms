@@ -1,11 +1,10 @@
 import { EntityAnimation } from "./animation.js";
 import { loadVisualBundle } from "./visual-resources.js";
 import { DROP_POLICY } from "./drop-system.js";
+import { dropDrawY } from "./drop-motion.js";
 
 const MAX_PENDING = 2;
 const PREFETCH_MARGIN = 128;
-// Local projection of WZ's 32px logical item cell; decoded canvas origins stay intact.
-const ICON_HALF_WIDTH = 16;
 
 /** Original 00506bfe: <50, <100, <1000, then meso bag. */
 export function currencyVariant(quantity) {
@@ -216,10 +215,10 @@ export class DropRenderer {
       ...original,
       id: view.id,
       kind: "drop",
-      x: slot.x - ICON_HALF_WIDTH,
+      x: slot.x,
       y: slot.y,
-      z: 1000000,
-      order: 1000000,
+      z: 29999 + (slot.foothold.layer * 3000 - slot.foothold.group) * 10,
+      order: 0,
       visible: true,
     };
     const entity = new EntityAnimation(source, resource.textures);
@@ -241,14 +240,18 @@ export class DropRenderer {
       const slot = this.system.slots[index],
         entity = this.presentations[index].entity;
       if (!entity) continue;
-      entity.container.visible = slot.active;
-      if (!slot.active) continue;
-      entity.setPosition(slot.x - ICON_HALF_WIDTH, slot.y);
+      entity.container.visible = slot.active && slot.state !== "waiting";
+      if (!entity.container.visible) continue;
       entity.seek(slot.age);
-      entity.container.alpha =
-        slot.state === "collecting"
-          ? 1 - Math.min(1, slot.phaseAge / DROP_POLICY.pickupMs)
-          : 1;
+      const geometry = entity.current.geometry[entity.frame];
+      const halfHeight = Math.trunc(geometry.height / 2);
+      entity.container.pivot.set(
+        geometry.x + Math.trunc(geometry.width / 2),
+        geometry.y + halfHeight,
+      );
+      entity.setPosition(slot.x, dropDrawY(slot, halfHeight));
+      entity.container.rotation = slot.rotation;
+      entity.container.alpha = slot.alpha;
     }
   }
 

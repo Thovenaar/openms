@@ -4,6 +4,7 @@ import {
   canonicalKeyIndex,
 } from "./keymap.js";
 import { replaceIcons, drawItemCount, retireBindingLayer } from "./ui-icons.js";
+import { bindingTooltip } from "./ui-tooltip.js";
 
 export function layoutKeys(panel) {
   const bindings = panel.owner.bindings;
@@ -88,13 +89,21 @@ function drawPalette(panel, layer, active) {
     const path = `KeyConfig/icon/${action.id}`;
     layer.image(path, action.x, action.y);
     const rect = { x: action.x, y: action.y, width: 32, height: 32 };
-    layer.hit(action.name || "Original action", rect, {
-      pointerdown: (event) =>
-        panel.owner.beginBindingDrag(event, action, null, {
-          source: layer,
-          path,
-        }),
-    });
+    layer.hit(
+      action.name || "Original action",
+      rect,
+      {
+        pointerdown: (event) =>
+          panel.owner.beginBindingDrag(event, action, null, {
+            source: layer,
+            path,
+          }),
+      },
+      () => ({
+        ...bindingTooltip(panel.owner, action, "Available keyboard action"),
+        source: { surface: layer, path },
+      }),
+    );
   }
 }
 
@@ -133,24 +142,32 @@ function drawBoundIcon(icons, entry) {
       inventory.find((item) => item.id === entry.binding.id)?.count || 0;
     drawItemCount(icons, count, rect);
   }
-  const button = icons.hit(entry.template.name, rect, {
-    pointerdown: (event) =>
-      panel.owner.beginBindingDrag(
-        event,
-        entry.binding,
-        canonicalKeyIndex(entry.key.index),
-        { source: icons, path },
-      ),
-    contextmenu: (event) => {
-      event.preventDefault();
-      panel.owner.bindings.remove(entry.key.index);
+  const button = icons.hit(
+    entry.template.name,
+    rect,
+    {
+      pointerdown: (event) =>
+        panel.owner.beginBindingDrag(
+          event,
+          entry.binding,
+          canonicalKeyIndex(entry.key.index),
+          { source: icons, path },
+        ),
+      contextmenu: (event) => {
+        event.preventDefault();
+        panel.owner.bindings.remove(entry.key.index);
+      },
+      keydown: (event) => {
+        if (event.key !== "Delete" && event.key !== "Backspace") return;
+        event.preventDefault();
+        panel.owner.bindings.remove(entry.key.index);
+      },
     },
-    keydown: (event) => {
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
-      event.preventDefault();
-      panel.owner.bindings.remove(entry.key.index);
-    },
-  });
+    () => ({
+      ...bindingTooltip(panel.owner, entry.binding, "Keyboard assignment"),
+      source: { surface: icons, path },
+    }),
+  );
   button.dataset.keyIndex = String(entry.key.index);
 }
 
@@ -189,6 +206,13 @@ function drawKey(layer, panel, key, active) {
         panel.owner.bindings.remove(index);
       },
     },
+    () => ({
+      ...bindingTooltip(panel.owner, binding, "Keyboard assignment"),
+      source:
+        binding.type >= 4 && binding.type <= 6
+          ? { surface: layer, path }
+          : null,
+    }),
   );
   button.dataset.keyIndex = String(key.index);
 }

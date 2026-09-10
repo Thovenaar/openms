@@ -1,6 +1,29 @@
 # Validation results
 
-## Current interaction-correction acceptance
+## Current expanded-fidelity acceptance
+
+The [expanded index](ingame-validation/expanded/report.json) joins three independent native-browser playtests, exact staged source identities, retained failures and corrected replays. Gameplay actions used real mouse/keyboard input; validated temporary profiles are labeled setup, not earned progression. Recording/replay is a separately labeled scenario, not a substitute for native play.
+
+Final source: `713aad43393ae26e4cc57e1a35a412bb3b0930d5cf19368ace8b3b3b893d9fde`; assets: `f30d7d8f367fe8a432c43733817fb440d9d0b1d36b9025c4fa0ccdd0539ff0a4`. Strict lint and **147 tests,0 failures,876 assertions across23 files** pass. Full extraction packages356 maps. Earlier native traces retain their own source IDs; the windows sweep explicitly records mixed-build scope rather than claiming all observations came from the final bundle.
+
+| Surface | Executed acceptance |
+| --- | --- |
+| Conditional hits | Native Red Snail32/hit1; Hector798 below threshold versus800/130 recoil; existing attack1 survives recoil. Stance damages while preserving position/contact, then expires and admits ordinary±270/−270 impulse. Magic Guard consumes MP and applies HP shortfall. [Gameplay report](ingame-validation/expanded/gameplay/report.json). |
+| Timed skills/actions | Recovery six4HP heals/cost/cooldown; Nimble125→137.5→125; two corrected F1–F7 rounds, early guard refusal and independent expiry; Insert seat23/movement release; Space opens Maya. Six-command24-tick recording/replay has exact observation equality. |
+| Tooltips/dialog/loot | Inventory/equipment/skill/key/quick-slot hover and Tab focus; live learned rank1→2 descriptions. Native amount9/50001/10.5/empty refused; focused Cancel Enter/Escape work; repeated Enter debits once. Native100000→99990→100000 drop/pickup persists. Earned Omok Piece : Pig4030011×1 plus15 mesos survives reload. [Item report](ingame-validation/expanded/items/evidence.json). |
+| Motion/stacking | Native item rotation and25px fanout, moving-target Z pickup;390px four-corner tooltip clamp and cursor above tooltip. Player body/name disappear behind the higher original treehouse during walk/jump without an airborne depth change. |
+| Native windows/ground | WorldMap art/marker/spot/link/parent/current navigation, broken authored parent refusal, native window bindings, all seven chat modes and explicit social-service refusals. Maya floor38, Kyrin floor150 with authored2px overhang, Aqua9250023 intentional float. [Windows report](ingame-validation/expanded/windows/report.json). |
+| External tools | Actual XP/95/Y2K selection at desktop/390px leaves native game artwork/fonts unchanged and has no horizontal overflow. Staged presets apply atomically; SQL, origin, skill and world-map audit CLIs were executed. |
+| Independent world oracle | Final-source [world report](ingame-validation/expanded/world-final/report.json):394 checks,0 failures,0 errors; five artwork-backbuffer comparisons on Henesys, Maya,211040000 and230030100. This compares decoded original assets, not original Windows screenshots. |
+| Complete installed release |18420 resources,790363469 verified bytes,356 maps; release `80196659dff5c14da871e6f128c35871ac38b0fa47d1b0c35d2bbd732d990fe5`. With origin stopped, reload, native movement112→195.075 and WorldMap opening worked; active pin stayed exact, readiness true and uncached lists empty. [Proof](ingame-validation/expanded/offline-final.json), [capture](ingame-validation/expanded/offline-final.png). OS navigator remained online; the expected failed update check is not a failed installed release. |
+
+**Failures found and replayed:** skill tips called `.find` on schema4's ID-keyed skill dictionary; corrected lookup now passes hover/focus/binding/live-rank replay. Expression guard timestamps leaked into a different temporary-profile clock; same-store-only inheritance now passes two new-scene rounds. The world validator initially captured Chrome's DOM focus outline as artwork; it now captures the actual WebGL backbuffer, retaining native focus indication and the unchanged pixel tolerance. Presentation gating now includes independently rooted effects and actor-owned labels, with native LevelUp/name/HUD hide/restore.
+
+**Measured performance:** Chrome152, Apple M3/Metal/WebGL2,1280×900/DPR1;5,002.7ms and299 rAF intervals, mean16.666ms,p95≈16.7ms,max≈16.8ms, no intervals above20ms and no long tasks. Sampled JS heap107,765,737 bytes; CPU decoded and GPU-estimated artwork each44,157,448 bytes;27 atlases, longest upload batch≈4.4ms. Cold readiness34.365s uses the validator's scoped network emulation, not unrestricted startup. This is a short host-specific measurement, not universal60-FPS or peak-process memory proof.
+
+**Remaining boundaries:**35 of534 catalogued skills have implemented controllers;499 remain explicitly classified by missing consumers. Cosmic's24 SQL schemas/73 tables and13 companion files yield30557 published reference rows;55 tables have no supplied seeds, and1915 inventoried scripts are not executed. Shops/crafting/cards/cash descriptors are reference inputs, not enabled mechanics. Remote social/commerce, inventory-chair/item-script/macro controllers and other documented unsupported behavior do not return fabricated success. Uncollected drops are transient. Native stationary-NPC-name opaque occlusion remains uncaptured; retained Hector attack pose is proved, its pending damage is not. No original Windows-runtime parity is claimed.
+
+## Earlier interaction-correction acceptance {#current-interaction-correction-acceptance}
 
 The [interaction report](ingame-validation/interaction-corrections/report.json) records native Chromium mouse, keyboard and form workflows on an isolated local origin. Scripts observed gameplay state; explicit request/IndexedDB fault injection exercised failure paths, and a Web Audio observer counted real source starts. No game-authority API substituted for native play.
 

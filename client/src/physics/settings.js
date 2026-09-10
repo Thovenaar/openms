@@ -58,6 +58,9 @@ export function prepareSettings(world) {
     }
     settings[key] = value;
   }
+  settings.baseWalkSpeed = settings.walkSpeed;
+  settings.baseJumpSpeed = settings.jumpSpeed;
+  settings.baseSwimSpeed = settings.swimSpeed;
   if (settings.minFriction > settings.maxFriction) {
     throw new Error("Reversed original friction clamps");
   }

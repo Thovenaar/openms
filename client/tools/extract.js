@@ -19,6 +19,7 @@ import { extractQuests } from "./quest-data.js";
 import { extractCombat } from "./combat-data.js";
 import { extractReactors } from "./reactor-data.js";
 import { extractDropData, finalizeDropData } from "./drop-data.js";
+import { extractServerData } from "./server-data.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
@@ -347,7 +348,7 @@ function appendAvatar(map, character) {
     kind: "character",
     x: value(portal, "x"),
     y: value(portal, "y") - 10, // 0094969a: original portal-entry feet offset.
-    z: 239997, // 009b12a8 / 0092fd16: before first foothold, plane7/group0.
+    z: 239997, // 009b12a8 / 0092fd16: active local controller, plane7/group0.
     visible: true,
     flip: false,
     opacity: 1,
@@ -525,6 +526,7 @@ async function run() {
   );
   const combat = await extractCombat(extractionContext);
   const drops = await extractDropData(extractionContext);
+  const serverData = await extractServerData({ output });
   const ui = await extractGameUI({
     ...extractionContext,
     quests,
@@ -553,6 +555,7 @@ async function run() {
     quests,
     combat,
     drops,
+    serverData,
     routes,
   };
   const catalog = {

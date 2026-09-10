@@ -2,6 +2,7 @@ import { at, resolveNode, value } from "../src/assets/image.js";
 import { extractItemSkillUI } from "./ui-item-data.js";
 import { extractNpcPortraits } from "./ui-npc-data.js";
 import { extractDropArtwork } from "./drop-data.js";
+import { extractWorldMaps } from "./worldmap-data.js";
 
 const MAX_UI_NODES = 16000;
 const MAX_UI_DEPTH = 64;
@@ -22,6 +23,13 @@ const BRANCHES = [
   "ToolTip",
   "GameOpt",
   "SysOpt",
+  "UserList",
+  "QuestAlarm",
+  "MonsterBook",
+  "PartySearch",
+  "Family",
+  "Title",
+  "Messenger",
 ];
 
 /** Each canvas is a static presentation entity. Delay=1 is a storage sentinel, never an original animation default. */
@@ -276,6 +284,20 @@ async function speechBubbleBundle(context) {
   };
 }
 
+/** Original authored help labels and descriptions for status-bar controls. */
+async function buttonHelp(context) {
+  const image = await context.image("String", "ToolTipHelp.img");
+  const help = Object.create(null);
+  const buttons = at(image, "Game/Button");
+  for (const [name, node] of Object.entries(buttons.children)) {
+    help[name] = {
+      title: value(node, "Title", name),
+      description: value(node, "Desc", ""),
+    };
+  }
+  return help;
+}
+
 /** Immutable catalog.ui schema v1. Bundles load only when the corresponding window is opened. */
 export async function extractGameUI(context) {
   const bundles = Object.create(null);
@@ -297,6 +319,10 @@ export async function extractGameUI(context) {
   for (const branch of BRANCHES) {
     bundles[branch] = await branchBundle(context, "UIWindow.img", branch);
   }
+  bundles.WorldMap = await extractWorldMaps(context, canvasRecord);
+  bundles.MesoDrop = await branchBundle(context, "Basic.img", "Notice3", [
+    "Notice4",
+  ]);
   const minimaps = Object.create(null);
   if (!Array.isArray(context.mapIds) || context.mapIds.length > MAX_UI_MAPS) {
     throw new Error("UI extraction requires bounded selected map IDs");
@@ -304,15 +330,7 @@ export async function extractGameUI(context) {
   for (const mapId of context.mapIds) {
     minimaps[mapId] = await minimapBundle(context, mapId);
   }
-  const helpImage = await context.image("String", "ToolTipHelp.img");
-  const help = Object.create(null);
-  const buttons = at(helpImage, "Game/Button");
-  for (const [name, node] of Object.entries(buttons.children)) {
-    help[name] = {
-      title: value(node, "Title", name),
-      description: value(node, "Desc", ""),
-    };
-  }
+  const help = await buttonHelp(context);
   const strings = await itemLabels(context);
   const templates = await extractItemSkillUI(
     context,

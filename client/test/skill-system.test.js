@@ -17,7 +17,11 @@ function skill(id, levels, options = {}) {
     allocationCost: { kind: "sp", amount: 1 },
     visuals: {},
     sounds: { leaves: {} },
-    classification: { activation: "melee", supported: true },
+    classification: {
+      activation: "melee",
+      supported: true,
+      hooks: ["sword-attack"],
+    },
     ...options,
   };
 }
@@ -64,7 +68,11 @@ function fixture(extra = {}) {
           { 1: { time: 75, mpCon: 8, pdd: 2 } },
           {
             actions: ["alert2"],
-            classification: { activation: "self-buff", supported: true },
+            classification: {
+              activation: "self-buff",
+              supported: true,
+              hooks: ["derived-stats"],
+            },
           },
         ),
         1001004: skill(1001004, { 1: { mpCon: 4, damage: 165 } }),
@@ -301,5 +309,67 @@ test("ordinary allocation does not manufacture mastery or treat it as the rank c
   const atCap = structuredClone(store.profile);
   expect((await system.learn(1000000)).ok).toBe(false);
   expect(store.profile).toEqual(atCap);
+  system.destroy();
+});
+
+test("Recovery includes its final duration tick but excludes a learned-expiration tick", async () => {
+  const recovery = skill(
+    1001,
+    { 1: { mpCon: 5, time: 30, cooltime: 120, x: 4 } },
+    {
+      classification: {
+        activation: "self-buff",
+        supported: true,
+        hooks: ["periodic-recovery"],
+      },
+    },
+  );
+  const { system, store } = fixture({ 1001: recovery });
+  store.profile.hp = 1;
+  grant(store, 1001);
+  await system.prepare();
+  expect(system.activate(1001).ok).toBe(true);
+  system.step(4999);
+  expect(store.profile.hp).toBe(1);
+  system.step(25001);
+  expect(store.profile.hp).toBe(25);
+  system.step(30000);
+  expect(store.profile.hp).toBe(25);
+  system.destroy();
+  const expiring = fixture({ 1001: recovery });
+  grant(expiring.store, 1001, 6000);
+  await expiring.system.prepare();
+  expect(expiring.system.activate(1001).ok).toBe(true);
+  expiring.system.step(5000);
+  expect(expiring.store.profile.hp).toBe(40);
+  expiring.system.destroy();
+});
+
+test("Magic Guard transfers only available MP and death removes absorption", async () => {
+  const guard = skill(
+    2001002,
+    { 1: { mpCon: 6, time: 111, x: 11 } },
+    {
+      classification: {
+        activation: "self-buff",
+        supported: true,
+        hooks: ["magic-guard"],
+      },
+    },
+  );
+  const { system, store } = fixture({ 2001002: guard });
+  store.profile.job = 200;
+  system.refresh();
+  grant(store, 2001002);
+  await system.prepare();
+  expect(system.activate(2001002).ok).toBe(true);
+  expect(system.absorbDamage(100)).toBe(89);
+  expect(store.profile.mp).toBe(3);
+  expect(system.absorbDamage(100)).toBe(97);
+  expect(store.profile.mp).toBe(0);
+  store.profile.mp = 20;
+  system.onDeath();
+  expect(system.absorbDamage(100)).toBe(100);
+  expect(store.profile.mp).toBe(20);
   system.destroy();
 });

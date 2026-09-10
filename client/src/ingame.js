@@ -14,6 +14,20 @@ import { SkillSystem } from "./skill-system.js";
 import { CharacterDevelopment } from "./character-development.js";
 import { DropSystem } from "./drop-system.js";
 import { DropRenderer } from "./drop-renderer.js";
+import { CharacterBindings, EXPRESSION_NAMES } from "./character-bindings.js";
+import { updateSkillMovement } from "./physics/skill-movement.js";
+
+const CHAT_BINDINGS = Object.freeze({
+  ChatAll: 7,
+  ChatWhisper: 6,
+  ChatParty: 2,
+  ChatBuddy: 0,
+  ChatGuild: 3,
+  ChatSpouse: 5,
+  ChatAlliance: 4,
+});
+const USER_TABS = Object.freeze({ Friends: 0, Guild: 2, Party: 1 });
+const CHARACTER_BINDINGS = new Set(["Attack", "Jump", "Pickup", "Sit", "Talk"]);
 
 /** Candidate fields own resources independently; only committed fields advance. */
 class FieldSystems {
@@ -40,6 +54,14 @@ class FieldSystems {
       this.drops = this.createDrops(store);
       this.gameplay = this.createGameplay(store);
       this.life = new LifeSystem(scene, owner.fieldHooks);
+      this.character = new CharacterBindings(scene, store, this.gameplay, {
+        now: owner.hooks.now,
+        report: (message) => owner.ui.status(message),
+        isBlocked: () =>
+          scene !== owner.scene ||
+          owner.hooks.isBlocked() ||
+          owner.ui.blocksGameplay(),
+      });
       this.speech = new SpeechBubbles(owner.app, owner.services);
       this.speech.setScene(scene);
       this.combat = new CombatPresentation(owner.app, owner.services);
@@ -80,6 +102,8 @@ class FieldSystems {
       {
         items: owner.catalog.ui.items,
         random: owner.hooks.random,
+        pickupHeight: () =>
+          this.scene.actor.current.geometry[this.scene.actor.frame].height,
         onSound: (name) => owner.playSound("Game", name),
       },
     );
@@ -105,6 +129,8 @@ class FieldSystems {
       skillInfo: this.skills.info.bind(this.skills),
       hpGrowth: this.skills.hpGrowth.bind(this.skills),
       derivedStats: this.skills.derived.bind(this.skills),
+      random: owner.hooks.random,
+      absorbDamage: this.skills.absorbDamage.bind(this.skills),
       onStrike: this.reactors.strike.bind(this.reactors),
       onAttack: () => {
         owner.hooks.onEvent?.("player-attack", scene.actor.id, null);
@@ -148,6 +174,8 @@ class FieldSystems {
     this.reactors.refresh();
   }
   beforePhysics(input) {
+    this.character.beforePhysics(input);
+    updateSkillMovement(this.scene.simulation, this.skills.derived());
     if (!this.gameplay.dead && !this.gameplay.blocksMovement) {
       this.portals.handleInput(input);
     }
@@ -156,6 +184,8 @@ class FieldSystems {
     this.skills.step(ms);
     this.combat.update(ms);
     this.gameplay.step(ms, input);
+    this.character.beforePhysics(input);
+    updateSkillMovement(this.scene.simulation, this.skills.derived());
     this.reactors.step(ms);
     this.drops.step(ms);
   }
@@ -181,6 +211,7 @@ class FieldSystems {
       combatPresentation: this.combat.snapshot(),
       skills: this.skills.snapshot(),
       drops: this.drops.snapshot(),
+      character: this.character.snapshot(),
     };
   }
   destroy() {
@@ -226,6 +257,7 @@ export class InGameSystems {
       onReset: hooks.onReset,
       onSave: hooks.onSave,
       onChatSubmit: this.submitChat.bind(this),
+      onDropMesos: this.dropMesos.bind(this),
       onProfileEdit: this.editProfile.bind(this),
       onLearnSkill: this.learnSkill.bind(this),
       skillAllocationError: (id) =>
@@ -357,16 +389,77 @@ export class InGameSystems {
       .catch(this.audio.reportBound);
   }
   activateBinding(name) {
+    if (CHARACTER_BINDINGS.has(name) || name.startsWith("Expression:")) {
+      return this.activateCharacterBinding(name);
+    }
     if (name === "MiniMap") return this.ui.advanceMinimap();
-    if (name === "Attack" || name === "Jump") {
-      this.hooks.focusGame();
-      this.hooks.tap(name === "Attack" ? "attack" : "jump");
-    } else if (name === "Pickup") {
-      return this.pickup();
+    if (Object.hasOwn(CHAT_BINDINGS, name)) {
+      this.ui.chat.selector.selectedIndex = CHAT_BINDINGS[name];
+      this.ui.chat.open();
+      return true;
+    }
+    if (name === "ExpandChat") {
+      this.ui.chat.setState(this.ui.chat.state === 3 ? 1 : 3);
+      return true;
+    }
+    if (Object.hasOwn(USER_TABS, name)) {
+      return this.activateUserTab(USER_TABS[name]);
+    }
+    if (name === "CashShop") {
+      this.ui.status(
+        "Cash Shop requires account currency, offers and purchase authority; no purchase was sent.",
+      );
+      return false;
+    }
+    this.ui.activate(name);
+    return true;
+  }
+  activateCharacterBinding(name) {
+    if (!this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay()) {
+      return false;
+    }
+    const systems = this.scene.fieldSystems;
+    if (name.startsWith("Expression:")) {
+      return systems.character.emote(EXPRESSION_NAMES.indexOf(name.slice(11)));
+    }
+    if (name === "Sit") return systems.character.sit();
+    if (name === "Talk") return systems.life.talkNearest();
+    if (name === "Pickup") return this.pickup();
+    this.hooks.focusGame();
+    this.hooks.tap(name === "Attack" ? "attack" : "jump");
+    return true;
+  }
+  activateUserTab(index) {
+    const panel = this.ui.windows.get("UserList");
+    if (panel?.localTab === index || this.ui.pending.has("UserList")) {
+      this.ui.close("UserList");
+    } else if (panel) {
+      panel.selectLocalTab(index);
+      this.ui.front(panel);
     } else {
-      this.ui.activate(name);
+      this.ui
+        .open("UserList")
+        .then((opened) => {
+          if (opened && this.ui.windows.get("UserList") === opened) {
+            opened.selectLocalTab(index);
+          }
+        })
+        .catch(this.hooks.onError);
     }
     return true;
+  }
+  async dropMesos(amount) {
+    if (!this.scene || this.hooks.isBlocked()) {
+      return {
+        ok: false,
+        code: "field-blocked",
+        reason: "The current field is unavailable.",
+      };
+    }
+    return this.scene.fieldSystems.drops.dropMesos(
+      amount,
+      this.scene.simulation,
+    );
   }
   pickup() {
     if (!this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay()) {
@@ -413,6 +506,8 @@ export class InGameSystems {
     const bindings = new KeyBindings(store, this.catalog, {
       onAction: (name) => this.activateBinding(name),
       onSkill: this.activateSkill.bind(this),
+      onCashExpression: (id) =>
+        this.scene?.fieldSystems.character.useCashExpression(id) ?? false,
       onSound: this.playSound,
       isBlocked: () =>
         !this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay(),
@@ -459,6 +554,7 @@ export class InGameSystems {
   }
   setScene(scene) {
     scene.fieldSystems.skills.inherit(this.scene?.fieldSystems.skills);
+    scene.fieldSystems.character.inherit(this.scene?.fieldSystems.character);
     this.scene = scene;
     this.ui.setScene(scene);
     this.audio.setScene(scene);

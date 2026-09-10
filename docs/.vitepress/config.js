@@ -20,6 +20,7 @@ const sidebar = [
       { text: "Reconstruction contract", link: "/reconstruction-contract" },
       { text: "Scene and inspection contract", link: "/scene-contract" },
       { text: "Agent actions and reversible experiments", link: "/agent-interface" },
+      { text: "Inspection console and port tools", link: "/inspection-tools" },
       {
         text: "Offline integration contract",
         link: "/offline-integration-contract",
@@ -49,6 +50,7 @@ const sidebar = [
     text: "UI",
     items: [
       { text: "In-game UI reconstruction", link: "/ingame-ui" },
+      { text: "Native binding actions and world map", link: "/offline-binding-actions" },
       { text: "Audio and visual effects", link: "/ingame-audiovisual" },
     ],
   },
@@ -57,6 +59,8 @@ const sidebar = [
     items: [
       { text: "Gameplay and acceptance checklist", link: "/offline-gameplay" },
       { text: "Combat and progression", link: "/offline-combat" },
+      { text: "Drop motion and atomic pickup", link: "/drop-motion" },
+      { text: "Authorized Cosmic SQL data", link: "/offline-data" },
       { text: "Learned skills and passive effects", link: "/skills" },
       { text: "Life and local authority", link: "/ingame-life" },
       { text: "Quests", link: "/ingame-quests" },
