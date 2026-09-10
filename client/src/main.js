@@ -20,12 +20,18 @@ import {
 import { HitboxInspector } from "./hitbox-inspector.js";
 import { InGameSystems } from "./ingame.js";
 import { ProfileStore } from "./profile-store.js";
-import { followCamera } from "./camera.js";
+import {
+  createCameraFilter,
+  evaluateCameraFilter,
+  followCamera,
+} from "./camera.js";
 import { initializeOfflineDelivery } from "./offline-delivery.js";
 import { createAgentInterface } from "./agent-integration.js";
 import { AgentDevelopment, scenarioProfile } from "./agent-development.js";
 import { REVIVAL_POLICY, revivalMap, revivalArrival } from "./revival.js";
 import { FieldTransition } from "./field-transition.js";
+import { prepareFieldAvatar } from "./field-avatar.js";
+import { prepareFamilyTravel } from "./family-travel.js";
 
 const sourceBuildId = import.meta.MAPLE_SOURCE_ID ?? null;
 let agentSurface = null;
@@ -118,7 +124,10 @@ function fieldInputBlocked() {
     loading ||
     destroyed ||
     fieldTransition.blocksInput ||
-    Boolean(profileStore?.profileTransactionPending)
+    Boolean(profileStore?.profileTransactionPending) ||
+    Boolean(
+      inGame?.isOperationPending() || inGame?.cashStage || inGame?.ui.resetting,
+    )
   );
 }
 function updatePlayer(ms) {
@@ -137,14 +146,6 @@ function updatePlayer(ms) {
   }
   updatePresentation(current);
   current.updateActor(current.presentation);
-  if (follow) {
-    followCamera(
-      current.camera,
-      current.presentation,
-      current.manifest.physics,
-      app.screen,
-    );
-  }
   for (const entity of current.entities) {
     if (entity !== current.actor && !entity.gameplayOwned) entity.advance(ms);
   }
@@ -166,6 +167,33 @@ function updatePresentation(scene) {
   pose.crouching = sim.crouching;
   scene.hitboxPreview = hitboxInspector.context;
 }
+/** Each retained scene owns its renderer timeline; temporary scenarios never advance the baseline clock. */
+function presentCamera(scene, initial = false) {
+  const filter = scene.cameraFilter;
+  // Shape2D's vector cache evaluates at most once at the same signed millisecond.
+  if (
+    !filter.initialized ||
+    filter.committedTime !== (Math.trunc(scene.cameraTimeMs) | 0)
+  ) {
+    evaluateCameraFilter(filter, scene.presentation, scene.cameraTimeMs);
+  }
+  if (follow || initial) {
+    followCamera(
+      scene.camera,
+      scene.cameraFilter,
+      scene.manifest.physics,
+      app.screen,
+    );
+  }
+}
+
+/** Render time is independent of portal/physics admission and advances only from its explicit owner. */
+function advanceCamera(ms) {
+  if (!current) return;
+  current.cameraTimeMs += ms;
+  presentCamera(current);
+}
+
 /** Original global brightness covers world and UI; unchanged frames do no DOM work. */
 function paintFieldFade() {
   const opacity = fieldTransition.opacity;
@@ -179,6 +207,7 @@ function render() {
   const start = performance.now();
   paintFieldFade();
   if (current) {
+    presentCamera(current);
     current.container.position.set(-current.camera.x, -current.camera.y);
     for (const entity of current.backgrounds) {
       entity.updateBackground(
@@ -209,6 +238,7 @@ function tick() {
     if (!document.hidden) inGame.updateInterface(elapsed);
     // Freeze offline authority during the atomic scene swap, not rendering or UI.
     if (!paused && !document.hidden && !loading) updatePlayer(elapsed);
+    if (!paused && !document.hidden) advanceCamera(elapsed);
     render();
   } catch (error) {
     paused = true;
@@ -241,14 +271,6 @@ function resize() {
   if (current) {
     for (const entity of current.backgrounds) {
       entity.prepareBackground(app.screen);
-    }
-    if (follow) {
-      followCamera(
-        current.camera,
-        current.presentation,
-        current.manifest.physics,
-        app.screen,
-      );
     }
   }
   inGame?.resize(app.screen.width, app.screen.height);
@@ -302,7 +324,10 @@ function inspect() {
   controls.refresh(snapshot());
 }
 async function resetSaveAndReload() {
-  await profileStore.reset();
+  if (inGame?.native && profileStore.profile) {
+    const result = await inGame.native.social.resetParticipant();
+    if (!result.ok) throw new Error(result.reason);
+  } else await profileStore.reset();
   document.querySelector("#save-recovery")?.remove();
   await reloadAfterReset();
 }
@@ -320,13 +345,26 @@ function requireProfile() {
   }
   throw new Error(profileStore.error ?? "Offline character save unavailable");
 }
+async function resetActiveProfile(store) {
+  if (store !== profileStore) {
+    throw new Error("The reset character is no longer active");
+  }
+  const result = await inGame.native.social.resetParticipant();
+  if (!result.ok) throw new Error(result.reason);
+  inGame.useProfile(store);
+  input.setBindings(inGame.bindings);
+  await reloadAfterReset(store);
+}
+
 async function reloadAfterReset(store = profileStore) {
   if (store !== profileStore) return;
   const epoch = inGame?.ui.epoch;
   const wasPaused = paused;
   paused = true;
   try {
-    const promise = loadMap(store.profile.location.mapId, true, null);
+    const promise = loadMap(store.profile.location.mapId, false, null, {
+      inheritState: false,
+    });
     api.ready = promise;
     await promise;
     if (store === profileStore && epoch === inGame?.ui.epoch) {
@@ -465,6 +503,7 @@ async function normalizeScenario(spec, signal) {
 }
 
 async function prepareExperiment(session, externalSignal) {
+  await prepareWindowTransition();
   const request = ++generation;
   transition?.abort();
   fieldTransition.cancel();
@@ -535,7 +574,10 @@ function stepExperiment(ticks) {
   if (!paused || !development.session) {
     throw new Error("Pause the temporary scenario before stepping");
   }
-  for (let index = 0; index < ticks && !loading; index++) updatePlayer(30);
+  for (let index = 0; index < ticks && !loading; index++) {
+    updatePlayer(30);
+    advanceCamera(30);
+  }
   render();
 }
 
@@ -551,20 +593,25 @@ function initializeInterface() {
         : Math.random(),
     onEvent: agentSurface.observation.record.bind(agentSurface.observation),
     clearInput: input.clear,
+    keyDown: input.keyDown,
+    inputGeneration: () => input.generation,
     focusGame: () => app.canvas.focus(),
     tap: input.tap,
     isBlocked: fieldInputBlocked,
+    isTransitioning: () => loading || destroyed || fieldTransition.blocksInput,
+    prepareFamilyTravel: prepareLocalFamilyTravel,
     onStatus: (message) => {
       document.querySelector("#ui-status").textContent = message;
     },
     onError: showError,
     travel: travelPortal,
-    onReset: reloadAfterReset,
+    onReset: resetActiveProfile,
     onSave: checkpointProfile,
     onRevive: revivePlayer,
   });
   controls = createControls({
     ...api,
+    mapName: (id) => catalog?.mapNames[id] || "Original map name unavailable",
     onKeyConfig: () => inGame.activateBinding("KeyConfig"),
   });
   overlay = createDebugOverlay(
@@ -588,19 +635,23 @@ async function prefetchNeighbors(id) {
     if (error.name !== "AbortError") showError(error);
   }
 }
-/** Named arrival is explicit offline traversal, never server authorization. */
-function arrivalPosition(manifest, name) {
-  if (name === null) return null;
-  if (typeof name !== "string" || !name || name.length > 128) {
-    throw new Error("Invalid destination portal name");
+/** Field links select a unique name; family travel selects original portal zero by ID. */
+function arrivalPosition(manifest, selector) {
+  if (selector === null) return null;
+  const byId = Number.isInteger(selector) && selector >= 0;
+  if (
+    !byId &&
+    (typeof selector !== "string" || !selector || selector.length > 128)
+  ) {
+    throw new Error("Invalid destination portal selector");
   }
   let selected = null;
   for (const portal of manifest.physics.portals) {
-    if (portal.name !== name) continue;
-    if (selected) throw new Error(`Ambiguous destination portal ${name}`);
+    if ((byId ? portal.id : portal.name) !== selector) continue;
+    if (selected) throw new Error(`Ambiguous destination portal ${selector}`);
     selected = portal;
   }
-  if (!selected) throw new Error(`Destination portal ${name} unavailable`);
+  if (!selected) throw new Error(`Destination portal ${selector} unavailable`);
   // Original field entry 0094969d subtracts ten pixels from portal feet y.
   finite(selected.x);
   finite(selected.y);
@@ -630,6 +681,81 @@ function applyScenarioPhysics(manifest, physics) {
   };
 }
 
+async function familyManifest(id) {
+  const descriptor = catalog.maps[id];
+  if (!descriptor) throw new Error(`Family destination ${id} is not packaged`);
+  return validateManifest(
+    await network.json(descriptor, inGame.ui.controller.signal),
+  );
+}
+
+async function prepareLocalFamilyTravel(request, social) {
+  const state = {
+    source: current,
+    store: profileStore,
+    request: generation,
+    ownsLoad: false,
+  };
+  return prepareFamilyTravel(request, social, {
+    activeStore: state.store,
+    manifest: familyManifest,
+    isCurrent: () =>
+      !destroyed &&
+      current === state.source &&
+      profileStore === state.store &&
+      generation === state.request &&
+      (!loading || state.ownsLoad),
+    prepareScene: (manifest, id) => prepareFamilyScene(manifest, id, state),
+    refreshParticipant: (id, invitation) => {
+      inGame.ui.refreshProfile();
+      agentSurface.observation.record(
+        invitation ? "family-summon-request" : "family-travel",
+        id,
+        null,
+      );
+    },
+  });
+}
+
+async function prepareFamilyScene(manifest, portalId, state) {
+  const load = beginMapLoad();
+  state.request = load.request;
+  state.ownsLoad = true;
+  const fade = fieldTransition.begin(load.request);
+  let candidate = null;
+  try {
+    candidate = await prepareCandidate(manifest.id, load.signal, portalId, {
+      manifest,
+    });
+    await awaitCandidateCommit(load.request, {}, fade, load.signal);
+  } catch (error) {
+    candidate?.destroy();
+    fieldTransition.fail(load.request);
+    if (generation === load.request) loading = false;
+    throw error;
+  }
+  return {
+    isCurrent: () =>
+      generation === load.request && !load.signal.aborted && !destroyed,
+    publish() {
+      try {
+        commitCandidate(candidate);
+        candidate = null;
+        fieldTransition.reveal(load.request);
+      } finally {
+        candidate?.destroy();
+        if (generation === load.request) loading = false;
+      }
+    },
+    release() {
+      candidate?.destroy();
+      candidate = null;
+      fieldTransition.fail(load.request);
+      if (generation === load.request) loading = false;
+    },
+  };
+}
+
 async function prepareCandidate(id, signal, portalName, context = {}) {
   const info = catalog.maps[id];
   if (!info) {
@@ -640,16 +766,23 @@ async function prepareCandidate(id, signal, portalName, context = {}) {
   check(signal);
   manifest = applyScenarioPhysics(manifest, context.physics);
   if (manifest.id !== id) throw new Error("Catalog/map identity mismatch");
-  let arrival = context.revivalSource
-    ? revivalArrival(manifest)
-    : arrivalPosition(manifest, portalName);
   const saved = (context.store ?? profileStore).profile.location;
-  if (!context.revivalSource && portalName === null && saved.mapId === id) {
-    arrival = saved;
-  }
+  const arrival = candidateArrival(
+    manifest,
+    portalName,
+    saved,
+    context.revivalSource,
+  );
   const scene = new StreamScene(manifest, services, app.screen);
   try {
-    await scene.prepare(signal, arrival);
+    const source = manifest.actors.find((entry) => entry.kind === "character");
+    const avatar = await prepareFieldAvatar(
+      inGame.avatars,
+      (context.store ?? profileStore).profile,
+      source,
+      signal,
+    );
+    await scene.prepare(signal, arrival, avatar);
     if (arrival === saved) scene.simulation.facing = saved.facing;
     scene.presentation = {
       x: scene.simulation.x,
@@ -661,12 +794,9 @@ async function prepareCandidate(id, signal, portalName, context = {}) {
       tint: 0xffffff,
     };
     scene.hitboxPreview = hitboxInspector.context;
-    followCamera(
-      scene.camera,
-      scene.presentation,
-      manifest.physics,
-      app.screen,
-    );
+    scene.cameraTimeMs = 0;
+    scene.cameraFilter = createCameraFilter();
+    presentCamera(scene, true);
     await inGame.prepareScene(scene, signal, context);
     return scene;
   } catch (error) {
@@ -675,11 +805,22 @@ async function prepareCandidate(id, signal, portalName, context = {}) {
   }
 }
 
-async function relocatePlayer(name, signal) {
+function candidateArrival(manifest, portalName, saved, revivalSource) {
+  const arrival = revivalSource
+    ? revivalArrival(manifest)
+    : arrivalPosition(manifest, portalName);
+  if (!revivalSource && portalName === null && saved.mapId === manifest.id) {
+    return saved;
+  }
+  return arrival;
+}
+
+async function relocatePlayer(name, signal, onCommit) {
   if (!current || destroyed) throw aborted();
   if (profileStore.profileTransactionPending) {
     throw new Error("Character update is still committing");
   }
+  await prepareWindowTransition();
   check(signal);
   const arrival = arrivalPosition(current.manifest, name);
   generation++;
@@ -690,28 +831,25 @@ async function relocatePlayer(name, signal) {
   relocateSimulation(current.simulation, arrival);
   updatePresentation(current);
   current.updateActor(current.presentation);
-  if (follow) {
-    followCamera(
-      current.camera,
-      current.presentation,
-      current.manifest.physics,
-      app.screen,
-    );
-  }
   input.clear();
   checkpointProfile();
   render();
+  onCommit?.();
   return snapshot();
 }
 function travelPortal(id, portalName, options = {}) {
+  let request = null;
+  const onCommit = () => {
+    request = generation;
+  };
   const loading =
     options.sameMapMotion && String(id) === current?.manifest.id
-      ? relocatePlayer(portalName, options.signal)
+      ? relocatePlayer(portalName, options.signal, onCommit)
       : loadMap(String(id), false, portalName, {
           signal: options.signal,
           fieldTransition: options.transition === "field",
+          onCommit,
         });
-  const request = generation;
   const promise = loading.then((result) => {
     if (!destroyed && request === generation) {
       if (options.sound !== false) inGame.playSound("Game", "Portal");
@@ -746,7 +884,7 @@ async function revivePlayer() {
   api.ready = promise;
   return promise;
 }
-function commitCandidate(candidate, revival = false) {
+function commitCandidate(candidate, revival = false, inheritState = true) {
   const previous = current;
   const oldHP = profileStore.profile.hp;
   current = candidate;
@@ -760,7 +898,7 @@ function commitCandidate(candidate, revival = false) {
       );
       candidate.fieldSystems.gameplay.synchronizeProfile();
     }
-    inGame.setScene(candidate);
+    inGame.setScene(candidate, inheritState);
     candidate.setPresentationVisible(presentationVisible);
     render();
   } catch (error) {
@@ -856,7 +994,22 @@ async function awaitCandidateCommit(request, context, fade, signal) {
   assertCurrentLoad(request, context);
 }
 
+async function prepareWindowTransition() {
+  if (!inGame?.native) return;
+  await inGame.ui.chat.waitForIdle();
+  if (inGame.isOperationPending()) {
+    throw new Error("A native character operation is still pending");
+  }
+  if (!(await inGame.ui.requestCloseAll())) {
+    throw new Error(
+      "Close the current native operation before changing fields",
+    );
+  }
+  inGame.native.macros.interrupt("Field transition");
+}
+
 async function loadMap(id, refreshCatalog, portalName, context = {}) {
+  await prepareWindowTransition();
   const { request, signal } = beginMapLoad(context.signal);
   const fade =
     context.fieldTransition && current ? fieldTransition.begin(request) : null;
@@ -869,7 +1022,12 @@ async function loadMap(id, refreshCatalog, portalName, context = {}) {
     id = await resolveMapId(id, refreshCatalog, signal);
     candidate = await prepareCandidate(id, signal, portalName, context);
     await awaitCandidateCommit(request, context, fade, signal);
-    commitCandidate(candidate, Boolean(context.revivalSource));
+    commitCandidate(
+      candidate,
+      Boolean(context.revivalSource),
+      context.inheritState !== false,
+    );
+    context.onCommit?.();
     candidate = null;
     if (fade) fieldTransition.reveal(request);
     inspect();
@@ -881,8 +1039,14 @@ async function loadMap(id, refreshCatalog, portalName, context = {}) {
     recordLoadFailure(error, request);
     throw error;
   } finally {
-    if (request === generation) loading = false;
+    finishMapLoad(request, context.revivalSource);
   }
+}
+
+function finishMapLoad(request, revivalSource) {
+  if (request !== generation) return;
+  loading = false;
+  if (revivalSource) inGame.showRevival();
 }
 function sceneSnapshot() {
   if (!current) {
@@ -898,6 +1062,7 @@ function sceneSnapshot() {
   return {
     currentMap: current.manifest.id,
     camera: { ...current.camera },
+    cameraFilter: { ...current.cameraFilter, timeMs: current.cameraTimeMs },
     simulation: snapshotSimulation(current.simulation),
     presentation: { ...current.presentation },
     actorArtworkUnsupported: !current.actor.actions.has(
@@ -955,9 +1120,9 @@ function snapshot() {
     },
   };
 }
-function closeDurableSystems() {
+async function closeDurableSystems() {
   offlineDelivery?.destroy();
-  profileStore?.destroy().catch(showError);
+  await profileStore?.destroy();
 }
 
 function destroyAgentSystems() {
@@ -967,6 +1132,7 @@ function destroyAgentSystems() {
 
 async function destroy() {
   if (destroyed) return;
+  await prepareWindowTransition();
   destroyed = true;
   generation++;
   transition?.abort();
@@ -980,21 +1146,24 @@ async function destroy() {
   document.removeEventListener("visibilitychange", visibilityChanged);
   window.removeEventListener("pagehide", pageLeaving);
   consoleEvents.abort();
+  await api.ready?.catch((error) => {
+    if (error.name !== "AbortError") showError(error);
+  });
   await current?.fieldSystems.drops.waitForIdle();
-  retireSceneResources();
+  await retireSceneResources();
 }
 
-function retireSceneResources() {
+async function retireSceneResources() {
   destroyAgentSystems();
   input?.destroy();
   controls?.destroy();
-  inGame?.destroy();
   current?.destroy();
   current = null;
+  await inGame?.destroy();
   overlay?.destroy();
   services.atlases?.destroy();
   hitboxInspector.destroy();
-  closeDurableSystems();
+  await closeDurableSystems();
   if (initialized) app.destroy(true);
 }
 const api = {
@@ -1034,6 +1203,7 @@ const api = {
     if (!paused) throw new Error("Pause before deterministic stepping");
     if (loading) throw new Error("Cannot step during field replacement");
     updatePlayer(ms);
+    advanceCamera(ms);
     render();
     return snapshot();
   },
@@ -1051,14 +1221,6 @@ const api = {
   },
   setFollow(value) {
     follow = Boolean(value);
-    if (follow && current) {
-      followCamera(
-        current.camera,
-        current.presentation,
-        current.manifest.physics,
-        app.screen,
-      );
-    }
     render();
   },
   setCamera(x, y) {

@@ -15,6 +15,17 @@ function intersects(bounds, camera, viewport, margin) {
   );
 }
 
+/** Resolve authored weapon action families without changing other pose actions. */
+function avatarAction(actor, action) {
+  if (action === "stand1" || action === "stand2") {
+    action = actor.avatar?.standAction ?? action;
+  }
+  if (action === "walk1" || action === "walk2") {
+    action = actor.avatar?.walkAction ?? action;
+  }
+  return action;
+}
+
 /** Region owns subtextures/display objects; atlas sources are shared/refcounted. */
 class Region {
   constructor(scene, descriptor) {
@@ -116,6 +127,7 @@ export class StreamScene {
     this.actorRegion = new Region(this, null);
     this.simulation = null;
     this.actor = null;
+    this.avatarOwner = null;
     this.destroyed = false;
     this.lastError = null;
     this.pendingLoads = 0;
@@ -123,11 +135,19 @@ export class StreamScene {
     this.failures = new Set();
     this.spriteCount = 0;
   }
-  async prepare(signal, arrival = null) {
+  async prepare(signal, arrival = null, avatar = null) {
     const cancel = () => this.destroy();
     signal.addEventListener("abort", cancel, { once: true });
     try {
-      await this.actorRegion.load(this.manifest.actors);
+      this.avatarOwner = avatar;
+      if (avatar) {
+        await this.actorRegion.load(
+          this.manifest.actors.filter((entity) => entity.kind !== "character"),
+        );
+        check(signal);
+        this.actorRegion.entities.push(avatar.animation);
+        this.refreshEntities();
+      } else await this.actorRegion.load(this.manifest.actors);
       check(signal);
       this.actor = this.actorRegion.entities.find(
         (entity) => entity.kind === "character",
@@ -205,7 +225,7 @@ export class StreamScene {
   /** Initialize and update the same pose contract, including paused map entry. */
   updateActor(pose) {
     const actor = this.actor;
-    const action = pose.action ?? this.simulation.action;
+    const action = avatarAction(actor, pose.action ?? this.simulation.action);
     actor.setPosition(pose.x, pose.y);
     // Original extracted artwork faces left; positive direction mirrors it.
     actor.container.scale.x = pose.facing > 0 ? -1 : 1;
@@ -397,6 +417,8 @@ export class StreamScene {
     this.offlineField?.destroy();
     this.dynamicEntities.clear();
     this.actorRegion.destroy();
+    this.avatarOwner?.destroy();
+    this.avatarOwner = null;
     for (const region of this.regions.values()) region.destroy();
     this.regions.clear();
     // External presentation systems retain their own containers/textures.

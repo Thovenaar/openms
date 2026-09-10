@@ -13,6 +13,9 @@ export const LIMITS = Object.freeze({
   uploadBytes: 16 * 1024 * 1024,
   uploadMs: 4,
   maps: 512,
+  mapNames: 16384,
+  uiTemplates: 32768,
+  uiArtwork: 8192,
   regions: 4096,
   textures: 65536,
   entities: 8192,
@@ -69,6 +72,7 @@ export function catalog(value) {
   if (value?.schemaVersion !== 2 || typeof value.buildId !== "string") {
     throw new Error("Catalog version must be 2");
   }
+  mapNames(value.mapNames);
   for (const [, map] of entries(value.maps, LIMITS.maps)) {
     resource(map);
     array(map.neighbors, LIMITS.maps);
@@ -79,7 +83,181 @@ export function catalog(value) {
   if (!Object.hasOwn(value.maps, value.defaultMap)) {
     throw new Error("Default map unavailable");
   }
+  if (value.originalSources !== undefined) resource(value.originalSources);
+  if (value.ui !== undefined) uiCatalog(value.ui);
   return value;
+}
+
+function mapNames(names) {
+  for (const [id, name] of entries(names, LIMITS.mapNames)) {
+    if (
+      !/^(0|[1-9]\d{0,8})$/.test(id) ||
+      typeof name !== "string" ||
+      name.length > 4096
+    ) {
+      throw new Error("Invalid original map name");
+    }
+  }
+}
+
+/** Validate lazy visual references without downloading or decoding their artwork. */
+function visualReferences(value, maximum) {
+  for (const [, record] of entries(value, maximum)) {
+    if (record.available === false) {
+      if (typeof record.reason !== "string" || !record.reason.length) {
+        throw new Error(
+          "Unavailable artwork requires its original-source reason",
+        );
+      }
+    } else resource(record.descriptor);
+  }
+}
+
+function uiCatalog(ui) {
+  if (ui?.schemaVersion !== 1) {
+    throw new Error("Unsupported UI catalog version");
+  }
+  for (const [, descriptor] of entries(ui.bundles, 128)) resource(descriptor);
+  visualReferences(ui.minimaps, LIMITS.maps);
+  itemCatalog(ui.items);
+  visualReferences(ui.skills, LIMITS.uiArtwork);
+  visualReferences(ui.npcPortraits, LIMITS.uiArtwork);
+  dialogArtwork(ui.dialogArtwork);
+  avatarCatalog(ui.avatar);
+  cashCatalog(ui.cashShop);
+  monsterBookCatalog(ui.monsterBook);
+  nativeRules(ui);
+  if (
+    !ui.bundles.Quest ||
+    !ui.bundles.CashShop ||
+    !ui.bundles.MonsterBook ||
+    !ui.bundles.SkillMacro
+  ) {
+    throw new Error("Native UI bundle dependency is absent");
+  }
+}
+
+function itemCatalog(items) {
+  visualReferences(items, LIMITS.uiTemplates);
+  for (const [id, item] of entries(items, LIMITS.uiTemplates)) {
+    if (
+      String(item.id) !== id ||
+      !Number.isSafeInteger(item.iconWidth) ||
+      !Number.isSafeInteger(item.iconHeight) ||
+      item.iconWidth < 1 ||
+      item.iconHeight < 1 ||
+      item.iconWidth > 32768 ||
+      item.iconHeight > 32768
+    ) {
+      throw new Error("Invalid original item icon metadata");
+    }
+  }
+}
+
+function nativeRules(ui) {
+  macroDictionary(ui.skillMacroRules);
+  const emblems = ui.social?.emblems;
+  for (const key of ["backgrounds", "logos", "colors"]) {
+    for (const id of array(emblems?.[key], LIMITS.uiArtwork)) {
+      if (!Number.isSafeInteger(id) || id < 1) {
+        throw new Error("Invalid original guild emblem metadata");
+      }
+    }
+  }
+}
+
+function macroDictionary(rules) {
+  if (rules?.source !== "Etc.wz:Curse.img") {
+    throw new Error("Original skill macro dictionary source is absent");
+  }
+  for (const word of array(rules.curseWords, 8192)) {
+    if (typeof word !== "string" || !word.length || word.length > 256) {
+      throw new Error("Invalid original macro dictionary word");
+    }
+  }
+}
+
+function dialogArtwork(artwork) {
+  visualReferences(artwork, LIMITS.uiArtwork);
+  for (const [path, record] of entries(artwork, LIMITS.uiArtwork)) {
+    if (!path.length || path.length > 4096 || /[\r\n#]/.test(path)) {
+      throw new Error("Invalid exact dialogue artwork path");
+    }
+    if (record.available === false) continue;
+    dialogDimensions(path, record);
+  }
+}
+
+function dialogDimensions(path, record) {
+  if (
+    record.path !== path ||
+    !Number.isSafeInteger(record.width) ||
+    !Number.isSafeInteger(record.height) ||
+    record.width < 1 ||
+    record.height < 1 ||
+    record.width > 32768 ||
+    record.height > 32768
+  ) {
+    throw new Error("Invalid original dialogue artwork dimensions");
+  }
+}
+
+function avatarCatalog(avatar) {
+  if (avatar?.schemaVersion !== 1) {
+    throw new Error("Unsupported avatar catalog");
+  }
+  visualReferences(avatar.entries, LIMITS.uiTemplates);
+  for (const [id, record] of entries(avatar.entries, LIMITS.uiTemplates)) {
+    if (
+      String(record.id) !== id ||
+      !["body", "head", "face", "hair", "equipment"].includes(record.kind) ||
+      typeof record.visual !== "boolean"
+    ) {
+      throw new Error("Invalid original avatar identity");
+    }
+  }
+  for (const [, skin] of entries(avatar.skins, 256)) {
+    if (!avatar.entries[skin.body] || !avatar.entries[skin.head]) {
+      throw new Error("Avatar skin dependency is absent");
+    }
+  }
+}
+
+function cashCatalog(cash) {
+  if (cash?.schemaVersion !== 1) throw new Error("Unsupported cash catalog");
+  resource(cash.bundle);
+  resource(cash.preview.bundle);
+  visualReferences(cash.specialItems, LIMITS.uiArtwork);
+  entries(cash.commodities, LIMITS.uiTemplates);
+  entries(cash.packages, 4096);
+  array(cash.itemIds, LIMITS.uiTemplates);
+  resource(cash.bgm);
+}
+
+function monsterBookCatalog(book) {
+  const cards = entries(book?.cards, 4096);
+  array(book.categories, 9);
+  for (const [id, card] of cards) {
+    if (
+      String(card.itemId) !== id ||
+      !Number.isSafeInteger(card.mobId) ||
+      card.mobId < 1 ||
+      !Number.isInteger(card.category) ||
+      card.category < 0 ||
+      card.category > 8
+    ) {
+      throw new Error("Invalid original Monster Book card");
+    }
+    cardPortrait(card.portrait);
+  }
+}
+
+function cardPortrait(portrait) {
+  if (portrait?.available === false) {
+    if (typeof portrait.reason !== "string") {
+      throw new Error("Missing Monster Book portrait source reason");
+    }
+  } else resource(portrait?.descriptor);
 }
 function atlasDictionary(value) {
   for (const [, atlas] of entries(value.atlases, LIMITS.textures)) {

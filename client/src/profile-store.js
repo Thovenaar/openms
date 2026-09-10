@@ -5,7 +5,15 @@ import {
   validateProfile,
   validateKeyBindings,
   validateProfileRecord,
+  PROFILE_LIMITS,
+  validateCharacterId,
+  validateCharacterUids,
 } from "./profile-validation.js";
+import { validateSocialOwner } from "./profile-social.js";
+import {
+  hasSocialLinks,
+  validateSocialCommit,
+} from "./profile-social-transaction.js";
 
 const DATABASE = "maple-offline-save";
 const DATABASE_VERSION = 1;
@@ -113,16 +121,28 @@ function openDatabase() {
   });
 }
 
-/** Read, compare and replace one structured-clone snapshot in a strictly durable transaction. */
-function transactProfile(database, transform) {
+function readProfileRecords(database, ids) {
+  const transaction = database.transaction("profiles", "readwrite", {
+    durability: "strict",
+  });
+  const store = transaction.objectStore("profiles");
+  const countRequest = store.count();
+  const requests = ids
+    ? ids.map((id) => store.get(id))
+    : [store.getAll(undefined, PROFILE_LIMITS.characters + 1)];
+  return { transaction, store, countRequest, requests };
+}
+
+/** One transaction owner for single-row saves, bounded roster reads and multi-row CAS. */
+function transactProfiles(database, ids, transform) {
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction("profiles", "readwrite", {
-      durability: "strict",
-    });
-    const store = transaction.objectStore("profiles");
-    const request = store.get(PROFILE_ID);
-    let result;
-    let failure = null;
+    const { transaction, store, countRequest, requests } = readProfileRecords(
+      database,
+      ids,
+    );
+    let remaining = requests.length + 1,
+      result,
+      failure = null;
     const timer = setTimeout(onTimeout, TRANSACTION_TIMEOUT_MS);
     function onTimeout() {
       failure = profileError(
@@ -132,20 +152,27 @@ function transactProfile(database, transform) {
       try {
         transaction.abort();
       } catch (error) {
-        // A finished transaction can have its terminal event queued behind this timer.
-        // Only that event determines whether the durable write committed or aborted.
+        // Terminal complete/abort alone settles a transaction, even when abort is too late.
         if (error.name !== "InvalidStateError") failure = storageError(error);
       }
     }
-    request.onsuccess = function onRead() {
+    function onRead() {
+      if (--remaining) return;
       try {
-        result = transform(request.result);
-        if (result !== request.result) store.put(result);
+        const current = ids
+          ? requests.map((request) => request.result)
+          : requests[0].result;
+        result = transform(current, countRequest.result);
+        for (let index = 0; index < result.length; index++) {
+          if (result[index] !== current[index]) store.put(result[index]);
+        }
       } catch (error) {
         failure = error;
         transaction.abort();
       }
-    };
+    }
+    countRequest.onsuccess = onRead;
+    for (const request of requests) request.onsuccess = onRead;
     transaction.oncomplete = function onComplete() {
       clearTimeout(timer);
       resolve(result);
@@ -167,6 +194,13 @@ function transactProfile(database, transform) {
       failure ??= event.target.error ?? transaction.error;
     };
   });
+}
+
+async function transactProfile(database, id, transform) {
+  const records = await transactProfiles(database, [id], (current, count) => [
+    transform(current[0], count),
+  ]);
+  return records[0];
 }
 
 /** Invalid revisions can only be replaced by an explicit reset, never an ordinary save. */
@@ -194,7 +228,7 @@ function compareRevision(record, expected) {
   }
 }
 
-function nextRecord(profile, previous, reset = false) {
+function nextRecord(profile, previous, id, reset = false) {
   const revision = revisionOf(previous);
   if (revision === Number.MAX_SAFE_INTEGER && !reset) {
     throw profileError(
@@ -208,7 +242,7 @@ function nextRecord(profile, previous, reset = false) {
       ? previous.createdAt
       : now;
   return {
-    id: PROFILE_ID,
+    id,
     generation:
       reset || previous === undefined
         ? crypto.randomUUID()
@@ -223,6 +257,169 @@ function nextRecord(profile, previous, reset = false) {
   };
 }
 
+function characterSummary(record, items) {
+  try {
+    const profile = migrateProfile(record.profile, items);
+    validateProfileRecord({ ...record, profile }, items);
+    return {
+      id: record.id,
+      name: profile.name,
+      level: profile.level,
+      job: profile.job,
+      location: { ...profile.location },
+      revision: record.revision,
+      generation: record.generation,
+      error: null,
+    };
+  } catch (error) {
+    const failure = storageError(error);
+    return {
+      id: record.id,
+      error: { code: failure.code, message: failure.message },
+    };
+  }
+}
+
+function validateCharacterHandles(stores, transform) {
+  if (
+    !Array.isArray(stores) ||
+    stores.length < 2 ||
+    stores.length > PROFILE_LIMITS.characters ||
+    typeof transform !== "function" ||
+    !stores.every((store) => store instanceof ProfileStore)
+  ) {
+    throw profileError(
+      "invalid-characters",
+      "Between two and32 distinct compatible local character handles are required.",
+    );
+  }
+  const ids = new Set();
+  for (const store of stores) {
+    if (ids.has(store.id) || store.temporary !== stores[0].temporary) {
+      throw profileError(
+        "invalid-characters",
+        "Character handles must have distinct IDs and the same persistence mode.",
+      );
+    }
+    ids.add(store.id);
+    validateCharacterHandle(store);
+  }
+  validateCharacterUids(stores.map((store) => store.profile));
+}
+
+function validateCharacterHandle(store) {
+  if (
+    store._profilePromise ||
+    store._resetPromise ||
+    store._closing ||
+    store._destroyed
+  ) {
+    throw profileError(
+      "save-busy",
+      "A participating local character is busy or closed.",
+    );
+  }
+  if (!store.temporary) store._requireDatabase();
+  validateCharacterId(store.id);
+  validateProfile(store.profile, store._items);
+  validateSocialOwner(store.profile.social, store.id);
+}
+
+async function persistCharacters(stores, profiles) {
+  if (stores[0].temporary) {
+    return stores.map((store) => {
+      if (store.revision === Number.MAX_SAFE_INTEGER) {
+        throw profileError(
+          "revision-exhausted",
+          "Temporary save revision limit reached.",
+        );
+      }
+      return { revision: store.revision + 1 };
+    });
+  }
+  const expected = stores.map((store) => ({
+    revision: store.revision,
+    generation: store._generation,
+  }));
+  return transactProfiles(
+    stores[0]._database,
+    stores.map((store) => store.id),
+    (current) => {
+      for (let index = 0; index < stores.length; index++) {
+        compareRevision(current[index], expected[index]);
+        validateProfileRecord(current[index], stores[index]._items);
+      }
+      validateCharacterUids(current.map((record) => record.profile));
+      return current.map((record, index) =>
+        nextRecord(profiles[index], record, stores[index].id),
+      );
+    },
+  );
+}
+
+/** Accepted dirty epochs are included in the final snapshots; prior flushes drain first. */
+async function commitCharacters(stores, transform, originals, priorFlushes) {
+  await Promise.resolve();
+  let failure = null;
+  try {
+    const flushed = await Promise.allSettled(priorFlushes);
+    const failed = flushed.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
+    const drafts = stores.map((store) => structuredClone(store.profile));
+    if (transform(drafts) !== undefined) {
+      throw profileError(
+        "invalid-transform",
+        "Character transform must be synchronous and return nothing.",
+      );
+    }
+    for (let index = 0; index < stores.length; index++) {
+      validateProfile(drafts[index], stores[index]._items);
+      validateSocialOwner(drafts[index].social, stores[index].id);
+    }
+    validateSocialCommit(
+      stores.map((store) => store.id),
+      originals,
+      drafts,
+    );
+    validateCharacterUids(drafts);
+    const profiles = drafts.map((draft) => structuredClone(draft));
+    const records = await persistCharacters(stores, profiles);
+    publishCharacterCohort(stores, profiles, records);
+  } catch (error) {
+    failure = storageError(error);
+    restoreCharacterCohort(stores, originals, failure);
+  } finally {
+    for (const store of stores) store._profilePromise = null;
+    for (const store of stores) store._schedule();
+  }
+  const snapshots = stores.map((store) => store.snapshot());
+  for (const store of stores) store._notify();
+  if (failure) throw failure;
+  return snapshots;
+}
+
+/** Install every committed root before any observer can read the cohort. */
+function publishCharacterCohort(stores, profiles, records) {
+  for (let index = 0; index < stores.length; index++) {
+    const store = stores[index];
+    store._profile = profiles[index];
+    store.revision = records[index].revision;
+    store.savedEpoch = store.dirtyEpoch;
+    store.error = null;
+    store.status = "saved";
+  }
+  for (const store of stores) store._publish();
+}
+
+function restoreCharacterCohort(stores, originals, failure) {
+  for (let index = 0; index < stores.length; index++) {
+    stores[index]._profile = originals[index];
+    stores[index].error = failure;
+    stores[index].status =
+      failure.code === "revision-conflict" ? "conflict" : "error";
+  }
+}
+
 /**
  * Sole owner of one mutable profile root. Call markDirty after each synchronous mutation.
  * Reacquire root/nested refs after reset or any atomic transition, including failure.
@@ -230,6 +427,13 @@ function nextRecord(profile, previous, reset = false) {
  */
 export class ProfileStore {
   constructor(options = {}) {
+    Object.defineProperty(this, "id", {
+      value: options.id ?? PROFILE_ID,
+      enumerable: true,
+    });
+    this._items = options.items;
+    this._create = false;
+    this._initialProfile = null;
     this._profile = null;
     this.error = null;
     this.status = "opening";
@@ -267,16 +471,83 @@ export class ProfileStore {
     return store;
   }
 
-  /** Isolated schema3 store; never opens IDB or attaches browser listeners. */
-  static memory(profile) {
-    validateProfile(profile);
-    const store = new ProfileStore({ location: profile.location });
+  /** Isolated schema5 store; never opens IDB or attaches browser listeners. */
+  static memory(profile, options = {}) {
+    validateCharacterId(options.id ?? PROFILE_ID);
+    validateProfile(profile, options.items);
+    validateSocialOwner(profile.social, options.id ?? PROFILE_ID);
+    const store = new ProfileStore({ ...options, location: profile.location });
     store._profile = structuredClone(profile);
     store.temporary = true;
     store.revision = 0;
     store._generation = "temporary";
     store.status = "saved";
     return store;
+  }
+
+  /** Bounded browser-local roster, including explicit errors for unreadable rows. */
+  static async listCharacters(options = {}) {
+    const database = await openDatabase();
+    try {
+      const records = await transactProfiles(
+        database,
+        null,
+        (current, count) => {
+          if (count > PROFILE_LIMITS.characters) {
+            throw profileError(
+              "character-limit",
+              "Local character roster exceeds its bounded capacity.",
+            );
+          }
+          return current;
+        },
+      );
+      return records.map((record) => characterSummary(record, options.items));
+    } finally {
+      database.close();
+    }
+  }
+
+  /** Creation is an insert in the existing profiles store, never an overwrite or reset. */
+  static async createCharacter(options = {}) {
+    if (options.profile !== undefined || options.temporary === true) {
+      throw profileError(
+        "invalid-character-creation",
+        "Temporary profiles cannot be promoted into durable characters.",
+      );
+    }
+    const profile = createProfile(options.location);
+    if (options.name !== undefined) profile.name = options.name;
+    validateProfile(profile, options.items);
+    const store = new ProfileStore({
+      ...options,
+      id: options.id ?? crypto.randomUUID(),
+    });
+    store._create = true;
+    store._initialProfile = profile;
+    await store._open();
+    return store;
+  }
+
+  /** Acquire every exclusion synchronously before draining any accepted work. */
+  static commitCharacters(stores, transform) {
+    validateCharacterHandles(stores, transform);
+    stores = stores.slice();
+    const originals = stores.map((store) => structuredClone(store.profile));
+    const priorFlushes = stores.map((store) => store._flushPromise);
+    for (const store of stores) {
+      freezeProfile(store.profile);
+      store._clearTimer();
+    }
+    const pending = commitCharacters(
+      stores,
+      transform,
+      originals,
+      priorFlushes,
+    );
+    for (const store of stores) store._profilePromise = pending;
+    for (const store of stores) store._notify();
+    return pending;
   }
 
   get profile() {
@@ -289,26 +560,53 @@ export class ProfileStore {
 
   async _open() {
     try {
+      validateCharacterId(this.id);
       this._database = await openDatabase();
       this._database.onversionchange = this._onVersionChange;
       this._database.onclose = this._onDatabaseClose;
-      const record = await transactProfile(this._database, (current) => {
-        if (current !== undefined) {
-          this.revision = revisionOf(current);
-          this._generation = generationOf(current);
-          const profile = migrateProfile(current.profile);
-          validateProfileRecord({ ...current, profile });
-          return profile === current.profile
-            ? current
-            : nextRecord(profile, current);
-        }
-        return nextRecord(createProfile(this._bootstrap), undefined);
-      });
+      const record = await transactProfile(
+        this._database,
+        this.id,
+        (current, count) => {
+          if (current !== undefined) {
+            if (this._create) {
+              throw profileError(
+                "character-exists",
+                "A local character with this ID already exists.",
+              );
+            }
+            this.revision = revisionOf(current);
+            this._generation = generationOf(current);
+            const profile = migrateProfile(current.profile, this._items);
+            validateProfileRecord({ ...current, profile }, this._items);
+            return profile === current.profile
+              ? current
+              : nextRecord(profile, current, this.id);
+          }
+          if (!this._create && this.id !== PROFILE_ID) {
+            throw profileError(
+              "character-missing",
+              "The selected local character does not exist.",
+            );
+          }
+          if (count >= PROFILE_LIMITS.characters) {
+            throw profileError(
+              "character-limit",
+              "The local character roster is full.",
+            );
+          }
+          const profile =
+            this._initialProfile ?? createProfile(this._bootstrap);
+          validateProfile(profile, this._items);
+          return nextRecord(profile, undefined, this.id);
+        },
+      );
       this.revision = revisionOf(record);
       this._generation = generationOf(record);
-      validateProfileRecord(record);
+      validateProfileRecord(record, this._items);
       this._profile = record.profile;
       this.status = "saved";
+      this._initialProfile = null;
     } catch (error) {
       this._fail(error);
     }
@@ -403,7 +701,8 @@ export class ProfileStore {
         profileError("save-busy", "Offline save is busy or closed."),
       );
     }
-    validateProfile(this._profile);
+    validateProfile(this._profile, this._items);
+    validateSocialOwner(this._profile.social, this.id);
     const original = structuredClone(this._profile);
     freezeProfile(this._profile);
     const priorFlush = this._flushPromise;
@@ -431,7 +730,9 @@ export class ProfileStore {
           "Profile transform must be synchronous and return nothing.",
         );
       }
-      validateProfile(draft);
+      validateProfile(draft, this._items);
+      validateSocialOwner(draft.social, this.id);
+      validateSocialCommit([this.id], [original], [draft]);
       // A transform may retain its draft: never publish or persist that mutable alias.
       const profile = structuredClone(draft);
       const epoch = this.dirtyEpoch;
@@ -450,10 +751,10 @@ export class ProfileStore {
           revision: this.revision,
           generation: this._generation,
         };
-        record = await transactProfile(this._database, (current) => {
+        record = await transactProfile(this._database, this.id, (current) => {
           compareRevision(current, expected);
-          validateProfileRecord(current);
-          return nextRecord(profile, current);
+          validateProfileRecord(current, this._items);
+          return nextRecord(profile, current, this.id);
         });
       }
       this._profile = profile;
@@ -474,7 +775,8 @@ export class ProfileStore {
 
   /** Temporary Save validates a checkpoint but cannot publish it outside this store. */
   _saveMemory() {
-    validateProfile(this._profile);
+    validateProfile(this._profile, this._items);
+    validateSocialOwner(this._profile.social, this.id);
     if (this.revision === Number.MAX_SAFE_INTEGER) {
       throw profileError(
         "revision-exhausted",
@@ -493,6 +795,9 @@ export class ProfileStore {
     await Promise.resolve();
     try {
       if (pendingProfile) await pendingProfile;
+      if (pendingProfile && this.savedEpoch >= this._flushTarget) {
+        return this.snapshot();
+      }
       for (let pass = 0; pass < MAX_FLUSH_PASSES; pass++) {
         const snapshot = this._saveMemory();
         if (this.savedEpoch >= this._flushTarget) return snapshot;
@@ -613,10 +918,13 @@ export class ProfileStore {
     await Promise.resolve();
     try {
       if (pendingProfile) await pendingProfile;
+      if (pendingProfile && this.savedEpoch >= this._flushTarget) {
+        return this.snapshot();
+      }
       for (let pass = 0; pass < MAX_FLUSH_PASSES; pass++) {
         this._requireDatabase();
         const epoch = this.dirtyEpoch;
-        validateProfile(this._profile);
+        validateProfile(this._profile, this._items);
         const profile = structuredClone(this._profile);
         this.status = "saving";
         this._notify();
@@ -624,11 +932,17 @@ export class ProfileStore {
           revision: this.revision,
           generation: this._generation,
         };
-        const record = await transactProfile(this._database, (current) => {
-          compareRevision(current, expected);
-          validateProfileRecord(current);
-          return nextRecord(profile, current);
-        });
+        const record = await transactProfile(
+          this._database,
+          this.id,
+          (current) => {
+            compareRevision(current, expected);
+            validateProfileRecord(current, this._items);
+            validateSocialOwner(profile.social, this.id);
+            validateSocialCommit([this.id], [current.profile], [profile]);
+            return nextRecord(profile, current, this.id);
+          },
+        );
         this.revision = record.revision;
         this.savedEpoch = epoch;
         this.error = null;
@@ -657,7 +971,7 @@ export class ProfileStore {
     if (!this._channel) return;
     try {
       this._channel.postMessage({
-        id: PROFILE_ID,
+        id: this.id,
         revision: this.revision,
         generation: this._generation,
       });
@@ -668,7 +982,7 @@ export class ProfileStore {
 
   _broadcast(event) {
     const message = event.data;
-    if (message?.id !== PROFILE_ID || !Number.isSafeInteger(message.revision)) {
+    if (message?.id !== this.id || !Number.isSafeInteger(message.revision)) {
       return;
     }
     if (
@@ -686,6 +1000,20 @@ export class ProfileStore {
       ),
     );
     this._clearTimer();
+  }
+
+  /** A detached beginner draft using this store's original validated packaged bootstrap. */
+  createResetProfile() {
+    return validateProfile(createProfile(this._bootstrap), this._items);
+  }
+
+  _requireUnlinkedReset() {
+    if (hasSocialLinks(this._profile?.social)) {
+      throw profileError(
+        "social-reset-required",
+        "Reset this linked character through the loaded local social authority so every participant is detached atomically.",
+      );
+    }
   }
 
   /** Explicit destructive action: serialized reset replaces the whole record, never delete/create. */
@@ -712,6 +1040,7 @@ export class ProfileStore {
           this._backgroundFailure(error);
         }
       }
+      this._requireUnlinkedReset();
       this._requireDatabase();
       if (this.dirtyEpoch === Number.MAX_SAFE_INTEGER) {
         throw profileError(
@@ -719,17 +1048,21 @@ export class ProfileStore {
           "Offline dirty epoch limit reached.",
         );
       }
-      const profile = createProfile(this._bootstrap);
+      const profile = this.createResetProfile();
       const expected = {
         revision: this.revision,
         generation: this._generation,
       };
       this.status = "resetting";
       this._notify();
-      const record = await transactProfile(this._database, (current) => {
-        compareRevision(current, expected);
-        return nextRecord(profile, current, true);
-      });
+      const record = await transactProfile(
+        this._database,
+        this.id,
+        (current) => {
+          compareRevision(current, expected);
+          return nextRecord(profile, current, this.id, true);
+        },
+      );
       // Reset deliberately supersedes mutations made before its commit. The root stays stable.
       if (this._profile) Object.assign(this._profile, profile);
       else this._profile = profile;
@@ -760,6 +1093,7 @@ export class ProfileStore {
           this._backgroundFailure(error);
         }
       }
+      this._requireUnlinkedReset();
       if (
         this.dirtyEpoch === Number.MAX_SAFE_INTEGER ||
         this.revision === Number.MAX_SAFE_INTEGER
@@ -769,7 +1103,7 @@ export class ProfileStore {
           "Temporary reset counter limit reached.",
         );
       }
-      const profile = createProfile(this._bootstrap);
+      const profile = this.createResetProfile();
       Object.assign(this._profile, profile);
       this.dirtyEpoch++;
       return this._saveMemory();
@@ -806,6 +1140,7 @@ export class ProfileStore {
   /** Metadata only. Gameplay reads profile; snapshot never exposes IDB handles or mutable aliases. */
   snapshot() {
     return {
+      id: this.id,
       persistence: this.temporary ? "temporary" : "durable",
       status: this.status,
       revision: this.revision ?? null,

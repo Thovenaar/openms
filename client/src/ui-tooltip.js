@@ -1,5 +1,7 @@
 import { ACTION_PALETTE } from "./keymap.js";
 import { UISurface } from "./ui-surface.js";
+import { itemCount } from "./inventory-model.js";
+import { renderQuestText } from "./quest-ui.js";
 
 const MAX_TOOLTIP_LINES = 64;
 const MAX_TOOLTIP_TEXT = 8192;
@@ -55,12 +57,13 @@ function line(text, tone = "normal") {
   return { text: String(text), tone };
 }
 
-/** Authored String.wz markup is plain text here; never interpreted as HTML. */
-function prose(text) {
-  return String(text || "")
-    .slice(0, MAX_TOOLTIP_TEXT)
-    .replace(/\\r\\n|\\n|\\r/g, "\n")
-    .replace(/#[bkrnd]/g, "");
+/** Keep original prose separate from numeric rank metadata and browser-authored labels. */
+function prose(text, tone = "normal") {
+  return {
+    text: String(text || "").slice(0, MAX_TOOLTIP_TEXT),
+    tone,
+    authored: true,
+  };
 }
 
 function matchesRequiredJob(mask, job) {
@@ -114,14 +117,24 @@ function appendItemStats(lines, info) {
   if (info.only) lines.push(line("One-of-a-kind item", "heading"));
 }
 
-function itemPossessionLine(profile, id, equipped) {
+function itemPossessionLine(profile, id, equipped, uid) {
   if (equipped) return line("Equipped", "muted");
-  const stack = profile?.inventory.find((entry) => entry.id === id);
-  return line(`Quantity: ${stack?.count || 0}`, "muted");
+  const count = !profile
+    ? 0
+    : uid
+      ? profile.inventory.find((entry) => entry.uid === uid && entry.id === id)
+          ?.count || 0
+      : itemCount(profile, id);
+  return line(`Quantity: ${count}`, "muted");
 }
 
 /** Template statistics are not rolled equipment-instance values. */
-export function itemTooltip(owner, template, id, equipped = false) {
+export function itemTooltip(
+  owner,
+  template,
+  id,
+  { equipped = false, uid = null } = {},
+) {
   if (!template) {
     return {
       title: `Item ${id}`,
@@ -130,10 +143,10 @@ export function itemTooltip(owner, template, id, equipped = false) {
   }
   const profile = owner.store?.profile;
   const info = template.info || {};
-  const lines = [itemPossessionLine(profile, id, equipped)];
+  const lines = [itemPossessionLine(profile, id, equipped, uid)];
   appendItemRequirements(lines, info, profile);
   appendItemStats(lines, info);
-  if (template.description) lines.push(line(prose(template.description)));
+  if (template.description) lines.push(prose(template.description));
   if (template.category && Math.floor(id / 1000000) === 1) {
     lines.push(line(`${template.category} · Original template stats`, "muted"));
   }
@@ -145,7 +158,7 @@ function rankLines(lines, template, rank, heading) {
   if (!level) return;
   lines.push(line(`${heading}: ${rank}`, "heading"));
   const description = template.strings?.[`h${rank}`];
-  if (description) lines.push(line(prose(description), "detail"));
+  if (description) lines.push(prose(description, "detail"));
   for (const [key, label] of COSTS) {
     if (Number.isFinite(level[key]) && level[key] !== 0) {
       lines.push(line(`${label} cost: ${level[key]}`));
@@ -196,7 +209,7 @@ export function skillTooltip(owner, template) {
   if (learned?.masterLevel) {
     lines.push(line(`Master level: ${learned.masterLevel}`, "muted"));
   }
-  if (template.description) lines.push(line(prose(template.description)));
+  if (template.description) lines.push(prose(template.description));
   rankLines(lines, template, rank, "Current level");
   if (rank < template.maxLevel) {
     rankLines(lines, template, rank + 1, "Next level");
@@ -209,6 +222,8 @@ export function bindingTooltip(owner, binding, label) {
   let content;
   if (binding.type === 1) {
     content = skillTooltip(owner, owner.index.skills[binding.id]);
+  } else if (binding.type === 8) {
+    content = macroTooltip(owner, binding.id);
   } else if (binding.type === 2 || binding.type === 3 || binding.type === 7) {
     content = itemTooltip(owner, owner.index.items[binding.id], binding.id);
   } else {
@@ -226,6 +241,20 @@ export function bindingTooltip(owner, binding, label) {
   return content;
 }
 
+function macroTooltip(owner, id) {
+  const macro = owner.store.profile.skillMacros[id];
+  return {
+    title: macro?.name || `Skill macro ${id + 1}`,
+    lines: macro
+      ? macro.skills
+          .filter((skillId) => skillId > 0)
+          .map((skillId) =>
+            line(owner.index.skills[skillId]?.name || `Skill ${skillId}`),
+          )
+      : [],
+  };
+}
+
 /** Event-only composition; borrows the hovered icon's existing lease until hide/retirement. */
 export function renderTooltip(owner, content, source) {
   owner.tooltipIcon?.destroy();
@@ -234,7 +263,7 @@ export function renderTooltip(owner, content, source) {
   element.replaceChildren();
   element.style.paddingLeft = "8px";
   if (typeof content === "string") {
-    content = { title: "", lines: [line(prose(content))] };
+    content = { title: "", lines: [prose(content)] };
   }
   if (content.lines.length > MAX_TOOLTIP_LINES) {
     throw new Error("Tooltip line budget exceeded");
@@ -245,8 +274,11 @@ export function renderTooltip(owner, content, source) {
   element.append(title);
   for (const entry of content.lines) {
     const row = document.createElement("div");
-    row.textContent = entry.text.slice(0, MAX_TOOLTIP_TEXT);
-    row.style.color = COLORS[entry.tone] || COLORS.normal;
+    const color = COLORS[entry.tone] || COLORS.normal;
+    row.style.color = color;
+    if (entry.authored) {
+      renderQuestText(row, entry.text, owner.quests, { color, tooltip: true });
+    } else row.textContent = entry.text.slice(0, MAX_TOOLTIP_TEXT);
     element.append(row);
   }
   if (!source?.path || !source.surface.assets[source.path]) return;
@@ -269,4 +301,25 @@ export function renderTooltip(owner, content, source) {
   element.style.paddingLeft = `${icon.width + 16}px`;
   icon.renderArtwork();
   owner.tooltipIcon = icon;
+}
+
+/** Measure current intrinsic content before clamping in the owner's logical viewport. */
+export function positionTooltip(element, point, viewport) {
+  const { left, top, right, bottom } = viewport;
+  const style = element.style;
+  // An old right-edge left inset otherwise constrains CSS shrink-to-fit measurement.
+  style.inset = "auto";
+  style.left = `${left}px`;
+  style.top = `${top}px`;
+  style.width = "max-content";
+  style.boxSizing = "border-box";
+  style.maxWidth = `${Math.min(360, right - left)}px`;
+  style.maxHeight = `${bottom - top}px`;
+  style.overflow = "auto";
+  const width = element.offsetWidth;
+  const height = element.offsetHeight;
+  style.left = `${Math.max(left, Math.min(right - width, point.x + 12))}px`;
+  const targetY =
+    point.y + 20 + height <= bottom ? point.y + 20 : point.y - height - 6;
+  style.top = `${Math.max(top, Math.min(bottom - height, targetY))}px`;
 }

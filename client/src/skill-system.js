@@ -1,21 +1,14 @@
 import { requiresSkillMastery, skillBooks } from "./ui-skill-books.js";
 import { SkillResources } from "./skill-resources.js";
+import {
+  configureTemporaryState,
+  temporaryState,
+  TemporaryStats,
+} from "./temporary-stats.js";
 
 const MAX_SKILLS = 4096;
-const MAX_ACTIVE = 64;
 // 00765e9e sums all four original beginner triples, even after a job-family edit.
 const BEGINNER_ROOTS = [0, 10000000, 20000000, 20010000];
-const STATS = [
-  "pad",
-  "pdd",
-  "mad",
-  "mdd",
-  "acc",
-  "eva",
-  "speed",
-  "jump",
-  "stance",
-];
 // Cosmic Character.java4492..4523: ordinary Recovery ticks every five seconds (not ultra mode).
 const RECOVERY_INTERVAL_MS = 5000;
 const OK = Object.freeze({ ok: true });
@@ -51,7 +44,9 @@ export class SkillSystem {
     this.profileJob = null;
     this.learnedReference = null;
     this.states = new Map();
-    this.derivedStats = Object.fromEntries(STATS.map((key) => [key, 0]));
+    this.effects = new TemporaryStats();
+    this.transferredEffects = false;
+    this.derivedStats = this.effects.derived;
     this.resources = new SkillResources(scene, hooks);
     this.onChange = this.refresh.bind(this);
     this.onHit = this.hit.bind(this);
@@ -70,14 +65,7 @@ export class SkillSystem {
         skill.classification.supported &&
         skill.classification.activation !== "passive"
       ) {
-        this.states.set(skill.id, {
-          id: skill.id,
-          cooldown: 0,
-          remaining: 0,
-          rank: 0,
-          recoveryElapsed: 0,
-          expiresAt: null,
-        });
+        this.states.set(skill.id, temporaryState("skill", skill.id));
       }
     }
   }
@@ -119,7 +107,9 @@ export class SkillSystem {
     this.profileJob = profile.job;
     this.learnedReference = profile.skills;
     for (const [id, state] of this.states) {
-      if (!this.level(id) || this.level(id) !== state.rank) state.remaining = 0;
+      if (!this.level(id) || this.level(id) !== state.rank) {
+        this.effects.remove(id);
+      }
     }
     this.recompute();
   }
@@ -260,6 +250,9 @@ export class SkillSystem {
 
   castAdmissionError(skill, info) {
     const profile = this.store.profile;
+    if (this.store.profileTransactionPending || this.effects.reservation) {
+      return "A profile/item operation is pending";
+    }
     if (profile.hp <= 0 || this.hooks.isBlocked()) {
       return "Character is dead or input is modal";
     }
@@ -310,7 +303,18 @@ export class SkillSystem {
 
   /** Guard consumes x, Stance consumes prop, and Recovery requires positive integral HP ticks. */
   buffValueError(skill, info) {
-    const controller = skill.classification.hooks[0];
+    if (
+      skill.classification.activation === "self-buff" &&
+      (!Number.isInteger(info.time * 1000) ||
+        info.time * 1000 < 16 ||
+        info.time * 1000 > 2147483647)
+    ) {
+      return "Invalid original temporary-stat duration";
+    }
+    return this.buffControllerError(skill.classification.hooks[0], info);
+  }
+
+  buffControllerError(controller, info) {
     if (controller === "magic-guard" || controller === "stance") {
       const percent = controller === "stance" ? info.prop : info.x;
       if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
@@ -343,16 +347,10 @@ export class SkillSystem {
   }
 
   buffBudgetError(skill) {
-    if (skill.classification.activation === "self-buff") {
-      let active = 0;
-      for (const state of this.states.values()) {
-        if (state.remaining > 0) active++;
-      }
-      if (!this.states.get(skill.id).remaining && active >= MAX_ACTIVE) {
-        return "Active buff budget exceeded";
-      }
-    }
-    return null;
+    return skill.classification.activation === "self-buff" &&
+      !this.effects.canStart(skill.id)
+      ? "Active buff budget exceeded"
+      : null;
   }
 
   activate(id) {
@@ -386,17 +384,35 @@ export class SkillSystem {
     const state = this.states.get(skill.id);
     const controller = skill.classification.hooks[0];
     if (controller !== "derived-stats" && controller !== "solo-party-stats") {
-      for (const [id, other] of this.states) {
-        if (this.catalog[id].classification.hooks[0] === controller) {
-          other.remaining = 0;
+      for (let index = this.effects.count - 1; index >= 0; index--) {
+        const other = this.effects.sources[index];
+        if (
+          other.kind === "skill" &&
+          this.catalog[other.id].classification.hooks[0] === controller
+        ) {
+          this.effects.remove(other.source);
         }
       }
     }
-    state.remaining = info.time * 1000;
-    state.recoveryElapsed = 0;
+    configureTemporaryState(
+      state,
+      info,
+      info.time * 1000,
+      skill.properties.noShadow,
+    );
+    if (controller === "stance") state.values[8] = info.prop;
+    if (controller === "magic-guard") state.values[9] = info.x;
+    if (controller === "periodic-recovery") state.values[10] = info.x;
+    if (
+      controller === "stance" ||
+      controller === "magic-guard" ||
+      controller === "periodic-recovery"
+    ) {
+      state.statCount++;
+    }
     state.rank = rank;
     state.expiresAt = this.store.profile.skills[skill.id].expiresAt;
-    this.recompute();
+    this.effects.start(state);
   }
 
   /** Cosmic TakeDamageHandler253..263: MP shortfall falls through to HP, never negates damage. */
@@ -407,16 +423,7 @@ export class SkillSystem {
     if (this.destroyed || this.store.profileTransactionPending) return amount;
     const profile = this.store.profile;
     if (profile.hp <= 0) return amount;
-    let percent = 0;
-    for (const state of this.states.values()) {
-      const id = state.id;
-      if (
-        state.remaining > 0 &&
-        this.catalog[id].classification.hooks[0] === "magic-guard"
-      ) {
-        percent = Math.max(percent, this.info(id, state.rank).x);
-      }
-    }
+    const percent = this.derivedStats.magicGuard;
     const spent = Math.min(profile.mp, Math.trunc((amount * percent) / 100));
     if (spent > 0) {
       profile.mp -= spent;
@@ -434,24 +441,34 @@ export class SkillSystem {
     this.resources.play(skill, "Hit", target);
   }
 
-  /** Self-stat overlap uses strongest positive/negative modifier, not additive recast stacking. */
+  /** Stat projection and source precedence share one authority for both skills and items. */
   recompute() {
-    for (const key of STATS) this.derivedStats[key] = 0;
-    for (const state of this.states.values()) {
-      const id = state.id;
-      if (state.remaining <= 0) continue;
-      const info = this.info(id, state.rank);
-      for (const key of STATS) {
-        const amount =
-          key === "stance" &&
-          this.catalog[id].classification.hooks[0] === "stance"
-            ? Math.max(0, Math.min(100, info.prop))
-            : (info?.[key] ?? 0);
-        if (Math.abs(amount) > Math.abs(this.derivedStats[key])) {
-          this.derivedStats[key] = amount;
-        }
-      }
+    this.effects.recompute();
+  }
+
+  /** 0045b9fc right-up cancellation removes source effects, never skill cooldown admission. */
+  cancelEffect(kind, id) {
+    if (
+      this.destroyed ||
+      this.store.profileTransactionPending ||
+      this.effects.reservation ||
+      this.hooks.isBlocked()
+    ) {
+      return false;
     }
+    if (kind !== "item" && kind !== "skill") return false;
+    if (kind === "skill" && id === 0x14011e) return false;
+    const removed = this.effects.remove(kind === "item" ? -id : id);
+    if (removed) this.recompute();
+    return removed;
+  }
+
+  effectCount() {
+    return this.effects.visibleCount;
+  }
+
+  effectAt(index) {
+    return this.effects.visible[index] ?? null;
   }
 
   step(ms) {
@@ -469,16 +486,21 @@ export class SkillSystem {
   }
 
   advanceTimers(ms) {
-    let expired = false;
     for (const state of this.states.values()) {
       if (state.cooldown > 0) state.cooldown = Math.max(0, state.cooldown - ms);
-      if (state.remaining <= 0) continue;
-      this.advanceRecovery(state.id, state, ms);
+    }
+    let expired = false;
+    for (let index = this.effects.count - 1; index >= 0; index--) {
+      const state = this.effects.sources[index];
+      if (state.kind === "skill") this.advanceRecovery(state.id, state, ms);
       state.remaining = Math.max(0, state.remaining - ms);
       if (state.expiresAt !== null && state.expiresAt <= this.wallTime) {
         state.remaining = 0;
       }
-      if (!state.remaining) expired = true;
+      if (state.remaining === 0) {
+        this.effects.remove(state.source);
+        expired = true;
+      }
     }
     if (expired) this.recompute();
   }
@@ -524,30 +546,39 @@ export class SkillSystem {
     if (!previous || previous === this || previous.store !== this.store) return;
     this.time = previous.time;
     this.wallTime = previous.wallTime;
-    for (const [id, state] of this.states) {
+    for (const id of this.states.keys()) {
       const source = previous.states.get(id);
-      if (source) Object.assign(state, source);
+      if (source) this.states.set(id, source);
     }
+    this.effects = previous.effects;
+    previous.transferredEffects = true;
+    this.derivedStats = this.effects.derived;
     this.profileJob = null;
     this.refresh();
   }
 
   onDeath() {
-    for (const state of this.states.values()) state.remaining = 0;
-    this.recompute();
+    this.effects.clear();
   }
 
   snapshot() {
     const activeBuffs = [],
       cooldowns = [];
+    for (let index = 0; index < this.effects.count; index++) {
+      const state = this.effects.sources[index];
+      activeBuffs.push({
+        kind: state.kind,
+        id: state.id,
+        source: state.source,
+        rank: state.rank,
+        remainingMs: state.remaining,
+        totalMs: state.totalMs,
+        noShadow: state.noShadow,
+        maskLow: state.maskLow,
+        maskHigh: state.maskHigh,
+      });
+    }
     for (const [id, state] of this.states) {
-      if (state.remaining > 0) {
-        activeBuffs.push({
-          id,
-          rank: state.rank,
-          remainingMs: state.remaining,
-        });
-      }
       if (state.cooldown > 0) {
         cooldowns.push({ id, remainingMs: state.cooldown });
       }
@@ -559,7 +590,8 @@ export class SkillSystem {
       preparing: Boolean(this.resources.pending),
       prepared: [...this.resources.records.keys()],
       cooldownPolicy: "character-session; retained across map commits",
-      buffOverlapPolicy: "strongest-absolute-modifier-local-policy",
+      buffOverlapPolicy:
+        "Cosmic configured numeric maximum; broader source then newest ties",
     };
   }
 
@@ -567,6 +599,10 @@ export class SkillSystem {
     if (this.destroyed) return;
     this.destroyed = true;
     this.unsubscribe();
+    if (!this.transferredEffects) {
+      this.effects.destroyed = true;
+      this.effects.clear();
+    }
     this.resources.destroy();
     this.states.clear();
   }

@@ -1,8 +1,19 @@
 import { loadVisualBundle } from "./visual-resources.js";
-import { itemBindingType } from "./keymap.js";
 import { PROFILE_LIMITS } from "./profile-validation.js";
 import { itemTooltip } from "./ui-tooltip.js";
 
+/** Native type8 IDs index five authored macro icons, including group zero. */
+export function bindingTemplate(owner, binding) {
+  if (binding.type === 1) return owner.index.skills[binding.id];
+  if (binding.type !== 8) return owner.index.items[binding.id];
+  return {
+    name:
+      owner.store.profile.skillMacros[binding.id]?.name ||
+      `Skill macro ${binding.id + 1}`,
+    iconPath: `SkillMacro/Macroicon/${binding.id}/icon`,
+    descriptor: owner.index.bundles.SkillMacro,
+  };
+}
 const MAX_VISIBLE_ICONS = Math.max(96, PROFILE_LIMITS.equipment);
 const ICON_CONCURRENCY = 4;
 
@@ -104,21 +115,24 @@ export function itemIcon(layer, entry, rect) {
     {
       pointerdown: (event) => {
         if (event.button !== 0 || !path) return;
-        layer.owner.beginBindingDrag(
-          event,
-          { type: itemBindingType(entry.template), id: entry.id },
-          null,
-          { source: layer, path },
-        );
+        layer.owner.beginItemCarry(event, entry, { source: layer, path });
       },
-      dblclick: () => layer.owner.bindings?.useItem(entry.id),
+      dblclick: () =>
+        layer.owner.hooks.inventoryItemDoubleClick?.(entry, "inventory"),
     },
-    () => ({
-      ...itemTooltip(layer.owner, entry.template, entry.id),
-      source: { surface: layer, path },
-    }),
+    {
+      tooltip: () => ({
+        ...itemTooltip(layer.owner, entry.template, entry.id, {
+          uid: entry.uid,
+        }),
+        source: { surface: layer, path },
+      }),
+    },
   );
   button.dataset.itemId = String(entry.id);
+  button.dataset.itemUid = entry.uid;
+  button.dataset.itemSlot = String(entry.slot);
+  button.dataset.inventoryType = String(Math.floor(entry.id / 1000000));
   const category = Math.floor(entry.id / 1000000);
   if ((category >= 2 && category <= 4) || entry.count > 1) {
     drawItemCount(layer, entry.count, rect);

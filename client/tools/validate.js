@@ -87,6 +87,8 @@ async function hold(key, milliseconds) {
 }
 function compactState(state) {
   return {
+    sourceBuildId: state.sourceBuildId,
+    buildId: state.buildId,
     currentMap: state.currentMap,
     simulation: state.simulation,
     presentation: state.presentation,

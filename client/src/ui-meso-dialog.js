@@ -45,11 +45,14 @@ export function layoutMesoDialog(panel) {
   input.style.cssText = `position:absolute;left:19px;top:${panel.height - 73}px;width:226px;height:15px;border:0;background:transparent;color:black;font:12px Arial,sans-serif;text-align:right;padding:0 2px;`;
   panel.element.append(input);
   panel.mesoInput = input;
-  panel.mesoBalance = panel.text("", 20, panel.height - 53, 226);
-  panel.mesoBalance.style.fontSize = "10px";
-  panel.mesoError = panel.text("", 20, panel.height - 55, 226);
+  // Local feedback uses only the gap between the native input and button rows.
+  // Keep four logical pixels clear on both sides; long authority errors remain scrollable.
+  panel.mesoBalance = panel.text("", 20, panel.height - 54, 226);
+  panel.mesoBalance.style.cssText +=
+    "font:10px Arial,sans-serif;line-height:10px;";
+  panel.mesoError = panel.text("", 20, panel.height - 54, 226);
   panel.mesoError.style.cssText +=
-    "font:10px Arial,sans-serif;line-height:12px;color:#b00000;max-height:24px;overflow:auto;pointer-events:auto;";
+    "font:10px Arial,sans-serif;line-height:10px;color:#b00000;height:20px;overflow:auto;overscroll-behavior:contain;pointer-events:auto;";
   panel.mesoError.setAttribute("role", "status");
   panel.mesoConfirm = panel.button("BtOK2", 158, panel.height - 30, {
     label: "Drop Mesos",

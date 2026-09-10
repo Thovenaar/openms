@@ -1,6 +1,11 @@
 import { HUD_CLIENT_Y, layoutGauges } from "./ui-hud.js";
 import { layoutKeys } from "./ui-keyconfig.js";
 import { layoutMinimap } from "./ui-minimap.js";
+import { NativeScrollbar } from "./ui-scrollbar.js";
+import { layoutStatControls } from "./ui-stat.js";
+import { layoutSettings } from "./ui-settings.js";
+import { EQUIP_COORDINATES } from "./ui-inspection.js";
+import { layoutPetEquipment } from "./ui-equipment.js";
 /** Original status control row translated from CWnd client space (008cfd43..60). */
 export const HUD_TOP = 515 + HUD_CLIENT_Y;
 
@@ -12,7 +17,7 @@ const HUD_BUTTONS = [
   ["StatKey", 678, HUD_TOP, "Stat"],
   ["SkillKey", 708, HUD_TOP, "Skill"],
   ["KeySet", 738, HUD_TOP, "KeyConfig"],
-  ["BtShop", 573, 543 + HUD_CLIENT_Y, "shop"],
+  ["BtShop", 573, 543 + HUD_CLIENT_Y, "CashShop"],
   ["BtNPT", 629, 543 + HUD_CLIENT_Y, "NPT"],
   ["BtMenu", 685, 543 + HUD_CLIENT_Y, "GameMenu"],
   ["BtShort", 741, 543 + HUD_CLIENT_Y, "ShortCut"],
@@ -30,7 +35,7 @@ const MENUS = {
     ["BtEquip", "Equip"],
     ["BtStat", "Stat"],
     ["BtSkill", "Skill"],
-    ["BtComm", "Community"],
+    ["BtComm", "Friends"],
     ["BtQuest", "Quest"],
     ["BtMobbook", "MonsterBook"],
     ["BtMessenger", "Messenger"],
@@ -46,6 +51,12 @@ export function layoutHud(panel, index) {
     panel.button(path, x, y, {
       label:
         target === "Alert GM" ? target : index.help[target]?.title || target,
+      tooltip: index.help[target]
+        ? {
+            title: index.help[target].title,
+            lines: [{ text: index.help[target].description }],
+          }
+        : null,
       action: () => panel.owner.activate(target),
     });
   }
@@ -63,7 +74,7 @@ export function layoutHud(panel, index) {
 export function layoutWindow(panel) {
   const name = panel.name;
   if (name === "Revive") return layoutRevival(panel);
-  if (name === "UtilDlgEx" || name === "Quest") return layoutDialog(panel);
+  if (name === "UtilDlgEx") return layoutDialog(panel);
   if (name === "MiniMap") return layoutMinimap(panel);
   panel.image(`${name}/backgrnd`, 0, 0);
   if (MENUS[name]) return layoutMenu(panel);
@@ -72,7 +83,7 @@ export function layoutWindow(panel) {
   if (name === "Stat") return layoutStats(panel);
   if (name === "Skill") return layoutSkills(panel);
   if (name === "Equip") return layoutEquipment(panel);
-  layoutOptions(panel);
+  layoutSettings(panel);
 }
 
 /** 00898117..008981ba: authored Notice/0 and BtOK2 at (124,115), no browser-rendered duplicate text. */
@@ -94,7 +105,9 @@ function layoutMenu(panel) {
     const [button, target] = entries[i];
     panel.button(`${panel.name}/${button}`, 6, 24 + i * 26, {
       label: target,
-      action: () => panel.owner.activate(target),
+      action: () => {
+        if (panel.owner.close(panel.name)) panel.owner.activate(target);
+      },
     });
   }
 }
@@ -120,8 +133,12 @@ function inventoryTabs(panel, branch, count, target = panel) {
       tab.button.setAttribute("aria-selected", String(i === selected));
     }
     if (target.selectedTab !== selected) {
-      if (branch === "Item") target.inventoryStart = 0;
-      else target.skillStart = 0;
+      if (branch === "Item") {
+        if (target.selectedTab !== undefined) {
+          target.inventoryPages[target.selectedTab] = target.inventoryStart / 4;
+        }
+        target.inventoryStart = target.inventoryPages[selected] * 4;
+      } else target.skillStart = 0;
     }
     target.selectedTab = selected;
     if (notify) target.owner.refreshProfilePanel(target);
@@ -180,6 +197,7 @@ function tabLabel(panel, path, x, width) {
 }
 
 function layoutInventory(panel) {
+  panel.inventoryPages = [0, 0, 0, 0, 0];
   inventoryTabs(panel, "Item", 5);
   panel.inventoryStart = 0;
   panel.inventoryReady = true;
@@ -193,22 +211,25 @@ function layoutInventory(panel) {
     action: () =>
       panel.owner.open("MesoDrop").catch((error) => panel.owner.report(error)),
   });
-  panel.listen(panel.element, "wheel", (event) => {
-    event.preventDefault();
-    panel.owner.hideTooltip();
-    if (panel.fullSkin?.container.visible) return;
-    const maximum = Math.max(0, (panel.inventoryCount || 0) - 24);
-    panel.inventoryStart = Math.max(
-      0,
-      Math.min(maximum, panel.inventoryStart + (event.deltaY > 0 ? 4 : -4)),
-    );
-    panel.owner.refreshProfilePanel(panel);
-  });
+  // 0081c6c9 creates the vertical control at152,51 with extent200.
+  panel.inventoryScrollbar = new NativeScrollbar(
+    panel,
+    { x: 152, y: 51, extent: 200 },
+    (position) => {
+      panel.inventoryStart = position * 4;
+      panel.inventoryPages[panel.selectedTab] = position;
+      panel.owner.refreshProfilePanel(panel);
+    },
+  );
   // 0092c2e8 proves +0x590 is close-X, not width; 0081e3a6 uses close-X minus15.
   panel.gatherControl = panel.button("Item/BtGather", panel.width - 32, 6, {
-    label: "Gather items — slot ordering is not available offline",
-    action: null,
-    disabled: true,
+    label: "Gather items",
+    action: async () => {
+      const result = await panel.owner.hooks
+        .inventoryActions()
+        .gather(panel.selectedTab + 1);
+      if (!result.ok) panel.owner.status(result.reason);
+    },
   });
   // 0081c6c9 places BtFull/BtSmall thirty pixels left of the close control.
   panel.fullControl = panel.button("Item/BtFull", panel.width - 47, 6, {
@@ -237,38 +258,27 @@ function layoutStats(panel) {
     sprite.container.visible = false;
     return sprite;
   });
-  // 008c79f5 exact AP increment controls: (153,117/135/247/265/283/301).
-  for (const y of [117, 135, 247, 265, 283, 301]) {
-    const control = panel.button("Stat/BtApUp", 153, y, {
-      label:
-        "AP spending is unavailable; Edit character changes stats and AP explicitly",
-      action: null,
-      disabled: true,
-    });
-    panel.statControls.push(control);
-  }
-  panel.button("Stat/BtDetail", 12, 318, {
-    label: "Detailed derived statistics are unavailable in the local profile.",
-    disabled: true,
-  });
+  layoutStatControls(panel);
 }
 
 function layoutSkills(panel) {
   panel.tabButtons = [];
   panel.skillStart = 0;
   panel.skillsReady = true;
-  panel.listen(panel.element, "wheel", (event) => {
-    event.preventDefault();
-    panel.owner.hideTooltip();
-    panel.skillStart = Math.max(
-      0,
-      Math.min(
-        Math.max(0, (panel.skillCount || 0) - 4),
-        panel.skillStart + (event.deltaY > 0 ? 1 : -1),
-      ),
-    );
-    panel.owner.refreshProfilePanel(panel);
+  // Original008a8504: Basic/BtMacro opens the five-group attached editor.
+  panel.button("BtMacro", 120, 265, {
+    label: "Skill macros",
+    action: () => panel.owner.activate("SkillMacro"),
   });
+  // 008aabd7: x153, y99, extent155; count=rows-3, maximum=rows-4.
+  panel.skillScrollbar = new NativeScrollbar(
+    panel,
+    { x: 153, y: 99, extent: 155 },
+    (position) => {
+      panel.skillStart = position;
+      panel.owner.refreshProfilePanel(panel);
+    },
+  );
 }
 
 export function updateSkillTabs(panel, books) {
@@ -288,10 +298,18 @@ export function updateSkillTabs(panel, books) {
 
 function layoutEquipment(panel) {
   panel.equipmentReady = true;
-  panel.button("Equip/BtDetail", 12, 278, {
-    label: "Additional equipment slots are unavailable in the local profile.",
-    disabled: true,
-  });
+  for (let index = 0; index < EQUIP_COORDINATES.length; index++) {
+    if (!EQUIP_COORDINATES[index]) continue;
+    const [x, y] = EQUIP_COORDINATES[index];
+    const slot = panel.hit(`Equipment slot ${index + 1}`, {
+      x,
+      y,
+      width: 32,
+      height: 32,
+    });
+    slot.dataset.itemSlot = String(-index - 1);
+  }
+  layoutPetEquipment(panel);
 }
 
 function layoutDialog(panel) {
@@ -304,15 +322,4 @@ function layoutDialog(panel) {
     label: "Close dialogue",
     action: () => panel.owner.close(panel.name),
   });
-}
-
-function layoutOptions(panel) {
-  const content = panel.contentArea(
-    14,
-    40,
-    panel.width - 28,
-    panel.height - 54,
-  );
-  content.textContent =
-    "These original options are not implemented. Sound settings are available in the side panel.";
 }

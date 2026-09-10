@@ -17,7 +17,8 @@ import {
   captureQuickKey,
   refreshQuickSlotConfig,
 } from "./ui-quickslot-config.js";
-import { CHAT_LIMIT, CHAT_CHANNELS } from "./ui-chat.js";
+import { CHAT_CHANNELS } from "./ui-chat.js";
+import { CHAT_LIMIT } from "./local-chat.js";
 
 const PHASES = ["press", "hold", "release"];
 const ACTIONS = ["left", "right", "up", "down", "jump", "attack"];
@@ -97,7 +98,7 @@ function validateAssignment(command) {
   if (
     !Number.isInteger(command.binding.type) ||
     command.binding.type < 1 ||
-    command.binding.type > 7 ||
+    command.binding.type > 8 ||
     !Number.isSafeInteger(command.binding.id) ||
     command.binding.id < 0
   ) {
@@ -320,7 +321,7 @@ function dispatchKey(context, systems, command) {
       : command.code;
   if (!code) return outcome(false, "action-unbound");
   const index = PHYSICAL_CODES.indexOf(code);
-  if (command.phase === "release") return releaseKey(context, code);
+  if (command.phase === "release") return releaseKey(context, code, systems);
   if (context.held[index]) return outcome(true, "already-held", { code });
   const ui = systems.ui;
   const target = context.canvas.ownerDocument.activeElement;
@@ -328,17 +329,14 @@ function dispatchKey(context, systems, command) {
   const blocked = keyAdmission(ui, target, event);
   const binding = systems.bindings.lookup(code);
   const previousUse = {
-    item: systems.bindings.items.lastUse,
+    item: systems.bindings.lastItemUse,
     skill: systems.bindings.lastSkillUse,
+    macro: systems.bindings.lastMacroUse,
   };
   ui.onKey(event);
   if (blocked) return outcome(false, blocked);
-  if (
-    !event.defaultPrevented &&
-    !event.cancelBubble &&
-    target === context.canvas
-  ) {
-    context.input.keyDown(event);
+  if (!event.defaultPrevented && !event.cancelBubble) {
+    ui.routeGameplayKey(event);
   }
   if (!event.defaultPrevented && !event.cancelBubble) {
     return outcome(false, "key-unhandled");
@@ -352,8 +350,14 @@ function dispatchKey(context, systems, command) {
 }
 
 /** Release the physical key originally selected for a semantic hold, including aliases. */
-function releaseKey(context, code) {
-  context.input.keyUp(keyEvent(code, context.canvas));
+function releaseKey(context, code, systems) {
+  const target = context.canvas.ownerDocument.activeElement ?? context.canvas;
+  const event = keyEvent(code, target);
+  try {
+    systems?.ui?.onKeyUp(event);
+  } finally {
+    context.input.keyUp(event);
+  }
   context.held[PHYSICAL_CODES.indexOf(code)] = 0;
   for (let i = 0; i < ACTIONS.length; i++) {
     if (context.semanticCodes[i] === code) context.semanticCodes[i] = null;
@@ -362,13 +366,13 @@ function releaseKey(context, code) {
 }
 
 /** Report normal binding admission without claiming an unsupported original action succeeded. */
-function keyResult(systems, event, binding, previousUse) {
+async function keyResult(systems, event, binding, previousUse) {
   const ui = systems.ui;
   const code = event.code;
   const action = bindingAction(binding);
   const bindingRouted = isBindingKey(ui, event);
   if (bindingRouted) {
-    const use = keyUseResult(systems, event, binding, previousUse);
+    const use = await keyUseResult(systems, event, binding, previousUse);
     if (use) return use;
   }
   if (
@@ -386,31 +390,54 @@ function keyResult(systems, event, binding, previousUse) {
   });
 }
 
-function keyUseResult(systems, event, binding, previousUse) {
-  const code = event.code,
-    status = systems.ui.lastStatus ?? null;
+async function keyUseResult(systems, event, binding, previousUse) {
+  if (binding?.type === 8) {
+    return macroUseResult(systems, event.code, binding, previousUse.macro);
+  }
   if (binding?.type === 2) {
-    const accepted = systems.bindings.items.lastUse !== previousUse.item;
-    return outcome(accepted, accepted ? "item-used" : "item-use-rejected", {
-      code,
-      status,
-    });
+    return itemUseResult(systems, event.code, previousUse.item);
   }
   if (binding?.type === 1) {
-    const use = systems.bindings.lastSkillUse;
-    const accepted = use !== previousUse.skill && use?.accepted === true;
-    return outcome(accepted, accepted ? "skill-used" : "skill-use-rejected", {
-      code,
-      id: binding.id,
-      status,
-    });
+    return skillUseResult(systems, event.code, binding, previousUse.skill);
   }
   return null;
 }
 
+function macroUseResult(systems, code, binding, previous) {
+  const use = systems.bindings.lastMacroUse;
+  const accepted = use !== previous && use?.result?.ok === true;
+  return outcome(accepted, accepted ? "macro-started" : "macro-rejected", {
+    code,
+    id: binding.id,
+    reason: use?.result?.reason ?? null,
+  });
+}
+
+async function itemUseResult(systems, code, previous) {
+  const use = systems.bindings.lastItemUse;
+  const result =
+    use && use !== previous ? await (use.pending ?? use.result) : null;
+  const accepted = result?.ok === true;
+  return outcome(accepted, accepted ? "item-used" : "item-use-rejected", {
+    code,
+    status: systems.ui.lastStatus ?? null,
+    reason: result?.reason ?? null,
+  });
+}
+
+function skillUseResult(systems, code, binding, previous) {
+  const use = systems.bindings.lastSkillUse;
+  const accepted = use !== previous && use?.accepted === true;
+  return outcome(accepted, accepted ? "skill-used" : "skill-use-rejected", {
+    code,
+    id: binding.id,
+    status: systems.ui.lastStatus ?? null,
+  });
+}
+
 function isBindingKey(ui, event) {
   return (
-    event.target === ui.app.canvas &&
+    ui.acceptsKey(event) &&
     !ui.modal() &&
     !["Enter", "Escape"].includes(event.key)
   );
@@ -421,15 +448,7 @@ async function dispatchUI(ui, name) {
   if (name === "confirm") {
     return outcome(await ui.confirmDialog(), "confirmation-action");
   }
-  if (name === "cancel") {
-    const modal = ui.modal();
-    if (!modal) return outcome(false, "no-modal");
-    if (!ui.canCloseWindow(modal.name, false)) {
-      return outcome(false, "modal-cannot-cancel");
-    }
-    ui.close(modal.name);
-    return outcome(true, "modal-cancelled");
-  }
+  if (name === "cancel") return cancelModal(ui);
   if (ui.blocksGameplay()) return outcome(false, "modal-blocked");
   if (name === "focusGame") {
     ui.hooks.focusGame();
@@ -439,17 +458,33 @@ async function dispatchUI(ui, name) {
     ui.chat.open();
     return outcome(true, "chat-opened");
   }
-  if (name === "close") {
-    const last = Array.from(ui.windows.keys()).pop();
-    if (!last) return outcome(false, "no-window");
-    if (!ui.canCloseWindow(last, false)) {
-      return outcome(false, "window-cannot-close");
-    }
-    ui.close(last);
-    return outcome(true, "close-requested");
+  if (name === "close") return closeFrontWindow(ui);
+  const accepted = ui.activate(name);
+  return outcome(
+    accepted,
+    accepted ? "ui-toggle-requested" : "ui-action-refused",
+    { name },
+  );
+}
+
+async function cancelModal(ui) {
+  const modal = ui.modal();
+  if (!modal) return outcome(false, "no-modal");
+  if (!ui.canCloseWindow(modal.name, false)) {
+    return outcome(false, "modal-cannot-cancel");
   }
-  ui.activate(name);
-  return outcome(true, "ui-toggle-requested", { name });
+  const closed = await ui.close(modal.name);
+  return outcome(closed, closed ? "modal-cancelled" : "modal-cannot-cancel");
+}
+
+async function closeFrontWindow(ui) {
+  const last = Array.from(ui.windows.keys()).pop();
+  if (!last) return outcome(false, "no-window");
+  if (!ui.canCloseWindow(last, false)) {
+    return outcome(false, "window-cannot-close");
+  }
+  const closed = await ui.close(last);
+  return outcome(closed, closed ? "window-closed" : "close-not-completed");
 }
 
 /** Edit the live draft only through existing binding/confirmation/save owners. */
@@ -563,7 +598,7 @@ function route(context, systems, command, guard) {
   }
   const target = context.canvas.ownerDocument.activeElement;
   const focusRequest = command.type === "ui" && command.name === "focusGame";
-  if (target !== context.canvas && !ui.host.contains(target) && !focusRequest) {
+  if (!ui.acceptsKey({ target, metaKey: false }) && !focusRequest) {
     return outcome(false, "focus-outside-game");
   }
   if (command.type === "ui") return dispatchUI(ui, command.name);
@@ -573,7 +608,7 @@ function route(context, systems, command, guard) {
   return dispatchGameplay(systems, command, target);
 }
 
-function dispatchGameplay(systems, command, target) {
+async function dispatchGameplay(systems, command, target) {
   const ui = systems.ui;
   if (ui.blocksGameplay()) return outcome(false, "modal-blocked");
   if (command.type === "chat") {
@@ -583,7 +618,8 @@ function dispatchGameplay(systems, command, target) {
     return outcome(false, "editing-control-focused");
   }
   if (command.type === "inventory") {
-    const accepted = systems.bindings.useItem(command.id);
+    const result = await systems.bindings.useItem(command.id);
+    const accepted = result.ok;
     return outcome(
       accepted,
       accepted

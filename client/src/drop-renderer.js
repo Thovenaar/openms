@@ -129,12 +129,21 @@ export class DropRenderer {
     for (let index = 0; index < this.system.slots.length; index++) {
       const slot = this.system.slots[index],
         view = this.presentations[index];
+      if (slot.reserved) {
+        const resource = this.resources.get(slot.itemId);
+        if (resource) resource.wanted++;
+        continue;
+      }
       const wanted = this.wanted(slot);
       if (view.generation !== slot.generation || !wanted) this.remove(view);
       if (!wanted) continue;
       const resource = this.resources.get(slot.itemId);
       if (resource) resource.wanted++;
     }
+    this.releaseUnwantedResources();
+  }
+
+  releaseUnwantedResources() {
     for (const [id, resource] of this.resources) {
       if (!resource.wanted && id !== 0) {
         resource.controller?.abort();
@@ -174,12 +183,18 @@ export class DropRenderer {
       pending: false,
       failed: false,
       controller: null,
+      promise: null,
     };
     this.resources.set(id, resource);
     return resource;
   }
 
-  async load(id, slot) {
+  load(id, slot) {
+    if (!slot.promise) slot.promise = this.loadResource(id, slot);
+    return slot.promise;
+  }
+
+  async loadResource(id, slot) {
     const descriptor = id
       ? this.system.items[id].descriptor
       : this.artwork.descriptor;
@@ -232,6 +247,47 @@ export class DropRenderer {
     view.entity = entity;
     view.generation = slot.generation;
     view.resource = resource;
+  }
+
+  /** The exact reserved world slot acquires its invisible display membership before item debit. */
+  async prepareDrop(instance, slot) {
+    const index = this.system.slots.indexOf(slot);
+    if (
+      this.destroyed ||
+      index < 0 ||
+      !slot.reserved ||
+      slot.itemId !== instance.id
+    ) {
+      throw new Error(
+        "The original item drop reservation is no longer current",
+      );
+    }
+    const view = this.presentations[index];
+    const cache = this.demand(instance.id);
+    const prepared = { view, slot, published: false };
+    try {
+      if (!cache.resource) await this.load(instance.id, cache);
+      if (this.destroyed || !slot.reserved || !cache.resource) {
+        throw new Error("Original item drop preparation was cancelled");
+      }
+      this.remove(view);
+      this.instantiate(view, slot, cache.resource);
+      view.entity.container.visible = false;
+      return prepared;
+    } catch (error) {
+      this.releaseDrop(prepared);
+      throw error;
+    }
+  }
+
+  publishDrop(prepared, slot) {
+    prepared.view.generation = slot.generation;
+    prepared.view.entity.container.visible = true;
+    prepared.published = true;
+  }
+
+  releaseDrop(prepared) {
+    if (!prepared.published) this.remove(prepared.view);
   }
 
   /** Scene camera transforms the shared world root. No allocation or resource work here. */

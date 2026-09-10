@@ -1,8 +1,12 @@
 import { at, resolveNode, value } from "../src/assets/image.js";
 import { extractItemSkillUI } from "./ui-item-data.js";
-import { extractNpcPortraits } from "./ui-npc-data.js";
+import { extractNpcPortraits, extractDialogArtwork } from "./ui-npc-data.js";
 import { extractDropArtwork } from "./drop-data.js";
 import { extractWorldMaps } from "./worldmap-data.js";
+import { extractCashShop } from "./cash-shop-data.js";
+import { extractMonsterBook } from "./monster-book-data.js";
+import { extractAvatarCatalog } from "./avatar-catalog.js";
+import { extractSkillMacroRules } from "./skill-macro-data.js";
 
 const MAX_UI_NODES = 16000;
 const MAX_UI_DEPTH = 64;
@@ -14,6 +18,12 @@ const BRANCHES = [
   "Equip",
   "Stat",
   "Skill",
+  "SkillMacro",
+  "Quest",
+  "UserInfo",
+  "Shop",
+  "TradingRoom",
+  "TemporaryStatView",
   "GameMenu",
   "ShortCut",
   "KeyConfig",
@@ -25,18 +35,28 @@ const BRANCHES = [
   "SysOpt",
   "UserList",
   "QuestAlarm",
-  "MonsterBook",
   "PartySearch",
   "Family",
   "Title",
   "Messenger",
 ];
+const BRANCH_EXTRAS = {
+  TemporaryStatView: ["Skill/CoolTime"],
+  Shop: ["PersonalShop/BtExit"],
+  TradingRoom: ["Messenger/BtEnter", "FadeYesNo"],
+  Family: ["FamilyTree"],
+  UserInfo: ["MonsterBook/icon"],
+  UserList: [
+    { image: "GuildBBS.img", branch: "GuildBBS", path: "GuildBBS" },
+    { image: "GuildMark.img", branch: "", path: "GuildMark" },
+  ],
+};
 
 /** Each canvas is a static presentation entity. Delay=1 is a storage sentinel, never an original animation default. */
 async function canvasRecord(context, node, path, order) {
   const originalDelay = value(node, "delay", null);
   const delay = originalDelay === null ? null : Number(originalDelay);
-  if (delay !== null && (!Number.isFinite(delay) || delay <= 0)) {
+  if (delay !== null && (!Number.isFinite(delay) || delay < 0)) {
     throw new Error(`Invalid UI delay: ${path}`);
   }
   const origin = value(node, "origin", { x: 0, y: 0 });
@@ -59,17 +79,41 @@ async function canvasRecord(context, node, path, order) {
   };
 }
 
-/** Iterative traversal retains alias paths and original anchors; bounded path depth detects UOL ancestor cycles. */
-async function branchBundle(context, imageName, branch, extras = []) {
+/** Load authored branch roots in order before the bounded depth-first canvas traversal. */
+async function branchRoots(context, { imageName, branch, extras }) {
   const root = await context.image("UI", imageName);
   const start = branch ? at(root, branch) : root;
   const stack = [{ node: start, path: branch, depth: 0 }];
+  const sources = [`UI.wz:${imageName}${branch ? `/${branch}` : ""}`];
   for (const extra of extras) {
-    stack.push({ node: at(root, extra), path: extra, depth: 0 });
+    const input =
+      typeof extra === "string"
+        ? { image: imageName, branch: extra, path: extra }
+        : extra;
+    const extraRoot =
+      input.image === imageName ? root : await context.image("UI", input.image);
+    stack.push({
+      node: input.branch ? at(extraRoot, input.branch) : extraRoot,
+      path: input.path,
+      depth: 0,
+    });
+    sources.push(
+      `UI.wz:${input.image}${input.branch ? `/${input.branch}` : ""}`,
+    );
   }
   if (branch === "MiniMap") {
     await addMinimapMarkers(context, stack);
   }
+  return { stack, sources };
+}
+
+/** Iterative traversal retains alias paths and original anchors; bounded path depth detects UOL ancestor cycles. */
+async function branchBundle(context, imageName, branch, extras = []) {
+  const { stack, sources } = await branchRoots(context, {
+    imageName,
+    branch,
+    extras,
+  });
   const entities = [],
     assets = Object.create(null),
     aliases = Object.create(null);
@@ -109,6 +153,7 @@ async function branchBundle(context, imageName, branch, extras = []) {
     assets,
     aliases,
     entities,
+    sources,
   });
 }
 
@@ -125,10 +170,11 @@ async function addMinimapMarkers(context, stack) {
 
 function publishBranch(
   context,
-  { imageName, branch, assets, aliases, entities },
+  { imageName, branch, assets, aliases, entities, sources },
 ) {
   const metadata = {
     source: `UI.wz:${imageName}${branch ? `/${branch}` : ""}`,
+    sources,
     assets,
     aliases,
     timing:
@@ -298,13 +344,16 @@ async function buttonHelp(context) {
   return help;
 }
 
-/** Immutable catalog.ui schema v1. Bundles load only when the corresponding window is opened. */
-export async function extractGameUI(context) {
+/** Shared controls keep every authored state, including enabled0/1/2 and disabled scroll artwork. */
+async function windowBundles(context) {
   const bundles = Object.create(null);
   bundles.StatusBar = await branchBundle(context, "StatusBar.img", "");
   bundles.Basic = await branchBundle(context, "Basic.img", "BtClose", [
     "BtCancel2",
+    "BtClaim",
     "Tab2",
+    "Tab3",
+    "Tab4",
     "BtMin",
     "BtMax",
     "ComboBox2",
@@ -314,15 +363,135 @@ export async function extractGameUI(context) {
     "BtNo",
     "ItemNo",
     "LevelNo",
+    "BtClose2",
+    "BtUP",
+    "BtDown",
+    "BtHide",
+    "BtQGiveup",
+    "BtMacro",
+    "CheckBox",
+    "VScr",
+    "HScr",
+    "VScr4",
+    "HScr4",
+    "Slider",
+    "BtCancel",
   ]);
   bundles.Cursor = await branchBundle(context, "Basic.img", "Cursor");
   for (const branch of BRANCHES) {
-    bundles[branch] = await branchBundle(context, "UIWindow.img", branch);
+    bundles[branch] = await branchBundle(
+      context,
+      "UIWindow.img",
+      branch,
+      BRANCH_EXTRAS[branch] ?? [],
+    );
   }
   bundles.WorldMap = await extractWorldMaps(context, canvasRecord);
   bundles.MesoDrop = await branchBundle(context, "Basic.img", "Notice3", [
     "Notice4",
   ]);
+  return bundles;
+}
+
+/** Native emblem choices are original numeric source IDs, not generated logos or colors. */
+async function socialMetadata(context) {
+  const root = await context.image("UI", "GuildMark.img");
+  const backgrounds = Object.keys(at(root, "BackGround").children)
+    .map(Number)
+    .sort((a, b) => a - b);
+  const logos = [],
+    colors = new Set();
+  for (const category of Object.values(at(root, "Mark").children)) {
+    for (const [id, logo] of Object.entries(category.children)) {
+      logos.push(Number(id));
+      for (const color of Object.keys(resolveNode(logo).children)) {
+        if (/^\d+$/.test(color)) colors.add(Number(color));
+      }
+    }
+  }
+  if (logos.length > MAX_UI_NODES || backgrounds.length > MAX_UI_NODES) {
+    throw new Error("Guild emblem source bound");
+  }
+  return {
+    emblems: {
+      backgrounds,
+      logos: logos.sort((a, b) => a - b),
+      colors: [...colors].sort((a, b) => a - b),
+      source: "UI.wz:GuildMark.img",
+    },
+  };
+}
+/** Check template and scalar-name coverage before separately reporting lazy artwork. */
+function metadataCoverage(context, visuals, missing) {
+  const dependencies = context.serverData.supportedDependencies;
+  const names = context.quests.strings;
+  for (const id of dependencies.itemIds) {
+    if (!visuals.items[id]) {
+      missing.push({
+        kind: "item",
+        id,
+        reason:
+          "Original inventory template is absent from Item.wz/Character.wz",
+      });
+    }
+  }
+  for (const [kind, ids, dictionary] of [
+    ["npc-name", dependencies.npcIds, names.npc],
+    ["mob-name", dependencies.mobIds, names.mob],
+    ["map-name", dependencies.mapIds, context.mapNames],
+    ["quest", dependencies.questIds, context.quests.records],
+  ]) {
+    for (const id of ids) {
+      if (!dictionary[id]) {
+        missing.push({
+          kind,
+          id,
+          reason: "Required original metadata record is absent",
+        });
+      }
+    }
+  }
+}
+
+/** Report every admitted script's metadata requirements, independently of selected maps. */
+function dependencyCoverage(context, visuals) {
+  const dependencies = context.serverData.supportedDependencies;
+  const missing = [];
+  metadataCoverage(context, visuals, missing);
+  for (const id of dependencies.npcIds) {
+    const portrait = visuals.npcPortraits[id];
+    if (!portrait || portrait.available === false) {
+      missing.push({
+        kind: "npc-portrait",
+        id,
+        reason: portrait?.reason ?? "Original NPC portrait is absent",
+      });
+    }
+  }
+  for (const path of dependencies.artworkPaths) {
+    const artwork = visuals.dialogArtwork[path];
+    if (!artwork || artwork.available === false) {
+      missing.push({
+        kind: "dialog-artwork",
+        path,
+        reason: artwork?.reason ?? "Original artwork is absent",
+      });
+    }
+  }
+  const packaged = new Set(context.mapIds.map(Number));
+  return {
+    required: Object.fromEntries(
+      Object.entries(dependencies).map(([key, values]) => [key, values.length]),
+    ),
+    missing,
+    unpackagedMaps: dependencies.mapIds.filter((id) => !packaged.has(id)),
+    scope:
+      "All supported numeric/SQL/named routes. Metadata-only map references do not imply a playable destination.",
+  };
+}
+
+/** Selected maps retain independent demand-loaded minimap bundles. */
+async function minimapBundles(context) {
   const minimaps = Object.create(null);
   if (!Array.isArray(context.mapIds) || context.mapIds.length > MAX_UI_MAPS) {
     throw new Error("UI extraction requires bounded selected map IDs");
@@ -330,27 +499,64 @@ export async function extractGameUI(context) {
   for (const mapId of context.mapIds) {
     minimaps[mapId] = await minimapBundle(context, mapId);
   }
-  const help = await buttonHelp(context);
+  return minimaps;
+}
+
+/** Static catalog metadata; artwork and avatar records remain independently demand-loaded. */
+export async function extractGameUI(context) {
+  const bundles = await windowBundles(context);
+  bundles.FamilyTree = bundles.Family;
+  bundles.PartyHP = bundles.UserList;
+  const cashShop = await extractCashShop(context, canvasRecord);
+  const monsterBook = await extractMonsterBook(context, canvasRecord);
+  bundles.CashShop = cashShop.bundle;
+  bundles.MonsterBook = monsterBook.bundle;
+  const minimaps = await minimapBundles(context);
   const strings = await itemLabels(context);
   const templates = await extractItemSkillUI(
-    context,
+    { ...context, cashShop, monsterBook },
     strings.details,
     canvasRecord,
   );
+  const npcPortraits = await extractNpcPortraits(context);
+  const dialogArtwork = await extractDialogArtwork(context, canvasRecord);
   return {
     schemaVersion: 1,
     bundles,
     minimaps,
-    npcPortraits: await extractNpcPortraits(context),
+    npcPortraits,
+    dialogArtwork,
+    cashShop,
+    monsterBook: monsterBook.monsterBook,
+    avatar: await extractAvatarCatalog(context, templates.items),
+    skillMacroRules: await extractSkillMacroRules(context),
+    social: await socialMetadata(context),
     dropArtwork: await extractDropArtwork(context, canvasRecord),
-    help,
+    help: await buttonHelp(context),
     itemLabels: strings.labels,
     items: templates.items,
     skills: templates.skills,
     speechBubbles: await speechBubbleBundle(context),
-    coverage: templates.coverage,
+    coverage: {
+      ...templates.coverage,
+      cashCommodities: Object.keys(cashShop.commodities).length,
+      cashItems: cashShop.itemIds.length,
+      monsterBookItemIds: monsterBook.itemIds,
+      monsterBook: monsterBook.coverage,
+      scriptMetadata: dependencyCoverage(context, {
+        items: templates.items,
+        npcPortraits,
+        dialogArtwork,
+      }),
+      missingPortraits: Object.entries(npcPortraits)
+        .filter(([, entry]) => entry.available === false)
+        .map(([id, entry]) => ({ id: Number(id), ...entry })),
+      missingDialogArtwork: Object.entries(dialogArtwork)
+        .filter(([, entry]) => entry.available === false)
+        .map(([path, entry]) => ({ path, ...entry })),
+    },
     authority:
-      "Original raster artwork and recovered anchors; live values and controls are explicitly provisional local-profile presentation, not original server authority.",
+      "Original static artwork/metadata with recovered native consumers; mutable state is real local-profile authority, with explicitly labeled authorized Cosmic server-reference policy.",
     evidence: "docs/ingame-ui.md",
   };
 }

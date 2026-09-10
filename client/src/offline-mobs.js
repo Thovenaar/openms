@@ -84,6 +84,9 @@ function validateMobInfo(info) {
     "PADamage",
     "PDDamage",
     "MADamage",
+    "level",
+    "acc",
+    "eva",
     "exp",
     "pushed",
     "hpRecovery",
@@ -364,14 +367,9 @@ function stepMobMotion(mob, ms) {
       0,
       before - mob.knockbackDeceleration * seconds,
     );
-    const segment = mob.foothold;
-    const horizontal = segment.dx / Math.hypot(segment.dx, segment.dy);
     moveMob(
       mob,
-      mob.knockbackFacing *
-        horizontal *
-        ((before + mob.knockbackSpeed) / 2) *
-        seconds,
+      mob.knockbackFacing * ((before + mob.knockbackSpeed) / 2) * seconds,
       false,
     );
     mob.knockbackMs = Math.max(0, mob.knockbackMs - ms);
@@ -497,8 +495,11 @@ export function damageMob(mob, amount, facing, attack = null) {
     return false;
   }
   mob.nameRemainingMs = 5000;
-  if (amount === 0) return false;
   mob.lastDamage = amount;
+  if (amount === 0) {
+    mob.lastReaction = "nonpositive";
+    return false;
+  }
   mob.hp = Math.max(0, mob.hp - amount);
   if (mob.hp === 0) {
     mob.stateMs = 0;

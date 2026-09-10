@@ -1,4 +1,6 @@
-import { PROFILE_LIMITS } from "./profile-validation.js";
+import { profileError } from "./profile-validation.js";
+import { consumeItem } from "./inventory-model.js";
+import { admitItem, selectedItem } from "./inventory-action-rules.js";
 
 const MAX_REACTORS = 4096;
 const MAX_STATES = 256;
@@ -130,6 +132,7 @@ export class ReactorSystem {
     this.hooks = hooks;
     this.elapsedMs = 0;
     this.destroyed = false;
+    this.pending = null;
     const templates = new Map(),
       seen = new Set();
     const entries = Object.entries(manifest.templates);
@@ -196,6 +199,7 @@ export class ReactorSystem {
   }
 
   stepRecord(record, ms) {
+    if (this.pending?.record === record) return;
     record.phaseMs += ms;
     if (record.animation && record.action) record.animation.advance(ms);
     if (record.phase === "hit") {
@@ -351,6 +355,7 @@ export class ReactorSystem {
 
   /** Real combat impact calls this once; nearest overlap is explicit deterministic local selection. */
   strike(rect, facing, skillId = 0) {
+    if (this.pending) return false;
     if (this.destroyed) return false;
     this.validateStrike(rect, facing, skillId);
     this.refresh();
@@ -371,32 +376,61 @@ export class ReactorSystem {
     return selected ? this.transition(selected, selectedEvent) : false;
   }
 
+  admitOfferItem(request) {
+    if (request?.actorId !== this.store.id) {
+      throw profileError(
+        "invalid-actor",
+        "Only the current local character may offer this item.",
+      );
+    }
+    const item = selectedItem(this.store.profile, request.uid);
+    admitItem(this.store.profile, item);
+    if (item.slot < 0) {
+      throw profileError(
+        "item-equipped",
+        "Unequip the item before offering it.",
+      );
+    }
+    return item;
+  }
+
   /** Native inventory Offer nearby: exact authored item/count, accepted atomically, no reward scripts. */
-  offer(itemId) {
-    if (this.destroyed) return { accepted: false, reason: "field-destroyed" };
-    if (this.scene.offlineField?.dead) {
-      return { accepted: false, reason: "player-dead" };
+  async offer(request) {
+    if (this.destroyed) {
+      return { accepted: false, ok: false, code: "field-destroyed" };
     }
-    if (!Number.isSafeInteger(itemId) || itemId <= 0) {
-      throw new Error("Invalid reactor offered item");
-    }
-    const inventory = this.store.profile.inventory;
     if (
-      !Array.isArray(inventory) ||
-      inventory.length > PROFILE_LIMITS.inventory
+      this.pending ||
+      this.store.profileTransactionPending ||
+      this.hooks.isBusy?.()
     ) {
-      throw new Error("Invalid inventory");
+      return { accepted: false, ok: false, code: "reactor-busy" };
     }
-    const stackIndex = inventory.findIndex((stack) => stack.id === itemId);
-    if (stackIndex < 0) return { accepted: false, reason: "item-not-owned" };
-    for (const record of this.records) {
-      if (!this.eligible(record)) continue;
-      const event = this.selectOfferEvent(record, itemId);
-      if (event) {
-        return this.acceptOffer(record, event, inventory, stackIndex);
+    try {
+      const item = this.admitOfferItem(request);
+      for (const record of this.records) {
+        if (!this.eligible(record)) continue;
+        const event = this.selectOfferEvent(record, item.id);
+        if (event) {
+          return await this.acceptOffer(record, event, {
+            uid: item.uid,
+            actorId: request.actorId,
+          });
+        }
       }
+      return {
+        accepted: false,
+        ok: false,
+        code: "no-nearby-reactor-accepts-item",
+      };
+    } catch (error) {
+      return {
+        accepted: false,
+        ok: false,
+        code: error.code ?? "reactor-failed",
+        reason: error.message,
+      };
     }
-    return { accepted: false, reason: "no-nearby-reactor-accepts-item" };
   }
 
   selectOfferEvent(record, itemId) {
@@ -414,7 +448,29 @@ export class ReactorSystem {
     return null;
   }
 
-  acceptOffer(record, event, inventory, stackIndex) {
+  consumeOffer(draft, offer) {
+    const { request, record, event, state } = offer;
+    if (
+      request.actorId !== this.store.id ||
+      this.destroyed ||
+      record.state !== state ||
+      this.selectOfferEvent(record, event.itemId) !== event ||
+      !this.eligible(record)
+    ) {
+      throw profileError(
+        "reactor-changed",
+        "The actor or reactor is no longer eligible for this offer.",
+      );
+    }
+    const item = selectedItem(draft, request.uid);
+    admitItem(draft, item);
+    if (item.id !== event.itemId || item.slot < 0) {
+      throw profileError("item-changed", "The offered item changed.");
+    }
+    consumeItem(draft, item.uid, event.count);
+  }
+
+  async acceptOffer(record, event, request) {
     if (
       !Number.isSafeInteger(event.count) ||
       event.count <= 0 ||
@@ -422,30 +478,47 @@ export class ReactorSystem {
     ) {
       return {
         accepted: false,
-        reason: "unsupported-authored-item-condition",
-      };
-    }
-    if (inventory[stackIndex].count < event.count) {
-      return {
-        accepted: false,
-        reason: "insufficient-authored-item-count",
+        ok: false,
+        code: "unsupported-authored-item-condition",
       };
     }
     const target = this.targetState(record, event);
     if (target === undefined) {
-      return { accepted: false, reason: "unavailable-target-state" };
+      return { accepted: false, ok: false, code: "unavailable-target-state" };
     }
-    const sound = record.template.descriptor.sounds?.[record.state?.id];
-    this.applyTransition(record, event, target);
-    inventory[stackIndex].count -= event.count;
-    if (inventory[stackIndex].count === 0) inventory.splice(stackIndex, 1);
-    this.store.markDirty();
-    this.publishTransition(sound);
+    const offer = { record, event, request, state: record.state };
+    const sound = record.template.descriptor.sounds?.[offer.state.id];
+    const consume = (draft) => this.consumeOffer(draft, offer);
+    consume(structuredClone(this.store.profile));
+    const pending = { record, promise: null };
+    this.pending = pending;
+    try {
+      pending.promise = this.store.commitProfile(consume);
+      await pending.promise;
+      try {
+        this.applyTransition(record, event, target);
+      } catch (error) {
+        this.lastPublicationError = error.message;
+      }
+    } finally {
+      this.pending = null;
+    }
+    try {
+      this.publishTransition(sound);
+    } catch (error) {
+      this.lastPublicationError = error.message;
+    }
     return {
       accepted: true,
+      ok: true,
+      code: "reactor-accepted",
       reason: record.lastOutcome,
       consumed: event.count,
     };
+  }
+
+  waitForIdle() {
+    return this.pending?.promise ?? Promise.resolve();
   }
 
   snapshot() {
@@ -472,6 +545,12 @@ export class ReactorSystem {
   }
 
   destroy() {
+    if (this.pending) {
+      throw profileError(
+        "reactor-busy",
+        "Await the reactor offer before destroying this field.",
+      );
+    }
     if (this.destroyed) return;
     this.destroyed = true;
     for (const record of this.records) record.animation = null;

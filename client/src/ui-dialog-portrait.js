@@ -11,11 +11,23 @@ export class DialogPortrait {
     this.animation = null;
     this.destroyed = false;
     this.layer = panel.layer("NPC portrait");
-    this.bar = this.layer.image("UtilDlgEx/bar", 19, 130);
-    // 009a70e5 font0: white Arial12; 009a7481 centers the name at bar y+5.
-    this.name = this.layer.text("", 19, 135, 121);
+    this.bar = this.layer.image("UtilDlgEx/bar", 19, 0);
+    // 009a70e5 font0, 009a7481: white Arial12, centered within original121px bar, baseline offset5.
+    this.name = this.layer.text("", 19, 5, 121);
     this.name.style.cssText +=
       ";color:#fff;font:12px/14px Arial,sans-serif;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+    this.setVisible(false);
+  }
+
+  setVisible(visible) {
+    this.layer.root.visible = visible;
+    this.layer.element.hidden = !visible;
+  }
+
+  hide() {
+    this.request?.abort();
+    this.id = null;
+    this.release();
   }
 
   show(id, name) {
@@ -29,6 +41,7 @@ export class DialogPortrait {
     if (!entry?.available) {
       this.name.title =
         entry?.reason ?? "NPC portrait is not in the offline package";
+      this.panel.owner.report(new Error(this.name.title));
       return;
     }
     const request = new AbortController();
@@ -51,25 +64,53 @@ export class DialogPortrait {
       request.signal.throwIfAborted();
       if (this.destroyed || this.request !== request) return;
       const asset = resource.manifest.metadata.assets.NpcPortrait;
+      if (!asset || !(asset.width > 0) || !(asset.height > 0)) {
+        throw new Error("Missing original portrait bounds");
+      }
       animation = new EntityAnimation(
         resource.manifest.entities[0],
         resource.textures,
       );
-      // Native portrait column is centered at x80 (009a7745); fitting is browser policy.
-      const scale = Math.min(1, 121 / asset.width, 96 / asset.height);
-      animation.container.scale.set(scale);
-      animation.setPosition(
-        80 - (asset.width * scale) / 2 + asset.origin.x * scale,
-        124 - asset.height * scale + asset.origin.y * scale,
-      );
       this.layer.root.addChild(animation.container);
       this.animation = animation;
+      this.asset = asset;
       this.resource = resource;
       animation = null;
+      if (this.geometry) this.setLayout(this.geometry);
+      this.setVisible(true);
     } finally {
       animation?.container.destroy({ children: true });
       if (this.resource !== resource) resource.destroy();
     }
+  }
+
+  setLayout(geometry) {
+    this.geometry = geometry;
+    if (!this.asset || !this.animation) return;
+    const { width, height, origin } = this.asset;
+    const bar = this.panel.assets["UtilDlgEx/bar"];
+    const combined = height + bar.height;
+    // 009a7745..009a7b69: unscaled NPC at column80/450; tall portraits bottom-anchor above footer.
+    const center = geometry.right ? 450 : 80;
+    const top =
+      combined > geometry.body
+        ? geometry.height - combined - 62
+        : 28 + Math.trunc((geometry.body - combined) / 2);
+    const barY =
+      combined > geometry.body
+        ? geometry.height - combined - 52 + height
+        : top + height;
+    this.animation.setPosition(
+      center - Math.trunc(width / 2) + origin.x,
+      top + origin.y,
+    );
+    this.bar.setPosition(
+      center - Math.trunc(bar.width / 2) + bar.origin.x,
+      barY + bar.origin.y,
+    );
+    this.name.style.left = `${center - Math.trunc(bar.width / 2)}px`;
+    this.name.style.top = `${barY + 5}px`;
+    this.panel.renderArtwork();
   }
 
   release() {
@@ -79,9 +120,12 @@ export class DialogPortrait {
     this.resource?.destroy();
     this.animation = null;
     this.resource = null;
+    this.asset = null;
+    this.setVisible(false);
   }
 
   destroy() {
+    if (this.destroyed) return;
     this.destroyed = true;
     this.request?.abort();
     this.release();

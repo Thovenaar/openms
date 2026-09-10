@@ -1,14 +1,10 @@
-import { resolve } from "node:path";
-import { createHash } from "node:crypto";
 import { at, value } from "../src/assets/image.js";
-import { parseSql, MAX_SQL_BYTES } from "./sql-data.js";
-import { serverReferenceRoot } from "./server-data.js";
 
 const MAX_MAPS = 512;
 const MAX_LIFE = 65536;
 const MAX_MOB_ROWS = 256;
-const MAX_ITEMS = 5000;
-const DROP_TABLE = "src/main/resources/db/data/152-drop-data.sql";
+const MAX_ITEMS = 32768;
+const MAX_DROP_ROWS = 200000;
 // Client00506e62 InsertCanvas delays (ms): docs/ghidra-drop-motion/drop-native-helpers.txt.
 const MESO_FRAME_DELAYS = Object.freeze([
   Object.freeze([80, 80, 80, 80]),
@@ -40,55 +36,79 @@ function selectedMobs(context) {
   return mobs;
 }
 
-/** Uses the shared SQL reader; only the six authored drop columns are accepted. */
-export function parseDropRows(text) {
-  const parsed = parseSql(text);
-  if (parsed.unsupported.length || parsed.schemas.length) {
-    throw new Error("Unsupported statement in Cosmic drop SQL");
+/** The canonical server conversion owns SQL parsing; this projection retains its exact row provenance. */
+function compiledDropRows(dataset) {
+  if (
+    dataset?.domain !== "drops" ||
+    !Array.isArray(dataset.tables?.drop_data)
+  ) {
+    throw new Error("Canonical drop dataset is required");
   }
-  const columns = [
-    "dropperid",
-    "itemid",
-    "minimum_quantity",
-    "maximum_quantity",
-    "questid",
-    "chance",
-  ];
-  const rows = [];
-  for (const insert of parsed.inserts) {
-    if (
-      insert.table !== "drop_data" ||
-      insert.columns.length !== columns.length
-    ) {
-      throw new Error("Unexpected Cosmic drop table or columns");
-    }
-    const indices = columns.map((column) => insert.columns.indexOf(column));
-    if (indices.includes(-1)) throw new Error("Missing Cosmic drop column");
-    for (const values of insert.rows) {
-      const row = indices.map((index) => values[index]);
-      if (!row.every((number) => Number.isSafeInteger(number) && number >= 0)) {
-        throw new Error("Invalid Cosmic drop integer");
-      }
-      rows.push(row);
-    }
+  const rows = dataset.tables.drop_data;
+  if (!rows.length || rows.length > MAX_DROP_ROWS) {
+    throw new Error("Canonical drop row bound");
   }
-  if (!rows.length) throw new Error("No six-column Cosmic drop rows found");
-  return rows;
+  const sources = dataset.tableSources?.drop_data;
+  if (
+    !Array.isArray(sources) ||
+    !sources.length ||
+    sources.length > MAX_DROP_ROWS
+  ) {
+    throw new Error("Canonical drop source bound");
+  }
+  validateDropSources(rows, sources);
+  return { rows, sources };
 }
 
-/** Cosmic is an authorized SERVER reference, never original Nexon drop authority. */
-export async function extractDropData(context, options = {}) {
-  const serverRoot = serverReferenceRoot(options.serverRoot);
-  const file = Bun.file(resolve(serverRoot, DROP_TABLE));
-  if (file.size > MAX_SQL_BYTES) {
-    throw new Error("Cosmic drop SQL exceeds byte limit");
+/** Source spans must cover the canonical table in its original row order. */
+function validateDropSources(rows, sources) {
+  let firstRow = 1;
+  for (const source of sources) {
+    if (
+      source.firstRow !== firstRow ||
+      !Number.isSafeInteger(source.rowCount) ||
+      source.rowCount < 1 ||
+      typeof source.source !== "string" ||
+      !/^[a-f0-9]{64}$/.test(source.sha256)
+    ) {
+      throw new Error(
+        "Canonical drop source rows are incomplete or lack original hashes",
+      );
+    }
+    firstRow += source.rowCount;
   }
-  const text = await file.text();
-  const mobs = selectedMobs(context);
-  const rows = parseDropRows(text);
+  if (firstRow !== rows.length + 1) {
+    throw new Error("Canonical drop source coverage differs from table rows");
+  }
+}
+
+/** Project selected mobs while validating every canonical row, including unselected mobs. */
+function collectDropItems(mobs, rows, sources) {
   const itemIds = new Set();
+  let sourceIndex = 0;
   for (let index = 0; index < rows.length; index++) {
-    const [mobId, itemId, minimum, maximum, questId, chance] = rows[index];
+    if (
+      sourceIndex + 1 < sources.length &&
+      index + 1 >= sources[sourceIndex + 1].firstRow
+    ) {
+      sourceIndex++;
+    }
+    const row = rows[index];
+    const {
+      dropperid: mobId,
+      itemid: itemId,
+      minimum_quantity: minimum,
+      maximum_quantity: maximum,
+      questid: questId,
+      chance,
+    } = row;
+    if (
+      ![mobId, itemId, minimum, maximum, questId, chance].every(
+        (value) => Number.isSafeInteger(value) && value >= 0,
+      )
+    ) {
+      throw new Error("Invalid canonical drop integer");
+    }
     const mob = mobs[mobId];
     if (!mob) continue;
     if (mob.rows.length >= MAX_MOB_ROWS) {
@@ -102,6 +122,7 @@ export async function extractDropData(context, options = {}) {
       questId,
       chance,
       sourceRow: index + 1,
+      source: sources[sourceIndex].source,
       status: reason ? "unavailable" : "supported",
       reason,
     });
@@ -110,14 +131,21 @@ export async function extractDropData(context, options = {}) {
   if (itemIds.size > MAX_ITEMS) {
     throw new Error("Drop item closure exceeds limit");
   }
+  return itemIds;
+}
+
+/** Cosmic is an authorized SERVER reference, never original Nexon drop authority. */
+export function extractDropData(context, dataset) {
+  const mobs = selectedMobs(context);
+  const { rows, sources } = compiledDropRows(dataset);
+  const itemIds = collectDropItems(mobs, rows, sources);
   return {
     schemaVersion: 1,
     mobs,
     itemIds: [...itemIds].sort((a, b) => a - b),
     provenance: {
       authority: "Cosmic-server-reference/local-offline-policy",
-      source: DROP_TABLE,
-      sha256: createHash("sha256").update(text).digest("hex"),
+      sources,
       parsedRows: rows.length,
       rate: "1x; floor(random*999999) < chance",
       quantity:

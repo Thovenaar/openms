@@ -17,21 +17,10 @@ export async function renderDialogArtwork(panel, signal) {
 
 async function renderTarget(panel, target, signal) {
   signal.throwIfAborted();
-  const token = target.dataset.questArt;
-  const item = /^#[iv]\d+#$/.test(token);
-  const template = item
-    ? panel.owner.index.items?.[Number(token.slice(2, -1))]
-    : null;
-  const path = item
-    ? template?.iconPath
-    : token.slice(2, -1).replace(/^UI\/UIWindow\.img\//, "");
+  const { path, descriptor } = artworkSource(panel, target.dataset.questArt);
   let resource = panel.resource;
-  if (item && template?.descriptor) {
-    resource = await loadVisualBundle(
-      template.descriptor,
-      panel.owner.services,
-      signal,
-    );
+  if (descriptor) {
+    resource = await loadVisualBundle(descriptor, panel.owner.services, signal);
   }
   try {
     signal.throwIfAborted();
@@ -41,10 +30,27 @@ async function renderTarget(panel, target, signal) {
   }
 }
 
+function artworkSource(panel, token) {
+  if (/^#[iv]\d+#$/.test(token)) {
+    const template = panel.owner.index.items?.[Number(token.slice(2, -1))];
+    return { path: template?.iconPath, descriptor: template?.descriptor };
+  }
+  const originalPath = token.slice(2, -1);
+  const packaged = originalPath
+    ? panel.owner.index.dialogArtwork?.[originalPath]
+    : null;
+  return {
+    path: packaged?.path ?? originalPath.replace(/^UI\/UIWindow\.img\//, ""),
+    descriptor: packaged?.descriptor,
+  };
+}
+
 function paintArtwork(panel, target, resource, path) {
   const asset = resource.manifest.metadata.assets[path];
   const entity = resource.manifest.entities.find((entry) => entry.id === path);
-  if (!asset || !entity) return;
+  if (!asset || !entity) {
+    throw new Error(`Unpackaged dialogue artwork: ${target.dataset.questArt}`);
+  }
   if (asset.width * asset.height > MAX_IMAGE_PIXELS) {
     throw new Error("Dialogue artwork exceeds pixel policy");
   }
@@ -62,7 +68,7 @@ function paintArtwork(panel, target, resource, path) {
     context.drawImage(raster, 0, 0);
     canvas.setAttribute("role", "img");
     canvas.setAttribute("aria-label", target.textContent);
-    canvas.style.cssText = "vertical-align:middle;max-width:100%;height:auto;";
+    canvas.style.cssText = `vertical-align:middle;width:${asset.width}px;height:${asset.height}px;image-rendering:pixelated;`;
     target.replaceChildren(canvas);
   } finally {
     animation.container.destroy({ children: true });

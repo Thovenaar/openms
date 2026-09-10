@@ -11,6 +11,10 @@ export class PassiveRecovery {
     }
     this.hpMs = 0;
     this.mpMs = 0;
+    this.action = simulation.action;
+    this.hpEligible = false;
+    this.mpEligible = false;
+    this.hpIntervalMs = 0;
     this.x = simulation.x;
     this.y = simulation.y;
   }
@@ -38,11 +42,13 @@ export class PassiveRecovery {
     this.y = sim.y;
     const eligible = profile.hp > 0 && !this.hooks.recoveryExcluded?.();
     const interval = this.hpInterval(action);
-    this.hpMs =
-      eligible && stationary && interval > 0 && profile.hp < profile.maxHP
-        ? this.hpMs + ms
-        : 0;
-    this.mpMs = eligible && profile.mp < profile.maxMP ? this.mpMs + ms : 0;
+    this.action = action;
+    this.hpIntervalMs = interval;
+    this.hpEligible =
+      eligible && stationary && interval > 0 && profile.hp < profile.maxHP;
+    this.mpEligible = eligible && profile.mp < profile.maxMP;
+    this.hpMs = this.hpEligible ? this.hpMs + ms : 0;
+    this.mpMs = this.mpEligible ? this.mpMs + ms : 0;
     const hp = this.recoverHP(interval);
     const mp = this.recoverMP();
     return hp || mp;
@@ -103,6 +109,19 @@ export class PassiveRecovery {
     if (!id && jobMatches(profile.job, 1111)) id = 11110000;
     if (!id && jobMatches(profile.job, 121)) id = 1210000;
     return id ? this.info(id, "mp") : 0;
+  }
+
+  /** Demand-only inspection; never allocate from the fixed-step path. */
+  snapshot() {
+    return {
+      action: this.action,
+      hpEligible: this.hpEligible,
+      mpEligible: this.mpEligible,
+      hpElapsedMs: this.hpMs,
+      mpElapsedMs: this.mpMs,
+      hpIntervalMs: this.hpIntervalMs,
+      mpIntervalMs: 10000,
+    };
   }
 }
 

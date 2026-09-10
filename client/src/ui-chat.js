@@ -1,13 +1,18 @@
 import { HUD_CLIENT_Y } from "./ui-hud.js";
 import { ChatChannels } from "./chat-channels.js";
 import { ChatLog } from "./chat-log.js";
+import {
+  CHAT_LIMIT,
+  CHAT_RATE_LIMITS,
+  sanitizeChat,
+  admitChat,
+} from "./local-chat.js";
 
 // 00490701 bounds history to eight; 008d379a selects 70 for ordinary users.
 const HISTORY_LIMIT = 8;
-export const CHAT_LIMIT = 70;
-const REPEAT_WINDOW_MS = 30000;
-const FLOOD_WINDOW_MS = 2000;
-const FLOOD_COOLDOWN_MS = 2800;
+const REPEAT_WINDOW_MS = CHAT_RATE_LIMITS.repeat;
+const FLOOD_WINDOW_MS = CHAT_RATE_LIMITS.flood;
+const FLOOD_COOLDOWN_MS = CHAT_RATE_LIMITS.cooldown;
 export const CHAT_CHANNELS = Object.freeze([
   "To a buddy",
   "To Group",
@@ -18,8 +23,12 @@ export const CHAT_CHANNELS = Object.freeze([
   "Whisper",
   "To All",
 ]);
-// 008d57aa jump table / 008d53cd..008d542b; no remote target selection offline.
+// 008d57aa jump table / 008d53cd..008d542b.
 const NEXT_CHANNEL = [5, 2, 3, 4, 6, 1, 7, 0];
+
+function validChannelIndex(index) {
+  return Number.isInteger(index) && index >= 0 && index < CHAT_CHANNELS.length;
+}
 
 /** 008d536c and 008dfb36: edit child is distinct from the log child. No offline server echo. */
 export class UIChat {
@@ -37,9 +46,18 @@ export class UIChat {
     this.submitIndex = 0;
     this.blockedUntil = -Infinity;
     this.composing = false;
+    this.pending = false;
+    this._submission = null;
+    this.disposed = false;
     this.messages = new ChatLog(panel);
     this.log = this.messages.element;
+    this.log.style.zIndex = "1";
     this.layer = panel.layer("Chat input");
+    // Keep editor and channel popup above the log, within the HUD's own stacking context.
+    this.layer.element.style.zIndex = "2";
+    this.layer.listen(this.layer.element, "focusin", () => {
+      this.owner.hooks.clearInput();
+    });
     this.createInput();
     this.createSelector();
     this.maximum = panel.button("BtMax", 536, HUD_CLIENT_Y + 519, {
@@ -53,6 +71,8 @@ export class UIChat {
       label: "Minimize chat",
       action: () => this.close(),
     });
+    this.maximum.element.style.zIndex = "2";
+    this.minimum.element.style.zIndex = "2";
     this.resizeHighlight = panel.image("base/chat", 0, HUD_CLIENT_Y + 434);
     this.resizeHighlight.container.visible = false;
     this.grip = panel.hit(
@@ -69,6 +89,7 @@ export class UIChat {
       },
     );
     this.grip.dataset.cursorState = "7";
+    this.grip.style.zIndex = "1";
     this.grip.hidden = true;
     this.setState(1);
   }
@@ -80,7 +101,8 @@ export class UIChat {
     this.input.autocomplete = "off";
     this.input.spellcheck = false;
     this.input.setAttribute("aria-label", "Chat message");
-    this.input.style.cssText = `position:absolute;left:85px;top:${HUD_CLIENT_Y + 520}px;width:440px;height:12px;padding:0;border:0;outline:0;background:transparent;color:#000;font:12px Arial,sans-serif;line-height:12px;pointer-events:auto;user-select:text;`;
+    // The edit owns its backing; a transparent black-text input leaks the world/log through it.
+    this.input.style.cssText = `position:absolute;left:85px;top:${HUD_CLIENT_Y + 520}px;width:440px;height:12px;padding:0;border:0;outline:0;background:#fff;color:#000;font:12px Arial,sans-serif;line-height:12px;pointer-events:auto;user-select:text;`;
     this.layer.element.append(this.input);
     this.layer.listen(this.input, "compositionstart", () => {
       this.composing = true;
@@ -93,6 +115,7 @@ export class UIChat {
     });
     this.layer.listen(this.input, "focus", () => {
       if (this.state === 1) this.setState(2);
+      this.owner.hooks.clearInput();
     });
   }
 
@@ -103,10 +126,16 @@ export class UIChat {
   }
 
   setState(state) {
+    // Collapse removes native edit children. Do not steal focus on ordinary resize/state3 transitions.
+    if (state === 1 && this.layer.element.contains(document.activeElement)) {
+      document.activeElement.blur();
+      this.composing = false;
+    }
     this.state = state;
     // 008d4a6d ->008dfb36(0): minimized chat has no edit/combo child.
     this.layer.root.visible = state !== 1;
     this.layer.element.hidden = state === 1;
+    this.layer.element.inert = state === 1;
     this.grip.hidden = state !== 3;
     this.maximum.setVisible(state !== 3);
     this.minimum.setVisible(state === 3);
@@ -133,6 +162,7 @@ export class UIChat {
 
   close(clear = false) {
     if (clear) this.input.value = "";
+    this.input.blur();
     this.setState(1);
     this.owner.hooks.focusGame();
   }
@@ -161,8 +191,9 @@ export class UIChat {
     if (event.key === "Enter") {
       event.preventDefault();
       if (event.repeat) return true;
-      if (this.input.value) this.submit();
-      else this.exitEdit();
+      if (this.input.value) {
+        this.submit().catch((error) => this.owner.report(error));
+      } else this.exitEdit();
     } else if (event.key === "Escape") {
       event.preventDefault();
       this.exitEdit(true);
@@ -187,9 +218,10 @@ export class UIChat {
   }
 
   /** Submit the real edit buffer; outcomes distinguish local admission from server delivery. */
-  submit() {
+  async submit() {
     // 008d549f sanitizes non-ASCII bytes; trim helpers are 00474414/004744c9.
-    const text = this.input.value.replace(/[^\x20-\x7e]/g, " ").trim();
+    if (this.pending) return { accepted: false, reason: "chat-pending" };
+    const text = sanitizeChat(this.input.value);
     this.input.value = "";
     if (!text) {
       this.exitEdit();
@@ -200,20 +232,14 @@ export class UIChat {
     return result;
   }
 
-  /** Apply ordinary character/channel/flood gates before the field-owned speech hook. */
-  submitText(text) {
-    if (text.length > CHAT_LIMIT) {
-      this.owner.status("Chat is limited to 70 characters.");
-      return { accepted: false, reason: "chat-length" };
-    }
-    if (this.selector.selectedIndex !== 7 || text.startsWith("/")) {
-      this.owner.status(
-        "Private channels and chat commands require the original server.",
-      );
-      return { accepted: false, reason: "requires-server" };
-    }
+  /** The native input owns original history/flood gates; the local authority owns routing. */
+  async submitText(text, channelIndex = this.selector.selectedIndex) {
+    const rejection = this.#submissionRejection(text, channelIndex);
+    if (rejection) return rejection;
+    text = sanitizeChat(text);
+    if (!text) return { accepted: false, reason: "empty-chat" };
     const now = this.owner.hooks.now?.() ?? performance.now();
-    if (!Number.isFinite(now)) {
+    if (!Number.isFinite(now) || now < 0) {
       return { accepted: false, reason: "invalid-chat-clock" };
     }
     if (!this.admit(text, now)) {
@@ -223,30 +249,94 @@ export class UIChat {
         retryAt: this.blockedUntil,
       };
     }
-    if (this.owner.hooks.onChatSubmit?.(text) !== true) {
-      this.owner.status("Local speech is unavailable; nothing was sent.");
-      return { accepted: false, reason: "speech-unavailable" };
+    this.pending = true;
+    this._submission = this.submitToAuthority(text, channelIndex);
+    return this._submission;
+  }
+
+  #submissionRejection(text, channelIndex) {
+    if (this.disposed || this.pending || this.composing) {
+      return { accepted: false, reason: "chat-blocked" };
+    }
+    if (typeof text !== "string" || text.length > CHAT_LIMIT) {
+      this.owner.status("Chat is limited to 70 characters.");
+      return { accepted: false, reason: "chat-length" };
+    }
+    if (!validChannelIndex(channelIndex)) {
+      return { accepted: false, reason: "invalid-chat-channel" };
+    }
+    return null;
+  }
+
+  waitForIdle() {
+    return this._submission ?? Promise.resolve();
+  }
+
+  async submitToAuthority(text, channelIndex) {
+    try {
+      const result = await this.owner.hooks.onChatSubmit?.(text, channelIndex);
+      if (!result || typeof result.accepted !== "boolean") {
+        throw new TypeError(
+          "Chat authority returned no explicit submission outcome",
+        );
+      }
+      if (this.disposed) return result;
+      this.submissionOutcome(result, text);
+      return result;
+    } catch (error) {
+      this.owner.report(error);
+      return { accepted: false, reason: error.message ?? "chat-failed" };
+    } finally {
+      this.pending = false;
+    }
+  }
+
+  submissionOutcome(result, text) {
+    if (!result.accepted) {
+      if (
+        result.delivery === "channel-selected" &&
+        validChannelIndex(result.channelIndex)
+      ) {
+        this.selector.selectedIndex = result.channelIndex;
+      }
+      this.owner.status(
+        result.reason ?? "The local chat authority did not accept the message.",
+      );
+      return;
+    }
+    if (
+      result.delivery !== "local-only" &&
+      result.delivery !== "local-session"
+    ) {
+      throw new TypeError(
+        "Chat authority did not identify a supported local delivery",
+      );
     }
     this.remember(text);
-    this.owner.status("Local speech displayed; not sent to a server.");
-    return { accepted: true, delivery: "local-only", text };
+    this.owner.status(
+      result.delivery === "local-only"
+        ? "Local speech displayed; not sent to a server."
+        : "Delivered to the permitted loaded local participants; no server was contacted.",
+    );
   }
 
   /** Enter text through this edit owner, without DOM event synthesis or bypassing submission. */
-  send(text, channel = this.selector.selectedIndex) {
+  async send(text, channel = this.selector.selectedIndex) {
     if (typeof text !== "string" || text.length > CHAT_LIMIT) {
       return { accepted: false, reason: "chat-length", maximum: CHAT_LIMIT };
     }
     const index =
       typeof channel === "string" ? CHAT_CHANNELS.indexOf(channel) : channel;
-    if (
-      !Number.isInteger(index) ||
-      index < 0 ||
-      index >= CHAT_CHANNELS.length
-    ) {
+    if (!validChannelIndex(index)) {
       return { accepted: false, reason: "invalid-chat-channel" };
     }
-    if (this.composing || this.owner.blocksGameplay() || !this.owner.visible) {
+    if (
+      this.pending ||
+      this.disposed ||
+      this.composing ||
+      this.owner.blocksGameplay() ||
+      !this.owner.visible
+    ) {
       return { accepted: false, reason: "chat-blocked" };
     }
     this.open();
@@ -295,6 +385,9 @@ export class UIChat {
 
   /** Capture bounded transient state before switching clock/profile ownership. */
   checkpoint() {
+    if (this.pending) {
+      throw new Error("Await pending chat before checkpointing its session");
+    }
     return {
       history: this.history.slice(),
       recent: this.recent.slice(),
@@ -315,6 +408,9 @@ export class UIChat {
 
   /** Restore an unmodified checkpoint created by this owner, never a public profile import. */
   restore(checkpoint) {
+    if (this.pending) {
+      throw new Error("Await pending chat before restoring its session");
+    }
     if (
       checkpoint.history.length > HISTORY_LIMIT ||
       checkpoint.recent.length > 4 ||
@@ -337,11 +433,14 @@ export class UIChat {
     this.endResize();
     this.setState(checkpoint.state);
     this.messages.restore(checkpoint.log);
-    this.selector.show(checkpoint.channelMenuOpen);
+    this.selector.show(checkpoint.state !== 1 && checkpoint.channelMenuOpen);
   }
 
   /** Clear transient chat and clock-domain counters on an explicit scenario ownership switch. */
   resetSession() {
+    if (this.pending) {
+      throw new Error("Await pending chat before resetting its session");
+    }
     this.history.length = 0;
     this.recent.length = 0;
     this.historyIndex = 0;
@@ -360,32 +459,11 @@ export class UIChat {
 
   /** 004904be: four equal messages / 30 s or four submissions / 2 s block for 2800 ms. */
   admit(text, now) {
-    if (now < this.blockedUntil) return false;
-    if (now - this.recentStarted > REPEAT_WINDOW_MS) {
-      this.recent.length = 0;
-      this.recentStarted = now;
-    }
-    if (this.recent.length === 4) this.recent.shift();
-    this.recent.push(text);
-    let repeated = this.recent.length === 4;
-    for (const previous of this.recent) {
-      repeated = repeated && previous === text;
-    }
-    if (!repeated) {
-      this.submitTimes[this.submitIndex] = now;
-      this.submitIndex = (this.submitIndex + 1) % this.submitTimes.length;
-    }
-    if (
-      repeated ||
-      now - this.submitTimes[this.submitIndex] < FLOOD_WINDOW_MS
-    ) {
-      this.blockedUntil = now + FLOOD_COOLDOWN_MS;
-      this.owner.status(
-        "Chat is too frequent; wait 2.8 seconds before speaking again.",
-      );
-      return false;
-    }
-    return true;
+    if (admitChat(this, text, now)) return true;
+    this.owner.status(
+      "Chat is too frequent; wait 2.8 seconds before speaking again.",
+    );
+    return false;
   }
 
   remember(text) {
@@ -442,6 +520,7 @@ export class UIChat {
   }
 
   destroy() {
+    this.disposed = true;
     this.layer.destroy();
     this.messages.destroy();
     this.grip.remove();

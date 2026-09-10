@@ -120,6 +120,24 @@ async function canvases(context, state, { root, prefix }, canvasRecord) {
   }
 }
 
+/** Original global NPC lookup: 1695 records, up to816 fields; preserve authored -1 entries. */
+function npcLocations(root) {
+  const locations = Object.create(null);
+  for (const [id, node] of children(root, 8192, "NPC locations")) {
+    const maps = children(node, 1024, "NPC fields").map(
+      ([, child]) => child.value,
+    );
+    if (
+      !/^\d+$/.test(id) ||
+      maps.some((map) => !Number.isSafeInteger(map) || map < -1)
+    ) {
+      throw new Error(`Invalid original NPC location ${id}`);
+    }
+    locations[id] = maps;
+  }
+  return locations;
+}
+
 /** One lazy UI-owned bundle; original art, not an invented minimap or external image loader. */
 export async function extractWorldMaps(context, canvasRecord) {
   const state = { entities: [], assets: Object.create(null) };
@@ -156,9 +174,10 @@ export async function extractWorldMaps(context, canvasRecord) {
     entities: state.entities,
     metadata: {
       source:
-        "Map.wz:WorldMap/*.img;MapHelper.img/worldMap;UI.wz:UIWindow.img/WorldMap",
+        "Map.wz:WorldMap/*.img;MapHelper.img/worldMap;UI.wz:UIWindow.img/WorldMap;Etc.wz:NpcLocation.img",
       assets: state.assets,
       worldMaps,
+      npcLocations: npcLocations(await context.image("Etc", "NpcLocation.img")),
       authority:
         "Original artwork, authored mapNo nodes, spots and parent/linkMap navigation. No teleport authority.",
     },

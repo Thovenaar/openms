@@ -3,19 +3,27 @@ import { PortalSystem, PortalTravelGate } from "./portal-system.js";
 import { LifeSystem } from "./life-system.js";
 import { AudiovisualSystem } from "./audiovisual-system.js";
 import { OfflineField } from "./offline-field.js";
-import { QuestSystem } from "./quest-system.js";
-import { mountNpcDialogue, mountQuestJournal } from "./quest-ui.js";
+import { mountQuestJournal } from "./ui-quest-window.js";
 import { ReactorSystem } from "./reactor-system.js";
 import { KeyBindings } from "./key-bindings.js";
 import { SpeechBubbles } from "./speech-bubbles.js";
 import { CombatPresentation } from "./combat-presentation.js";
 import { PlayerName } from "./player-name.js";
 import { SkillSystem } from "./skill-system.js";
-import { CharacterDevelopment } from "./character-development.js";
 import { DropSystem } from "./drop-system.js";
 import { DropRenderer } from "./drop-renderer.js";
 import { CharacterBindings, EXPRESSION_NAMES } from "./character-bindings.js";
 import { updateSkillMovement } from "./physics/skill-movement.js";
+import { NativeInterfaces, nativeInterfaceHooks } from "./ingame-interfaces.js";
+import { AvatarVisuals } from "./avatar-visuals.js";
+import {
+  prepareFieldAvatar,
+  admitAvatarReplacement,
+  publishFieldAvatar,
+} from "./field-avatar.js";
+import { NativeAvatarPortrait } from "./ui-avatar-portrait.js";
+import { LocalTradeSession } from "./local-trade.js";
+import { PickupEffects } from "./pickup-effects.js";
 
 const CHAT_BINDINGS = Object.freeze({
   ChatAll: 7,
@@ -37,6 +45,14 @@ class FieldSystems {
     this.scene = scene;
     this.owner = owner;
     this.speechPose = { x: 0, headY: 0 };
+    this.profileServices = owner.nativeByStore.get(store);
+    if (!this.profileServices) {
+      throw new Error(
+        "Prepare the profile's native interfaces before its field",
+      );
+    }
+    this.profileServices.references++;
+    this.destroyed = false;
     try {
       this.portals = new PortalSystem(scene, {
         ...owner.fieldHooks,
@@ -95,6 +111,18 @@ class FieldSystems {
   }
   createDrops(store) {
     const owner = this.owner;
+    this.pickupEffects = new PickupEffects({
+      store,
+      items: owner.catalog.ui.items,
+      skills: this.skills,
+      view: owner.ui.temporaryStats,
+      isCurrent: () =>
+        !this.destroyed && this.scene === owner.scene && owner.store === store,
+      conditionContext: {
+        mapId: Number(this.scene.manifest.id),
+        partyHunting: false,
+      },
+    });
     const drops = new DropSystem(
       owner.catalog.drops,
       store,
@@ -102,6 +130,31 @@ class FieldSystems {
       {
         items: owner.catalog.ui.items,
         random: owner.hooks.random,
+        monsterBook: owner.catalog.ui.monsterBook,
+        isCurrent: () =>
+          !this.destroyed &&
+          this.scene === owner.scene &&
+          owner.store === store,
+        preparePickup: this.pickupEffects.prepare.bind(this.pickupEffects),
+        applyPickup: this.pickupEffects.apply.bind(this.pickupEffects),
+        publishPickup: this.pickupEffects.publish.bind(this.pickupEffects),
+        releasePickup: this.pickupEffects.release.bind(this.pickupEffects),
+        cardRate: this.pickupEffects.cardRate.bind(this.pickupEffects),
+        familyRate: () => this.profileServices.social.familyRate("drop"),
+        prepareItemDrop: (item, slot) =>
+          this.dropRenderer.prepareDrop(item, slot),
+        publishItemDrop: (art, slot) =>
+          this.dropRenderer.publishDrop(art, slot),
+        releaseItemDrop: (art) => this.dropRenderer.releaseDrop(art),
+        confirmItemDrop: () =>
+          owner.ui.prompt({
+            kind: "confirm",
+            text: "This item cannot be recovered once dropped.\r\nDo you really want to drop this item?",
+            owner: drops,
+          }),
+        prepareAppearance: (draft) => owner.prepareAppearance(draft),
+        publishAppearance: (prepared) => owner.publishAppearance(prepared),
+        releaseAppearance: (prepared) => prepared.destroy(),
         pickupHeight: () =>
           this.scene.actor.current.geometry[this.scene.actor.frame].height,
         onSound: (name) => owner.playSound("Game", name),
@@ -121,13 +174,25 @@ class FieldSystems {
     return new OfflineField(scene, store, {
       ...owner.gameplayHooks,
       onKill: (templateId, mob) => {
-        owner.quests.onKill(templateId);
+        this.profileServices.quests.applyKill(store.profile, templateId);
+        owner.queueFamilyProgress(
+          mob.template.info.boss ? "boss" : "kill",
+          mob.maxHP,
+        );
         const result = this.drops.spawn(mob);
         if (!result.ok) owner.ui.status(result.reason);
+      },
+      experienceRate: () => this.profileServices.social.familyRate("exp"),
+      onExperience: (amount, levels) => {
+        owner.publishNotice({ kind: "exp", amount, white: true });
+        for (let index = 0; index < levels; index++) {
+          owner.queueFamilyProgress("level", 0);
+        }
       },
       skillLevel: this.skills.level.bind(this.skills),
       skillInfo: this.skills.info.bind(this.skills),
       hpGrowth: this.skills.hpGrowth.bind(this.skills),
+      items: owner.catalog.ui.items,
       derivedStats: this.skills.derived.bind(this.skills),
       random: owner.hooks.random,
       absorbDamage: this.skills.absorbDamage.bind(this.skills),
@@ -143,6 +208,7 @@ class FieldSystems {
       onMobAttack: (mob) => owner.audio.onMobAttack(mob, scene.simulation),
       onPlayerDeath: () => {
         this.skills.onDeath();
+        this.profileServices.macros.interrupt("Character died");
         owner.hooks.onEvent?.("player-death", scene.actor.id, null);
         owner.audio.onPlayerDeath();
         owner.showRevival();
@@ -155,6 +221,7 @@ class FieldSystems {
       this.speech.prepare(this.owner.catalog, signal),
       this.combat.prepare(this.owner.catalog.audiovisual, signal),
       this.skills.prepare(),
+      this.owner.ui.temporaryStats.prepareEffects(this.skills),
       this.dropRenderer.prepare(signal),
     ]);
   }
@@ -188,6 +255,7 @@ class FieldSystems {
     updateSkillMovement(this.scene.simulation, this.skills.derived());
     this.reactors.step(ms);
     this.drops.step(ms);
+    this.profileServices.macros.step(ms);
   }
   update(ms, input) {
     this.portals.update(ms, input);
@@ -215,8 +283,9 @@ class FieldSystems {
     };
   }
   destroy() {
-    this.dropRenderer?.destroy();
-    this.drops?.destroy();
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.destroyDrops();
     this.skills?.destroy();
     this.portals?.destroy();
     this.life?.destroy();
@@ -225,6 +294,13 @@ class FieldSystems {
     this.speech?.destroy();
     this.combat?.destroy();
     this.name?.destroy();
+    this.owner.releaseNative(this.profileServices);
+  }
+
+  destroyDrops() {
+    this.pickupEffects?.destroy();
+    this.dropRenderer?.destroy();
+    this.drops?.destroy();
   }
 }
 
@@ -240,6 +316,13 @@ export class InGameSystems {
     this.bindings = null;
     this.quests = null;
     this.lastSkillResult = null;
+    this.nativeByStore = new Map();
+    this.nativeRetirements = new Set();
+    this.native = null;
+    this.avatars = null;
+    this.tradeSession = new LocalTradeSession();
+    this.cashStage = false;
+    this.stagePending = false;
     this.travelGate = new PortalTravelGate();
     this.audio = new AudiovisualSystem(app, services, {
       onError: hooks.onError,
@@ -248,9 +331,19 @@ export class InGameSystems {
     this.playSound = this.playSound.bind(this);
     this.playEffect = this.playEffect.bind(this);
     this.profileChanged = this.profileChanged.bind(this);
-    this.ui = new GameUI(app, services, {
+    this.ui = this.createUI();
+    this.initializeFieldHooks();
+  }
+
+  createUI() {
+    const hooks = this.hooks;
+    return new GameUI(this.app, this.services, {
+      ...nativeInterfaceHooks(this),
       now: hooks.now,
       clearInput: hooks.clearInput,
+      keyDown: hooks.keyDown,
+      inputGeneration: hooks.inputGeneration,
+      onAction: this.activateBinding.bind(this),
       focusGame: hooks.focusGame,
       onError: hooks.onError,
       onStatus: hooks.onStatus,
@@ -274,16 +367,15 @@ export class InGameSystems {
       isFieldBlocked: hooks.isBlocked,
       onRecover: this.showRevival.bind(this),
       onRevive: hooks.onRevive,
-      onOfferItem: (id) =>
-        this.scene?.fieldSystems.reactors.offer(id) ?? {
-          accepted: false,
-          reason: "No active field",
-        },
+      onOfferItem: (uid) =>
+        this.scene?.fieldSystems.reactors.offer({
+          uid,
+          actorId: this.store.id,
+        }) ?? { accepted: false, reason: "No active field" },
       playSound: this.playSound,
-      onNpcDialogue: (panel, npc) => mountNpcDialogue(panel, npc, this.quests),
+      onNpcDialogue: (panel, npc) => this.native.npc.mount(panel, npc),
       onQuestJournal: (panel) => mountQuestJournal(panel, this.quests),
     });
-    this.initializeFieldHooks();
   }
   initializeFieldHooks() {
     this.fieldHooks = {
@@ -292,7 +384,7 @@ export class InGameSystems {
       onError: this.hooks.onError,
       isBlocked: this.npcBlocked.bind(this),
       playSound: this.playSound,
-      onInteract: this.ui.showNpc.bind(this.ui),
+      onInteract: (record) => this.native.npc.open(record),
     };
     this.gameplayHooks = {
       onEffect: this.playEffect,
@@ -300,21 +392,207 @@ export class InGameSystems {
       onChange: this.profileChanged,
     };
   }
+  async prepareNative(store) {
+    const existing = this.nativeByStore.get(store);
+    if (existing) {
+      await existing.ready;
+      return existing;
+    }
+    const native = new NativeInterfaces(this, store);
+    this.nativeByStore.set(store, native);
+    native.ready = native.prepare();
+    try {
+      await native.ready;
+      return native;
+    } catch (error) {
+      this.nativeByStore.delete(store);
+      await native.destroy();
+      throw error;
+    }
+  }
+
+  releaseNative(native) {
+    if (!native) return;
+    native.references--;
+    if (native.references === 0 && native !== this.native) {
+      this.nativeByStore.delete(native.store);
+      const retirement = native.destroy();
+      this.nativeRetirements.add(retirement);
+      retirement
+        .catch(this.hooks.onError)
+        .finally(() => this.nativeRetirements.delete(retirement));
+    }
+  }
+
+  isOperationPending(excluded = null) {
+    if (this.stagePending || this.native?.pending(excluded)) return true;
+    if (this.fieldOperationPending(excluded)) return true;
+    return (
+      !this.ownsOperation(excluded) && !!this.store?.profileTransactionPending
+    );
+  }
+
+  fieldOperationPending(excluded) {
+    const field = this.scene?.fieldSystems;
+    const item = this.bindings?.items;
+    if (field) {
+      if (field.drops !== excluded && field.drops?.pending) return true;
+      if (field.reactors !== excluded && field.reactors?.pending) return true;
+    }
+    return item !== excluded && !!item?.pending;
+  }
+
+  ownsOperation(controller) {
+    if (!controller) return false;
+    const field = this.scene?.fieldSystems;
+    return (
+      controller === this.bindings?.items ||
+      controller === field?.drops ||
+      controller === field?.reactors ||
+      Boolean(this.native?.ownsOperation(controller))
+    );
+  }
+
+  async prepareAppearance(profile) {
+    const scene = this.scene;
+    if (!scene || scene.destroyed) {
+      throw new Error("The character has no live field appearance");
+    }
+    const source = scene.manifest.actors.find(
+      (entry) => entry.kind === "character",
+    );
+    const prepared = await prepareFieldAvatar(
+      this.avatars,
+      profile,
+      source,
+      this.ui.controller.signal,
+    );
+    try {
+      if (scene !== this.scene) {
+        throw new Error(
+          "The field changed while preparing the character appearance",
+        );
+      }
+      admitAvatarReplacement(scene, prepared);
+      return prepared;
+    } catch (error) {
+      prepared.destroy();
+      throw error;
+    }
+  }
+
+  publishAppearance(prepared) {
+    publishFieldAvatar(prepared);
+  }
+
+  async createPortrait(surface, position) {
+    const portrait = new NativeAvatarPortrait(surface, this.avatars, position);
+    try {
+      await portrait.refresh(this.store.profile);
+      return portrait;
+    } catch (error) {
+      portrait.destroy();
+      throw error;
+    }
+  }
+
+  publishNotice(event) {
+    if (event.kind !== "inventory-full" && !(event.amount > 0)) return;
+    try {
+      this.ui.notices.publish(event);
+    } catch (error) {
+      this.hooks.onError(error);
+    }
+  }
+
+  /** Original00a081b8 sends card strings0xa24/0xa25 to chat type12, not inventory gain. */
+  publishPickupNotice(result) {
+    if (result.card) {
+      const name = this.catalog.ui.items[result.itemId]?.name;
+      if (!result.card.full && !name) return;
+      this.ui.chat.receive({
+        source: "gameplay",
+        text: result.card.full
+          ? "This card is already full in the Monster Book. This card will disappear."
+          : `[${name}] has been successfully recorded on the Monster Book.`,
+        time: this.hooks.now?.() ?? performance.now(),
+      });
+      return;
+    }
+    this.publishNotice({
+      kind: result.itemId ? "item" : "meso",
+      itemId: result.itemId,
+      amount: result.quantity,
+    });
+  }
+
+  publishQuestReward(result) {
+    const rewards = result.rewards;
+    if (rewards.exp > 0) {
+      this.publishNotice({ kind: "exp", amount: rewards.exp, white: true });
+    }
+    if (rewards.money > 0) {
+      this.publishNotice({ kind: "meso", amount: rewards.money });
+    }
+    for (const item of rewards.items) {
+      if (item.count > 0) {
+        this.publishNotice({
+          kind: "item",
+          itemId: item.id,
+          amount: item.count,
+        });
+      }
+    }
+    for (let index = 0; index < result.levels; index++) {
+      this.queueFamilyProgress("level", 0);
+    }
+  }
+
+  queueFamilyProgress(kind, maxHp) {
+    this.native?.queueProgress(kind, maxHp);
+  }
+
+  async enterCashStage() {
+    if (this.cashStage || this.stagePending || !this.scene) {
+      throw new Error("Cash Shop stage is not ready");
+    }
+    this.stagePending = true;
+    try {
+      await this.audio.audio.setBGM(this.catalog.ui.cashShop.bgm);
+      this.cashStage = true;
+      this.scene.container.visible = false;
+    } finally {
+      this.stagePending = false;
+    }
+  }
+
+  leaveCashStage() {
+    if (!this.cashStage) return;
+    this.cashStage = false;
+    if (this.scene) {
+      this.scene.container.visible = true;
+      this.audio.setScene(this.scene);
+    }
+  }
+
   profileChanged() {
     this.ui.refreshProfile();
   }
   npcBlocked(id) {
-    if (!this.scene || this.hooks.isBlocked() || this.ui.bindingDrag) {
+    const owned = id !== undefined && this.native?.npc.owns(id);
+    if (
+      !this.scene ||
+      this.hooks.isTransitioning() ||
+      (!owned && this.isOperationPending()) ||
+      this.ui.bindingDrag
+    ) {
       return true;
     }
     if (!this.ui.blocksGameplay()) return false;
     const modal = this.ui.modal();
     return !(
-      id !== undefined &&
-      this.ui.dialogMode === "npc" &&
-      this.ui.dialogNpc?.id === id &&
-      this.ui.quickCapture === null &&
-      (!modal || modal.name === "UtilDlgEx")
+      owned &&
+      (!modal || ["UtilDlgEx", "Shop", "NativePrompt"].includes(modal.name))
     );
   }
   showRevival() {
@@ -325,8 +603,13 @@ export class InGameSystems {
     });
     return true;
   }
-  prepareSkills() {
-    return this.scene?.fieldSystems.skills.prepare();
+  async prepareSkills() {
+    const skills = this.scene?.fieldSystems.skills;
+    if (!skills) return;
+    await Promise.all([
+      skills.prepare(),
+      this.ui.temporaryStats.prepareEffects(skills),
+    ]);
   }
   async editProfile(patch) {
     if (!this.scene || this.hooks.isBlocked()) {
@@ -342,7 +625,7 @@ export class InGameSystems {
     if (this.store !== store || this.scene !== scene) return;
     scene.fieldSystems.gameplay.synchronizeProfile();
     if (!this.showRevival()) this.ui.close("Revive", true);
-    await scene.fieldSystems.skills.prepare();
+    await this.prepareSkills();
   }
   async learnSkill(id) {
     if (!this.scene || this.hooks.isBlocked()) {
@@ -351,7 +634,7 @@ export class InGameSystems {
     const scene = this.scene;
     const result = await scene.fieldSystems.skills.learn(id);
     if (result.ok && this.scene === scene) {
-      await scene.fieldSystems.skills.prepare();
+      await this.prepareSkills();
     }
     return result;
   }
@@ -362,8 +645,17 @@ export class InGameSystems {
     else this.hooks.onEvent?.("player-skill", this.scene.actor.id, id);
     return result.ok;
   }
-  submitChat(text) {
-    if (!this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay()) {
+  submitChat(text, channel) {
+    return this.native.chat.submit(text, channel);
+  }
+  submitFieldSpeech(text) {
+    if (
+      !this.scene ||
+      this.hooks.isTransitioning() ||
+      this.cashStage ||
+      this.isOperationPending(this.native.chat) ||
+      this.ui.blocksGameplay()
+    ) {
       return false;
     }
     const accepted = this.scene.fieldSystems.speech.show(text);
@@ -406,13 +698,10 @@ export class InGameSystems {
       return this.activateUserTab(USER_TABS[name]);
     }
     if (name === "CashShop") {
-      this.ui.status(
-        "Cash Shop requires account currency, offers and purchase authority; no purchase was sent.",
-      );
-      return false;
+      this.native.openCash().catch(this.hooks.onError);
+      return true;
     }
-    this.ui.activate(name);
-    return true;
+    return this.ui.toggleWindow(name);
   }
   activateCharacterBinding(name) {
     if (!this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay()) {
@@ -469,6 +758,14 @@ export class InGameSystems {
     scene.fieldSystems.drops
       .pickup(scene.simulation)
       .then((result) => {
+        if (result.ok) {
+          this.publishPickupNotice(result);
+        } else if (result.code === "inventory-full") {
+          this.publishNotice({ kind: "inventory-full" });
+        }
+        return result;
+      })
+      .then((result) => {
         if (scene !== this.scene) return;
         if (!result.ok) this.ui.status(result.reason);
         else {
@@ -485,8 +782,10 @@ export class InGameSystems {
   async prepare(catalog, signal, store) {
     this.store = store;
     this.catalog = catalog;
+    if (!this.avatars) this.avatars = new AvatarVisuals(this.services, catalog);
     await this.audio.prepare(catalog.audiovisual, signal);
     await this.ui.prepare(catalog.ui, signal);
+    await this.prepareNative(store);
     this.useProfile(store);
     this.restoreSettings();
   }
@@ -495,13 +794,16 @@ export class InGameSystems {
   useProfile(store, travelGate = this.travelGate) {
     this.store = store;
     this.travelGate = travelGate;
-    this.characterDevelopment = new CharacterDevelopment(store, this.catalog);
-    this.quests = new QuestSystem(this.catalog.quests, store, {
-      onChange: this.profileChanged,
-      onEffect: this.playEffect,
-      hpGrowth: (profile) =>
-        this.scene?.fieldSystems.skills.hpGrowth(profile) ?? 0,
-    });
+    this.native = this.nativeByStore.get(store);
+    if (!this.native) {
+      throw new Error("Native profile interfaces were not prepared");
+    }
+    this.characterDevelopment = this.native.development;
+    this.quests = this.native.quests;
+    for (const native of this.nativeByStore.values()) {
+      if (native.controls) native.controls.root.hidden = native !== this.native;
+    }
+    this.native.activate();
     this.ui.setProfile(store, this.quests);
     const bindings = new KeyBindings(store, this.catalog, {
       onAction: (name) => this.activateBinding(name),
@@ -509,18 +811,26 @@ export class InGameSystems {
       onCashExpression: (id) =>
         this.scene?.fieldSystems.character.useCashExpression(id) ?? false,
       onSound: this.playSound,
-      isBlocked: () =>
-        !this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay(),
+      macros: () => this.native.macros,
+      isBlocked: (excluded = null) =>
+        !this.scene ||
+        this.hooks.isTransitioning() ||
+        this.cashStage ||
+        this.isOperationPending(excluded) ||
+        this.ui.blocksGameplay(),
       now: () => this.hooks.now?.() ?? performance.now(),
+      skillSystem: () => this.scene?.fieldSystems.skills,
+      prepareTemporaryStat: (kind, id) =>
+        this.ui.temporaryStats.prepareSource(kind, id),
       report: (message) => this.ui.status(message),
     });
     this.bindings?.destroy();
     this.bindings = bindings;
     this.ui.setBindings(bindings);
   }
-  restoreSettings() {
+  applyAudioSettings(settings) {
     for (const category of ["BGM", "SE"]) {
-      const saved = this.store.profile.settings[category];
+      const saved = settings[category];
       this.audio.audio.setVolume(category, saved.volume, saved.mute);
       const root = this.audio.controls.root;
       root.querySelector(`[data-audio-volume="${category}"]`).value =
@@ -529,6 +839,9 @@ export class InGameSystems {
         saved.mute;
     }
     this.audio.refreshVolumeControls();
+  }
+  restoreSettings() {
+    this.applyAudioSettings(this.store.profile.settings);
     this.ui.chat.applySettings(this.store.profile.settings.chat);
   }
   checkpointSettings() {
@@ -550,24 +863,33 @@ export class InGameSystems {
     }
   }
   async prepareScene(scene, signal, context = {}) {
+    await this.prepareNative(context.store ?? this.store);
     scene.fieldSystems = new FieldSystems(scene, this, context);
     await scene.fieldSystems.prepare(signal);
   }
-  setScene(scene) {
-    scene.fieldSystems.skills.inherit(this.scene?.fieldSystems.skills);
-    scene.fieldSystems.character.inherit(this.scene?.fieldSystems.character);
+  setScene(scene, inheritState = true) {
+    if (inheritState) {
+      scene.fieldSystems.skills.inherit(this.scene?.fieldSystems.skills);
+      scene.fieldSystems.character.inherit(this.scene?.fieldSystems.character);
+    }
     this.scene = scene;
+    const unavailable = scene.fieldSystems.pickupEffects.refreshConditions();
+    if (unavailable) this.ui.status(unavailable);
+    this.native.macros.interrupt("Field changed");
     this.ui.setScene(scene);
+    this.ui.temporaryStats.bind(scene.fieldSystems.skills);
     this.audio.setScene(scene);
     this.showRevival();
   }
   updateInterface(ms) {
     this.ui.update(ms);
     this.audio.update(ms);
+    this.native?.flushDeferred();
   }
   resize(width, height) {
     this.ui.resize(width, height);
     this.scene?.fieldSystems.name.step(this.app.renderer.resolution);
+    this.scene?.fieldSystems.speech.syncDensity(this.app.renderer.resolution);
   }
   snapshot() {
     return {
@@ -576,7 +898,14 @@ export class InGameSystems {
       quests: this.quests?.snapshot() ?? null,
     };
   }
-  destroy() {
+  async destroy() {
+    if (this.isOperationPending()) {
+      throw new Error("Await native operations before destroying the client");
+    }
+    for (const native of this.nativeByStore.values()) await native.destroy();
+    await Promise.all(this.nativeRetirements);
+    this.nativeByStore.clear();
+    await this.tradeSession.destroy();
     this.ui.destroy();
     this.bindings?.destroy();
     this.audio.destroy();

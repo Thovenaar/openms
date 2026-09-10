@@ -1,11 +1,16 @@
+/* Percentage heights use the root's zoom-adjusted viewport, unlike 100dvh. */
+html {
+  height: 100%;
+}
 /* Theme variables live on external chrome only, never the game viewport. */
 body {
   margin: 0;
-  height: 100dvh;
-  min-height: 420px;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: #101820;
+  overflow: hidden;
 }
 main {
   display: flex;
@@ -16,6 +21,7 @@ main {
   position: relative;
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background: #101820;
 }
@@ -23,6 +29,9 @@ main {
   display: block;
   image-rendering: pixelated;
   touch-action: none;
+}
+#viewport canvas[hidden] {
+  display: none;
 }
 .inspection-chrome {
   --console-bg: #f5f4ed;
@@ -74,6 +83,8 @@ main {
 }
 header.inspection-chrome {
   flex-shrink: 0;
+  max-height: 25dvh;
+  overflow: auto;
   padding: 8px 16px;
   display: flex;
   align-items: center;
@@ -100,6 +111,13 @@ header.inspection-chrome {
   gap: 8px;
   align-items: center;
   min-width: 0;
+}
+/* Revoking an agent lease must not move a pressed control before pointerup. */
+.inspection-chrome .maple-agent-control [role="status"] {
+  flex: 0 0 168px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 #agent-controls {
   margin-left: auto;
@@ -392,32 +410,48 @@ aside.inspection-chrome {
   border: 0;
 }
 @media (max-width: 960px) {
-  body {
-    height: auto;
-    min-height: 100dvh;
+  /* Browser chrome owns bounded scrolling; the game receives the remaining height. */
+  header.inspection-chrome {
+    flex-wrap: nowrap;
+    padding: 6px 12px;
+  }
+  .inspection-chrome .console-brand {
+    flex-shrink: 0;
+  }
+  .inspection-chrome .console-brand .hint {
+    display: none;
+  }
+  #console-toggle {
+    order: -1;
+    flex-shrink: 0;
   }
   main {
     flex-direction: column;
   }
   #viewport {
-    flex: none;
+    flex: 1;
     width: 100%;
-    height: min(75vw, 600px);
-    min-height: 240px;
   }
   aside.inspection-chrome {
-    display: block;
+    flex: 0 1 30%;
+    min-height: 0;
     padding-top: 0;
     width: 100%;
-    overflow: visible;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     border-left: 0;
     border-top: 2px solid var(--console-border);
   }
   .inspection-chrome [role="tabpanel"] {
+    flex: none;
     overflow: visible;
   }
   #agent-controls {
-    flex-basis: 100%;
+    flex: none;
+    flex-wrap: nowrap;
+  }
+  .inspection-chrome .maple-agent-control {
+    flex-wrap: nowrap;
   }
   .inspection-chrome :is(button, select, input:not([type="checkbox"])) {
     min-height: 44px;

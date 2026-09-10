@@ -1,4 +1,20 @@
-import { PROFILE_LIMITS, profileError } from "./profile-validation.js";
+import { profileError } from "./profile-validation.js";
+import {
+  createItemUid,
+  grantItem,
+  isRechargeable,
+  itemStackLimit,
+} from "./inventory-model.js";
+import { applyCard } from "./monster-book.js";
+import { isPickupItem } from "./item-effects.js";
+import {
+  admitItem,
+  debitItemDrop,
+  disappearingDrop,
+  originalItem,
+  selectedItem,
+  validateSplit,
+} from "./inventory-action-rules.js";
 import {
   DROP_MOTION,
   launchDrop,
@@ -32,6 +48,9 @@ function dropSlot() {
     generation: 0,
     itemId: 0,
     quantity: 0,
+    instance: null,
+    ownerId: null,
+    disappearing: false,
     questId: 0,
     state: "empty",
     age: 0,
@@ -54,7 +73,11 @@ function dropSlot() {
 
 function outcome(code, reason, extra = {}) {
   return {
-    ok: code === "picked-up" || code === "spawned" || code === "mesos-dropped",
+    ok:
+      code === "picked-up" ||
+      code === "spawned" ||
+      code === "mesos-dropped" ||
+      code === "item-dropped",
     code,
     reason,
     ...extra,
@@ -85,6 +108,7 @@ function validateRow(row, items) {
   ) {
     throw new Error("Invalid supported drop row or missing original template");
   }
+  if (row.itemId) originalItem(items, row.itemId);
 }
 
 /** Construction validates the immutable release boundary, never each simulation tick. */
@@ -113,8 +137,8 @@ function dropTables(data, items) {
   return result;
 }
 
-/** Transaction transform uses profile's aggregate inventory; equipment is a base template only. */
-export function creditDrop(profile, drop, items) {
+/** One shared schema5 transaction draft: mesos, preserved item instance, or MonsterBook card. */
+export function creditDrop(profile, drop, items, monsterBook) {
   validateCredit(drop);
   if (profile.hp <= 0) {
     throw profileError(
@@ -138,7 +162,43 @@ export function creditDrop(profile, drop, items) {
     profile.meso += drop.quantity;
     return;
   }
-  creditItem(profile, drop, items);
+  return creditItemDrop(profile, drop, items, monsterBook);
+}
+
+function creditItemDrop(profile, drop, items, monsterBook) {
+  if (
+    !drop.instance ||
+    drop.instance.id !== drop.itemId ||
+    drop.instance.count !== drop.quantity
+  ) {
+    throw profileError(
+      "invalid-drop-instance",
+      "The ground item has no matching instance identity.",
+    );
+  }
+  admitItem(profile, drop.instance);
+  const template = originalItem(items, drop.itemId);
+  if (Math.floor(drop.itemId / 10000) === 238) {
+    if (!monsterBook?.cards?.[drop.itemId]) {
+      throw profileError(
+        "card-unavailable",
+        "Original monster card metadata is unavailable.",
+      );
+    }
+    if (drop.quantity !== 1) {
+      throw profileError(
+        "invalid-card-drop",
+        "A monster card drop must contain one card.",
+      );
+    }
+    return applyCard(profile, drop.itemId);
+  } else if (!pickupEffect(template)) {
+    grantItem(profile, template, drop.quantity, drop.instance);
+  }
+}
+
+function pickupEffect(template) {
+  return Math.floor(template?.id / 10000) === 238 || isPickupItem(template);
 }
 
 function validateCredit(drop) {
@@ -146,83 +206,13 @@ function validateCredit(drop) {
     !Number.isSafeInteger(drop.itemId) ||
     drop.itemId < 0 ||
     !Number.isSafeInteger(drop.quantity) ||
-    drop.quantity < 1 ||
+    drop.quantity < 0 ||
+    (drop.quantity === 0 && !isRechargeable(drop.itemId)) ||
     !Number.isSafeInteger(drop.questId) ||
     drop.questId < 0
   ) {
     throw profileError("invalid-drop", "Drop credit is invalid.");
   }
-}
-
-function creditItem(profile, drop, items) {
-  const template = items[drop.itemId];
-  if (!template?.descriptor) {
-    throw profileError(
-      "item-unavailable",
-      "Original item template is unavailable.",
-    );
-  }
-  const inventory = inventoryUsage(profile, drop.itemId, items);
-  const existing = inventory.existing;
-  if (
-    template.info?.only === 1 &&
-    (drop.quantity > 1 || existing || profile.equipment.includes(drop.itemId))
-  ) {
-    throw profileError("unique-item", "You already have this unique item.");
-  }
-  const count = creditedCount(profile, drop, template, inventory);
-  if (existing) existing.count = count;
-  else profile.inventory.push({ id: drop.itemId, count });
-}
-
-/** Scan the category once; an aggregate stack can occupy multiple native inventory slots. */
-function inventoryUsage(profile, id, items) {
-  const category = Math.floor(id / 1000000);
-  let existing = null,
-    used = 0;
-  for (const entry of profile.inventory) {
-    if (entry.id === id) existing = entry;
-    if (Math.floor(entry.id / 1000000) === category) {
-      used += occupiedSlots(entry, itemsStackLimit(items[entry.id]), category);
-    }
-  }
-  return { category, existing, used };
-}
-
-function creditedCount(profile, drop, template, inventory) {
-  const { category, existing, used } = inventory;
-  const limit = itemsStackLimit(template);
-  const before = existing ? occupiedSlots(existing, limit, category) : 0;
-  const count = (existing?.count ?? 0) + drop.quantity;
-  if (!Number.isSafeInteger(count)) {
-    throw profileError(
-      "inventory-limit",
-      "Item quantity exceeds the save limit.",
-    );
-  }
-  const after = category === 1 ? count : Math.ceil(count / limit);
-  if (
-    used - before + after > DROP_POLICY.categorySlots ||
-    (!existing && profile.inventory.length >= PROFILE_LIMITS.inventory)
-  ) {
-    throw profileError(
-      "inventory-full",
-      "Please make room in your inventory first.",
-    );
-  }
-  return count;
-}
-
-function itemsStackLimit(template) {
-  const authored = template?.info?.slotMax;
-  // Aggregate saves have no authored slot count. Missing slotMax uses explicit local 100.
-  return Number.isSafeInteger(authored) && authored > 0
-    ? authored
-    : DROP_POLICY.defaultStackLimit;
-}
-
-function occupiedSlots(entry, limit, category) {
-  return category === 1 ? entry.count : Math.ceil(entry.count / limit);
 }
 
 /** Native dialog 0081dac6..0081dadd; Cosmic MesoDropHandler confirms 10..50000. */
@@ -296,17 +286,50 @@ export class DropSystem {
     return sample;
   }
 
+  /** Cosmic MapleMap666..669: card rate changes drop probability, not meso quantity.
+   * Local rows retain their packaged channel-rate policy; multiply using Java float rounding. */
+  dropChance(row) {
+    const rate = this.hooks.cardRate?.(row.itemId) ?? 1;
+    const family = this.hooks.familyRate?.() ?? 1;
+    if (
+      !Number.isFinite(rate) ||
+      rate < 1 ||
+      !Number.isFinite(family) ||
+      family < 1 ||
+      family > 2
+    ) {
+      throw new Error("Invalid admitted monster-card drop rate");
+    }
+    const chance = Math.fround(
+      Math.fround(Math.fround(row.chance) * Math.fround(rate)) *
+        Math.fround(family),
+    );
+    return Math.trunc(Math.min(chance, 0x7fffffff));
+  }
+
   roll(rows) {
     let count = 0;
     for (const row of rows) {
       if (row.questId && this.store.profile.quests[row.questId]?.state !== 1) {
         continue;
       }
-      if (Math.floor(this.randomUnit() * 999999) >= row.chance) continue;
-      this.rolls[count] = row;
+      const chance = this.dropChance(row);
+      if (Math.floor(this.randomUnit() * 999999) >= chance) continue;
       const span = row.maximum - row.minimum;
-      this.quantities[count++] =
+      let quantity =
         row.minimum + (span ? Math.floor(this.randomUnit() * span) : 0);
+      const limit =
+        Math.floor(row.itemId / 10000) === 238
+          ? 1
+          : row.itemId
+            ? itemStackLimit(this.items[row.itemId])
+            : DROP_POLICY.mesoLimit;
+      while (quantity > 0 && count < DROP_POLICY.maximumRows) {
+        this.rolls[count] = row;
+        this.quantities[count++] = Math.min(quantity, limit);
+        quantity -= Math.min(quantity, limit);
+      }
+      if (quantity > 0) return -1;
     }
     return count;
   }
@@ -358,7 +381,10 @@ export class DropSystem {
       );
     }
     const count = this.roll(rows);
-    if (count > DROP_POLICY.capacity - this.count - this.reserved) {
+    if (
+      count < 0 ||
+      count > DROP_POLICY.capacity - this.count - this.reserved
+    ) {
       return this.result(
         "drop-capacity",
         "Field drop capacity is full; this loot batch was not spawned.",
@@ -389,6 +415,19 @@ export class DropSystem {
     slot.generation++;
     slot.itemId = row.itemId;
     slot.quantity = this.quantities[index];
+    slot.instance = row.itemId
+      ? {
+          uid: createItemUid(),
+          id: row.itemId,
+          count: slot.quantity,
+          slot: 1,
+          owner: "",
+          flags: 0,
+          expiresAt: null,
+        }
+      : null;
+    slot.ownerId = this.store.id;
+    slot.disappearing = false;
     slot.questId = row.questId;
     slot.foothold = point.foothold;
     launchDrop(slot, mob, point);
@@ -409,6 +448,10 @@ export class DropSystem {
     this.clock += DROP_MOTION.quantumMs;
     for (const slot of this.slots) {
       if (!slot.active || slot.state === "pending") continue;
+      if (slot.disappearing && slot.state === "grounded") {
+        this.remove(slot);
+        continue;
+      }
       slot.age += DROP_MOTION.quantumMs;
       slot.phaseAge += DROP_MOTION.quantumMs;
       if (slot.age >= DROP_POLICY.lifetimeMs) {
@@ -453,6 +496,7 @@ export class DropSystem {
       distance = Infinity;
     for (const slot of this.slots) {
       if (!slot.active || slot.state !== "grounded") continue;
+      if (slot.disappearing || slot.ownerId !== this.store.id) continue;
       const dx = Math.abs(slot.groundX - position.x),
         dy = Math.abs(slot.groundY - position.y);
       if (dx > DROP_POLICY.pickupX || dy > DROP_POLICY.pickupY) continue;
@@ -488,7 +532,12 @@ export class DropSystem {
     }
     // Business-rule refusal must not mark the durable store as an I/O failure.
     try {
-      creditDrop(structuredClone(this.store.profile), slot, this.items);
+      creditDrop(
+        structuredClone(this.store.profile),
+        slot,
+        this.items,
+        this.hooks.monsterBook,
+      );
     } catch (error) {
       return this.result(error.code ?? "pickup-invalid", error.message);
     }
@@ -512,33 +561,91 @@ export class DropSystem {
     this.beginPending();
     slot.state = "pending";
     slot.target = position;
+    let prepared = null;
+    let committed = false;
+    let card = null;
     try {
+      const before = JSON.stringify(this.store.profile);
+      prepared = await this.preparePickup(slot);
+      if (prepared) {
+        const preview = structuredClone(this.store.profile);
+        creditDrop(preview, slot, this.items, this.hooks.monsterBook);
+        this.hooks.applyPickup(preview, prepared);
+      }
+      if (this.destroyed || this.hooks.isCurrent?.() === false) {
+        throw profileError("field-cancelled", "The pickup was cancelled.");
+      }
+      if (JSON.stringify(this.store.profile) !== before) {
+        throw profileError(
+          "profile-changed",
+          "The character changed while preparing the pickup.",
+        );
+      }
       await this.store.commitProfile((draft) => {
-        creditDrop(draft, slot, this.items);
+        card =
+          creditDrop(draft, slot, this.items, this.hooks.monsterBook) ?? null;
+        if (prepared) this.hooks.applyPickup(draft, prepared);
       });
-    } catch (error) {
-      if (slot.active) slot.state = "grounded";
-      slot.target = null;
-      return this.result(error.code ?? "pickup-save-failed", error.message);
-    } finally {
-      this.finishPending();
-    }
-    if (this.destroyed || !slot.active) {
+      committed = true;
+      slot.state = "collecting";
+      slot.phaseAge = 0;
+      slot.sourceX = slot.groundX;
+      slot.sourceY = slot.groundY;
+      slot.rotation = 0;
+      this.publishPickup(prepared);
       return this.result("picked-up", null, {
         itemId: slot.itemId,
         quantity: slot.quantity,
+        card,
       });
+    } catch (error) {
+      if (!committed) {
+        if (slot.active) slot.state = "grounded";
+        slot.target = null;
+      }
+      return this.result(error.code ?? "pickup-save-failed", error.message);
+    } finally {
+      if (prepared && !committed) this.hooks.releasePickup(prepared);
+      this.finishPending();
     }
-    slot.state = "collecting";
-    slot.phaseAge = 0;
-    slot.sourceX = slot.groundX;
-    slot.sourceY = slot.groundY;
-    slot.rotation = 0;
-    if (!this.destroyed) this.hooks.onSound?.("PickUpItem");
-    return this.result("picked-up", null, {
+  }
+
+  async preparePickup(slot) {
+    if (!pickupEffect(this.items[slot.itemId])) return null;
+    if (
+      typeof this.hooks.preparePickup !== "function" ||
+      typeof this.hooks.applyPickup !== "function" ||
+      typeof this.hooks.releasePickup !== "function" ||
+      typeof this.hooks.publishPickup !== "function"
+    ) {
+      throw profileError(
+        "pickup-effect-unavailable",
+        "Original pickup effect authority is unavailable.",
+      );
+    }
+    const prepared = await this.hooks.preparePickup({
       itemId: slot.itemId,
       quantity: slot.quantity,
+      questId: slot.questId,
+      instance: { ...slot.instance },
+      ownerId: slot.ownerId,
     });
+    if (!prepared) {
+      throw profileError(
+        "pickup-cancelled",
+        "Pickup effect preparation was cancelled.",
+      );
+    }
+    return prepared;
+  }
+
+  publishPickup(prepared) {
+    try {
+      if (prepared) this.hooks.publishPickup(prepared);
+      this.hooks.onSound?.("PickUpItem");
+    } catch (error) {
+      this.lastPublicationError = error.message;
+    }
   }
   /** Reserve world capacity, durably debit, then publish. No value-bearing visual before commit. */
   async dropMesos(amount, simulation) {
@@ -568,6 +675,14 @@ export class DropSystem {
       );
     }
     const source = { x: simulation.x, y: simulation.y };
+    slot.itemId = 0;
+    slot.instance = null;
+    slot.ownerId = this.store.id;
+    slot.disappearing = false;
+    slot.quantity = amount;
+    slot.questId = 0;
+    slot.foothold = point.foothold;
+    launchDrop(slot, source, point);
     slot.reserved = true;
     this.reserved++;
     this.beginPending();
@@ -581,12 +696,7 @@ export class DropSystem {
         }
         debitMesos(draft, amount);
       });
-      slot.itemId = 0;
-      slot.quantity = amount;
-      slot.questId = 0;
-      slot.foothold = point.foothold;
       slot.generation++;
-      launchDrop(slot, source, point);
       slot.active = true;
       this.count++;
       return this.result("mesos-dropped", null, { quantity: amount });
@@ -597,6 +707,178 @@ export class DropSystem {
       this.reserved--;
       this.finishPending();
     }
+  }
+
+  confirmDisappearingDrop(source, count) {
+    if (typeof this.hooks.confirmItemDrop !== "function") {
+      throw profileError(
+        "drop-confirmation-required",
+        "This item cannot be recovered once dropped.",
+      );
+    }
+    return this.hooks.confirmItemDrop({ ...source, count });
+  }
+
+  admitPreparedDrop(before) {
+    if (this.destroyed || this.hooks.isCurrent?.() === false) {
+      throw profileError(
+        "field-cancelled",
+        "The field was closed before the drop.",
+      );
+    }
+    if (JSON.stringify(this.store.profile) !== before) {
+      throw profileError(
+        "inventory-changed",
+        "The character changed while preparing the drop.",
+      );
+    }
+  }
+
+  /** Native004f31a5 prompts before00a0900a; cancellation never owns/debits an item. */
+  async dropItem(request, simulation) {
+    if (this.pending || this.store.profileTransactionPending) {
+      return this.result(
+        "drop-busy",
+        "An item transaction is already pending.",
+      );
+    }
+    if (this.destroyed || !validPoint(simulation)) {
+      return this.result("invalid-field", "Drop position is unavailable.");
+    }
+    let plan = null;
+    let committed = false;
+    this.beginPending();
+    try {
+      const input = { ...request, dropUid: createItemUid() };
+      const before = JSON.stringify(this.store.profile);
+      const source = selectedItem(this.store.profile, input.uid);
+      admitItem(this.store.profile, source);
+      validateSplit(source, input.count);
+      const template = originalItem(this.items, source.id);
+      const disappearing = disappearingDrop(source, template);
+      if (
+        disappearing &&
+        (await this.confirmDisappearingDrop(source, input.count)) !== true
+      ) {
+        return this.result("cancelled", null);
+      }
+      const draft = structuredClone(this.store.profile);
+      const instance = debitItemDrop(draft, this.items, input);
+      plan = await this.prepareItemDrop(
+        { instance, draft, disappearing },
+        simulation,
+      );
+      this.admitPreparedDrop(before);
+      await this.store.commitProfile((current) => {
+        debitItemDrop(current, this.items, input);
+      });
+      committed = true;
+      this.publishItemDrop(plan);
+      return this.result("item-dropped", null, {
+        itemId: instance.id,
+        quantity: instance.count,
+        disappearing,
+      });
+    } catch (error) {
+      return this.result(error.code ?? "drop-failed", error.message);
+    } finally {
+      if (plan) this.releaseItemDrop(plan, committed);
+      this.finishPending();
+    }
+  }
+
+  async prepareItemDrop(value, simulation) {
+    if (
+      typeof this.hooks.prepareItemDrop !== "function" ||
+      typeof this.hooks.publishItemDrop !== "function" ||
+      typeof this.hooks.releaseItemDrop !== "function"
+    ) {
+      throw profileError(
+        "drop-art-unavailable",
+        "Original item drop artwork preparation is unavailable.",
+      );
+    }
+    const slot = this.slots.find((entry) => !entry.active && !entry.reserved);
+    if (!slot) {
+      throw profileError("drop-capacity", "Field drop capacity is full.");
+    }
+    const point = { x: 0, y: 0, foothold: null };
+    if (!this.place(point, simulation, 0)) {
+      throw profileError(
+        "no-drop-ground",
+        "No authored foothold supports this drop.",
+      );
+    }
+    const plan = { slot, art: null, appearance: null };
+    slot.reserved = true;
+    this.reserved++;
+    try {
+      slot.instance = value.instance;
+      slot.itemId = value.instance.id;
+      slot.quantity = value.instance.count;
+      slot.ownerId = this.store.id;
+      slot.disappearing = value.disappearing;
+      slot.questId = 0;
+      slot.foothold = point.foothold;
+      launchDrop(slot, simulation, point);
+      plan.art = await this.hooks.prepareItemDrop(value.instance, slot);
+      if (!plan.art) {
+        throw profileError(
+          "drop-art-unavailable",
+          "Original item drop artwork was not prepared.",
+        );
+      }
+      if (value.instance.slot < 0) {
+        plan.appearance = await this.prepareDropAppearance(value.draft);
+      }
+      return plan;
+    } catch (error) {
+      this.releaseItemDrop(plan, false);
+      throw error;
+    }
+  }
+
+  async prepareDropAppearance(draft) {
+    if (
+      typeof this.hooks.prepareAppearance !== "function" ||
+      typeof this.hooks.publishAppearance !== "function" ||
+      typeof this.hooks.releaseAppearance !== "function"
+    ) {
+      throw profileError(
+        "appearance-unavailable",
+        "Original equipment appearance preparation is unavailable.",
+      );
+    }
+    const prepared = await this.hooks.prepareAppearance(draft);
+    if (!prepared) {
+      throw profileError(
+        "appearance-unavailable",
+        "Original equipment appearance was not prepared.",
+      );
+    }
+    return prepared;
+  }
+
+  /** All hooks are nonthrowing publication only; art and motion already exist before debit. */
+  publishItemDrop(plan) {
+    plan.slot.generation++;
+    plan.slot.active = true;
+    this.count++;
+    try {
+      if (plan.appearance) this.hooks.publishAppearance(plan.appearance);
+      this.hooks.publishItemDrop(plan.art, plan.slot);
+    } catch (error) {
+      this.lastPublicationError = error.message;
+    }
+  }
+
+  releaseItemDrop(plan, committed) {
+    if (!committed) {
+      if (plan.art) this.hooks.releaseItemDrop(plan.art);
+      if (plan.appearance) this.hooks.releaseAppearance(plan.appearance);
+    }
+    plan.slot.reserved = false;
+    this.reserved--;
   }
 
   beginPending() {
@@ -641,6 +923,9 @@ export class DropSystem {
       drops.push({
         id: `drop:${index}`,
         itemId: slot.itemId,
+        instance: slot.instance ? { ...slot.instance } : null,
+        ownerId: slot.ownerId,
+        disappearing: slot.disappearing,
         quantity: slot.quantity,
         state: slot.state,
         x: slot.x,

@@ -4,8 +4,8 @@ import { GameUI } from "../src/game-ui.js";
 test("a cancelled old reset cannot replace a restored human dialog or enable its pending reset", async () => {
   const reload = Promise.withResolvers();
   const view = {
-    modal: "human dialog",
-    focused: "human input",
+    modal: "old dialog",
+    focused: "canvas",
     resetDisabled: true,
   };
   const ui = {
@@ -21,6 +21,10 @@ test("a cancelled old reset cannot replace a restored human dialog or enable its
     report() {},
     notice() {
       view.modal = "obsolete reset error";
+    },
+    async requestCloseAll() {
+      view.modal = null;
+      return true;
     },
     closeAll() {
       view.modal = null;
@@ -38,6 +42,8 @@ test("a cancelled old reset cannot replace a restored human dialog or enable its
   ui.epoch++;
   // A newer human operation now owns the restored UI.
   ui.resetting = true;
+  view.modal = "human dialog";
+  view.focused = "human input";
   reload.reject(new Error("Temporary field load cancelled"));
   await pending;
   expect(view).toEqual({

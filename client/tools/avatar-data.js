@@ -1,73 +1,90 @@
 import { at, value, resolveNode } from "../src/assets/image.js";
 import { EXPRESSION_NAMES } from "../src/character-bindings.js";
+import {
+  AVATAR_ACTIONS,
+  AVATAR_LIMITS,
+  avatarSlots,
+  composeAvatar,
+  validateAvatarRecord,
+} from "../src/avatar-composition.js";
 
-// Original ordinary action table 004a38e7, unique names for indices 0..39.
-const STANDARD_ACTIONS = Object.freeze([
-  "walk1",
-  "walk2",
-  "stand1",
-  "stand2",
-  "alert",
-  "swingO1",
-  "swingO2",
-  "swingO3",
-  "swingOF",
-  "swingT1",
-  "swingT2",
-  "swingT3",
-  "swingTF",
-  "swingP1",
-  "swingP2",
-  "swingPF",
-  "stabO1",
-  "stabO2",
-  "stabOF",
-  "stabT1",
-  "stabT2",
-  "stabTF",
-  "shoot1",
-  "shoot2",
-  "shootF",
-  "heal",
-  "proneStab",
-  "prone",
-  "fly",
-  "jump",
-  "ladder",
-  "rope",
-  "dead",
-  "sit",
-]);
-const POSE_ALIASES = Object.freeze([
-  "alert2",
-  "alert3",
-  "alert4",
-  "alert5",
-  "alert6",
-  "paralyze",
-  "ladder2",
-  "rope2",
-  "prone2",
-]);
-const EQUIPMENT = Object.freeze([
-  "00002000.img",
-  "00012000.img",
-  "Hair/00030000.img",
-  "Face/00020000.img",
-  "Coat/01040002.img",
-  "Pants/01060002.img",
-  "Shoes/01072001.img",
-  "Weapon/01302000.img",
-]);
-const MAX_FRAMES = 4096;
-const MAX_PARTS = 256;
-const MAX_ALIAS_HOPS = 64;
-// 00406abd reads delay with fallback 0x96 for both direct and alias frames.
 const ORIGINAL_DELAY_MS = 150;
+const MAX_ALIAS_HOPS = 64;
 
-/** Resolve Character action/frame aliases, not relative UOLs (handled by at).
- * 00406abd records the target action/frame and retains the alias's own timing.
- * Selected ordinary aliases contain no geometric transforms; reject new ones. */
+function sourcePath(node) {
+  const parts = [];
+  for (
+    let depth = 0;
+    node?.parent && depth < MAX_ALIAS_HOPS;
+    depth++, node = node.parent
+  ) {
+    parts.push(node.name);
+  }
+  if (node?.parent) throw new Error("Avatar source path depth exceeded");
+  return parts.reverse().join("/");
+}
+
+function unavailableNode(record, node, reason) {
+  if (record.unresolved.length >= AVATAR_LIMITS.records) {
+    throw new Error("Avatar unresolved resource bound exceeded");
+  }
+  const entry = {
+    path: sourcePath(node),
+    link: node.type === "UOL" ? node.value : null,
+    reason,
+  };
+  if (node.type === "value") entry.value = node.value;
+  record.unresolved.push(entry);
+  return null;
+}
+
+/** Native optional resource boundary, not a permissive replacement for resolveNode.
+ * PCOM50c0cf8f returns S_FALSE/VT_EMPTY for absent properties;00414ada resolves
+ * UOLs through ResMan51003740;0041e42b maps empty to E_NOINTERFACE and0041371b
+ * inserts only nonnull canvases. Other failures, including cycles, remain fatal. */
+function avatarNode(node, record) {
+  if (node?.type !== "UOL") return resolveNode(node);
+  const visited = new Set();
+  for (let hop = 0; node?.type === "UOL" && hop < MAX_ALIAS_HOPS; hop++) {
+    if (visited.has(node)) {
+      throw new Error(`Cyclic avatar UOL ${record.source}/${sourcePath(node)}`);
+    }
+    visited.add(node);
+    const current = avatarLinkTarget(node, record);
+    if (!current) return null;
+    node = current;
+  }
+  if (node?.type === "UOL") {
+    throw new Error("Avatar UOL traversal exceeded limit");
+  }
+  return resolveNode(node);
+}
+
+function avatarLinkTarget(node, record) {
+  let current = node.parent;
+  for (const key of node.value.split("/")) {
+    if (key === "..") current = current?.parent;
+    else if (key !== "." && key !== "") {
+      if (current?.type === "UOL") {
+        return unavailableNode(record, node, "missing-property-interface");
+      }
+      current = avatarPropertyChild(current, key, node);
+    }
+    if (!current) return unavailableNode(record, node, "missing-property");
+  }
+  return current;
+}
+
+function avatarPropertyChild(current, key, origin) {
+  if (current && current.type !== "Property" && current.type !== "Canvas") {
+    throw new Error(
+      `Invalid avatar UOL property interface ${sourcePath(origin)}`,
+    );
+  }
+  return current?.children[key];
+}
+
+/** 00406abd: aliases retain their own timing; UOLs are resolved by the original parser. */
 function bodyPose(body, action, index) {
   const visited = new Set();
   for (let hop = 0; hop < MAX_ALIAS_HOPS; hop++) {
@@ -87,7 +104,11 @@ function bodyPose(body, action, index) {
       if (frame.children.frame) {
         throw new Error(`Frame alias without action ${key}`);
       }
-      return { action, index, frame };
+      return {
+        action,
+        index: Number(index),
+        face: Boolean(value(frame, "face", 0)),
+      };
     }
     const targetFrame = value(frame, "frame", 0);
     if (
@@ -103,335 +124,347 @@ function bodyPose(body, action, index) {
   throw new Error("Body action alias traversal exceeded limit");
 }
 
-/** Death is an original composition substitution, not a guessed pose alias.
- * 00407757 strips clothing/weapon; 0041272c uses jump for the head/hair/face. */
-function equipmentFrame(item, slot, pose, expression = null) {
-  const dead = pose.action === "dead";
-  if (dead && slot >= 4) return null;
-  if (slot === 3) return faceFrame(item, pose, expression);
-  const action = dead && slot !== 0 ? "jump" : pose.action;
-  const root = item.children[action];
-  // A weapon has only its authored families; no invented alternate-family artwork.
-  if (!root && slot === 7) return null;
-  if (!root) {
-    throw new Error(`Missing equipment action ${item.source}/${action}`);
-  }
-  const index = dead && slot !== 0 ? "0" : pose.index;
-  return authoredEquipmentFrame(root, index, item.source);
-}
-
-/** The body face flag admits the selected original expression's frame. */
-function faceFrame(item, pose, expression) {
-  if (!value(pose.frame, "face", 0)) return null;
-  return at(
-    item,
-    expression ? `${expression.name}/${expression.index}` : "default",
-  );
-}
-
-/** Keep missing frames distinct from an entirely unauthored weapon family. */
-function authoredEquipmentFrame(root, index, source) {
-  if (!resolveNode(root).children[index]) {
-    throw new Error(`Missing equipment frame ${source}/${root.name}/${index}`);
-  }
-  return at(root, index);
-}
-
-/** Direct action/frame canvases include the weapon's authored weapon child.
- * The only nested variant in the selected loadout is the skin-indexed hair shade. */
-function appendFrameCanvases(candidates, frame) {
-  const start = candidates.length;
-  const children = Object.values(frame.children);
-  if (children.length > MAX_PARTS) {
-    throw new Error("Avatar frame part bound exceeded");
-  }
-  for (const child of children) {
-    const canvas = resolveNode(child);
-    if (canvas.type === "Canvas") {
-      candidates.push(canvas);
-    } else if (child.name === "hairShade") {
-      const shade = at(canvas, "0");
-      if (shade.type !== "Canvas") {
-        throw new Error("Missing original avatar hair shade canvas");
-      }
-      candidates.push(shade);
-    } else if (Object.keys(canvas.children).length) {
-      throw new Error(`Unclassified avatar part family ${child.name}`);
-    }
-  }
-  if (candidates.length === start) {
-    throw new Error(`Missing authored avatar frame canvases ${frame.name}`);
-  }
-}
-
-/** Retain every selected authored canvas; absent weapon families remain absent. */
-function candidatesFor(equipment, pose, expression = null) {
-  const candidates = [];
-  for (let slot = 0; slot < equipment.length; slot++) {
-    const frame = equipmentFrame(equipment[slot], slot, pose, expression);
-    if (!frame) continue;
-    appendFrameCanvases(candidates, frame);
-  }
-  if (candidates.length > MAX_PARTS) {
-    throw new Error("Avatar composition part bound exceeded");
-  }
-  return candidates;
-}
-
-/** 00402442 starts each component at its authored canvas origin. context.part
- * subtracts that origin, so positions here are origin-relative displacements. */
-function canvasComponent(canvas, positions) {
-  const origin = value(canvas, "origin");
-  if (!origin || !Number.isInteger(origin.x) || !Number.isInteger(origin.y)) {
-    throw new Error(`Invalid avatar origin ${canvas.name}`);
-  }
-  const entries = Object.entries(at(canvas, "map").children);
-  if (!entries.length || entries.length > MAX_PARTS) {
-    throw new Error(`Invalid avatar anchor count ${canvas.name}`);
-  }
-  const anchors = new Map();
-  for (const [name, child] of entries) {
-    const vector = resolveNode(child).value;
-    if (!vector || !Number.isInteger(vector.x) || !Number.isInteger(vector.y)) {
-      throw new Error(`Invalid avatar anchor ${canvas.name}/${name}`);
-    }
-    anchors.set(name, { x: vector.x, y: vector.y });
-  }
-  const position = { x: 0, y: 0 };
-  positions.set(canvas, position);
-  return { anchors, positions: [position] };
-}
-
-/** 00401a17 aligns the integer centroids of all common anchors. Its four IDIV
- * instructions truncate each centroid before subtraction, not the difference. */
-function componentOffset(target, source) {
-  let targetX = 0;
-  let targetY = 0;
-  let sourceX = 0;
-  let sourceY = 0;
-  let count = 0;
-  for (const [name, vector] of source.anchors) {
-    const existing = target.anchors.get(name);
-    if (!existing) continue;
-    targetX += existing.x;
-    targetY += existing.y;
-    sourceX += vector.x;
-    sourceY += vector.y;
-    count++;
-  }
-  if (!count) return null;
-  return {
-    x: Math.trunc(targetX / count) - Math.trunc(sourceX / count),
-    y: Math.trunc(targetY / count) - Math.trunc(sourceY / count),
-  };
-}
-
-/** 00401b0d..00401b7d translates new anchors and every source component member;
- * common anchors retain the destination's positions. */
-function mergeComponents(target, source, offset) {
-  for (const [name, vector] of source.anchors) {
-    if (!target.anchors.has(name)) {
-      target.anchors.set(name, {
-        x: vector.x + offset.x,
-        y: vector.y + offset.y,
-      });
-    }
-  }
-  for (const position of source.positions) {
-    position.x += offset.x;
-    position.y += offset.y;
-    target.positions.push(position);
-  }
-}
-
-/** 0040197d searches components in insertion order, not drawing-depth order. */
-function connectedComponent(components, source) {
-  for (const target of components) {
-    if (target === source) continue;
-    const offset = componentOffset(target, source);
-    if (offset) return { target, offset };
-  }
-  return null;
-}
-
-/** 00402442 preserves the first component's coordinate system while repeatedly
- * merging connected components. Unconnected authored components remain intact. */
-function insertComponent(components, component) {
-  components.push(component);
-  for (let merge = 0; merge < MAX_PARTS; merge++) {
-    const connection = connectedComponent(components, component);
-    if (!connection) return;
-    let { target, offset } = connection;
-    let source = component;
-    if (component === components[0]) {
-      source = target;
-      target = component;
-      offset = { x: -offset.x, y: -offset.y };
-    }
-    mergeComponents(target, source, offset);
-    components.splice(components.indexOf(source), 1);
-    component = target;
-  }
-  throw new Error("Avatar component merge bound exceeded");
-}
-
-/** The original renderer composes a forest, not a single body-rooted graph.
- * 00401de9 renders every slot-visible component; no unmatched limb is dropped. */
-function placeCandidates(candidates, pose) {
-  if (!candidates.some((canvas) => canvas.name === "body")) {
-    throw new Error(`Missing body canvas ${pose.action}/${pose.index}`);
-  }
-  const positions = new Map();
-  const components = [];
-  for (const canvas of candidates) {
-    insertComponent(components, canvasComponent(canvas, positions));
-  }
-  return positions;
-}
-
-/** Compose the resolved body and equipment using authored timing/depth/anchors. */
-async function avatarFrame(context, equipment, zmap, request) {
-  const original = at(equipment[0], `${request.action}/${request.index}`);
-  const pose = bodyPose(equipment[0], request.action, request.index);
-  const candidates = candidatesFor(equipment, pose);
-  const positions = placeCandidates(candidates, pose);
-  const parts = [];
-  for (const canvas of candidates) {
-    const position = positions.get(canvas);
-    const z = value(canvas, "z");
-    const rank = typeof z === "number" ? z : zmap.indexOf(z);
-    if (!Number.isFinite(rank) || rank === -1) {
-      throw new Error(`Unknown avatar z ${z}`);
-    }
-    const part = await context.part(canvas, position.x, position.y, -rank);
-    if (canvas.name === "face") part.expression = "default";
-    parts.push(part);
-  }
-  for (const expression of request.expressions) {
-    await appendExpressionParts(context, equipment, zmap, {
-      pose,
-      parts,
-      expression,
-    });
-  }
-  if (parts.length > MAX_PARTS) {
-    throw new Error("Avatar expression part bound exceeded");
-  }
-  const authoredDelay = value(original, "delay", ORIGINAL_DELAY_MS);
-  // 00406abd: negative alias delays become absolute durations and also contribute
-  // to the original pre-action sum. That sum is not a local damaging-frame rule.
-  if (
-    !Number.isFinite(authoredDelay) ||
-    authoredDelay === 0 ||
-    (authoredDelay < 0 && !original.children.action)
-  ) {
-    throw new Error(
-      `Invalid ordinary body delay ${request.action}/${request.index}`,
-    );
-  }
-  return { delay: Math.abs(authoredDelay), parts };
-}
-
-/** Each expression uses its own anchor composition; publish only its face. */
-async function appendExpressionParts(context, equipment, zmap, composition) {
-  const { pose, parts, expression } = composition;
-  if (!value(pose.frame, "face", 0)) return;
-  const hitCandidates = candidatesFor(equipment, pose, expression);
-  const hitPositions = placeCandidates(hitCandidates, pose);
-  for (const canvas of hitCandidates) {
-    if (canvas.name !== "face") continue;
-    const position = hitPositions.get(canvas);
-    const z = value(canvas, "z");
-    const rank = typeof z === "number" ? z : zmap.indexOf(z);
-    if (!Number.isFinite(rank) || rank === -1) {
-      throw new Error(`Unknown face z ${z}`);
-    }
-    const part = await context.part(canvas, position.x, position.y, -rank);
-    part.expression = expression.name;
-    part.expressionStart = expression.start;
-    part.expressionEnd = expression.end;
-    part.expressionLoopMs = expression.loopMs;
-    part.expressionDuration = expression.duration;
-    parts.push(part);
-  }
-}
-
-/** 00407a36: expression root scalar duration overrides the5000-ms default.
- * Frame delays animate independently from the body and use the150-ms fallback. */
-function expressionFrames(face) {
-  const output = [];
-  for (const name of EXPRESSION_NAMES) {
-    const root = at(face, name);
-    const duration = value(root, "delay", 5000);
-    if (!Number.isFinite(duration) || duration <= 0) {
-      throw new Error(`Invalid original expression duration ${name}`);
-    }
-    const first = output.length;
-    let end = 0;
-    for (const index of frameIndices(root)) {
-      const delay = value(at(root, index), "delay", ORIGINAL_DELAY_MS);
-      if (!Number.isFinite(delay) || delay <= 0) {
-        throw new Error(
-          `Invalid original expression frame delay ${name}/${index}`,
-        );
-      }
-      const start = end;
-      end += delay;
-      output.push({ name, index, duration, start, end, loopMs: 0 });
-      if (output.length > MAX_PARTS) {
-        throw new Error("Expression frame bound exceeded");
-      }
-    }
-    for (let index = first; index < output.length; index++) {
-      output[index].loopMs = end;
-    }
-  }
-  return output;
-}
-
-function frameIndices(bodyAction) {
-  const indices = Object.keys(bodyAction.children).filter((key) =>
+function frameIndices(root, sparse = false) {
+  const keys = Object.keys(resolveNode(root).children).filter((key) =>
     /^\d+$/.test(key),
   );
-  if (!indices.length || indices.length > MAX_FRAMES) {
+  if (!keys.length || keys.length > AVATAR_LIMITS.frames) {
     throw new Error("Invalid avatar action frame count");
   }
-  indices.sort((left, right) => Number(left) - Number(right));
-  for (let index = 0; index < indices.length; index++) {
-    if (Number(indices[index]) !== index) {
+  keys.sort((left, right) => Number(left) - Number(right));
+  for (let index = 0; index < keys.length; index++) {
+    const number = Number(keys[index]);
+    if (!Number.isSafeInteger(number) || number >= AVATAR_LIMITS.frames) {
+      throw new Error("Avatar frame index bound exceeded");
+    }
+    if (!sparse && number !== index) {
       throw new Error("Noncontiguous avatar frames");
     }
   }
-  return indices;
+  return keys;
 }
 
-/** Complete original standard families and ordinary pose aliases for this loadout.
- * Skill/mount transformations require their separate action controllers; artwork
- * availability here never grants a skill or activates an attack rectangle. */
-export async function extractAvatar(context) {
+function delayFor(frame) {
+  const delay = value(frame, "delay", ORIGINAL_DELAY_MS);
+  if (
+    !Number.isFinite(delay) ||
+    delay === 0 ||
+    (delay < 0 && !frame.children.action)
+  ) {
+    throw new Error("Invalid original avatar frame delay");
+  }
+  return Math.abs(delay);
+}
+
+/**0040138d assigns null zmap entries -1,-2,...;00774bb1 takes the maximum islot rank. */
+export function avatarMaps(context) {
   const zmap = Object.keys(context.image("Base", "zmap.img").children);
-  const equipment = EQUIPMENT.map((path) => context.image("Character", path));
-  const expressions = expressionFrames(equipment[3]);
-  const actions = Object.create(null);
-  for (const action of [...STANDARD_ACTIONS, ...POSE_ALIASES]) {
-    const indices = frameIndices(at(equipment[0], action));
-    const frames = [];
-    for (const index of indices) {
-      frames.push(
-        await avatarFrame(context, equipment, zmap, {
-          action,
-          index,
-          expressions,
-        }),
+  const smap = Object.create(null);
+  for (const [name, node] of Object.entries(
+    context.image("Base", "smap.img").children,
+  )) {
+    smap[name] = resolveNode(node).value;
+  }
+  if (zmap.length > 4096 || Object.keys(smap).length > 4096) {
+    throw new Error("Avatar depth map bound exceeded");
+  }
+  return { zmap, smap };
+}
+
+/**00774901: empty z stays zero; named map overrides numeric z; failed conversion
+ * and absent symbolic lookup retain INT_MIN. Unknown names are not canvas rejection. */
+function depthRank(canvas, record, maps) {
+  const z = value(canvas, "z");
+  if (z === null || z === undefined) return 0;
+  const index = maps.zmap.indexOf(String(z));
+  if (index !== -1) return -index - 1;
+  const numeric =
+    typeof z === "number"
+      ? z
+      : typeof z === "string" && z.trim()
+        ? Number(z)
+        : NaN;
+  if (
+    Number.isInteger(numeric) &&
+    numeric >= -2147483648 &&
+    numeric <= 2147483647
+  ) {
+    return numeric;
+  }
+  if (typeof z !== "string") {
+    throw new Error(`Unsupported avatar z variant ${typeof z}`);
+  }
+  unavailableNode(record, canvas.children.z, "unknown-z");
+  return -2147483648;
+}
+
+/**00401835 admits objects,0040184b queries IWzShape2D,00401879 skips null.
+ * Canvas5000375d/50014308 has no shape IID; scalar variants have no object.
+ * The original Character map scan contains only vectors, scalars and canvases. */
+function canvasAnchors(canvas, record) {
+  const anchors = Object.create(null);
+  //00401767 returns the origin-relative component unchanged when map has no property interface.
+  if (!canvas.children.map) {
+    unavailableNode(record, canvas, "missing-anchor-map");
+    return anchors;
+  }
+  const children = Object.entries(at(canvas, "map").children);
+  if (children.length > AVATAR_LIMITS.anchors) {
+    throw new Error("Avatar anchor count bound exceeded");
+  }
+  for (const [name, node] of children) {
+    if (node.type === "value" || node.type === "Canvas") {
+      unavailableNode(record, node, "non-anchor-interface");
+      continue;
+    }
+    if (node.type !== "Shape2D#Vector2D") {
+      throw new Error(
+        `Unsupported avatar anchor interface ${node.type} at ${sourcePath(node)}`,
       );
     }
-    // 004a38e7 marks these direct actions bidirectional; 00406abd appends N-2..1.
-    if (action === "stand1" || action === "stand2" || action === "alert") {
-      for (let index = frames.length - 2; index > 0; index--) {
-        frames.push(frames[index]);
+    const point = node.value;
+    if (!Number.isSafeInteger(point?.x) || !Number.isSafeInteger(point?.y)) {
+      throw new Error(`Invalid avatar canvas anchor at ${sourcePath(node)}`);
+    }
+    anchors[name] = { x: point.x, y: point.y };
+  }
+  return anchors;
+}
+
+/** Original00774901 intersects canvas smap with item vslot. Pixel coordinates remain origin-relative. */
+async function canvasPart(context, canvas, record, maps) {
+  try {
+    const origin = value(canvas, "origin");
+    if (!Number.isInteger(origin?.x) || !Number.isInteger(origin?.y)) {
+      throw new Error("Invalid avatar canvas origin");
+    }
+    const anchors = canvasAnchors(canvas, record);
+    const z = value(canvas, "z");
+    const slots =
+      typeof z === "string" &&
+      maps.smap[z] !== null &&
+      maps.smap[z] !== undefined
+        ? avatarSlots(maps.smap[z])
+        : [];
+    const visible = new Set(avatarSlots(record.vslot));
+    return {
+      ...(await context.part(canvas, 0, 0, depthRank(canvas, record, maps))),
+      name: canvas.name,
+      anchors,
+      slots: slots.filter((slot) => visible.has(slot)).join(""),
+      skin: null,
+    };
+  } catch (error) {
+    throw new Error(
+      `${record.source}/${sourcePath(canvas)}: ${error.message}`,
+      { cause: error },
+    );
+  }
+}
+
+/** Preserve all authored skin banks; select one only when composing a real appearance. */
+async function frameParts(context, frame, input) {
+  const { record, maps } = input;
+  const parts = [];
+  const children =
+    frame.type === "Canvas" ? [frame] : Object.values(frame.children);
+  if (children.length > AVATAR_LIMITS.parts) {
+    throw new Error("Avatar frame part bound exceeded");
+  }
+  for (const child of children) {
+    const node = avatarNode(child, record);
+    if (!node) continue;
+    if (node.type === "Canvas") {
+      parts.push(await canvasPart(context, node, record, maps));
+    } else if (child.name === "hairShade") {
+      await appendHairShades(context, node, input, parts);
+    } else if (Object.keys(node.children).length) {
+      unavailableNode(record, child, "non-canvas");
+    }
+  }
+  if (parts.length > AVATAR_LIMITS.parts) {
+    throw new Error("Avatar frame part bound exceeded");
+  }
+  return { delay: delayFor(frame), parts };
+}
+
+async function appendHairShades(context, node, input, parts) {
+  const { record, maps } = input;
+  const shades = Object.entries(node.children);
+  if (shades.length > 256) {
+    throw new Error("Avatar hair shade bank bound exceeded");
+  }
+  for (const [key, shade] of shades) {
+    if (!/^\d+$/.test(key)) {
+      throw new Error("Invalid original hair shade bank");
+    }
+    const canvas = avatarNode(shade, record);
+    if (!canvas) continue;
+    if (canvas.type !== "Canvas") {
+      unavailableNode(record, shade, "non-canvas");
+      continue;
+    }
+    const part = await canvasPart(context, canvas, record, maps);
+    part.skin = Number(key);
+    parts.push(part);
+  }
+}
+
+async function appendRoot(context, input, name, root) {
+  const { record } = input;
+  const resolved = avatarNode(root, record);
+  if (!resolved) {
+    record.frames[name] = [];
+    return;
+  }
+  const numeric = Object.keys(resolved.children).some((key) =>
+    /^\d+$/.test(key),
+  );
+  const frames = [];
+  if (numeric) {
+    //004132d5 parses the authored frame index;00413742 addresses that frame's component list.
+    for (const index of frameIndices(
+      resolved,
+      record.kind !== "body" && !EXPRESSION_NAMES.includes(name),
+    )) {
+      for (let gap = frames.length; gap < Number(index); gap++) {
+        frames.push(null);
+      }
+      const frame = avatarNode(resolved.children[index], record);
+      frames.push(frame ? await frameParts(context, frame, input) : null);
+    }
+  } else frames.push(await frameParts(context, resolved, input));
+  record.frames[name] = frames;
+}
+
+function recordMetadata(node, input, maps) {
+  const info = at(node, "info");
+  const islot = value(info, "islot", ""),
+    vslot = value(info, "vslot", "");
+  const ranks = avatarSlots(islot).map((slot) => maps.zmap.indexOf(slot));
+  return {
+    schemaVersion: 1,
+    id: input.id,
+    kind: input.kind,
+    source: `Character.wz:${input.path}`,
+    islot,
+    vslot,
+    priority:
+      ranks.length && !ranks.includes(-1) ? -Math.min(...ranks) - 1 : null,
+    stand: value(info, "stand", 0),
+    walk: value(info, "walk", 0),
+    attack: value(info, "attack", 0),
+    cash: Number(value(info, "cash", 0)),
+    visual: false,
+    expressionDriven:
+      input.kind === "face" ||
+      (input.kind === "equipment" &&
+        Boolean(node.children.blink) &&
+        !node.children.stand1),
+    weaponFamilies: [],
+    frames: Object.create(null),
+    poses: Object.create(null),
+    expressionDurations: Object.create(null),
+    unresolved: [],
+  };
+}
+
+/** Data-only authored records, one item at a time; no precomputed wardrobe combinations. */
+export async function extractAvatarRecord(
+  context,
+  input,
+  maps = avatarMaps(context),
+) {
+  const node = context.image("Character", input.path);
+  const record = recordMetadata(node, input, maps);
+  //0041272c explicitly excludes mount/saddle/dragon positions18..20 from ordinary avatars.
+  if (
+    input.kind === "equipment" &&
+    (record.islot === "Tm" || record.islot === "Sd")
+  ) {
+    return validateAvatarRecord(record);
+  }
+  const state = { record, maps };
+  for (const name of ["default", ...AVATAR_ACTIONS, ...EXPRESSION_NAMES]) {
+    if (node.children[name]) {
+      await appendRoot(context, state, name, node.children[name]);
+    }
+  }
+  if (input.path.startsWith("Weapon/")) {
+    await appendWeaponFamilies(context, node, state);
+  }
+  appendExpressionDurations(node, record);
+  //00406ae7 loads id2000 once for the global pose table, independently of skin canvases.
+  if (input.kind === "body") {
+    appendBodyPoses(
+      input.id === 2000 ? node : context.image("Character", "00002000.img"),
+      record,
+    );
+  }
+  record.visual = Object.values(record.frames).some((frames) =>
+    frames.some((frame) => frame?.parts.length),
+  );
+  return validateAvatarRecord(record);
+}
+
+async function appendWeaponFamilies(context, node, state) {
+  const { record } = state;
+  for (const [family, root] of Object.entries(node.children)) {
+    if (!/^\d+$/.test(family)) continue;
+    record.weaponFamilies.push(Number(family));
+    if (record.weaponFamilies.length > 64) {
+      throw new Error("Avatar weapon family bound exceeded");
+    }
+    for (const name of AVATAR_ACTIONS) {
+      const action = resolveNode(root).children[name];
+      if (action) {
+        await appendRoot(context, state, `${family}/${name}`, action);
       }
     }
-    actions[action] = frames;
   }
-  return { actions, equipment: equipment.map((node) => node.source) };
+}
+
+function appendExpressionDurations(node, record) {
+  for (const name of EXPRESSION_NAMES) {
+    if (!record.frames[name]?.length) continue;
+    const duration = value(at(node, name), "delay", 5000);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      throw new Error("Invalid avatar expression duration");
+    }
+    record.expressionDurations[name] = duration;
+  }
+}
+
+function appendBodyPoses(node, record) {
+  for (const action of AVATAR_ACTIONS) {
+    record.poses[action] = frameIndices(at(node, action)).map((index) => ({
+      ...bodyPose(node, action, index),
+      delay: delayFor(at(node, `${action}/${index}`)),
+    }));
+  }
+}
+
+/** Existing field extraction now uses the exact canonical modular compositor.
+ * This is the authored initial appearance, not an inventory grant or fallback for missing profile items. */
+export async function extractAvatar(context) {
+  const maps = avatarMaps(context);
+  const initial = [
+    { id: 2000, kind: "body", path: "00002000.img" },
+    { id: 12000, kind: "head", path: "00012000.img" },
+    { id: 30000, kind: "hair", path: "Hair/00030000.img" },
+    { id: 20000, kind: "face", path: "Face/00020000.img" },
+    { id: 1040002, kind: "equipment", path: "Coat/01040002.img" },
+    { id: 1060002, kind: "equipment", path: "Pants/01060002.img" },
+    { id: 1072001, kind: "equipment", path: "Shoes/01072001.img" },
+    { id: 1302000, kind: "equipment", path: "Weapon/01302000.img" },
+  ];
+  const records = [];
+  for (const input of initial) {
+    records.push(await extractAvatarRecord(context, input, maps));
+  }
+  return composeAvatar(records, {
+    skin: 0,
+    weaponFamily: 30,
+    hiddenSlots: "H4H5",
+  });
 }

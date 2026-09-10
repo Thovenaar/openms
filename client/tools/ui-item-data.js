@@ -2,7 +2,7 @@ import { at, resolveNode, value } from "../src/assets/image.js";
 import { classifySkill, skillSounds, skillVisuals } from "./skill-data.js";
 
 const MAX_IMAGES = 50000;
-const MAX_ITEMS = 5000;
+const MAX_ITEMS = 32768;
 const MAX_QUESTS = 4096;
 const MAX_STAGES = 2;
 const MAX_STAGE_ITEMS = 8192;
@@ -14,15 +14,26 @@ const MAX_SKILLS = 4096;
 const EQUIPMENT_IDS = [1040002, 1060002, 1072001, 1302000];
 const ICONS = ["icon", "iconMouseOver", "iconDisabled"];
 
-/** Consume the already-admitted checks/rewards, not dialogue tokens or a second quest parser. */
-function requiredItems(quests, dropIds = []) {
-  const records = Object.values(quests.records);
+/** One closure covers retained journal presentation and every admitted transaction domain. */
+function requiredItems(context) {
+  const records = Object.values(context.quests.records);
   if (records.length > MAX_QUESTS) {
     throw new Error("UI quest closure exceeds policy");
   }
-  const ids = dropItemClosure(dropIds);
+  const ids = dropItemClosure(context.dropItemIds ?? []);
+  for (const values of [
+    context.serverData.supportedItemIds,
+    context.cashShop.itemIds,
+    context.monsterBook.itemIds,
+  ]) {
+    collectItemIds(ids, values);
+  }
   let supportedQuests = 0;
   for (const record of records) {
+    collectItemIds(ids, record.dependencies.itemIds);
+    if (Number.isSafeInteger(record.info?.viewMedalItem)) {
+      collectItemIds(ids, [record.info.viewMedalItem]);
+    }
     if (!record.supported) continue;
     supportedQuests++;
     if (record.stages.length > MAX_STAGES) {
@@ -31,6 +42,7 @@ function requiredItems(quests, dropIds = []) {
     for (const stage of record.stages) {
       collectStageItems(ids, stage.check.items);
       collectStageItems(ids, stage.act.items);
+      collectStageItems(ids, stage.actionCheck.items);
     }
   }
   return { ids: [...ids].sort((a, b) => a - b), supportedQuests };
@@ -49,6 +61,19 @@ function dropItemClosure(dropIds) {
   }
   if (ids.size > MAX_ITEMS) throw new Error("UI item closure exceeds policy");
   return ids;
+}
+/** Numeric IDs remain sorted only at publication; no duplicate metadata conversion. */
+function collectItemIds(ids, values) {
+  if (!Array.isArray(values) || values.length > MAX_ITEMS) {
+    throw new Error("Invalid UI item dependencies");
+  }
+  for (const id of values) {
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      throw new Error(`Invalid item dependency ${id}`);
+    }
+    ids.add(id);
+  }
+  if (ids.size > MAX_ITEMS) throw new Error("UI item closure exceeds policy");
 }
 
 function collectStageItems(ids, items) {
@@ -94,6 +119,15 @@ async function itemSources(context, ids) {
   let roots = 0;
   for (const path of imagePaths(context, "Item")) {
     const image = await context.image("Item", path);
+    const direct = path.split("/").at(-1).slice(0, -4);
+    if (/^\d{7,8}$/.test(direct) && image.children.info) {
+      addSource(sources, wanted, Number(direct), {
+        archive: "Item",
+        path,
+        key: "",
+        category: path.split("/")[0],
+      });
+    }
     const entries = Object.keys(image.children);
     roots += entries.length;
     if (roots > MAX_ROOTS) throw new Error("UI item source root limit");
@@ -197,21 +231,49 @@ async function iconBundle(context, input) {
   });
 }
 
-/** The extra properties object retains top-level effects outside info/spec, never an implicit usability flag. */
-async function itemRecord(context, id, entry, strings) {
-  const root = await context.image(entry.archive, entry.path);
-  const node = at(root, entry.key);
-  const source = `${entry.archive}.wz:${entry.path}${entry.key ? `/${entry.key}` : ""}`;
-  const info = at(node, "info");
+/** Character actions are artwork; retain only Item branches as effect metadata. */
+function itemProperties(node, archive) {
   const properties = Object.create(null);
-  // Character actions are artwork, not item effect metadata. All Item branches are retained.
-  if (entry.archive === "Item") {
+  if (archive === "Item") {
     for (const [key, child] of Object.entries(node.children)) {
       if (key !== "info" && key !== "spec") {
         properties[key] = metadataTree(child);
       }
     }
   }
+  return properties;
+}
+
+/** Preserve absent raw-icon metadata independently of the required inventory icon. */
+function itemIconMetadata(info, id) {
+  const icon = info.children.icon ? resolveNode(info.children.icon) : null;
+  const rawIcon = info.children.iconRaw
+    ? resolveNode(info.children.iconRaw)
+    : null;
+  return {
+    iconPath: `item/${id}/icon`,
+    iconWidth: icon?.width ?? null,
+    iconHeight: icon?.height ?? null,
+    iconRawPath: info.children.iconRaw ? `item/${id}/iconRaw` : null,
+    iconRawWidth: rawIcon?.width ?? null,
+    iconRawHeight: rawIcon?.height ?? null,
+  };
+}
+
+/** The extra properties object retains top-level effects outside info/spec, never an implicit usability flag. */
+async function itemRecord(context, id, entry, strings) {
+  const root = await context.image(entry.archive, entry.path);
+  const node = at(root, entry.key);
+  const source = `${entry.archive}.wz:${entry.path}${entry.key ? `/${entry.key}` : ""}`;
+  const info = node.children.info ? resolveNode(node.children.info) : null;
+  if (!info?.children.icon) {
+    return {
+      available: false,
+      source,
+      reason: "Original item has no info/icon Canvas",
+    };
+  }
+  const properties = itemProperties(node, entry.archive);
   const descriptor = await iconBundle(context, {
     kind: "item",
     id,
@@ -219,6 +281,7 @@ async function itemRecord(context, id, entry, strings) {
     source,
     icons: ["icon", "iconRaw"],
   });
+  const iconMetadata = itemIconMetadata(info, id);
   return {
     id,
     category: entry.category,
@@ -228,8 +291,7 @@ async function itemRecord(context, id, entry, strings) {
     info: metadataTree(info),
     spec: metadataTree(node.children.spec),
     properties,
-    iconPath: `item/${id}/icon`,
-    iconRawPath: info.children.iconRaw ? `item/${id}/iconRaw` : null,
+    ...iconMetadata,
     descriptor,
   };
 }
@@ -398,7 +460,7 @@ async function skillRecords(context) {
 /** Catalog membership describes original templates only; ownership and skill ranks remain profile authorities. */
 export async function extractItemSkillUI(context, strings, canvasRecord) {
   const assets = { ...context, canvasRecord };
-  const closure = requiredItems(context.quests, context.dropItemIds);
+  const closure = requiredItems(context);
   const sources = await itemSources(context, closure.ids);
   const items = Object.create(null),
     missing = [];
@@ -411,8 +473,21 @@ export async function extractItemSkillUI(context, strings, canvasRecord) {
       });
       continue;
     }
-    if (!strings[id]) throw new Error(`Missing original item strings ${id}`);
-    items[id] = await itemRecord(assets, id, source, strings[id]);
+    if (!strings[id]) {
+      missing.push({
+        id,
+        source: `${source.archive}.wz:${source.path}`,
+        reason: "Original item-name record is absent from String.wz",
+      });
+    }
+    const record = await itemRecord(
+      assets,
+      id,
+      source,
+      strings[id] ?? { name: null, description: null },
+    );
+    if (record.available === false) missing.push({ id, ...record });
+    else items[id] = record;
   }
   const extractedSkills = await skillRecords(assets);
   const skills = extractedSkills.records;
@@ -428,7 +503,7 @@ export async function extractItemSkillUI(context, strings, canvasRecord) {
       skillIds: Object.keys(skills).map(Number),
       skillCoverage: extractedSkills.coverage,
       scope:
-        "Supported quest checks/rewards, selected-map mob drops and current equipment templates; exhaustive numeric player/job Skill IMG sweep with separate non-player domains. Catalog metadata grants no ownership or ranks.",
+        "Complete retained quest/dialog presentation, all admitted server route checks/rewards/shops, every original CashShop commodity and MonsterBook card/reward, selected-map drops and original equipment templates. Numeric player/job skills are exhaustive. Metadata grants no possession or ranks.",
     },
   };
 }

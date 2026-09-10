@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { SkillSystem } from "../src/skill-system.js";
 import { createProfile, validateProfile } from "../src/profile-validation.js";
+import {
+  configureTemporaryState,
+  durationFrame,
+  temporaryState,
+} from "../src/temporary-stats.js";
 
 /** Rank values are the original Skill.wz:100.img level/1 rows, not damage-policy fixtures. */
 function skill(id, levels, options = {}) {
@@ -372,4 +377,54 @@ test("Magic Guard transfers only available MP and death removes absorption", asy
   expect(system.absorbDamage(100)).toBe(100);
   expect(store.profile.mp).toBe(20);
   system.destroy();
+});
+
+test("partial potion overlap projects only effective masks and restores source timers on expiry", async () => {
+  const { system, store, catalog } = fixture();
+  catalog.ui.skills[1001003].levels[1].speed = 5;
+  grant(store, 1001003);
+  await system.prepare();
+  expect(system.activate(1001003).ok).toBe(true);
+  const potion = temporaryState("item", 2001000);
+  configureTemporaryState(potion, { pdd: 10 }, 1001);
+  system.effects.start(potion);
+  expect(system.derived().pdd).toBe(10);
+  expect(system.derived().speed).toBe(5);
+  expect(system.effectAt(0).source).toBe(-2001000);
+  expect(system.effectAt(1).maskHigh).toBe(128);
+  system.step(877);
+  expect(durationFrame(system.effectAt(0))).toBe(2);
+  system.step(124);
+  expect(system.effectCount()).toBe(1);
+  expect(system.effectAt(0).source).toBe(1001003);
+  expect(system.effectAt(0).remaining).toBe(73999);
+  expect(system.derived().pdd).toBe(2);
+  system.destroy();
+});
+
+test("right-up cancellation preserves cooldown and inherited source order without duplicate ticking", async () => {
+  const { system, store, catalog } = fixture();
+  catalog.ui.skills[1001003].levels[1].cooltime = 10;
+  grant(store, 1001003);
+  await system.prepare();
+  expect(system.activate(1001003).ok).toBe(true);
+  const potion = temporaryState("item", 2001002);
+  configureTemporaryState(potion, { speed: 10 }, 30000);
+  system.effects.start(potion);
+  system.step(1000);
+  const next = new SkillSystem(system.scene, store, catalog, system.hooks);
+  next.inherit(system);
+  system.destroy();
+  expect(next.effectAt(0).source).toBe(-2001002);
+  expect(next.effectAt(1).source).toBe(1001003);
+  next.step(1000);
+  expect(next.effectAt(0).remaining).toBe(28000);
+  expect(next.cancelEffect("skill", 1001003)).toBe(true);
+  expect(next.derived().pdd).toBe(0);
+  await next.prepare();
+  expect(next.activate(1001003).ok).toBe(false);
+  expect(next.effectAt(0).source).toBe(-2001002);
+  next.step(8000);
+  expect(next.activate(1001003).ok).toBe(true);
+  next.destroy();
 });

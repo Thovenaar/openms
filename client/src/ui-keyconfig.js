@@ -3,8 +3,14 @@ import {
   ACTION_PALETTE,
   canonicalKeyIndex,
 } from "./keymap.js";
-import { replaceIcons, drawItemCount, retireBindingLayer } from "./ui-icons.js";
+import {
+  replaceIcons,
+  drawItemCount,
+  retireBindingLayer,
+  bindingTemplate,
+} from "./ui-icons.js";
 import { bindingTooltip } from "./ui-tooltip.js";
+import { itemCount } from "./inventory-model.js";
 
 export function layoutKeys(panel) {
   const bindings = panel.owner.bindings;
@@ -64,7 +70,11 @@ export function refreshKeys(panel) {
   refreshKeyState(panel);
   const active = panel.owner.bindings.active;
   const inventory = panel.owner.store?.profile?.inventory || [];
-  const signature = JSON.stringify([active.keys, inventory]);
+  const signature = JSON.stringify([
+    active.keys,
+    inventory,
+    panel.owner.store.profile.skillMacros,
+  ]);
   if (panel.keySignature === signature) return;
   panel.keySignature = signature;
   retireBindingLayer(panel.keyLayer);
@@ -99,10 +109,12 @@ function drawPalette(panel, layer, active) {
             path,
           }),
       },
-      () => ({
-        ...bindingTooltip(panel.owner, action, "Available keyboard action"),
-        source: { surface: layer, path },
-      }),
+      {
+        tooltip: () => ({
+          ...bindingTooltip(panel.owner, action, "Available keyboard action"),
+          source: { surface: layer, path },
+        }),
+      },
     );
   }
 }
@@ -111,11 +123,11 @@ function keyIconEntries(panel, active) {
   const items = [];
   for (const key of panel.keyTargets) {
     const binding = active.keys[canonicalKeyIndex(key.index)];
-    if (binding.type === 1) {
+    if (binding.type === 1 || binding.type === 8) {
       items.push({
         key,
         binding,
-        template: panel.owner.index.skills[binding.id],
+        template: bindingTemplate(panel.owner, binding),
       });
     } else if (binding.type === 2 || binding.type === 3 || binding.type === 7) {
       items.push({
@@ -130,16 +142,15 @@ function keyIconEntries(panel, active) {
 
 function drawBoundIcon(icons, entry) {
   const panel = icons.owner.windows.get("KeyConfig");
-  const inventory = icons.owner.store?.profile?.inventory || [];
   const path = entry.template?.iconPath;
   if (!path) return;
-  if (entry.binding.type === 1) icons.image(path, entry.key.x, entry.key.y);
-  else icons.image(path, entry.key.x, entry.key.y + 32, true);
+  if (entry.binding.type === 1 || entry.binding.type === 8) {
+    icons.image(path, entry.key.x, entry.key.y);
+  } else icons.image(path, entry.key.x, entry.key.y + 32, true);
   drawKeyLabel(icons, entry.key.index, entry.key.x, entry.key.y);
   const rect = { x: entry.key.x, y: entry.key.y, width: 32, height: 32 };
   if (entry.binding.type === 2) {
-    const count =
-      inventory.find((item) => item.id === entry.binding.id)?.count || 0;
+    const count = itemCount(icons.owner.store.profile, entry.binding.id);
     drawItemCount(icons, count, rect);
   }
   const button = icons.hit(
@@ -163,10 +174,12 @@ function drawBoundIcon(icons, entry) {
         panel.owner.bindings.remove(entry.key.index);
       },
     },
-    () => ({
-      ...bindingTooltip(panel.owner, entry.binding, "Keyboard assignment"),
-      source: { surface: icons, path },
-    }),
+    {
+      tooltip: () => ({
+        ...bindingTooltip(panel.owner, entry.binding, "Keyboard assignment"),
+        source: { surface: icons, path },
+      }),
+    },
   );
   button.dataset.keyIndex = String(entry.key.index);
 }
@@ -206,13 +219,15 @@ function drawKey(layer, panel, key, active) {
         panel.owner.bindings.remove(index);
       },
     },
-    () => ({
-      ...bindingTooltip(panel.owner, binding, "Keyboard assignment"),
-      source:
-        binding.type >= 4 && binding.type <= 6
-          ? { surface: layer, path }
-          : null,
-    }),
+    {
+      tooltip: () => ({
+        ...bindingTooltip(panel.owner, binding, "Keyboard assignment"),
+        source:
+          binding.type >= 4 && binding.type <= 6
+            ? { surface: layer, path }
+            : null,
+      }),
+    },
   );
   button.dataset.keyIndex = String(key.index);
 }

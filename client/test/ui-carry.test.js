@@ -3,6 +3,7 @@ import { GameUI } from "../src/game-ui.js";
 import { KeyBindings } from "../src/key-bindings.js";
 import { createProfile } from "../src/profile-validation.js";
 import { retireBindingLayer } from "../src/ui-icons.js";
+import { ProfileStore } from "../src/profile-store.js";
 
 function pointer(target, values = {}) {
   return {
@@ -40,19 +41,29 @@ const item = {
   id: 2000000,
   category: "Consume",
   iconPath: "item",
-  info: {},
+  descriptor: {
+    url: "/generated/test-item.json",
+    sha256: "0".repeat(64),
+    bytes: 1,
+  },
+  info: { slotMax: 100 },
   properties: {},
   spec: { hp: 50 },
 };
 function fixture() {
-  const profile = createProfile({ mapId: "100000000", x: 0, y: 0, facing: 1 });
-  profile.inventory.push({ id: 2000000, count: 2 });
-  const store = {
-    profile,
-    subscribe: () => () => {},
-    markDirty() {},
-    flush: async () => {},
-  };
+  const initial = createProfile({ mapId: "100000000", x: 0, y: 0, facing: 1 });
+  initial.equipment = [];
+  initial.inventory.push({
+    uid: "carry-item",
+    id: 2000000,
+    count: 2,
+    slot: 1,
+    owner: "",
+    flags: 0,
+    expiresAt: null,
+  });
+  const store = ProfileStore.memory(initial, { items: { 2000000: item } });
+  const profile = store.profile;
   const bindings = new KeyBindings(
     store,
     { ui: { items: { 2000000: item } } },
@@ -231,6 +242,7 @@ test("placing a carried assignment in the palette removes it rather than activat
 
 test("occupied quickslot publishes outside an editor and carries the displaced action for the next placement", () => {
   const f = fixture();
+  const inventory = structuredClone(f.profile.inventory);
   pick(f);
   f.ui.endDrag(pointer(f.capture, { type: "pointerup" }));
   place(f, f.quick.element, 108, 142);
@@ -240,7 +252,7 @@ test("occupied quickslot publishes outside an editor and carries the displaced a
   f.ui.endDrag(pointer(f.quick.element, { type: "pointerup" }));
   place(f, f.quick.element, 108, 109);
   expect(f.profile.keyBindings.keys[42]).toEqual({ type: 5, id: 52 });
-  expect(f.profile.inventory).toEqual([{ id: 2000000, count: 2 }]);
+  expect(f.profile.inventory).toEqual(inventory);
   expect(f.ui.bindingDrag).toBeNull();
   f.bindings.destroy();
 });
@@ -267,7 +279,7 @@ test("another pointer cannot release or place the carry; modal and lifecycle can
   }
 });
 
-test("native item doubleclick consumes through item authority, never placing an intermediate quick binding", () => {
+test("native item doubleclick consumes through item authority, never placing an intermediate quick binding", async () => {
   const f = fixture();
   f.profile.hp = 1;
   pick(f);
@@ -280,9 +292,23 @@ test("native item doubleclick consumes through item authority, never placing an 
       detail: 2,
     }),
   );
-  expect(f.profile.hp).toBe(50);
-  expect(f.profile.inventory).toEqual([{ id: 2000000, count: 1 }]);
-  expect(f.profile.keyBindings.keys[29]).toEqual({ type: 5, id: 52 });
+  expect(f.store.profile.hp).toBe(1);
+  expect(f.store.profile.inventory[0].count).toBe(2);
+  const result = await f.bindings.lastItemUse.pending;
+  expect(result.ok).toBe(true);
+  expect(f.store.profile.hp).toBe(50);
+  expect(f.store.profile.inventory).toEqual([
+    {
+      uid: "carry-item",
+      id: 2000000,
+      count: 1,
+      slot: 1,
+      owner: "",
+      flags: 0,
+      expiresAt: null,
+    },
+  ]);
+  expect(f.store.profile.keyBindings.keys[29]).toEqual({ type: 5, id: 52 });
   expect(f.ui.cursor.ghost).toBeNull();
   const double = pointer(f.capture, { type: "dblclick" });
   f.ui.captureBindingClick(double);

@@ -11,6 +11,7 @@ import {
 } from "./keymap.js";
 import { validateKeyBindings } from "./profile-validation.js";
 import { ItemUse } from "./item-use.js";
+import { itemCount } from "./inventory-model.js";
 
 const MAX_LISTENERS = 64;
 
@@ -57,7 +58,9 @@ export class KeyBindings {
     this.listeners = new Set();
     this.items = new ItemUse(store, catalog, hooks);
     this.lastSkillUse = null;
+    this.lastItemUse = null;
     this.lastActionUse = null;
+    this.lastMacroUse = null;
     this.onStoreChange = this._storeChanged.bind(this);
     this.unsubscribeStore = store.subscribe(this.onStoreChange);
   }
@@ -66,7 +69,9 @@ export class KeyBindings {
     const committed = this.store.profile?.keyBindings;
     if (!committed || committed === this.committedReference) return;
     this.committedReference = committed;
-    if (!this.editing) this.active = structuredClone(committed);
+    if (!this.editing && !sameMap(this.active, committed)) {
+      this.active = structuredClone(committed);
+    }
     this._notify();
   }
 
@@ -84,7 +89,10 @@ export class KeyBindings {
 
   activateCode(code) {
     if (this.destroyed || this.hooks.isBlocked()) return false;
-    if (heldActionForCode(code, this.active)) return false;
+    if (heldActionForCode(code, this.active)) {
+      this.hooks.macros?.()?.interrupt();
+      return false;
+    }
     const index = keyIndexForCode(code);
     if (index < 0 || this.active.keys[index].type === 0) return false;
     this.activateKey(index);
@@ -96,8 +104,18 @@ export class KeyBindings {
     if (index < 0 || this.destroyed || this.hooks.isBlocked()) return false;
     const binding = this.active.keys[index];
     if (binding.type === 0) return false;
+    if (binding.type !== 8) this.hooks.macros?.()?.interrupt();
     if (binding.type === 2) return this.useItem(binding.id);
+    if (binding.type === 8) {
+      const result = this.hooks.macros().activate(binding.id);
+      this.lastMacroUse = { id: binding.id, result };
+      return result.ok;
+    }
     if (binding.type === 1) return this.useSkill(binding.id);
+    return this.activateNamedBinding(binding);
+  }
+
+  activateNamedBinding(binding) {
     if (binding.type === 3 && this.hooks.onCashExpression) {
       return this.hooks.onCashExpression(binding.id);
     }
@@ -117,9 +135,7 @@ export class KeyBindings {
     const dependency =
       binding.type === 7
         ? "The original item-script/effect controller is not available."
-        : binding.type === 8
-          ? "No original skill-macro sequence is assigned."
-          : "The original binding category or identifier is not supported.";
+        : "The original binding category or identifier is not supported.";
     this.hooks.report(dependency);
     this.lastActionUse = {
       type: binding.type,
@@ -130,10 +146,24 @@ export class KeyBindings {
     return false;
   }
 
-  useItem(id) {
-    const accepted = !this.destroyed && this.items.use(id);
-    if (accepted) this.hooks.onSound?.("UI", "DragEnd");
-    return accepted;
+  async useItem(id, uid = null) {
+    if (this.destroyed) {
+      return { ok: false, reason: "Binding owner was destroyed" };
+    }
+    const operation = this.items.use(id, uid);
+    const use = { id, uid, pending: operation, result: null };
+    this.lastItemUse = use;
+    const result = await operation;
+    use.result = result;
+    use.pending = null;
+    if (result.ok) {
+      try {
+        this.hooks.onSound?.("UI", "DragEnd");
+      } catch (error) {
+        console.error("Item completion sound failed", error);
+      }
+    }
+    return result;
   }
 
   useSkill(id) {
@@ -187,13 +217,18 @@ export class KeyBindings {
       return ACTION_PALETTE.some((entry) => sameBinding(entry, binding));
     }
     if (binding.type === 1) return this._learned(binding.id);
+    if (binding.type === 8) {
+      return (
+        binding.id >= 0 &&
+        binding.id < 5 &&
+        this.store.profile.skillMacros[binding.id].skills.some((id) => id > 0)
+      );
+    }
     // Original drag admission and real ownership, not whether an effect is implemented.
     return (
       itemType(binding.type) &&
       binding.type === itemBindingType(this.catalog.ui.items[binding.id]) &&
-      this.store.profile.inventory.some(
-        (entry) => entry.id === binding.id && entry.count > 0,
-      )
+      itemCount(this.store.profile, binding.id) > 0
     );
   }
 
@@ -378,6 +413,7 @@ export class KeyBindings {
   }
 
   destroy() {
+    this.items.destroy();
     this.unsubscribeStore();
     this.listeners.clear();
     this.destroyed = true;

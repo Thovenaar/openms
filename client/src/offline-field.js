@@ -4,6 +4,12 @@ import { placeBody } from "./life-geometry.js";
 import { OfflineMobRenderer } from "./offline-mob-renderer.js";
 import { PassiveRecovery } from "./passive-recovery.js";
 import { knockbackChance, knockbackRoll } from "./combat-knockback.js";
+import { isEquipped } from "./inventory-model.js";
+import {
+  createCharacterStats,
+  projectCharacterStats,
+} from "./character-stats.js";
+import { PhysicalDamage, swordTargetError } from "./physical-damage.js";
 import {
   createMobs,
   stepMob,
@@ -26,14 +32,14 @@ export const COMBAT_POLICY = Object.freeze({
   authority: "offline-local-policy",
   fixedTickMs: 30,
   playerDamage:
-    "max(1,floor((4*STR+DEX)*equipped WZ incPAD/10 - WZ PDDamage/2)); nearest eligible original body",
+    "native0078df87 per-target one-handed sword, mastery/ACC/level/PDD then skill%; nonpositive -> local zero HP debit",
   incomingDamage:
-    "max(1, ceil(original PADamage or MADamage / 20 - matching learned defense / 2))",
+    "native0079286e physical EVA gate; surviving magnitude=max(1,ceil(original PADamage or MADamage/20 - matching temporary defense/2)); magical evasion unavailable",
   impact: "first fixed tick at/after half original equipped action duration",
   attackMP: 0,
   regeneration: "native independent HP/MP timers; see passive-recovery.js",
   random:
-    "injected offline [0,1) stream -> uint32 % 100; not native seed parity",
+    "outgoing seven-word and physical incoming four-word uint32 windows; native modulo10000000 samples, separate recoil modulo100; no native seed parity",
   respawn: REVIVAL_POLICY,
 });
 
@@ -41,6 +47,7 @@ export const COMBAT_POLICY = Object.freeze({
 export const PLAYER_HIT = Object.freeze({
   timerMs: 1500,
   tickMs: 30,
+  alertMs: 5000, // User+56c; 0095923f, 0092edb2, Avatar004522a6.
   horizontalImpulse: 270,
   verticalImpulse: -270,
   noDirection: 0x7fffffff,
@@ -54,6 +61,11 @@ function applyHitImpulse(simulation, direction) {
     (direction < 0 ? -1 : 1) * PLAYER_HIT.horizontalImpulse,
     PLAYER_HIT.verticalImpulse,
   );
+}
+
+function incomingMagnitude(base, magic, temporary) {
+  const reduction = magic ? (temporary?.mdd ?? 0) : (temporary?.pdd ?? 0);
+  return Math.max(1, Math.ceil(base / 20 - reduction / 2));
 }
 
 /** All authority lives here and in plain mob records, never in a Pixi entity. */
@@ -75,32 +87,7 @@ export class OfflineField {
     this.hitboxes = createHitboxState();
     this.receiverContext = {};
     this.attackBody = rectangleState();
-    this.phase = store.profile.hp > 0 ? "idle" : "dead";
-    this.attackTargets = new Array(MAX_ATTACK_TARGETS).fill(null);
-    this.targetDistances = new Float64Array(MAX_ATTACK_TARGETS);
-    this.attackSkill = null;
-    this.attackInfo = null;
-    this.attackOnHit = null;
-    this.attackPower = 0;
-    this.phaseMs = 0;
-    this.attack = null;
-    this.attackName = null;
-    this.attackDurationMs = 0;
-    this.attackFired = false;
-    this.hitTimerMs = 0;
-    this.blinkCounter = 0;
-    this.blinkTint = PLAYER_HIT.normalTint;
-    this.lastKnockback = "none";
-    this.lastKnockbackRoll = -1;
-    this.mobHit = { skillId: 0, knockbackChance: 0, roll: 0 };
-    this.localHit = {
-      amount: 0,
-      hpDamage: 0,
-      direction: 0,
-      locallyInitiated: true,
-      source: null,
-      attackAction: null,
-    };
+    this.initializeCombatState();
     this.recovery = new PassiveRecovery(
       this.simulation,
       store,
@@ -117,6 +104,43 @@ export class OfflineField {
     scene.offlineField = this;
   }
 
+  initializeCombatState() {
+    this.phase = this.store.profile.hp > 0 ? "idle" : "dead";
+    this.attackTargets = new Array(MAX_ATTACK_TARGETS).fill(null);
+    this.targetDistances = new Float64Array(MAX_ATTACK_TARGETS);
+    this.attackSkill = null;
+    this.attackInfo = null;
+    this.attackOnHit = null;
+    this.impactStats = createCharacterStats();
+    this.receiverStats = createCharacterStats();
+    this.damageGenerator = new PhysicalDamage(
+      this.random,
+      this.hooks.nextUint32 ?? null,
+    );
+    this.damageLines = new Float64Array(MAX_ATTACK_TARGETS);
+    this.phaseMs = 0;
+    this.attack = null;
+    this.attackName = null;
+    this.attackDurationMs = 0;
+    this.attackFired = false;
+    this.hitTimerMs = 0;
+    this.alertTimerMs = 0;
+    this.alertPosture = false;
+    this.blinkCounter = 0;
+    this.blinkTint = PLAYER_HIT.normalTint;
+    this.lastKnockback = "none";
+    this.lastKnockbackRoll = -1;
+    this.mobHit = { skillId: 0, knockbackChance: 0, roll: 0 };
+    this.localHit = {
+      amount: 0,
+      hpDamage: 0,
+      direction: 0,
+      locallyInitiated: true,
+      source: null,
+      attackAction: null,
+    };
+  }
+
   get dead() {
     return this.phase === "dead";
   }
@@ -130,7 +154,21 @@ export class OfflineField {
     if (this.phase === "attack" || this.phase === "cast") {
       return this.attackName;
     }
-    return this.dead ? this.deathAction : null;
+    if (this.dead) return this.deathAction;
+    return this.alerting ? "alert" : null;
+  }
+
+  /** 00936d99: only the grounded idle selector substitutes encoded8 for4.
+   * Walking, crouching, airborne motion, climbing and seats keep their posture. */
+  get alerting() {
+    const action = this.simulation.action;
+    return (
+      this.phase === "idle" &&
+      this.simulation.state === "ground" &&
+      !this.simulation.seat &&
+      this.alertPosture &&
+      (action === "stand1" || action === "stand2")
+    );
   }
 
   async prepare(signal) {
@@ -167,10 +205,11 @@ export class OfflineField {
       for (const mob of this.mobs) this.stepMobAttack(mob);
       this.contactDamage();
     }
+    this.advanceAlert();
+    this.advanceHitPresentation();
     if (this.recovery.step(ms, this.action ?? this.simulation.action)) {
       this.changed();
     }
-    this.advanceHitPresentation();
     this.simulation.movementLocked = this.blocksMovement;
     this.renderer.synchronize();
   }
@@ -199,7 +238,12 @@ export class OfflineField {
 
   beginAttack() {
     const profile = this.store.profile;
-    if (!profile.equipment.includes(this.combat.weaponId)) {
+    if (Math.trunc(this.combat.weaponId / 10000) % 100 !== 30) {
+      this.lastStatus =
+        "Original damage controller requires a one-handed sword";
+      return;
+    }
+    if (!isEquipped(profile, this.combat.weaponId)) {
       this.lastStatus = "attack unavailable: extracted weapon not equipped";
       return;
     }
@@ -252,7 +296,13 @@ export class OfflineField {
   }
 
   skillAttackError(skill, info) {
-    if (!this.store.profile.equipment.includes(this.combat.weaponId)) {
+    if (Math.trunc(this.combat.weaponId / 10000) % 100 !== 30) {
+      return "Original damage controller requires a one-handed sword";
+    }
+    if (skill.id !== 1001004 && skill.id !== 1001005) {
+      return "Original advanced physical skill controller is unavailable";
+    }
+    if (!isEquipped(this.store.profile, this.combat.weaponId)) {
       return "Extracted sword is not equipped";
     }
     const name = this.skillAttackName(skill);
@@ -270,7 +320,7 @@ export class OfflineField {
     if ((info.attackCount ?? 1) !== 1) {
       return "Multiple damage-line controller is unavailable";
     }
-    if (!Number.isFinite(info.damage) || info.damage <= 0) {
+    if (!Number.isSafeInteger(info.damage) || info.damage <= 0) {
       return "Original damage multiplier is unavailable";
     }
     if (
@@ -307,6 +357,8 @@ export class OfflineField {
     this.attackFired = false;
     this.phase = phase;
     this.phaseMs = 0;
+    // Admitted ordinary/skill actions reach0092edb2 or an explicit5000 write.
+    this.alertTimerMs = PLAYER_HIT.alertMs;
     this.simulation.movementLocked = true;
   }
 
@@ -317,6 +369,8 @@ export class OfflineField {
     this.phase = dead ? "dead" : "idle";
     this.phaseMs = 0;
     this.hitTimerMs = 0;
+    this.alertTimerMs = 0;
+    this.alertPosture = false;
     this.blinkTint = PLAYER_HIT.normalTint;
     this.attackSkill = null;
     this.attackInfo = null;
@@ -341,9 +395,25 @@ export class OfflineField {
         : "local impact: no eligible original body";
       return;
     }
-    this.attackPower = this.localAttackPower();
+    this.generateDamageLines(count);
     for (let index = 0; index < count; index++) {
-      this.damageTarget(this.attackTargets[index]);
+      this.damageTarget(this.attackTargets[index], this.damageLines[index]);
+    }
+  }
+
+  generateDamageLines(count) {
+    projectCharacterStats(this.store.profile, this.hooks, this.impactStats);
+    this.mobHit.skillId = this.attackSkill?.id ?? 0;
+    this.mobHit.knockbackChance = knockbackChance(
+      this.hooks.items[this.impactStats.weaponId].info.knockback ?? 0,
+    );
+    // 00950921 generates every target before its separate per-line recoil pass.
+    for (let index = 0; index < count; index++) {
+      this.damageLines[index] = this.damageGenerator.generate(
+        this.impactStats,
+        this.attackTargets[index].template.info,
+        this.attackInfo?.damage ?? 100,
+      );
     }
   }
 
@@ -357,29 +427,10 @@ export class OfflineField {
     } else this.attackBody.left = Math.min(this.attackBody.left, sim.x - range);
   }
 
-  localAttackPower() {
-    const profile = this.store.profile;
-    const extra = this.hooks.derivedStats?.().pad ?? 0;
-    const base =
-      ((4 * profile.str + profile.dex) *
-        (this.combat.equipment.incPAD + extra)) /
-      10;
-    return base * ((this.attackInfo?.damage ?? 100) / 100);
-  }
-
-  damageTarget(target) {
-    const amount = Math.min(
-      target.hp,
-      Math.max(
-        1,
-        Math.floor(this.attackPower - (target.template.info.PDDamage ?? 0) / 2),
-      ),
-    );
-    this.mobHit.skillId = this.attackSkill?.id ?? 0;
-    this.mobHit.knockbackChance = knockbackChance(
-      this.combat.equipment.knockback ?? 0,
-    );
-    this.mobHit.roll = knockbackRoll(this.random);
+  damageTarget(target, generated) {
+    // Offline HP authority: a negative proposed line must never heal the target.
+    const amount = Math.min(target.hp, Math.max(0, generated));
+    this.mobHit.roll = this.damageGenerator.next() % 100;
     const killed = damageMob(
       target,
       amount,
@@ -387,10 +438,14 @@ export class OfflineField {
       this.mobHit,
     );
     this.hooks.onMobHit?.(target, amount);
-    if (this.attackSkill) this.attackOnHit(this.attackSkill.id, target);
+    if (amount > 0 && this.attackSkill) {
+      this.attackOnHit(this.attackSkill.id, target);
+    }
     this.lastStatus = killed
       ? "local mob killed; WZ EXP awarded"
-      : "local mob hit";
+      : amount > 0
+        ? "local mob hit"
+        : "native sword MISS";
     if (killed) this.onKill(target);
   }
 
@@ -421,20 +476,33 @@ export class OfflineField {
   canAttackMob(mob) {
     return (
       mob.alive &&
+      mob.active &&
+      !mob.fault &&
+      !swordTargetError(mob.template.info) &&
       !mob.template.info.invincible &&
       (!mob.selectedSkills.length ||
         mob.selectedSkills.includes(this.attackSkill?.id ?? 0))
     );
   }
 
+  killExperience(mob) {
+    const rate = this.hooks.experienceRate?.() ?? 1;
+    if (!Number.isFinite(rate) || rate < 1 || rate > 2) {
+      throw new Error("Invalid admitted family EXP rate");
+    }
+    return Math.trunc((mob.template.info.exp ?? 0) * rate);
+  }
+
   onKill(mob) {
-    const exp = mob.template.info.exp ?? 0;
+    const exp = this.killExperience(mob);
     const levels = awardExperience(
       this.store.profile,
       exp,
       this.hooks.hpGrowth?.() ?? 0,
+      this.hooks.items,
     );
     this.hooks.onKill?.(mob.templateId, mob);
+    this.hooks.onExperience?.(exp, levels);
     if (levels > 0) this.hooks.onEffect?.("LevelUp");
     this.changed();
   }
@@ -494,23 +562,39 @@ export class OfflineField {
     }
   }
 
-  /** Damage magnitude and geometry-derived side remain explicit offline policy. */
+  /** Physical EVA is native; magnitude and geometry-derived side remain local policy. */
   proposeMobHit(mob, magic, attackAction = null) {
-    const base = magic
-      ? mob.template.info.MADamage
-      : mob.template.info.PADamage;
+    const hit = this.localHit;
+    hit.source = mob;
+    hit.attackAction = attackAction;
+    if (this.rejectsHit(hit)) return false;
+    const info = mob.template.info;
+    const base = magic ? info.MADamage : info.PADamage;
     if (!Number.isFinite(base) || base < 0) {
       this.lastStatus = "mob damage unavailable: original stat missing";
       return false;
     }
-    const hit = this.localHit;
-    const defense = this.hooks.derivedStats?.();
-    const reduction = magic ? (defense?.mdd ?? 0) : (defense?.pdd ?? 0);
-    hit.amount = Math.max(1, Math.ceil(base / 20 - reduction / 2));
+    const temporary = this.hooks.derivedStats?.() ?? null;
+    hit.amount = incomingMagnitude(base, magic, temporary);
+    if (!magic && !this.admitPhysicalHit(hit, info, temporary)) return false;
     hit.direction = this.simulation.x >= mob.x ? 1 : -1;
-    hit.source = mob;
-    hit.attackAction = attackAction;
     return this.tryReceiveHit(hit);
+  }
+
+  admitPhysicalHit(hit, info, temporary) {
+    const error = swordTargetError(info);
+    if (error) {
+      this.lastStatus = `mob physical evasion unavailable: ${error}`;
+      return false;
+    }
+    projectCharacterStats(
+      this.store.profile,
+      this.hooks,
+      this.receiverStats,
+      temporary,
+    );
+    if (this.damageGenerator.evades(this.receiverStats, info)) hit.amount = 0;
+    return true;
   }
 
   /** One outcome boundary for contact/authored attacks and already-authorized hits.
@@ -526,6 +610,7 @@ export class OfflineField {
     this.hitTimerMs = hit.amount > 0 ? PLAYER_HIT.timerMs : -PLAYER_HIT.timerMs;
     if (hit.amount > 0) {
       this.scene.actor.setExpression("hit", PLAYER_HIT.timerMs);
+      this.alertTimerMs = PLAYER_HIT.alertMs;
     }
     const killed = profile.hp === 0 && !this.dead;
     if (killed) {
@@ -607,6 +692,21 @@ export class OfflineField {
     }
   }
 
+  /** Resolve the movement action before Avatar004522a6 and recovery00a02e34.
+   * Hits only write the timer; the next idle selector chooses alert artwork.
+   * The countdown clamps on negative crossing:5000 lasts167 original30-ms ticks. */
+  advanceAlert() {
+    const action = this.simulation.action;
+    this.alertPosture =
+      this.alertTimerMs > 0 && (action === "stand1" || action === "stand2");
+    if (this.alertTimerMs <= 0) return;
+    this.alertTimerMs -= PLAYER_HIT.tickMs;
+    if (this.alertTimerMs < 0) {
+      this.alertTimerMs = 0;
+      this.alertPosture = false;
+    }
+  }
+
   changed() {
     this.store.markDirty();
     this.hooks.onChange?.();
@@ -632,10 +732,26 @@ export class OfflineField {
       blocksMovement: this.blocksMovement,
       status: this.lastStatus,
       hitTimerMs: this.hitTimerMs,
+      alertTimerMs: this.alertTimerMs,
+      alerting: this.alerting,
+      recovery: this.recovery.snapshot(),
       blinkTint: this.blinkTint,
       lastDamage: this.lastDamage,
       lastKnockback: this.lastKnockback,
       lastKnockbackRoll: this.lastKnockbackRoll,
+      impactStats: this.impactStats,
+      receiverStats: this.receiverStats,
+      physicalEvasion: {
+        chance: this.damageGenerator.lastEvasionChance,
+        evaded: this.damageGenerator.lastEvaded,
+        samples: Array.from(this.damageGenerator.incomingSamples),
+      },
+      physicalDamage: {
+        generated: this.damageGenerator.lastGenerated,
+        outcome: this.damageGenerator.lastOutcome,
+        cursor: this.damageGenerator.cursor,
+        samples: Array.from(this.damageGenerator.samples),
+      },
       player: {
         ...this.store.profile,
         nextLevelExp: experienceRequired(this.store.profile.level),
@@ -650,6 +766,8 @@ export class OfflineField {
     if (this.destroyed) return;
     this.destroyed = true;
     this.hitTimerMs = 0;
+    this.alertTimerMs = 0;
+    this.alertPosture = false;
     this.blinkTint = PLAYER_HIT.normalTint;
     this.renderer.destroy();
     if (this.scene.offlineField === this) this.scene.offlineField = null;
@@ -680,7 +798,7 @@ function validateCombat(combat) {
   if (
     !Number.isSafeInteger(combat.weaponId) ||
     !Number.isSafeInteger(combat.equipment?.incPAD) ||
-    combat.equipment.incPAD <= 0
+    combat.equipment.incPAD < 0
   ) {
     throw new Error("Original weapon damage input unavailable");
   }
@@ -739,6 +857,7 @@ function snapshotMob(mob) {
     selectedSkills: mob.selectedSkills,
     attacks: mob.attacks,
     fault: mob.fault,
+    physicalDamageError: swordTargetError(mob.template.info),
     authority: COMBAT_POLICY.authority,
   };
 }

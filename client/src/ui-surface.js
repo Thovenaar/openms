@@ -4,6 +4,8 @@ import { UIRasterPlane } from "./ui-raster-plane.js";
 
 const MAX_PANEL_SPRITES = 1632; // 96 visible stacks: one icon plus up to 16 safe-integer count digits.
 const MAX_PANEL_CONTROLS = 128;
+const MAX_PANEL_LAYERS = 128;
+const MAX_ALPHA_PIXELS = 4 * 1024 * 1024;
 
 /** Original raster resources with a bounded accessible DOM interaction plane. No independent image/atlas decoding. */
 export class UISurface {
@@ -33,6 +35,8 @@ export class UISurface {
     this.disposed = false;
     this.ownsResource = true;
     this.layers = new Set();
+    this.updateLayers = new Array(MAX_PANEL_LAYERS);
+    this.alphaPixels = 0;
     this.raster =
       owner.app && name !== "StatusBar"
         ? new UIRasterPlane(this.root, this.element)
@@ -67,10 +71,84 @@ export class UISurface {
     return sprite;
   }
 
-  /** A separately replaceable composition layer borrows its parent's decoded resources. */
-  layer(name) {
+  /** Extract a single authored canvas once at load time; the caller owns the bounded mask. */
+  alphaMask(path) {
+    const asset = this.assets[path];
+    const texture = this.#alphaTexture(path, asset);
+    const { width, height } = asset;
+    const pixels = width * height;
+    if (
+      !Number.isSafeInteger(pixels) ||
+      pixels <= 0 ||
+      this.alphaPixels + pixels > MAX_ALPHA_PIXELS
+    ) {
+      throw new Error("UI alpha mask pixel budget exceeded");
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("UI alpha mask requires Canvas2D");
+    try {
+      const frame = texture.frame;
+      const resolution = texture.source.resolution;
+      context.drawImage(
+        texture.source.resource,
+        frame.x * resolution,
+        frame.y * resolution,
+        frame.width * resolution,
+        frame.height * resolution,
+        0,
+        0,
+        width,
+        height,
+      );
+      const rgba = context.getImageData(0, 0, width, height).data;
+      const alpha = new Uint8Array(pixels);
+      for (let index = 0; index < pixels; index++) {
+        alpha[index] = rgba[index * 4 + 3];
+      }
+      this.alphaPixels += pixels;
+      return { width, height, alpha };
+    } finally {
+      canvas.width = canvas.height = 0;
+    }
+  }
+
+  #alphaTexture(path, asset) {
+    const frames = this.entities.get(path)?.actions.default;
+    const part = frames?.[0]?.parts[0];
+    const resource = this.sources.get(path) || this.resource;
+    const texture = resource.textures.get(part?.texture);
+    if (
+      !asset ||
+      frames?.length !== 1 ||
+      frames[0].parts.length !== 1 ||
+      !this.#supportsAlphaTexture(texture, asset)
+    ) {
+      throw new Error(`Unsupported UI alpha canvas ${this.name}:${path}`);
+    }
+    return texture;
+  }
+
+  #supportsAlphaTexture(texture, asset) {
+    return Boolean(
+      texture?.source.resource &&
+      !texture.rotate &&
+      !texture.trim &&
+      texture.frame.width === asset.width &&
+      texture.frame.height === asset.height,
+    );
+  }
+
+  /** Replaceable layers borrow resources; isolated overlays own artwork above sibling DOM. */
+  layer(name, { isolated = false } = {}) {
     const layer = new UISurface(
-      { root: this.root, host: this.element },
+      {
+        root: this.root,
+        host: this.element,
+        app: isolated ? this.owner.app : null,
+      },
       name,
       this.resource,
       [this.width, this.height],
@@ -88,7 +166,8 @@ export class UISurface {
     return layer;
   }
 
-  hit(label, rect, handlers = {}, tooltip = null) {
+  /** Accessible labels never imply visual help; options.tooltip is authored content or a factory. */
+  hit(label, rect, handlers = {}, options = {}) {
     const element = document.createElement("button");
     element.type = "button";
     element.className = "maple-ui-hit";
@@ -99,18 +178,18 @@ export class UISurface {
       this.listen(element, type, handler);
     }
     const show = (event) => {
+      const content =
+        typeof options.tooltip === "function"
+          ? options.tooltip()
+          : options.tooltip;
+      if (!content) return;
       const box = element.getBoundingClientRect();
       const point = this.owner.logicalPointer(
         event.type === "focus"
           ? { clientX: box.left, clientY: box.top }
           : event,
       );
-      this.owner.showTooltip(
-        tooltip ? tooltip() : label,
-        point.x,
-        point.y,
-        element,
-      );
+      this.owner.showTooltip(content, point.x, point.y, element);
     };
     this.listen(element, "pointerenter", show);
     this.listen(element, "focus", show);
@@ -131,8 +210,15 @@ export class UISurface {
     }
   }
 
-  /** Animate only sequences whose every original canvas explicitly authors a delay. */
-  stateImage(path, x, y) {
+  /** Original Gr2D5040b9e7 scales authored frame milliseconds by a per-mille delay. */
+  stateImage(path, x, y, delayPermille = 1000) {
+    if (
+      !Number.isSafeInteger(delayPermille) ||
+      delayPermille < 1 ||
+      delayPermille > 0x7fffffff
+    ) {
+      throw new RangeError("Invalid native animation delay multiplier");
+    }
     const sprite = this.image(path, x, y, true);
     if (!path.endsWith("/0")) return sprite;
     const base = path.slice(0, -1);
@@ -150,7 +236,7 @@ export class UISurface {
     }
     const frames = paths.map((key) => ({
       ...this.entities.get(key).actions.default[0],
-      delay: this.assets[key].delay,
+      delay: Math.trunc((this.assets[key].delay * delayPermille) / 1000),
     }));
     const source = this.sources.get(path) || this.resource;
     const entity = { ...this.entities.get(path), actions: { default: frames } };
@@ -166,10 +252,27 @@ export class UISurface {
   }
 
   update(ms) {
-    for (const sprite of this.timedSprites) {
-      if (sprite.container.visible) sprite.advance(ms);
+    const layers = this.updateLayers;
+    layers[0] = this;
+    let count = 1;
+    for (let index = 0; index < count; index++) {
+      const layer = layers[index];
+      // Keep the bounded traversal until every descendant animation has advanced.
+      if (!layer.root.visible) continue;
+      for (const sprite of layer.timedSprites) {
+        if (sprite.container.visible) sprite.advance(ms);
+      }
+      for (const child of layer.layers) {
+        if (count === MAX_PANEL_LAYERS) {
+          throw new Error("UI layer budget exceeded");
+        }
+        layers[count++] = child;
+      }
     }
-    this.renderArtwork();
+    for (let index = count - 1; index >= 0; index--) {
+      layers[index].renderArtwork();
+      layers[index] = null;
+    }
   }
 
   /** CSS/window scaling comes from the layout owner; no layout reads in the draw loop. */
@@ -247,9 +350,10 @@ export class UISurface {
     if (this.disposed) return;
     this.disposed = true;
     for (const control of this.controls) control.releasePointer();
-    for (const layer of this.layers) layer.destroy();
+    // Owners cancel live controls and subscriptions before their child artwork dies.
     for (const cleanup of this.cleanups) cleanup();
     this.cleanups.length = 0;
+    for (const layer of this.layers) layer.destroy();
     for (const listener of this.listeners) {
       listener.target.removeEventListener(listener.type, listener.handler);
     }
@@ -382,18 +486,18 @@ class UIControl {
       if (event.type === "pointerenter" && !this.options.disabled) {
         this.panel.owner.sound("BtMouseOver");
       }
+      const content =
+        typeof this.options.tooltip === "function"
+          ? this.options.tooltip()
+          : this.options.tooltip;
+      if (!content) return;
       const box = this.element.getBoundingClientRect();
       const point = this.panel.owner.logicalPointer(
         event.type === "focus"
           ? { clientX: box.left, clientY: box.top }
           : event,
       );
-      this.panel.owner.showTooltip(
-        this.options.label,
-        point.x,
-        point.y,
-        this.element,
-      );
+      this.panel.owner.showTooltip(content, point.x, point.y, this.element);
     }
     if (event.type === "pointerleave") this.panel.owner.hideTooltip();
     if (event.type === "blur") this.panel.owner.hideTooltip();

@@ -1,6 +1,8 @@
 import { EntityAnimation } from "./animation.js";
 import { loadVisualBundle } from "./visual-resources.js";
 import { replaceIcons, itemIcon } from "./ui-icons.js";
+import { inventoryType, slotItem } from "./inventory-model.js";
+import { updateStatDetail, updateApControls } from "./ui-stat.js";
 import { JOB_LABELS } from "./ui-job-labels.js";
 import { skillBooks } from "./ui-skill-books.js";
 import { updateSkillTabs } from "./ui-layout.js";
@@ -20,8 +22,8 @@ const STAT_ATTRIBUTES = ["str", "dex", "int", "luk"];
 const MESO_FORMAT = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
-// 00be2260 equipment position table, indexed by original body part minus one.
-const EQUIP_COORDINATES = [
+//007fefea selects00be23f0;007fec81 excludes body part14 and21..48 from this owner.
+export const EQUIP_COORDINATES = [
   [38, 35],
   [38, 68],
   [71, 101],
@@ -35,25 +37,19 @@ const EQUIP_COORDINATES = [
   [104, 134],
   [104, 167],
   [137, 167],
-  [112, 77],
+  null,
   [104, 68],
   [137, 68],
   [71, 134],
+  [5, 233],
+  [38, 233],
+  [71, 233],
+  ...new Array(28).fill(null),
+  [5, 68],
+  [71, 167],
 ];
-const EQUIP_SLOTS = {
-  Cap: 1,
-  Accessory: 2,
-  Coat: 5,
-  Longcoat: 5,
-  Pants: 6,
-  Shoes: 7,
-  Glove: 8,
-  Cape: 9,
-  Shield: 10,
-  Weapon: 11,
-};
 
-/** Original 0081e2c8; local inventory ordering is the persisted stack order, not invented slots. */
+/** Original 0081e2c8; index is the physical slot minus the first visible slot. */
 export function inventoryRect(index, expanded) {
   const row = Math.floor(index / 4);
   const bank = expanded ? Math.floor(row / 6) : 0;
@@ -74,12 +70,21 @@ function updateInventory(panel, profile) {
   }
   const tab = panel.selectedTab || 0;
   const expanded = Boolean(panel.fullSkin?.container.visible);
-  const filtered = items.filter(
-    (item) => Math.floor(item.id / 1000000) === tab + 1,
-  );
-  panel.inventoryCount = filtered.length;
+  const capacity = profile?.inventorySlots[tab] || 0;
+  panel.inventoryCount = capacity;
+  // Native ZArray includes slot zero: floor((length-22)/4)+1 positions.
+  const positions = Math.max(1, Math.floor((capacity + 1 - 22) / 4) + 1);
+  panel.inventoryScrollbar.setRange(positions, panel.inventoryStart / 4);
+  panel.inventoryScrollbar.setVisible(!expanded);
+  panel.inventoryStart = panel.inventoryScrollbar.position * 4;
   const start = expanded ? 0 : panel.inventoryStart;
-  const visible = filtered.slice(start, start + (expanded ? 96 : 24));
+  const visible = items.filter(
+    (item) =>
+      inventoryType(item.id) === tab + 1 &&
+      item.slot > start &&
+      item.slot <= start + (expanded ? 96 : 24),
+  );
+  updateInventorySlots(panel, tab + 1, start, expanded);
   const signature = JSON.stringify([tab, expanded, start, visible]);
   if (signature === panel.inventorySignature) return;
   panel.inventorySignature = signature;
@@ -87,9 +92,38 @@ function updateInventory(panel, profile) {
     ...item,
     template: panel.owner.index.items[item.id],
   }));
-  replaceIcons(panel, records, (layer, entry, index) => {
-    itemIcon(layer, entry, inventoryRect(index, expanded));
+  replaceIcons(panel, records, (layer, entry) => {
+    itemIcon(layer, entry, inventoryRect(entry.slot - start - 1, expanded));
+    clipIconLayer(layer, expanded ? 604 : 148, 50, 204);
   }).catch((error) => panel.owner.report(error));
+}
+
+function updateInventorySlots(panel, type, start, expanded) {
+  const signature = `${type}:${start}:${expanded}:${panel.inventoryCount}`;
+  if (panel.inventorySlotsSignature === signature) return;
+  panel.inventorySlotsSignature = signature;
+  panel.inventorySlotLayer?.destroy();
+  const layer = panel.layer("Physical inventory slots");
+  panel.inventorySlotLayer = layer;
+  const last = Math.min(panel.inventoryCount, start + (expanded ? 96 : 24));
+  for (let slot = start + 1; slot <= last; slot++) {
+    const rect = inventoryRect(slot - start - 1, expanded);
+    const button = layer.hit(`Inventory slot ${slot}`, rect, {
+      click: (event) => {
+        if (!slotItem(panel.owner.store.profile, type, slot)) {
+          panel.owner.hooks.inventorySlotClick?.(event, type, slot);
+        }
+      },
+    });
+    button.dataset.inventoryType = String(type);
+    button.dataset.itemSlot = String(slot);
+  }
+}
+
+function clipIconLayer(layer, width, y, height) {
+  if (layer.root.rasterClip) return;
+  layer.root.rasterClip = { x: 0, y, width, height };
+  layer.element.style.clipPath = `inset(${y}px ${Math.max(0, layer.width - width)}px ${Math.max(0, layer.height - y - height)}px 0)`;
 }
 
 /** 0081dc84 passes grouping=1 to00988690, which inserts a comma every three digits. */
@@ -106,13 +140,17 @@ function updateEquipment(panel, profile) {
   const signature = JSON.stringify(items);
   if (signature === panel.equipmentSignature) return;
   panel.equipmentSignature = signature;
-  const records = items.map((id) => ({
-    id,
-    count: 1,
-    template: panel.owner.index.items[id],
-  }));
+  const covered = new Set(
+    items.filter((item) => item.slot < -100).map((item) => item.slot + 100),
+  );
+  const records = items
+    .filter((item) => !covered.has(item.slot))
+    .map((item) => ({
+      ...item,
+      template: panel.owner.index.items[item.id],
+    }));
   replaceIcons(panel, records, (layer, entry) => {
-    const slot = EQUIP_SLOTS[entry.template?.category];
+    const slot = entry.slot < -100 ? -entry.slot - 100 : -entry.slot;
     const point = EQUIP_COORDINATES[slot - 1];
     if (!point) {
       panel.owner.status(
@@ -123,10 +161,31 @@ function updateEquipment(panel, profile) {
     const rect = { x: point[0], y: point[1], width: 32, height: 32 };
     const path = entry.template.iconPath;
     layer.image(path, rect.x, rect.y + 32, true);
-    layer.hit(entry.template.name, rect, {}, () => ({
-      ...itemTooltip(panel.owner, entry.template, entry.id, true),
-      source: { surface: layer, path },
-    }));
+    const button = layer.hit(
+      entry.template.name,
+      rect,
+      {
+        pointerdown: (event) =>
+          panel.owner.hooks.inventoryItemPointerDown?.(
+            event,
+            entry,
+            "equipment",
+          ),
+        dblclick: () =>
+          panel.owner.hooks.inventoryItemDoubleClick?.(entry, "equipment"),
+      },
+      {
+        tooltip: () => ({
+          ...itemTooltip(panel.owner, entry.template, entry.id, {
+            equipped: true,
+            uid: entry.uid,
+          }),
+          source: { surface: layer, path },
+        }),
+      },
+    );
+    button.dataset.itemUid = entry.uid;
+    button.dataset.itemSlot = String(entry.slot);
   }).catch((error) => panel.owner.report(error));
 }
 
@@ -165,6 +224,8 @@ function updateStats(panel, profile) {
   statValue(panel, "luk", profile.luk, 298);
   statValue(panel, "remainingAp", profile.remainingAp, 215);
   updateStatMode(panel, profile);
+  updateApControls(panel, profile);
+  updateStatDetail(panel);
 }
 
 /** 008c6177..6314: beginner jobs through level10 draw basicStat then return before numeric rows. */
@@ -220,11 +281,21 @@ function skillRow(panel, layer, entry, row) {
     120 + 40 * row,
     88,
   );
-  layer.hit(
+  const hit = layer.hit(
     template.name,
     { x: 7, y: 99 + 40 * row, width: 126, height: 38 },
     {
       pointerdown: (event) => {
+        if (event.button !== 0) return;
+        panel.skillSelectedId = template.id;
+        for (const button of layer.element.querySelectorAll(
+          "[data-skill-id]",
+        )) {
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.skillId === String(template.id)),
+          );
+        }
         if (rank <= 0 || panel.owner.store?.profileTransactionPending) return;
         panel.owner.beginBindingDrag(
           event,
@@ -234,10 +305,17 @@ function skillRow(panel, layer, entry, row) {
         );
       },
     },
-    () => ({
-      ...skillTooltip(panel.owner, template),
-      source: { surface: layer, path },
-    }),
+    {
+      tooltip: () => ({
+        ...skillTooltip(panel.owner, template),
+        source: { surface: layer, path },
+      }),
+    },
+  );
+  hit.dataset.skillId = String(template.id);
+  hit.setAttribute(
+    "aria-pressed",
+    String(panel.skillSelectedId === template.id),
   );
   // 008aad45..b3: original BtSpUp, x131/y119, four rows spaced40 pixels.
   layer.button("Skill/BtSpUp", 131, 119 + 40 * row, {
@@ -303,7 +381,12 @@ function skillPage(panel, profile, job) {
     (skill) => skill.bookId === job && visibleSkillEntry(skill, profile),
   );
   panel.skillCount = skills.length;
-  const start = panel.skillStart || 0;
+  panel.skillScrollbar.setRange(
+    Math.max(1, skills.length - 3),
+    panel.skillStart,
+  );
+  panel.skillStart = panel.skillScrollbar.position;
+  const start = panel.skillStart;
   const records = skills.slice(start, start + 4).map((template) => ({
     template,
     learned: profile?.skills[template.id],
@@ -371,9 +454,10 @@ function updateSkills(panel, profile) {
   if (panel.skillSignature === signature) return;
   panel.skillSignature = signature;
   updateSkillSummary(panel, profile, points, available);
-  replaceIcons(panel, records, (layer, entry, row) =>
-    skillRow(panel, layer, entry, row),
-  ).catch((error) => panel.owner.report(error));
+  replaceIcons(panel, records, (layer, entry, row) => {
+    skillRow(panel, layer, entry, row);
+    clipIconLayer(layer, 152, 99, 155);
+  }).catch((error) => panel.owner.report(error));
 }
 
 /** Profile notifications and tab/wheel events only; never builds display objects in RAF. */
@@ -427,8 +511,7 @@ export async function replaceMinimap(owner, panel, signal) {
     panel.mapResource = resource;
     panel.dependencies.push(resource);
     panel.mapId = id;
-    panel.mapLabel.textContent =
-      owner.quests.catalog.strings.map[id] || `Map ${id}`;
+    panel.mapLabel.textContent = owner.mapName(id);
     panel.mapStatus.textContent = "";
     rebuildMinimap(panel);
     updateMinimap(panel, scene.simulation.x, scene.simulation.y);
@@ -444,8 +527,7 @@ export async function replaceMinimap(owner, panel, signal) {
 }
 
 function unavailableMinimap(owner, panel, entry, id) {
-  panel.mapLabel.textContent =
-    owner.quests.catalog.strings.map[id] || `Map ${id}`;
+  panel.mapLabel.textContent = owner.mapName(id);
   releaseMap(panel);
   const reason = entry?.reason || "Map not in packaged UI index";
   panel.mapStatus.textContent = reason;
@@ -480,9 +562,9 @@ const PROFILE_FIELDS = [
   ["name", "Name", null, "identity"],
   ["level", "Level", 1, "identity"],
   ["hp", "HP", 0, "resources"],
-  ["maxHP", "Maximum HP", 1, "resources"],
+  ["baseMaxHP", "Base maximum HP", 1, "resources"],
   ["mp", "MP", 0, "resources"],
-  ["maxMP", "Maximum MP", 0, "resources"],
+  ["baseMaxMP", "Base maximum MP", 0, "resources"],
   ["str", "STR", 1, "attributes"],
   ["dex", "DEX", 1, "attributes"],
   ["int", "INT", 1, "attributes"],
@@ -614,6 +696,8 @@ export class ProfileControls {
       }
       this.fields.set(key, input);
     }
+    this.currentMaxima = inspectionElement("output", "", groups.resources);
+    this.currentMaxima.className = "profile-wide";
     const label = inspectionElement("label", "Job", groups.identity);
     label.className = "profile-wide";
     this.job = inspectionElement("select", "", label);
@@ -842,6 +926,9 @@ export class ProfileControls {
     const owner = this.owner,
       store = owner.store,
       profile = store.profile;
+    this.currentMaxima.textContent = profile
+      ? `Current maximum HP: ${profile.maxHP} · MP: ${profile.maxMP}`
+      : "";
     this.cancelStaleRequests();
     this.status.textContent =
       store.error?.message || store.error || store.status;

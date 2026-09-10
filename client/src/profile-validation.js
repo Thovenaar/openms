@@ -1,8 +1,33 @@
 import { PROGRESSION_POLICY } from "./offline-progression.js";
 import { createDefaultBindings, isAssignableKey } from "./keymap.js";
+import {
+  INVENTORY_POLICY,
+  inventoryType,
+  itemStackLimit,
+  effectiveItemStackLimit,
+  isRechargeable,
+  equippedSlots,
+  createItemUid,
+} from "./inventory-model.js";
+import {
+  createCash,
+  createSkillMacros,
+  validateCash,
+  validateMonsterBook,
+  validateSkillMacros,
+} from "./profile-domains.js";
+import {
+  createSocial,
+  validateSocial,
+  validateSocialOwner,
+} from "./profile-social.js";
+import {
+  createGameOptions,
+  validateGameOptions,
+} from "./profile-game-options.js";
 
 /** Versioned browser save format; limits are local engineering policies, not native rules. */
-export const PROFILE_VERSION = 4;
+export const PROFILE_VERSION = 5;
 export const PROFILE_LIMITS = Object.freeze({
   inventory: 4096,
   equipment: 128,
@@ -12,6 +37,7 @@ export const PROFILE_LIMITS = Object.freeze({
   coordinate: 10000000,
   name: 32,
   skills: 4096,
+  characters: 32,
 });
 
 const PROFILE_KEYS = [
@@ -39,7 +65,20 @@ const PROFILE_KEYS = [
   "remainingSp",
   "skills",
   "remainingAp",
+  "inventorySlots",
+  "gender",
+  "appearance",
+  "baseMaxHP",
+  "baseMaxMP",
+  "cash",
+  "monsterBook",
+  "skillMacros",
+  "social",
 ];
+const LEGACY_PROFILE_KEYS = PROFILE_KEYS.slice(0, -9);
+const NATIVE_EQUIPPED_POSITIONS = new Set([
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 49, 50, 51,
+]);
 
 /** Errors retain a stable code for native UI and inspection consumers. */
 export function profileError(code, message, cause) {
@@ -99,30 +138,174 @@ function dictionary(value, limit, path) {
   return own;
 }
 
-function inventory(values) {
-  if (!Array.isArray(values) || values.length > PROFILE_LIMITS.inventory) {
-    invalid("inventory");
+function itemRecord(entry) {
+  keys(
+    entry,
+    ["uid", "id", "count", "slot", "owner", "flags", "expiresAt"],
+    "item entry",
+  );
+  inventoryType(entry.id);
+  if (
+    typeof entry.uid !== "string" ||
+    !/^[A-Za-z0-9_-]{1,80}$/.test(entry.uid)
+  ) {
+    invalid("item uid");
   }
-  const seen = new Set();
-  for (const entry of values) {
-    keys(entry, ["id", "count"], "inventory entry");
-    itemId(entry.id, "inventory id");
-    integer(entry.count, 1, "inventory count");
-    if (seen.has(entry.id)) invalid("duplicate inventory id");
-    seen.add(entry.id);
+  integer(entry.count, isRechargeable(entry.id) ? 0 : 1, "item count");
+  if (!Number.isSafeInteger(entry.slot) || entry.slot === 0) {
+    invalid("item slot");
+  }
+  if (
+    typeof entry.owner !== "string" ||
+    entry.owner.length > INVENTORY_POLICY.ownerLength
+  ) {
+    invalid("item owner");
+  }
+  integer(entry.flags, 0, "item flags");
+  if (entry.flags > 0xffff) invalid("item flags");
+  if (entry.expiresAt !== null) integer(entry.expiresAt, 0, "item expiration");
+  if (inventoryType(entry.id) === 1 && entry.count !== 1) {
+    invalid("equipment count");
   }
 }
 
-function equipment(values) {
-  if (!Array.isArray(values) || values.length > PROFILE_LIMITS.equipment) {
+function itemTemplate(items, id) {
+  const template = items?.[id];
+  if (!template?.descriptor || template.id !== id) {
+    throw profileError(
+      "item-unavailable",
+      `Original item metadata unavailable for saved item ${id}; the durable save is unchanged.`,
+    );
+  }
+  return template;
+}
+
+function validateItemMetadata(entry, items, equipped, profile) {
+  if (!items) return;
+  const template = itemTemplate(items, entry.id);
+  const limit = profile
+    ? effectiveItemStackLimit(profile, template)
+    : itemStackLimit(template);
+  if (entry.count > limit) {
+    invalid(`item ${entry.id} exceeds authored stack limit`);
+  }
+  if (equipped && !equippedSlots(template).includes(entry.slot)) {
+    invalid(`item ${entry.id} equipped slot`);
+  }
+  return template;
+}
+
+function validateInventoryCapacity(value) {
+  if (
+    !Array.isArray(value.inventorySlots) ||
+    value.inventorySlots.length !== 5
+  ) {
+    invalid("inventorySlots");
+  }
+  for (const capacity of value.inventorySlots) {
+    integer(capacity, 1, "inventory capacity");
+    if (capacity > PROFILE_LIMITS.inventory) invalid("inventory capacity");
+  }
+  if (
+    !Array.isArray(value.inventory) ||
+    value.inventory.length > PROFILE_LIMITS.inventory
+  ) {
+    invalid("inventory");
+  }
+  if (
+    !Array.isArray(value.equipment) ||
+    value.equipment.length > PROFILE_LIMITS.equipment
+  ) {
     invalid("equipment");
   }
-  const seen = new Set();
-  for (const id of values) {
-    itemId(id, "equipment id");
-    if (seen.has(id)) invalid("duplicate equipment id");
-    seen.add(id);
+}
+
+function inventory(value, items) {
+  validateInventoryCapacity(value);
+  const uids = new Set(),
+    slots = new Set(),
+    totals = new Map();
+  for (const entries of [value.inventory, value.equipment]) {
+    const equipped = entries === value.equipment;
+    for (const entry of entries) {
+      itemRecord(entry);
+      const type = validateInventorySlot(entry, value, equipped);
+      const slot = `${type}:${entry.slot}`;
+      if (uids.has(entry.uid)) invalid("duplicate item uid");
+      if (slots.has(slot)) invalid("duplicate item slot");
+      uids.add(entry.uid);
+      slots.add(slot);
+      const count = (totals.get(entry.id) ?? 0) + entry.count;
+      integer(count, isRechargeable(entry.id) ? 0 : 1, "total item quantity");
+      totals.set(entry.id, count);
+      validateItemMetadata(entry, items, equipped, value);
+    }
   }
+  validateEquippedConflicts(value.equipment, slots);
+}
+
+function validateInventorySlot(entry, profile, equipped) {
+  const type = inventoryType(entry.id);
+  const equippedPosition = -entry.slot > 100 ? -entry.slot - 100 : -entry.slot;
+  if (
+    equipped
+      ? type !== 1 ||
+        entry.slot >= 0 ||
+        !NATIVE_EQUIPPED_POSITIONS.has(equippedPosition) ||
+        entry.count !== 1
+      : entry.slot < 1 || entry.slot > profile.inventorySlots[type - 1]
+  ) {
+    invalid("item slot");
+  }
+  return type;
+}
+
+/** Cosmic SERVER-reference InventoryManipulator.equip/getWeaponType mutual exclusions. */
+function validateEquippedConflicts(equipment, slots) {
+  for (const entry of equipment) {
+    const category = Math.floor(entry.id / 10000);
+    if (entry.slot === -5 && category === 105 && slots.has("1:-6")) {
+      invalid("equipped overall conflicts with pants");
+    }
+    if (
+      entry.slot === -11 &&
+      category >= 140 &&
+      category <= 149 &&
+      slots.has("1:-10")
+    ) {
+      invalid("equipped two-handed weapon conflicts with shield");
+    }
+  }
+}
+
+/** Every owned item and gift envelope has a distinct identity across the transaction. */
+export function validateCharacterUids(profiles) {
+  if (
+    !Array.isArray(profiles) ||
+    profiles.length < 1 ||
+    profiles.length > PROFILE_LIMITS.characters
+  ) {
+    invalid("character transaction participants");
+  }
+  const seen = new Set();
+  for (const profile of profiles) {
+    for (const entries of [
+      profile.inventory,
+      profile.equipment,
+      profile.cash.locker,
+    ]) {
+      for (const entry of entries) addUid(seen, entry.uid);
+    }
+    for (const gift of profile.cash.gifts) {
+      addUid(seen, gift.uid);
+      for (const item of gift.items) addUid(seen, item.uid);
+    }
+  }
+}
+
+function addUid(seen, uid) {
+  if (seen.has(uid)) invalid("duplicate owned item or gift uid");
+  seen.add(uid);
 }
 
 function quests(value) {
@@ -167,7 +350,11 @@ export function validateProfileLocation(value) {
 }
 
 function settings(value) {
-  keys(value, ["BGM", "SE", "chat"], "settings");
+  keys(
+    value,
+    ["BGM", "SE", "chat", "questTracker", "gameOptions", "alerts"],
+    "settings",
+  );
   for (const category of ["BGM", "SE"]) {
     const audio = value[category];
     keys(audio, ["volume", "mute"], `settings ${category}`);
@@ -180,6 +367,31 @@ function settings(value) {
   integer(value.chat.state, 1, "chat state");
   integer(value.chat.height, 26, "chat height");
   if (value.chat.state > 3 || value.chat.height > 507) invalid("chat settings");
+  validateQuestTracker(value.questTracker);
+  validateGameOptions(value.gameOptions);
+  keys(value.alerts, ["hp", "mp"], "gauge alerts");
+  for (const threshold of [value.alerts.hp, value.alerts.mp]) {
+    integer(threshold, 0, "gauge alert threshold");
+    if (threshold > 19) invalid("gauge alert threshold");
+  }
+}
+
+function validateQuestTracker(tracker) {
+  keys(tracker, ["ids", "auto", "open"], "quest tracker");
+  if (
+    !Array.isArray(tracker.ids) ||
+    tracker.ids.length > 5 ||
+    typeof tracker.auto !== "boolean" ||
+    typeof tracker.open !== "boolean"
+  ) {
+    invalid("quest tracker");
+  }
+  const seen = new Set();
+  for (const id of tracker.ids) {
+    integer(id, 0, "tracked quest");
+    if (id > 999999999 || seen.has(id)) invalid("tracked quest");
+    seen.add(id);
+  }
 }
 
 /** Preserve the packed byte/uint32 contract, including assigned type4/ID0. */
@@ -220,37 +432,141 @@ function validateQuickSlots(quickSlots) {
 }
 
 /** Sequential migrations validate old root keys before adding only new domains. */
-export function migrateProfile(value) {
+export function migrateProfile(value, items) {
   object(value, "root");
-  if (![1, 2, 3].includes(value.schemaVersion)) {
-    return validateProfile(value);
+  if (![1, 2, 3, 4].includes(value.schemaVersion)) {
+    return validateProfile(value, items);
   }
-  if (value.schemaVersion === 3) {
-    keys(value, PROFILE_KEYS.slice(0, -1), "legacy root");
-    return validateProfile({
-      ...structuredClone(value),
-      schemaVersion: PROFILE_VERSION,
-      remainingAp: 0,
-    });
-  }
-  const oldKeys = PROFILE_KEYS.slice(0, -3);
+  const version = value.schemaVersion;
   keys(
     value,
-    value.schemaVersion === 1 ? oldKeys.slice(0, -1) : oldKeys,
+    LEGACY_PROFILE_KEYS.slice(
+      0,
+      version === 1 ? -4 : version === 2 ? -3 : version === 3 ? -1 : undefined,
+    ),
     "legacy root",
   );
-  keys(value.settings, ["BGM", "SE"], "legacy settings");
-  const migrated = structuredClone(value);
-  if (migrated.schemaVersion === 1) {
-    migrated.keyBindings = createDefaultBindings();
-    migrated.schemaVersion = 2;
+  keys(
+    value.settings,
+    version < 3 ? ["BGM", "SE"] : ["BGM", "SE", "chat"],
+    "legacy settings",
+  );
+  validateLegacyItems(value);
+  // Validate pre-clone descriptors in every unrelated domain, not just the legacy root.
+  const candidate = {
+    ...value,
+    schemaVersion: PROFILE_VERSION,
+    inventory: [],
+    equipment: [],
+    inventorySlots: Array(5).fill(INVENTORY_POLICY.categorySlots),
+    gender: 0,
+    appearance: { skin: 0, face: 20000, hair: 30000 },
+    baseMaxHP: value.maxHP,
+    baseMaxMP: value.maxMP,
+    keyBindings: version === 1 ? createDefaultBindings() : value.keyBindings,
+    remainingSp: version < 3 ? Array(10).fill(0) : value.remainingSp,
+    skills: version < 3 ? {} : value.skills,
+    remainingAp: version < 4 ? 0 : value.remainingAp,
+    cash: createCash(),
+    monsterBook: { cards: {}, cover: 0 },
+    skillMacros: createSkillMacros(),
+    social: createSocial(),
+    settings: {
+      ...value.settings,
+      chat: version < 3 ? { state: 1, height: 70 } : value.settings.chat,
+      questTracker: { ids: [], auto: true, open: true },
+      gameOptions: createGameOptions(),
+      alerts: { hp: 10, mp: 10 },
+    },
+  };
+  validateProfile(candidate);
+  const migrated = structuredClone(candidate);
+  migrateLegacyItems(value, migrated, items);
+  return validateProfile(migrated, items);
+}
+
+function validateLegacyItems(value) {
+  if (
+    !Array.isArray(value.inventory) ||
+    value.inventory.length > PROFILE_LIMITS.inventory
+  ) {
+    invalid("legacy inventory");
   }
-  migrated.remainingSp = Array(10).fill(0);
-  migrated.skills = {};
-  migrated.remainingAp = 0;
-  migrated.settings.chat = { state: 1, height: 70 };
-  migrated.schemaVersion = PROFILE_VERSION;
-  return validateProfile(migrated);
+  if (
+    !Array.isArray(value.equipment) ||
+    value.equipment.length > PROFILE_LIMITS.equipment
+  ) {
+    invalid("legacy equipment");
+  }
+  const ids = new Set();
+  for (const entry of value.inventory) {
+    keys(entry, ["id", "count"], "legacy inventory");
+    itemId(entry.id, "legacy item id");
+    integer(entry.count, 1, "legacy item count");
+    if (ids.has(entry.id)) invalid("duplicate legacy item id");
+    ids.add(entry.id);
+  }
+  ids.clear();
+  for (const id of value.equipment) {
+    itemId(id, "legacy equipment id");
+    if (ids.has(id)) invalid("duplicate legacy equipment id");
+    ids.add(id);
+  }
+}
+
+function baseInstance(id, count, slot) {
+  return {
+    uid: createItemUid(),
+    id,
+    count,
+    slot,
+    owner: "",
+    flags: 0,
+    expiresAt: null,
+  };
+}
+
+function migrateLegacyItems(value, migrated, items) {
+  const used = Array(5).fill(0);
+  for (const entry of value.inventory) {
+    const template = itemTemplate(items, entry.id);
+    const type = inventoryType(entry.id),
+      limit = itemStackLimit(template);
+    const required = Math.ceil(entry.count / limit);
+    if (migrated.inventory.length + required > PROFILE_LIMITS.inventory) {
+      throw profileError(
+        "migration-capacity",
+        `Preserving legacy item ${entry.id} requires ${required} stacks beyond the 4096-record budget; the durable save is unchanged.`,
+      );
+    }
+    let remaining = entry.count;
+    for (let index = 0; index < required; index++) {
+      const count = Math.min(limit, remaining);
+      migrated.inventory.push(baseInstance(entry.id, count, ++used[type - 1]));
+      remaining -= count;
+    }
+  }
+  // Larger capacities are retained legacy browser capacity, not native expansion grants.
+  for (let index = 0; index < 5; index++) {
+    migrated.inventorySlots[index] = Math.max(
+      INVENTORY_POLICY.categorySlots,
+      used[index],
+    );
+  }
+  const slots = new Set();
+  for (const id of value.equipment) {
+    const slot = equippedSlots(itemTemplate(items, id)).find(
+      (candidate) => !slots.has(candidate),
+    );
+    if (slot === undefined) {
+      throw profileError(
+        "migration-equipped-slot",
+        `Legacy equipped item ${id} has no unoccupied authored slot; the durable save is unchanged.`,
+      );
+    }
+    slots.add(slot);
+    migrated.equipment.push(baseInstance(id, 1, slot));
+  }
 }
 
 /** Catalog maximum ranks are checked by the character/skill service boundary. */
@@ -271,8 +587,20 @@ function learnedSkills(value) {
   }
 }
 
-/** Scalar character fields retain their existing validation order and numeric limits. */
-function validateCharacterScalars(value) {
+function validateCharacterIdentity(value) {
+  integer(value.gender, 0, "gender");
+  if (value.gender > 1) invalid("gender");
+  keys(value.appearance, ["skin", "face", "hair"], "appearance");
+  for (const field of ["skin", "face", "hair"]) {
+    integer(value.appearance[field], 0, `appearance ${field}`);
+  }
+  if (
+    value.appearance.skin > 255 ||
+    value.appearance.face > 99999 ||
+    value.appearance.hair > 99999
+  ) {
+    invalid("appearance");
+  }
   if (
     typeof value.name !== "string" ||
     !value.name.trim() ||
@@ -280,7 +608,20 @@ function validateCharacterScalars(value) {
   ) {
     invalid("name");
   }
-  for (const key of ["level", "maxHP", "str", "dex", "int", "luk"]) {
+}
+
+/** Scalar character fields retain their existing validation order and numeric limits. */
+function validateCharacterScalars(value) {
+  validateCharacterIdentity(value);
+  for (const key of [
+    "level",
+    "maxHP",
+    "baseMaxHP",
+    "str",
+    "dex",
+    "int",
+    "luk",
+  ]) {
     integer(value[key], 1, key);
   }
   if (value.level > PROGRESSION_POLICY.maxLevel) {
@@ -293,6 +634,7 @@ function validateCharacterScalars(value) {
     "hp",
     "mp",
     "maxMP",
+    "baseMaxMP",
     "remainingAp",
   ]) {
     integer(value[key], 0, key);
@@ -304,7 +646,7 @@ function validateCharacterScalars(value) {
 }
 
 /** Validate all durable fields before accepting or cloning a checkpoint. */
-export function validateProfile(value) {
+export function validateProfile(value, items) {
   object(value, "root");
   if (value.schemaVersion !== PROFILE_VERSION) {
     const code =
@@ -318,8 +660,19 @@ export function validateProfile(value) {
   }
   keys(value, PROFILE_KEYS, "root");
   validateCharacterScalars(value);
-  inventory(value.inventory);
-  equipment(value.equipment);
+  learnedSkills(value.skills);
+  inventory(value, items);
+  validateCash(value.cash, (entry) => {
+    itemRecord(entry);
+    const template = validateItemMetadata(entry, items, false);
+    if (items && template.info?.cash !== 1) {
+      invalid("non-cash locker or gift item");
+    }
+  });
+  validateCharacterUids([value]);
+  validateMonsterBook(value.monsterBook);
+  validateSkillMacros(value.skillMacros);
+  validateSocial(value.social);
   quests(value.quests);
   validateProfileLocation(value.location);
   settings(value.settings);
@@ -328,18 +681,17 @@ export function validateProfile(value) {
     invalid("remainingSp");
   }
   for (const points of value.remainingSp) integer(points, 0, "remainingSp");
-  learnedSkills(value.skills);
   return value;
 }
 
 /** The envelope revision is independent of the gameplay schema and IDB physical version. */
-export function validateProfileRecord(record) {
+export function validateProfileRecord(record, items) {
   keys(
     record,
     ["id", "generation", "revision", "createdAt", "updatedAt", "profile"],
     "envelope",
   );
-  if (record.id !== "local") invalid("envelope id");
+  validateCharacterId(record.id);
   if (
     typeof record.generation !== "string" ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
@@ -351,8 +703,16 @@ export function validateProfileRecord(record) {
   integer(record.revision, 0, "revision");
   integer(record.createdAt, 0, "createdAt");
   integer(record.updatedAt, record.createdAt, "updatedAt");
-  validateProfile(record.profile);
+  validateProfile(record.profile, items);
+  validateSocialOwner(record.profile.social, record.id);
   return record;
+}
+
+export function validateCharacterId(id) {
+  if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+    invalid("character id");
+  }
+  return id;
 }
 
 /** Explicit provisional beginner policy, not recovered original character grants. */
@@ -367,6 +727,9 @@ export function createProfile(location) {
   return {
     schemaVersion: PROFILE_VERSION,
     name: "Maple",
+    // The existing packaged avatar identity; migration does not grant a new cosmetic style.
+    gender: 0,
+    appearance: { skin: 0, face: 20000, hair: 30000 },
     level: 1,
     job: 0,
     exp: 0,
@@ -374,24 +737,40 @@ export function createProfile(location) {
     fame: 0,
     hp: 50,
     maxHP: 50,
+    baseMaxHP: 50,
     mp: 30,
     maxMP: 30,
+    baseMaxMP: 30,
     str: 12,
     dex: 5,
     int: 4,
     luk: 4,
     inventory: [],
-    equipment: [1040002, 1060002, 1072001, 1302000],
+    inventorySlots: Array(5).fill(INVENTORY_POLICY.categorySlots),
+    // Original starter templates: coat Ma, pants Pn, shoes So, sword Wp.
+    equipment: [
+      [1040002, -5],
+      [1060002, -6],
+      [1072001, -7],
+      [1302000, -11],
+    ].map(([id, slot]) => baseInstance(id, 1, slot)),
     quests: {},
     location: { ...location },
     keyBindings: createDefaultBindings(),
     remainingSp: Array(10).fill(0),
     remainingAp: 0,
     skills: {},
+    cash: createCash(),
+    monsterBook: { cards: {}, cover: 0 },
+    skillMacros: createSkillMacros(),
+    social: createSocial(),
     settings: {
       BGM: { volume: 64, mute: false },
       SE: { volume: 64, mute: false },
       chat: { state: 1, height: 70 },
+      questTracker: { ids: [], auto: true, open: true },
+      gameOptions: createGameOptions(),
+      alerts: { hp: 10, mp: 10 },
     },
   };
 }

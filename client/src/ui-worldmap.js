@@ -1,7 +1,8 @@
 const MAX_MAPS = 32;
 const MAX_SPOTS = 256;
-const MAP_LEFT = 7;
-const MAP_TOP = 33;
+const MAX_LINKS = 64;
+const MAP_LEFT = 13;
+const MAP_TOP = 35;
 
 /** Select the narrowest authored map containing the field; never infer a spot from field coordinates. */
 export function worldMapForField(maps, fieldId) {
@@ -26,6 +27,41 @@ export function worldMapForField(maps, fieldId) {
   return selected;
 }
 
+function matchingFields(map, fields) {
+  const matched = new Set();
+  for (const spot of map.spots) {
+    for (const field of spot.maps) if (fields.has(field)) matched.add(field);
+  }
+  return matched;
+}
+
+/** 009ea1e1/009ea7da: descend only into a link covering all located target fields. */
+function worldMapForNpc(maps, fields) {
+  let name = "WorldMap";
+  const visited = new Set();
+  for (let depth = 0; depth < MAX_MAPS; depth++) {
+    if (visited.has(name)) {
+      throw new Error("Original NPC world-map hierarchy contains a cycle");
+    }
+    visited.add(name);
+    const map = maps[name];
+    if (!map) return null;
+    const matches = [],
+      combined = matchingFields(map, fields);
+    for (const link of map.links) {
+      if (!maps[link.target]) continue;
+      const found = matchingFields(maps[link.target], fields);
+      for (const field of found) combined.add(field);
+      matches.push({ name: link.target, count: found.size });
+    }
+    if (!combined.size) return null;
+    const child = matches.find((entry) => entry.count === combined.size);
+    if (!child) return name;
+    name = child.name;
+  }
+  throw new Error("Original NPC world-map hierarchy exceeds its bound");
+}
+
 function scaled(panel, path, { x, y, width, height }) {
   const asset = panel.assets[path];
   const image = panel.image(path, x, y);
@@ -38,28 +74,43 @@ function scaled(panel, path, { x, y, width, height }) {
 
 function border(panel) {
   const prefix = "WorldMapUI/Border/";
+  const right = panel.width - 7,
+    bottom = panel.height - 18;
   panel.image(`${prefix}0`, 0, 0);
-  scaled(panel, `${prefix}1`, { x: 7, y: 0, width: 640, height: 33 });
-  panel.image(`${prefix}2`, 647, 0);
-  scaled(panel, `${prefix}3`, { x: 0, y: 33, width: 7, height: 470 });
-  scaled(panel, `${prefix}4`, { x: 647, y: 33, width: 7, height: 470 });
-  panel.image(`${prefix}5`, 0, 503);
-  scaled(panel, `${prefix}6`, { x: 7, y: 503, width: 640, height: 18 });
-  panel.image(`${prefix}7`, 647, 503);
+  scaled(panel, `${prefix}1`, {
+    x: 7,
+    y: 0,
+    width: panel.width - 14,
+    height: 33,
+  });
+  panel.image(`${prefix}2`, right, 0);
+  scaled(panel, `${prefix}3`, { x: 0, y: 32, width: 7, height: bottom - 32 });
+  scaled(panel, `${prefix}4`, {
+    x: right,
+    y: 32,
+    width: 7,
+    height: bottom - 32,
+  });
+  panel.image(`${prefix}5`, 0, bottom);
+  scaled(panel, `${prefix}6`, {
+    x: 7,
+    y: bottom,
+    width: panel.width - 14,
+    height: 18,
+  });
+  panel.image(`${prefix}7`, right, bottom);
   panel.image("WorldMapUI/title", 15, 10);
 }
 
-function fieldName(panel, id) {
-  const manifest = panel.owner.scene?.manifest;
-  if (Number(manifest?.id) === id) {
-    return `${manifest.mapName || manifest.name || "Current field"} (${id})`;
-  }
-  return `Field ${id}`;
-}
-
 function spotLabel(panel, spot) {
-  const fields = spot.maps.map((id) => fieldName(panel, id)).join(", ");
-  return `${spot.title || fields}${spot.description ? `\n${spot.description}` : ""}\n${fields}`;
+  const fields = [...new Set(spot.maps.map((id) => panel.owner.mapName(id)))];
+  const parts = [];
+  if (spot.title) parts.push(spot.title);
+  if (spot.description) parts.push(spot.description);
+  if (fields.length && (fields.length !== 1 || fields[0] !== spot.title)) {
+    parts.push(fields.join("\n"));
+  }
+  return parts.join("\n");
 }
 
 function drawSpots(panel, layer, map, anchor) {
@@ -68,113 +119,232 @@ function drawSpots(panel, layer, map, anchor) {
     const x = anchor.x + spot.x,
       y = anchor.y + spot.y;
     const path = `WorldMapHelper/mapImage/${spot.type}`;
-    if (!layer.assets[path]) {
+    const asset = layer.assets[path];
+    if (!asset) {
       throw new Error(
         `Unsupported original world map marker type ${spot.type}`,
       );
     }
     layer.image(path, x, y, true);
     const label = spotLabel(panel, spot);
+    // 009edd67 admits both axes within one third of the original marker width.
+    const radius = Math.trunc(asset.width / 3);
     layer.hit(
       label,
-      { x: x - 8, y: y - 8, width: 16, height: 16 },
       {
-        click: () => {
-          panel.worldStatus.textContent = label;
-        },
+        x: x - radius,
+        y: y - radius,
+        width: radius * 2 + 1,
+        height: radius * 2 + 1,
       },
+      {},
+      { tooltip: label },
     );
     if (spot.maps.includes(current)) {
-      layer.image("WorldMapHelper/curPos/0", x, y, true);
+      layer.stateImage("WorldMapHelper/curPos/0", x, y);
+    }
+    if (
+      panel.worldNpcFields &&
+      spot.maps.some((field) => panel.worldNpcFields.has(field))
+    ) {
+      layer.stateImage(`WorldMapHelper/npcPos${spot.type}/0`, x, y, 7000);
     }
   }
 }
 
-function drawLinks(panel, layer, map, anchor) {
+function drawLinks(layer, map, anchor) {
+  const links = [];
   for (const link of map.links) {
     const asset = layer.assets[link.path];
-    const x = anchor.x - asset.origin.x,
-      y = anchor.y - asset.origin.y;
-    // Native linkImg is a hover overlay; its transparent rectangle is not an always-visible painting.
+    const mask = layer.alphaMask(link.path);
     const image = layer.image(link.path, anchor.x, anchor.y, true);
     image.container.visible = false;
-    layer.hit(
-      link.title || link.target,
-      { x, y, width: asset.width, height: asset.height },
-      {
-        pointerenter: () => {
-          image.container.visible = true;
-          panel.renderArtwork();
-        },
-        pointerleave: () => {
-          image.container.visible = false;
-          panel.renderArtwork();
-        },
-        focus: () => {
-          image.container.visible = true;
-          panel.renderArtwork();
-        },
-        blur: () => {
-          image.container.visible = false;
-          panel.renderArtwork();
-        },
-        click: () => showMap(panel, link.target),
-      },
-    );
+    links.push({
+      target: link.target,
+      title: link.title,
+      x: anchor.x - asset.origin.x,
+      y: anchor.y - asset.origin.y,
+      image,
+      mask,
+    });
   }
+  return links;
 }
 
-function showMap(panel, name) {
-  const map = panel.resource.manifest.metadata.worldMaps[name];
-  if (!map) {
-    panel.worldStatus.textContent = `Original map ${name} is absent from Map.wz.`;
-    return;
+/** 009ee00e: first authored MapLink whose actual canvas pixel has nonzero alpha wins. */
+function linkAt(panel, x, y) {
+  for (const link of panel.worldLinks) {
+    const px = Math.floor(x - link.x),
+      py = Math.floor(y - link.y);
+    const mask = link.mask;
+    if (
+      px >= 0 &&
+      py >= 0 &&
+      px < mask.width &&
+      py < mask.height &&
+      mask.alpha[py * mask.width + px] !== 0
+    ) {
+      return link;
+    }
   }
-  panel.worldLayer?.destroy();
-  panel.worldName = name;
-  panel.worldSelect.value = name;
-  const layer = panel.layer("WorldMapContents");
-  panel.worldLayer = layer;
-  const asset = panel.assets[`${name}/BaseImg/0`];
-  layer.image(`${name}/BaseImg/0`, MAP_LEFT, MAP_TOP);
-  const anchor = { x: MAP_LEFT + asset.origin.x, y: MAP_TOP + asset.origin.y };
-  drawSpots(panel, layer, map, anchor);
-  drawLinks(panel, layer, map, anchor);
-  const field = Number(panel.owner.scene?.manifest.id);
-  const marked = map.spots.some((spot) => spot.maps.includes(field));
-  panel.worldStatus.textContent = `${fieldName(panel, field)} — ${marked ? "current position marked" : "not represented on this original map"}`;
-  panel.worldParent.disabled = !map.parent;
+  return null;
+}
+
+function hoverLink(panel, link) {
+  if (link === panel.worldHovered) return;
+  if (panel.worldHovered) panel.worldHovered.image.container.visible = false;
+  panel.worldHovered = link;
+  if (link) link.image.container.visible = true;
+  panel.element.dataset.cursorState = link ? "5" : "0";
   panel.renderArtwork();
 }
 
-/** Surface owns all controls, borrowed resources and replacement layers. Navigation never teleports. */
-export function layoutWorldMap(panel) {
-  border(panel);
+function pointerLink(panel, event) {
+  const point = panel.owner.logicalPointer(event);
+  return linkAt(panel, point.x - panel.x, point.y - panel.y);
+}
+
+function moveWorldMap(panel, event) {
+  const link = pointerLink(panel, event);
+  hoverLink(panel, link);
+  // Spot controls own their richer title/description/field tooltip when overlapped.
+  if (event.target !== panel.element) return;
+  if (link?.title) {
+    const point = panel.owner.logicalPointer(event);
+    panel.owner.showTooltip(link.title, point.x, point.y, panel.element);
+  } else if (panel.owner.tooltipAnchor === panel.element) {
+    panel.owner.hideTooltip();
+  }
+}
+
+/** 009ee6e5: child on left-button UP, parentMap on right-button UP; never a field teleport. */
+function releaseWorldMap(panel, event) {
+  if (event.button === 0) {
+    const link = pointerLink(panel, event);
+    if (link?.target) {
+      event.preventDefault();
+      showMap(panel, link.target);
+    }
+  } else if (event.button === 2) {
+    event.preventDefault();
+    const map = panel.resource.manifest.metadata.worldMaps[panel.worldName];
+    if (map?.parent) showMap(panel, map.parent);
+  }
+}
+
+function prepareMap(panel, map, name) {
+  if (map.spots.length > MAX_SPOTS || map.links.length > MAX_LINKS) {
+    throw new Error("World map content exceeds its authored budget");
+  }
+  const layer = panel.layer("WorldMapContents");
+  layer.root.visible = false;
+  layer.element.hidden = true;
+  try {
+    const asset = panel.assets[`${name}/BaseImg/0`];
+    layer.image(`${name}/BaseImg/0`, MAP_LEFT, MAP_TOP);
+    const anchor = {
+      x: MAP_LEFT + asset.origin.x,
+      y: MAP_TOP + asset.origin.y,
+    };
+    const links = drawLinks(layer, map, anchor);
+    drawSpots(panel, layer, map, anchor);
+    return { layer, links };
+  } catch (error) {
+    layer.destroy();
+    throw error;
+  }
+}
+
+/** Prepare every canvas, mask and control before replacing the last complete visible region. */
+function showMap(panel, name) {
   const maps = panel.resource.manifest.metadata.worldMaps;
-  if (!maps?.WorldMap) {
-    throw new Error("Original world map bundle is missing; regenerate assets");
+  const map = maps[name];
+  if (!map) {
+    panel.owner.status("Original region artwork is unavailable.");
+    return false;
   }
-  const select = document.createElement("select");
-  select.setAttribute("aria-label", "Original world map region");
-  select.style.cssText = "position:absolute;left:100px;top:5px;width:210px;";
-  for (const name of Object.keys(maps)) {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    select.append(option);
+  let candidate = null;
+  const previous = panel.worldLayer;
+  try {
+    candidate = prepareMap(panel, map, name);
+    if (previous) previous.root.visible = false;
+    candidate.layer.root.visible = true;
+    panel.renderArtwork();
+  } catch (error) {
+    candidate?.layer.destroy();
+    if (!previous) throw error;
+    previous.root.visible = true;
+    panel.renderArtwork();
+    panel.owner.report(error);
+    return false;
   }
-  panel.element.append(select);
-  panel.worldSelect = select;
-  panel.listen(select, "change", () => showMap(panel, select.value));
-  panel.worldStatus = panel.text("", 12, 505, 630);
-  panel.worldStatus.style.cssText +=
-    "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px;";
-  panel.worldParent = panel.localButton("Parent", 330, 4, () =>
-    showMap(panel, maps[panel.worldName].parent),
+  panel.owner.hideTooltip();
+  previous?.destroy();
+  panel.worldLayer = candidate.layer;
+  panel.worldLayer.element.hidden = false;
+  panel.worldLinks = candidate.links;
+  panel.worldHovered = null;
+  panel.worldName = name;
+  panel.element.dataset.cursorState = "0";
+  return true;
+}
+
+function markNpc(panel, npcId) {
+  const { npcLocations, worldMaps } = panel.resource.manifest.metadata;
+  const locations = npcLocations[npcId];
+  if (!locations || locations[0] === -1) {
+    return { ok: false, code: "npc-location" };
+  }
+  if (locations.length > 1024) {
+    throw new Error("Original NPC field inventory exceeds its bound");
+  }
+  const fields = new Set(locations);
+  const region = worldMapForNpc(worldMaps, fields);
+  if (!region) return { ok: false, code: "npc-location" };
+  const previous = panel.worldNpcFields;
+  panel.worldNpcFields = fields;
+  if (!showMap(panel, region)) {
+    panel.worldNpcFields = previous;
+    return { ok: false, code: "world-map" };
+  }
+  panel.worldNpcId = npcId;
+  return { ok: true, npcId, region };
+}
+
+/** Surface owns borrowed artwork and event listeners. No developer hierarchy controls or remote markers. */
+export function layoutWorldMap(panel) {
+  const maps = panel.resource.manifest.metadata.worldMaps;
+  if (!maps?.WorldMap || Object.keys(maps).length > MAX_MAPS) {
+    throw new Error(
+      "Original world map bundle is missing or exceeds its budget",
+    );
+  }
+  for (const map of Object.values(maps)) {
+    if (map.spots.length > MAX_SPOTS || map.links.length > MAX_LINKS) {
+      throw new Error("World map content exceeds its authored budget");
+    }
+  }
+  border(panel);
+  panel.worldLinks = [];
+  panel.listen(panel.element, "pointermove", (event) =>
+    moveWorldMap(panel, event),
   );
-  panel.localButton("Current field", 390, 4, () =>
-    showMap(panel, worldMapForField(maps, panel.owner.scene?.manifest.id)),
+  panel.listen(panel.element, "pointerup", (event) =>
+    releaseWorldMap(panel, event),
   );
+  panel.listen(panel.element, "contextmenu", (event) => event.preventDefault());
+  panel.listen(panel.element, "pointerleave", () => {
+    hoverLink(panel, null);
+    panel.owner.hideTooltip();
+  });
+  panel.cleanups.push(() => {
+    if (panel.owner.tooltipAnchor === panel.element) panel.owner.hideTooltip();
+  });
+  panel.markNpc = (id) => markNpc(panel, id);
+  panel.cleanups.push(() => {
+    delete panel.markNpc;
+    panel.worldNpcFields = null;
+  });
   panel.worldField = panel.owner.scene?.manifest.id;
   panel.localRefresh = () => {
     const field = panel.owner.scene?.manifest.id;

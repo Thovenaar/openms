@@ -1,9 +1,15 @@
 import { loadVisualBundle } from "./visual-resources.js";
 import { ACTION_PALETTE, canonicalKeyIndex } from "./keymap.js";
-import { replaceIcons, drawItemCount, retireBindingLayer } from "./ui-icons.js";
+import {
+  replaceIcons,
+  drawItemCount,
+  retireBindingLayer,
+  bindingTemplate,
+} from "./ui-icons.js";
 import { drawKeyLabel } from "./ui-keyconfig.js";
 import { HUD_CLIENT_Y } from "./ui-hud.js";
 import { bindingTooltip } from "./ui-tooltip.js";
+import { itemCount } from "./inventory-model.js";
 
 // 008de8d5 / DAT_00be2db0: CWnd-local647,427; add the native window origin.
 export const QUICK_SLOT_COORDINATES = Object.freeze([
@@ -95,22 +101,23 @@ export function refreshQuickSlots(owner) {
   const records = active.quickSlots.map((physical, slot) => {
     const index = canonicalKeyIndex(physical),
       binding = active.keys[index];
-    const item = owner.store?.profile?.inventory.find(
-      (entry) => entry.id === binding.id,
-    );
     return {
       index,
       slot,
       binding,
-      count: item?.count || 0,
-      template:
-        binding.type === 1
-          ? owner.index.skills[binding.id]
-          : owner.index.items[binding.id],
+      count: [2, 3, 7].includes(binding.type)
+        ? itemCount(owner.store.profile, binding.id)
+        : 0,
+      template: bindingTemplate(owner, binding),
     };
   });
   const signature = JSON.stringify(
-    records.map((record) => [record.index, record.binding, record.count]),
+    records.map((record) => [
+      record.index,
+      record.binding,
+      record.count,
+      record.template?.name,
+    ]),
   );
   if (signature === panel.quickSignature) return;
   panel.quickSignature = signature;
@@ -123,14 +130,16 @@ export function refreshQuickSlots(owner) {
       record.binding.type === 1 ||
       record.binding.type === 2 ||
       record.binding.type === 3 ||
-      record.binding.type === 7,
+      record.binding.type === 7 ||
+      record.binding.type === 8,
   );
   replaceIcons(panel, icons, (imageLayer, record) => {
     const point = QUICK_SLOT_COORDINATES[record.slot];
     const path = record.template?.iconPath;
     if (!path) return;
-    if (record.binding.type === 1) imageLayer.image(path, point.x, point.y);
-    else imageLayer.image(path, point.x, point.y + 32, true);
+    if (record.binding.type === 1 || record.binding.type === 8) {
+      imageLayer.image(path, point.x, point.y);
+    } else imageLayer.image(path, point.x, point.y + 32, true);
     drawKeyLabel(imageLayer, record.index, point.x, point.y);
     if (record.binding.type === 2) {
       drawItemCount(imageLayer, record.count, point);
@@ -166,9 +175,13 @@ function quickHit(layer, record, path) {
     `Quick slot ${record.slot + 1}: ${label}${record.count ? ` × ${record.count}` : ""}`,
     rect,
     {
-      click: () => {
-        layer.owner.bindings.activateKey(record.index);
+      click: async () => {
         layer.owner.hooks.focusGame();
+        try {
+          await layer.owner.bindings.activateKey(record.index);
+        } catch (error) {
+          layer.owner.report(error);
+        }
       },
       pointerdown: (event) => {
         if (path) {
@@ -179,14 +192,16 @@ function quickHit(layer, record, path) {
         }
       },
     },
-    () => ({
-      ...bindingTooltip(
-        layer.owner,
-        record.binding,
-        `Quick slot ${record.slot + 1}`,
-      ),
-      source: path ? { surface: layer, path } : null,
-    }),
+    {
+      tooltip: () => ({
+        ...bindingTooltip(
+          layer.owner,
+          record.binding,
+          `Quick slot ${record.slot + 1}`,
+        ),
+        source: path ? { surface: layer, path } : null,
+      }),
+    },
   );
   button.dataset.quickSlot = String(record.slot);
   if (!record.binding.type) button.dataset.cursorState = "0";

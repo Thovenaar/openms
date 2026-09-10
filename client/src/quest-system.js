@@ -1,5 +1,12 @@
 import { awardExperience } from "./offline-progression.js";
-import { PROFILE_LIMITS, validateProfile } from "./profile-validation.js";
+import { PROFILE_LIMITS } from "./profile-validation.js";
+import {
+  itemCount,
+  isEquipped,
+  consumeTemplate,
+  grantItem,
+} from "./inventory-model.js";
+import { questObjectives, medalCriteria } from "./quest-journal-model.js";
 
 const MAX_QUESTS = 4096;
 const MAX_DIALOGUE_STEPS = 2048;
@@ -28,10 +35,7 @@ function stateOf(profile, id) {
 }
 
 function quantity(profile, id) {
-  let count = 0;
-  for (const item of profile.inventory) if (item.id === id) count += item.count;
-  if (profile.equipment.includes(id)) count++;
-  return count;
+  return itemCount(profile, id) + (isEquipped(profile, id) ? 1 : 0);
 }
 
 /** Original 00721d2c: positive minimum, negative maximum (-count), zero absence. */
@@ -153,22 +157,19 @@ function checkItemDebits(counts, items) {
   return { ok: true };
 }
 
-function transactItems(draft, items) {
-  const counts = new Map(draft.inventory.map((item) => [item.id, item.count]));
+function transactItems(draft, items, templates) {
+  const counts = new Map();
+  for (const item of draft.inventory) {
+    counts.set(item.id, (counts.get(item.id) ?? 0) + item.count);
+  }
   const debits = checkItemDebits(counts, items);
   if (!debits.ok) return debits;
   for (const item of items) {
-    const count = (counts.get(item.id) ?? 0) + item.count;
-    if (!Number.isSafeInteger(count) || count < 0) {
-      return fail("inventory", "Item reward exceeds safe inventory bounds");
-    }
-    if (count) counts.set(item.id, count);
-    else counts.delete(item.id);
+    if (item.count < 0) consumeTemplate(draft, item.id, -item.count);
   }
-  if (counts.size > PROFILE_LIMITS.inventory) {
-    return fail("inventory", "Local inventory entry capacity reached");
+  for (const item of items) {
+    if (item.count > 0) grantItem(draft, templates?.[item.id], item.count);
   }
-  draft.inventory = [...counts].map(([id, count]) => ({ id, count }));
   return { ok: true };
 }
 
@@ -194,16 +195,12 @@ function transactQuestStates(draft, actions, completingId) {
   return { ok: true };
 }
 
-function transaction(profile, record, stage, { selected, hpGrowth }) {
+function transaction(profile, record, stage, { selected, hpGrowth, items }) {
   const act = record.stages[stage].act;
   const rewards = rewardItems(act, profile, selected);
   if (!rewards.ok) return rewards;
-  const draft = {
-    ...profile,
-    inventory: profile.inventory,
-    quests: { ...profile.quests },
-  };
-  const inventory = transactItems(draft, rewards.items);
+  const draft = profile;
+  const inventory = transactItems(draft, rewards.items, items);
   if (!inventory.ok) return inventory;
   draft.meso += act.money;
   draft.fame += act.pop;
@@ -216,7 +213,7 @@ function transaction(profile, record, stage, { selected, hpGrowth }) {
   }
   const states = transactQuestStates(draft, act.quests, record.id);
   if (!states.ok) return states;
-  const levels = awardExperience(draft, act.exp, hpGrowth);
+  const levels = awardExperience(draft, act.exp, hpGrowth, items);
   const kills =
     stage === 0 ? Object.create(null) : { ...profile.quests[record.id].kills };
   draft.quests[record.id] = { state: stage + 1, kills };
@@ -240,12 +237,7 @@ function transaction(profile, record, stage, { selected, hpGrowth }) {
   };
 }
 
-function journalPriority(quests, id) {
-  const state = quests[id]?.state ?? 0;
-  return state === 1 ? 0 : state === 2 ? 1 : 2;
-}
-
-/** One shared durable character, synchronous transactions and no repeat-reward transition. */
+/** One durable character; quest transitions publish only after atomic commit. */
 export class QuestSystem {
   constructor(catalog, store, hooks = {}) {
     if (catalog?.schemaVersion !== 1 || !catalog.records || !store?.profile) {
@@ -263,25 +255,218 @@ export class QuestSystem {
     this.jobs = new Set();
     this.authorized = new WeakSet();
     this.supportedCount = 0;
-    this.journalProgress = null;
-    this.journalOrder = [];
     this.buildIndexes();
+    this.trackerExclusions = new Set();
+    this.trackerMinimized = false;
+  }
+  mapName(id) {
+    return this.hooks.mapName?.(id) ?? "Map name unavailable";
   }
 
-  /** Local journal order; durable quest-state replacement invalidates this event-time cache. */
-  journalRows() {
-    const progress = this.store.profile.quests;
-    if (progress !== this.journalProgress) {
-      this.journalOrder = this.records
-        .slice()
-        .sort(
-          (left, right) =>
-            journalPriority(progress, left.id) -
-              journalPriority(progress, right.id) || left.id - right.id,
-        );
-      this.journalProgress = progress;
+  /**0083da76 passes the selected title's authored NPC into ordinary quest dialogue. */
+  medalAdmission(id, stage, profile = this.store.profile) {
+    const record = this.catalog.records[id];
+    if (!Number.isSafeInteger(id) || !this.isMedalRecord(record)) {
+      return fail("medal", "Unknown original medal quest");
     }
-    return this.journalOrder;
+    if (stateOf(profile, id) !== stage) {
+      return fail("quest", "Quest state changed");
+    }
+    const endpoint = record.stages[stage];
+    const npcId = endpoint.check.npc || endpoint.actionCheck.npc;
+    if (!npcId) return fail("npc", "Original medal quest endpoint is absent");
+    const admitted = this.status(record, npcId, profile);
+    return admitted.ok ? { ok: true, record, npcId } : admitted;
+  }
+
+  isMedalRecord(record) {
+    return Boolean(
+      record &&
+      Number.isInteger(record.info?.medalCategory) &&
+      record.info.medalCategory >= 0 &&
+      record.info.medalCategory <= 3 &&
+      record.info.viewMedalItem,
+    );
+  }
+
+  medalEntries() {
+    const result = [];
+    for (const record of this.records) {
+      if (
+        !Number.isInteger(record.info?.medalCategory) ||
+        !record.info.viewMedalItem
+      ) {
+        continue;
+      }
+      const state = stateOf(this.store.profile, record.id);
+      const admission = this.medalAdmission(record.id, Math.min(state, 1));
+      const forfeit = record.supported && this.giveUpAdmission(record.id).ok;
+      result.push({
+        id: record.id,
+        questId: record.id,
+        itemId: record.info.viewMedalItem,
+        name: record.name,
+        category: record.info.medalCategory,
+        state,
+        description: record.info[state] ?? record.info.summary ?? "",
+        criteria: medalCriteria(this, record),
+        canChallenge: state === 0 && admission.ok,
+        canForfeit: forfeit,
+        canClaim: state === 1 && admission.ok,
+        reason: admission.ok ? null : admission.reason,
+      });
+    }
+    return result;
+  }
+
+  /** No physical NPC placement is fabricated: native Title supplies the authored endpoint.
+   * Original choices and rewards still use this system's durable dialogue transaction. */
+  async medalChallenge(id) {
+    return this.medalDialogue(id, 0);
+  }
+
+  async medalClaim(id) {
+    return this.medalDialogue(id, 1);
+  }
+
+  medalDialogue(id, stage) {
+    if (this.store.profileTransactionPending) {
+      return fail("profile", "Character update is still committing");
+    }
+    const admission = this.medalAdmission(id, stage);
+    if (!admission.ok) return admission;
+    return { ok: true, dialogue: this.openDialogue(id, admission.npcId) };
+  }
+
+  async medalForfeit(id, confirmed = false) {
+    const record = this.catalog.records[id];
+    if (
+      !record?.supported ||
+      !Number.isInteger(record.info?.medalCategory) ||
+      !record.info.viewMedalItem
+    ) {
+      return fail(
+        "medal",
+        record?.blockers[0]?.reason ?? "Unknown original medal quest",
+      );
+    }
+    return this.giveUp(id, confirmed);
+  }
+
+  trackerAdmission(id, automatic = false, profile = this.store.profile) {
+    const record = this.catalog.records[id];
+    const tracker = profile.settings.questTracker;
+    if (!this.isTrackerQuest(record, id, profile)) {
+      return fail("quest", "This quest cannot be registered");
+    }
+    const rows = questObjectives(this, record, profile);
+    if (!rows.length || tracker.ids.includes(id) || tracker.ids.length >= 5) {
+      return fail(
+        "tracker",
+        "No objective, already registered, or five quests registered",
+      );
+    }
+    if (
+      automatic &&
+      (!tracker.auto ||
+        this.trackerExclusions.has(id) ||
+        !rows.some((row) => row.progress))
+    ) {
+      return fail("tracker", "Automatic registration conditions are not met");
+    }
+    return { ok: true };
+  }
+
+  isTrackerQuest(record, id, profile) {
+    return Boolean(
+      record &&
+      stateOf(profile, id) === 1 &&
+      !(id >= 1200 && id <= 1399) &&
+      Number(record.info?.type) !== 51,
+    );
+  }
+
+  async changeTracker(action, id = null) {
+    try {
+      await this.store.commitProfile((draft) => {
+        const tracker = draft.settings.questTracker;
+        if (action === "add" || action === "auto-add") {
+          const admitted = this.trackerAdmission(
+            id,
+            action === "auto-add",
+            draft,
+          );
+          if (!admitted.ok) throw new Error(admitted.reason);
+          tracker.ids.push(id);
+          tracker.open = true;
+        } else if (action === "remove") {
+          tracker.ids = tracker.ids.filter((entry) => entry !== id);
+        } else if (action === "auto") tracker.auto = !tracker.auto;
+        else if (action === "close") {
+          tracker.ids = [];
+          tracker.open = false;
+        } else if (action === "open") tracker.open = true;
+        else throw new Error("Unknown quest tracker action");
+      });
+    } catch (error) {
+      return fail(error.code ?? "profile", error.message);
+    }
+    if (action === "remove") this.trackerExclusions.add(id);
+    this.hooks.onChange?.();
+    return { ok: true };
+  }
+
+  giveUpAdmission(id, profile = this.store.profile) {
+    if (stateOf(profile, id) !== 1 || (id >= 1200 && id <= 1399)) {
+      return fail("quest", "This quest cannot be given up");
+    }
+    return { ok: true };
+  }
+
+  async giveUp(id, confirmed = false) {
+    const admitted = this.giveUpAdmission(id);
+    if (!admitted.ok) return admitted;
+    if (!confirmed) return fail("confirmation", "Give up this quest?");
+    try {
+      await this.store.commitProfile((draft) => {
+        const current = this.giveUpAdmission(id, draft);
+        if (!current.ok) throw new Error(current.reason);
+        delete draft.quests[id];
+        draft.settings.questTracker.ids =
+          draft.settings.questTracker.ids.filter((entry) => entry !== id);
+      });
+    } catch (error) {
+      return fail(error.code ?? "profile", error.message);
+    }
+    this.hooks.onChange?.();
+    return { ok: true };
+  }
+
+  /** One event-time commit collects eligible progress without reordering existing entries. */
+  async autoRegister() {
+    if (
+      this.store.profileTransactionPending ||
+      !this.store.profile.settings.questTracker.auto
+    ) {
+      return;
+    }
+    const ids = [];
+    for (const record of this.records) {
+      if (this.trackerAdmission(record.id, true).ok) ids.push(record.id);
+    }
+    if (!ids.length) return;
+    try {
+      await this.store.commitProfile((draft) => {
+        for (const id of ids) {
+          if (!this.trackerAdmission(id, true, draft).ok) continue;
+          draft.settings.questTracker.ids.push(id);
+          draft.settings.questTracker.open = true;
+        }
+      });
+      this.hooks.onChange?.();
+    } catch (error) {
+      this.hooks.onError?.(error);
+    }
   }
 
   buildIndexes() {
@@ -327,8 +512,7 @@ export class QuestSystem {
   }
 
   /** Current profile root and nested state are looked up afresh after a local reset. */
-  status(record, npcId) {
-    const profile = this.store.profile;
+  status(record, npcId, profile = this.store.profile) {
     const state = stateOf(profile, record.id);
     if (state === 2) {
       return fail(
@@ -417,31 +601,40 @@ export class QuestSystem {
     return this.mutate(questId, npcId, 1, session);
   }
 
-  mutate(questId, npcId, stage, session) {
+  async mutate(questId, npcId, stage, session) {
     if (this.store.profileTransactionPending) {
       return fail("profile", "Character update is still committing");
     }
     const record = this.catalog.records[questId];
     if (!record) return fail("quest", "Unknown original quest ID");
-    const status = this.status(record, Number(npcId));
-    if (!status.ok) return status;
-    if (status.state !== stage) {
-      return fail(
-        "state",
-        stage === 0 ? "Quest already accepted" : "Quest is not active",
-      );
-    }
-    const admission = this.admitSession(record, stage, Number(npcId), session);
-    if (!admission.ok) return admission;
-    const result = transaction(this.store.profile, record, stage, {
-      selected: session?.rewardIndex,
-      hpGrowth: this.hooks.hpGrowth?.(this.store.profile) ?? 0,
-    });
-    if (!result.ok) return result;
+    let result;
     try {
-      validateProfile(result.draft);
+      await this.store.commitProfile((draft) => {
+        const status = this.status(record, Number(npcId), draft);
+        if (!status.ok) throw Object.assign(new Error(status.reason), status);
+        if (status.state !== stage) throw new Error("Quest state changed");
+        const admission = this.admitSession(
+          record,
+          stage,
+          Number(npcId),
+          session,
+        );
+        if (!admission.ok) {
+          throw Object.assign(new Error(admission.reason), admission);
+        }
+        result = transaction(draft, record, stage, {
+          selected: session?.rewardIndex,
+          hpGrowth: this.hooks.hpGrowth?.(draft) ?? 0,
+          items: this.hooks.items,
+        });
+        if (!result.ok) throw Object.assign(new Error(result.reason), result);
+        if (stage === 1) {
+          draft.settings.questTracker.ids =
+            draft.settings.questTracker.ids.filter((id) => id !== record.id);
+        }
+      });
     } catch (error) {
-      return fail("profile", error.message);
+      return fail(error.code ?? "profile", error.message);
     }
     this.commitTransaction(result, stage, session);
     return {
@@ -476,36 +669,33 @@ export class QuestSystem {
     return { ok: true };
   }
 
-  /** Called only after the full draft passes profile validation. */
+  /** Effects and dialogue authorization change only after durable publication. */
   commitTransaction(result, stage, session) {
-    const profile = this.store.profile;
-    for (const key of PROGRESS_FIELDS) profile[key] = result.draft[key];
-    profile.inventory = result.draft.inventory;
-    profile.quests = result.draft.quests;
     if (session) this.authorized.delete(session);
-    this.store.markDirty();
-    this.hooks.onChange?.();
-    if (stage === 1) this.hooks.onEffect?.("QuestClear");
-    if (result.levels) this.hooks.onEffect?.("LevelUp");
+    try {
+      this.hooks.onChange?.();
+      this.hooks.onReward?.(result);
+      if (stage === 1) this.hooks.onEffect?.("QuestClear");
+      if (result.levels) this.hooks.onEffect?.("LevelUp");
+    } catch (error) {
+      this.hooks.onError?.(error);
+    }
   }
 
-  /** Confirmed local deaths only; saturating counters cannot award or reset a quest. */
-  onKill(templateId) {
+  /** The field owns the accepted death checkpoint; this operation never publishes or commits. */
+  applyKill(profile, templateId) {
     const rules = this.byMob.get(Number(templateId));
-    if (!rules) return;
+    if (!rules) return false;
     let changed = false;
     for (const rule of rules) {
-      const state = this.store.profile.quests[rule.questId];
+      const state = profile.quests[rule.questId];
       if (state?.state !== 1) continue;
       const old = state.kills[templateId] ?? 0;
       if (old >= rule.count) continue;
       state.kills[templateId] = old + 1;
       changed = true;
     }
-    if (changed) {
-      this.store.markDirty();
-      this.hooks.onChange?.();
-    }
+    return changed;
   }
 
   openDialogue(questId, npcId) {
@@ -646,15 +836,14 @@ class QuestDialogue {
     return true;
   }
 
-  accept() {
+  async accept() {
     if (this.mode !== "confirm") {
       return fail("dialogue", "Read and answer the original dialogue first");
     }
     this.system.authorized.add(this);
-    const result =
-      this.stage === 0
-        ? this.system.begin(this.record.id, this.npcId, this)
-        : this.system.complete(this.record.id, this.npcId, this);
+    const result = await (this.stage === 0
+      ? this.system.begin(this.record.id, this.npcId, this)
+      : this.system.complete(this.record.id, this.npcId, this));
     this.result = result;
     if (!result.ok) return result;
     this.pages = this.say.yes;

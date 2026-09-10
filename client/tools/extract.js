@@ -15,11 +15,11 @@ import { collectPlayableMaps, extractPortals } from "./portal-data.js";
 import { extractLife } from "./life-data.js";
 import { extractAudiovisual } from "./audiovisual-data.js";
 import { extractAvatar } from "./avatar-data.js";
-import { extractQuests } from "./quest-data.js";
+import { extractQuests, extractMapNames } from "./quest-data.js";
 import { extractCombat } from "./combat-data.js";
 import { extractReactors } from "./reactor-data.js";
 import { extractDropData, finalizeDropData } from "./drop-data.js";
-import { extractServerData } from "./server-data.js";
+import { convertServerData, extractServerData } from "./server-data.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
@@ -89,6 +89,7 @@ const extractionContext = {
   part,
   frames,
   output,
+  imageEntries: (name) => archive(name).entries,
   mapIds,
   bundle: (value) => packageVisualBundle(value, state),
 };
@@ -508,6 +509,16 @@ async function extractMaps(character, combat) {
   return { maps, reports };
 }
 
+/** Reference inventories share the same immutable offline descriptor publisher. */
+function reference(value) {
+  return resource(
+    output,
+    "references",
+    "json",
+    Buffer.from(JSON.stringify(value)),
+  );
+}
+
 /** Atomic catalog is the only mutable entry point. */
 async function run() {
   const routes = explicitMaps
@@ -518,20 +529,18 @@ async function run() {
   const character = await extractAvatar(extractionContext);
   const quests = await extractQuests(extractionContext);
   // Full original evidence belongs to the offline closure, not the startup JSON parse.
-  quests.inventory = await resource(
-    output,
-    "references",
-    "json",
-    Buffer.from(JSON.stringify(quests.inventory)),
-  );
+  quests.inventory = await reference(quests.inventory);
   const combat = await extractCombat(extractionContext);
-  const drops = await extractDropData(extractionContext);
-  const serverData = await extractServerData({ output });
+  const converted = await convertServerData();
+  const drops = extractDropData(extractionContext, converted.datasets.drops);
+  const serverData = await extractServerData({ output, converted });
+  const mapNames = extractMapNames(extractionContext);
   const ui = await extractGameUI({
     ...extractionContext,
     quests,
+    serverData,
+    mapNames,
     dropItemIds: drops.itemIds,
-    imageEntries: (name) => archive(name).entries,
   });
   finalizeDropData(drops, ui.items);
   const audiovisual = await extractAudiovisual(
@@ -541,14 +550,15 @@ async function run() {
   );
   const { maps, reports } = await extractMaps(character, combat);
   const references = extractHitboxReferences(image);
-  const hitboxes = await resource(
-    output,
-    "references",
-    "json",
-    Buffer.from(JSON.stringify(references)),
-  );
+  const hitboxes = await reference(references);
+  const originalSources = await reference({
+    schemaVersion: 1,
+    images: inputImages,
+  });
   const content = {
     maps,
+    mapNames,
+    originalSources,
     hitboxes,
     ui,
     audiovisual,

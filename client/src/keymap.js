@@ -367,6 +367,13 @@ const CHARACTER_ACTIONS = Object.freeze({
   54: "Talk",
 });
 
+const RELEASE_ACTIONS = new Set([10, 11, 12, 13, 18, 21, 24]);
+
+/** Original00a0773d selects chat channels on key-up, unlike ordinary window actions. */
+export function isReleaseBinding(binding) {
+  return binding?.type === 4 && RELEASE_ACTIONS.has(binding.id);
+}
+
 export function bindingAction(binding) {
   if (binding?.type === 4) return WINDOW_ACTIONS[binding.id] ?? null;
   if (binding?.type === 5) return CHARACTER_ACTIONS[binding.id] ?? null;

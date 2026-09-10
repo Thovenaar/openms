@@ -2,6 +2,8 @@ import { readdir, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseSql, MAX_SQL_BYTES } from "./sql-data.js";
 import { hash, resource } from "./atlas.js";
+import { compileNpcScript } from "./npc-script-compiler.js";
+import { compileNpcRoutes } from "./npc-script-routes.js";
 
 const DB_ROOT = "src/main/resources/db";
 const MAX_FILES = 10000;
@@ -154,47 +156,56 @@ function collectTables(inventory) {
 async function scriptInventory(root) {
   const paths = await sourcePaths(root, "scripts", ".js");
   const files = [],
+    compilations = [],
     categories = Object.create(null);
   let bytes = 0;
   for (const source of paths) {
     const file = await sourceFile(root, source, MAX_SCRIPT_BYTES);
     bytes += file.bytes;
     if (bytes > MAX_TOTAL_BYTES) throw new Error("Script aggregate byte limit");
+    if (hash(Buffer.from(file.text, "utf8")) !== file.sha256) {
+      throw new Error(
+        `NPC source must round-trip original UTF-8 bytes: ${source}`,
+      );
+    }
     const parts = source.split("/");
     const category = parts.length > 2 ? parts[1] : "root";
     categories[category] = (categories[category] ?? 0) + 1;
-    const shopIds = new Set();
-    for (const match of file.text.matchAll(
-      /\b(?:openShopNPC|getShop)\s*\(\s*(\d+)\s*\)/g,
-    )) {
-      const id = Number(match[1]);
-      if (!Number.isSafeInteger(id)) {
-        throw new Error(`Invalid script shop reference: ${source}`);
-      }
-      shopIds.add(id);
+    const record = { source, bytes: file.bytes, sha256: file.sha256 };
+    if (category === "npc") {
+      const compilation = compileNpcScript({
+        text: file.text,
+        path: source,
+        sha256: file.sha256,
+      });
+      compilations.push(compilation);
+      record.sourceText = file.text;
+      record.compilation = {
+        status: compilation.status,
+        blockers: compilation.blockers,
+        astNodes: compilation.astNodes,
+        requirements: compilation.requirements,
+        dependencies: compilation.dependencies,
+      };
     }
-    files.push({
-      source,
-      bytes: file.bytes,
-      sha256: file.sha256,
-      literalShopReferences: [...shopIds].sort((a, b) => a - b),
-    });
+    files.push(record);
   }
   return {
-    status: "inventoried-not-executed",
+    status: "npc-complete-source-compiler; other-categories-inventoried",
     categories,
     files,
-    shopReferenceMeaning:
-      "Lexical numeric call references only; comments, conditions, dynamic calls and script dependencies are not interpreted.",
+    compilations,
   };
 }
 
 function domainData(name, tableNames, inventory, tables) {
   const records = Object.create(null),
-    sources = [];
+    sources = [],
+    tableSources = Object.create(null);
   for (const table of tableNames) {
     if (!tables[table]) throw new Error(`Missing reference schema: ${table}`);
     records[table] = [];
+    tableSources[table] = [];
   }
   for (let index = 0; index < inventory.files.length; index++) {
     const file = inventory.files[index],
@@ -213,6 +224,13 @@ function domainData(name, tableNames, inventory, tables) {
       if (!insert.rows) {
         throw new Error(`Unsupported reference rows: ${insert.table}`);
       }
+      tableSources[insert.table].push({
+        source: file.source,
+        sha256: file.sha256,
+        bytes: file.bytes,
+        firstRow: records[insert.table].length + 1,
+        rowCount: insert.rows.length,
+      });
       used = true;
       for (const row of insert.rows) {
         const record = Object.create(null);
@@ -236,24 +254,8 @@ function domainData(name, tableNames, inventory, tables) {
     domain: name,
     sources,
     tables: records,
+    tableSources,
   };
-}
-
-function shopRouting(shops, scripts) {
-  const files = new Map(scripts.files.map((file) => [file.source, file]));
-  return shops.map((shop) => {
-    const source = `scripts/npc/${shop.npcid}.js`;
-    const file = files.get(source);
-    return {
-      npcId: shop.npcid,
-      shopId: shop.shopid,
-      numericScript: file ? source : null,
-      literalShopReferences: file?.literalShopReferences ?? [],
-      route: file
-        ? "script-review-required"
-        : "standard-shop-fallback-if-no-script-override",
-    };
-  });
 }
 
 function inventorySummary(inventory, tables, scripts) {
@@ -272,6 +274,12 @@ function inventorySummary(inventory, tables, scripts) {
       0,
     ),
     scripts: scripts.files.length,
+    npcScriptsSupported: scripts.compilations.filter(
+      (script) => script.status === "supported",
+    ).length,
+    npcScriptsBlocked: scripts.compilations.filter(
+      (script) => script.status === "blocked",
+    ).length,
   };
 }
 
@@ -285,20 +293,29 @@ export async function convertServerData(options = {}) {
   for (const [name, names] of Object.entries(DOMAINS)) {
     datasets[name] = domainData(name, names, inventory, tables);
   }
-  datasets.shops.npcRoutes = shopRouting(datasets.shops.tables.shops, scripts);
+  Object.assign(
+    datasets.shops,
+    compileNpcRoutes(datasets.shops.tables, scripts.compilations),
+  );
+  const summary = inventorySummary(inventory, tables, scripts);
+  summary.npcRoutes = datasets.shops.routeSummary;
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     authority: AUTHORITY,
     sqlFiles: inventory.files,
     tables: Object.values(tables),
-    scripts,
+    scripts: {
+      status: scripts.status,
+      categories: scripts.categories,
+      files: scripts.files,
+    },
     exclusions: [
       "Account, character, inventory, keymap and storage bootstrap rows are not browser reference data; no credentials are published.",
       "Schema-only tables contain no world content. SQL defaults are not seed rows.",
-      "NPC/quest/portal/reactor/event JavaScript is inventoried, not converted or executed. No invented dialog or quest scripts.",
+      "NPC compilation parses complete source and admits only a bounded closed declarative subset; any parse failure or unsupported construct blocks the entire route. Other script categories are inventoried, never executed.",
       "SQL prices/drop chances are Cosmic server policy, not original Nexon client authority.",
     ],
-    summary: inventorySummary(inventory, tables, scripts),
+    summary,
   };
   return { report, datasets };
 }
@@ -309,7 +326,7 @@ export async function extractServerData(options) {
     throw new Error("Server data output directory is required");
   }
   const output = resolve(options.output);
-  const converted = await convertServerData(options);
+  const converted = options.converted ?? (await convertServerData(options));
   await mkdir(resolve(output, "references"), { recursive: true });
   const datasets = Object.create(null);
   for (const [name, data] of Object.entries(converted.datasets)) {
@@ -327,11 +344,13 @@ export async function extractServerData(options) {
     Buffer.from(JSON.stringify(converted.report)),
   );
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     authority: AUTHORITY,
     datasets,
     report,
     summary: converted.report.summary,
+    supportedItemIds: converted.datasets.shops.supportedItemIds,
+    supportedDependencies: converted.datasets.shops.supportedDependencies,
   };
 }
 

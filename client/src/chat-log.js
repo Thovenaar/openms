@@ -3,12 +3,17 @@ import { HUD_CLIENT_Y } from "./ui-hud.js";
 const MAX_MESSAGES = 128;
 const MAX_TEXT = 1800;
 const MAX_PAGE = 32;
-const SOURCES = new Set(["local-system", "session"]);
+// Original chat type12:008d0821..008d0858 creates12px Arial in ARGB ffffafaf.
+const SOURCE_COLORS = Object.freeze({
+  "local-system": "#ddd",
+  session: "#fff",
+  gameplay: "#ffafaf",
+});
 
 function validateRecord(record) {
   if (
     !record ||
-    !SOURCES.has(record.source) ||
+    !Object.hasOwn(SOURCE_COLORS, record.source) ||
     typeof record.text !== "string" ||
     !record.text ||
     record.text.length > MAX_TEXT ||
@@ -42,7 +47,7 @@ export class ChatLog {
     row.dataset.chatSource = record.source;
     row.textContent =
       record.source === "local-system" ? `[Local] ${record.text}` : record.text;
-    row.style.color = record.source === "local-system" ? "#ddd" : "#fff";
+    row.style.color = SOURCE_COLORS[record.source];
     return row;
   }
   append(record) {

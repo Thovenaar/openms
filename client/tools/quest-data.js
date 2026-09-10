@@ -1,3 +1,9 @@
+import {
+  NPC_MARKUP_FAMILIES,
+  NPC_MARKUP_TOKENS,
+  npcMarkupId,
+} from "../src/npc-script-markup.js";
+
 const MAX_NODES = 200000;
 const MAX_QUESTS = 4096;
 const MAX_RECORD_NODES = 8192;
@@ -15,6 +21,8 @@ const INFO_TEXT = new Set([
   "type",
   "sortkey",
   "showLayerTag",
+  "medalCategory",
+  "viewMedalItem",
 ]);
 
 /** Preserve every source node and classify exact field shapes, including empty containers. */
@@ -371,6 +379,7 @@ function dependencySet() {
     questIds: new Set(),
     mapIds: new Set(),
     scriptRefs: new Set(),
+    artworkPaths: new Set(),
   };
 }
 
@@ -392,11 +401,14 @@ function dependencies(raw, result) {
 }
 
 function collectTextDependencies(text, path, result) {
-  for (const match of text.matchAll(/#(?:([ptom])|(@))(\d+)[:]?#[#]?/g)) {
-    const table =
-      { p: "npcIds", o: "mobIds", t: "itemIds", m: "mapIds" }[match[1]] ??
-      "npcIds";
-    result[table].add(Number(match[3]));
+  for (const token of text.matchAll(NPC_MARKUP_TOKENS)) {
+    const match = /^#([ptivzmocuay@])(\d+)/.exec(token[0]);
+    if (match) {
+      const id = npcMarkupId(match[1], Number(match[2]));
+      if (id > 0) result[NPC_MARKUP_FAMILIES[match[1]]].add(id);
+    } else if (/^#[fF]/.test(token[0])) {
+      result.artworkPaths.add(token[0].slice(2, -1));
+    }
   }
   if (/script$/.test(path) && text) result.scriptRefs.add(text);
 }
@@ -405,7 +417,10 @@ function collectFieldDependency(key, child, path, result) {
   if (key === "npc" && Number.isSafeInteger(child) && child > 0) {
     result.npcIds.add(child);
   }
-  if (key === "id" && Number.isSafeInteger(child)) {
+  if (key === "viewMedalItem" && Number.isSafeInteger(child) && child > 0) {
+    result.itemIds.add(child);
+  }
+  if (key === "id" && Number.isSafeInteger(child) && child > 0) {
     const family = path.split("/").at(-2);
     const table = { item: "itemIds", mob: "mobIds", quest: "questIds" }[family];
     if (table) result[table].add(child);
@@ -425,6 +440,7 @@ function compileRecord(id, images, inventories) {
   const deps = collectRecordInventory(id, record, images, inventories);
   record.info = copyTree(images.QuestInfo.children[id]);
   record.name = typeof record.info?.name === "string" ? record.info.name : null;
+  validateMedalMetadata(record);
   for (const stage of [0, 1]) {
     record.stages.push(compileStage(id, stage, images, record.blockers));
   }
@@ -438,6 +454,32 @@ function compileRecord(id, images, inventories) {
   );
   record.supported = record.blockers.length === 0;
   return record;
+}
+/** These fields select native Title presentation; they never authorize a reward or a counter. */
+function validateMedalMetadata(record) {
+  const info = record.info;
+  if (
+    info?.medalCategory !== undefined &&
+    (!Number.isInteger(info.medalCategory) ||
+      info.medalCategory < 0 ||
+      info.medalCategory > 3)
+  ) {
+    problem(
+      record.blockers,
+      `Quest.wz:QuestInfo.img/${record.id}/medalCategory`,
+      "Invalid original medal category",
+    );
+  }
+  if (
+    info?.viewMedalItem !== undefined &&
+    (!Number.isSafeInteger(info.viewMedalItem) || info.viewMedalItem < 1)
+  ) {
+    problem(
+      record.blockers,
+      `Quest.wz:QuestInfo.img/${record.id}/viewMedalItem`,
+      "Invalid original displayed medal item",
+    );
+  }
 }
 
 /** Retain optional dialogue separately while every other unsupported source blocks admission. */
@@ -495,12 +537,10 @@ function stringNames(context) {
     npc: Object.create(null),
     mob: Object.create(null),
     item: Object.create(null),
-    map: Object.create(null),
   };
   const sources = [
     ["Npc.img", "npc"],
     ["Mob.img", "mob"],
-    ["Map.img", "map"],
     ["Consume.img", "item"],
     ["Etc.img", "item"],
     ["Eqp.img", "item"],
@@ -509,21 +549,33 @@ function stringNames(context) {
     ["Pet.img", "item"],
   ];
   for (const [source, table] of sources) {
-    const queue = [context.image("String", source)];
-    for (let index = 0; index < queue.length; index++) {
-      const node = queue[index];
-      const name = node.children[table === "map" ? "mapName" : "name"]?.value;
-      if (NUMERIC.test(node.name) && typeof name === "string") {
-        result[table][Number(node.name)] = name;
+    collectNames(context.image("String", source), result[table], "name");
+  }
+  return result;
+}
+
+/** One bounded original-name traversal; consumers share the published dictionaries. */
+function collectNames(root, result, property) {
+  const queue = [root];
+  for (let index = 0; index < queue.length; index++) {
+    const node = queue[index];
+    const name = node.children[property]?.value;
+    if (NUMERIC.test(node.name) && typeof name === "string") {
+      result[Number(node.name)] = name;
+    }
+    for (const child of Object.values(node.children)) {
+      if (queue.length >= MAX_STRING_NODES) {
+        throw new Error("Original string lookup exceeds policy");
       }
-      for (const child of Object.values(node.children)) {
-        if (queue.length >= MAX_STRING_NODES) {
-          throw new Error("Quest string lookup exceeds policy");
-        }
-        if (Object.keys(child.children).length) queue.push(child);
-      }
+      if (Object.keys(child.children).length) queue.push(child);
     }
   }
+}
+
+/** String.wz:Map.img is canonical catalog metadata, not quest-private data. */
+export function extractMapNames(context) {
+  const result = Object.create(null);
+  collectNames(context.image("String", "Map.img"), result, "mapName");
   return result;
 }
 
@@ -556,6 +608,20 @@ function collectMapLife(map, mapId, result) {
     if (!table[template]) table[template] = [];
     if (!table[template].includes(mapId)) table[template].push(mapId);
   }
+}
+/** Preserve authored category labels verbatim, including Korean labels in this archive. */
+function categoryLabels(context, image) {
+  const root = context.image("Etc", image);
+  const labels = Object.create(null);
+  const rows = Object.entries(root.children);
+  if (rows.length > MAX_QUESTS) throw new Error("Quest category bound");
+  for (const [id, node] of rows) {
+    if (!NUMERIC.test(id) || typeof node.value !== "string") {
+      throw new Error(`Invalid original quest category ${image}/${id}`);
+    }
+    labels[id] = node.value;
+  }
+  return { source: `Etc.wz:${image}`, labels };
 }
 
 /** Full six-image inventory plus generic executable projections, never an admitted-ID whitelist. */
@@ -593,7 +659,9 @@ export function extractQuests(context) {
   }
   if (ids.size > MAX_QUESTS) throw new Error("Quest catalog exceeds policy");
   const records = Object.create(null);
-  for (const id of ids) records[id] = compileRecord(id, images, inventories);
+  for (const id of [...ids].sort((a, b) => Number(a) - Number(b))) {
+    records[id] = compileRecord(id, images, inventories);
+  }
   const inventory = Object.fromEntries(
     Object.entries(inventories).map(([key, data]) => [
       key,
@@ -606,6 +674,8 @@ export function extractQuests(context) {
     inventory,
     fields,
     strings: stringNames(context),
+    categories: categoryLabels(context, "QuestCategory.img"),
+    medalCategories: categoryLabels(context, "MedalQuestCategory.img"),
     content: packagedContent(context),
     policy:
       "Synchronous local one-shot quest authority; original rules and text, no missing scripts/time-control semantics or invented drops",

@@ -111,8 +111,13 @@ export class AgentDevelopment {
     if (!this.baseline) return;
     const temporary = this.hooks.state().scene;
     const store = this.session.store;
+    await this.hooks.systems().ui.chat.waitForIdle();
+    if (!(await this.hooks.systems().ui.requestCloseAll())) {
+      throw new Error(
+        "Finish the active native operation before leaving the experiment",
+      );
+    }
     this.hooks.cancelLoading();
-    this.hooks.systems().ui.closeAll();
     this.restoreBaseline();
     temporary.destroy();
     this.hooks.resetObservation();

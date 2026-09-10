@@ -4,6 +4,63 @@ import { coordinate, MAX_SEGMENTS } from "./physics/geometry.js";
 const cameraRects = new WeakMap();
 // 00437b32: the camera target vector is attached fifty pixels above local-user feet.
 const CAMERA_TARGET_Y = -50;
+// Shape2D.dll 51408e33: FCOM qword [5140d978], bytes 0000000000003c40.
+const CAMERA_FILTER_DEADBAND = 28;
+
+/** Shape2D filter 0x1e0000. Coefficient 100 is distance/time damping, not milliseconds. */
+export function createCameraFilter() {
+  return {
+    coefficient: 100,
+    initialized: false,
+    committedX: 0,
+    committedY: 0,
+    committedTime: 0,
+    x: 0,
+    y: 0,
+  };
+}
+
+/** 51408e33 returns D unchanged inside its 28-pixel deadband; negative residuals clamp to zero. */
+function filteredAxis(target, previous, elapsed, coefficient) {
+  const difference = target - previous;
+  const distance = Math.abs(difference);
+  let residual = distance;
+  if (distance > CAMERA_FILTER_DEADBAND) {
+    const scale = (coefficient * 1000) | 0;
+    residual = Math.max(0, (scale * distance) / (elapsed * distance + scale));
+  }
+  return difference < 0 ? target + residual : target - residual;
+}
+
+/** 51408d23: integer public coordinates, DOUBLE committed history, signed renderer milliseconds.
+ * First commit snaps; probes do not initialize or commit. Retargeting never resets history.
+ * Input is player feet; output is the filtered attached (0,-50) camera vector. */
+export function evaluateCameraFilter(filter, pose, time, commit = true) {
+  if (
+    !Number.isFinite(pose?.x) ||
+    !Number.isFinite(pose?.y) ||
+    !Number.isFinite(time)
+  ) {
+    throw new Error("Invalid camera filter target or render time");
+  }
+  const clock = Math.trunc(time) | 0;
+  const elapsed = (clock - filter.committedTime) | 0;
+  let x = Math.trunc(pose.x),
+    y = Math.trunc(pose.y + CAMERA_TARGET_Y);
+  if (filter.initialized) {
+    x = filteredAxis(x, filter.committedX, elapsed, filter.coefficient);
+    y = filteredAxis(y, filter.committedY, elapsed, filter.coefficient);
+  }
+  filter.x = Math.trunc(x);
+  filter.y = Math.trunc(y);
+  if (commit) {
+    filter.initialized = true;
+    filter.committedX = x;
+    filter.committedY = y;
+    filter.committedTime = clock;
+  }
+  return filter;
+}
 
 /** Missing authored VR edges use geometry; present values still require valid coordinates. */
 function vrCoordinate(value, fallback) {
@@ -61,14 +118,14 @@ function followAxis(position, start, end, extent) {
   return Math.trunc(center - half);
 }
 
-/** Mutate world-pixel top-left camera. physics is the immutable manifest.physics, not simulation.bounds.
+/** Project the filtered camera vector to world-pixel top-left. physics is manifest.physics, not simulation.bounds.
  * At 800x600 uses original VR/half-screen rules; all other sizes generalize half-viewport as browser policy.
  * VRLimit affects physical clipping, not this camera rectangle. Returns the same camera object. */
-export function followCamera(camera, pose, physics, viewport) {
+export function followCamera(camera, target, physics, viewport) {
   if (
     !camera ||
-    !Number.isFinite(pose?.x) ||
-    !Number.isFinite(pose?.y) ||
+    !Number.isFinite(target?.x) ||
+    !Number.isFinite(target?.y) ||
     !Number.isFinite(viewport?.width) ||
     !Number.isFinite(viewport?.height) ||
     viewport.width <= 0 ||
@@ -77,12 +134,7 @@ export function followCamera(camera, pose, physics, viewport) {
     throw new Error("Invalid camera position or viewport");
   }
   const rect = cameraRect(physics);
-  camera.x = followAxis(pose.x, rect.left, rect.right, viewport.width);
-  camera.y = followAxis(
-    pose.y + CAMERA_TARGET_Y,
-    rect.top,
-    rect.bottom,
-    viewport.height,
-  );
+  camera.x = followAxis(target.x, rect.left, rect.right, viewport.width);
+  camera.y = followAxis(target.y, rect.top, rect.bottom, viewport.height);
   return camera;
 }

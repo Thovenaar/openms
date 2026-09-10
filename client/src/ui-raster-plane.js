@@ -47,10 +47,13 @@ export class UIRasterPlane {
     this.scaleX = scaleX;
     this.scaleY = scaleY;
     this.scan();
-    this.canvas.hidden = !this.root.visible || this.count === 0;
-    if (this.canvas.hidden || !this.dirty) return;
-    this.resize();
-    this.draw();
+    this.canvas.hidden = this.count === 0;
+    if (!this.dirty) return;
+    if (this.canvas.hidden) this.clear();
+    else {
+      this.resize();
+      this.draw();
+    }
     this.dirty = false;
   }
 
@@ -66,7 +69,7 @@ export class UIRasterPlane {
     this.matrices[6] = this.root.alpha;
     this.matrices[7] = this.matrices[8] = -Infinity;
     this.matrices[9] = this.matrices[10] = Infinity;
-    let depth = 0;
+    let depth = this.root.visible && this.root.alpha !== 0 ? 0 : -1;
     let visited = 0;
     while (depth >= 0) {
       const parent = this.nodes[depth];
@@ -79,7 +82,7 @@ export class UIRasterPlane {
         throw new Error("UI raster node budget exceeded");
       }
       const node = parent.children[this.indices[depth]++];
-      if (!node.visible || node.alpha === 0) continue;
+      if (!this.visibleChild(node)) continue;
       this.visit(node, depth);
       this.nodes[++depth] = node;
       this.indices[depth] = 0;
@@ -88,6 +91,10 @@ export class UIRasterPlane {
     for (let index = this.count; index < previous; index++) {
       this.textures[index] = null;
     }
+  }
+
+  visibleChild(node) {
+    return node.visible && node.renderable && node.alpha !== 0;
   }
 
   visit(node, depth) {
@@ -240,13 +247,18 @@ export class UIRasterPlane {
     this.drawScaleY = pixelsY / Math.max(1, height);
   }
 
+  /** Retired artwork must release its pixels even when CSS hides the empty plane. */
+  clear() {
+    this.context.resetTransform();
+    this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
   draw() {
     const ctx = this.context;
     const c = this.commands;
     const sx = this.drawScaleX;
     const sy = this.drawScaleY;
-    ctx.resetTransform();
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.clear();
     ctx.imageSmoothingEnabled = false;
     for (let index = 0; index < this.count; index++) {
       const start = index * COMMAND_SIZE;

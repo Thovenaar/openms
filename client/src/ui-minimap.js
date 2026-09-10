@@ -105,7 +105,7 @@ function windowControls(panel, layer) {
   layer.button("MiniMap/BtMap", x, y, {
     label: "World map",
     action: () =>
-      panel.owner.notice("World-map routing is unavailable offline."),
+      panel.owner.open("WorldMap").catch((error) => panel.owner.report(error)),
   });
   layer.button("BtMax", x - 14, y, {
     label: "Expand minimap",

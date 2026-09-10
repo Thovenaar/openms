@@ -69,3 +69,26 @@ test("expression cooldown follows the profile clock across travel, not a new sce
   expect(temporary.emote(1)).toBe(true);
   expect(temporary.scene.actor.expression).toBe("hit");
 });
+
+test("map seat admission waits for combat alert, not signed hit protection", () => {
+  const clock = { now: 10000 };
+  const bindings = character({}, clock);
+  bindings.scene.simulation = {
+    state: "ground",
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    seat: null,
+  };
+  bindings.seats = [{ id: 0, x: 0, y: 0 }];
+  bindings.gameplay.phase = "idle";
+  bindings.gameplay.alertTimerMs = 3500;
+  bindings.gameplay.hitTimerMs = 0;
+  expect(bindings.sit()).toBe(false);
+  expect(bindings.scene.simulation.seat).toBe(null);
+  bindings.gameplay.alertTimerMs = 0;
+  bindings.gameplay.hitTimerMs = -1500;
+  expect(bindings.sit()).toBe(true);
+  expect(bindings.scene.simulation.action).toBe("sit");
+});

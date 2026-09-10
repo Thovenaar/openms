@@ -189,11 +189,17 @@ class Controls {
     this.entityChanged();
   }
   refresh(snapshot) {
-    if (snapshot.currentMap !== this.lastMap) {
+    if (
+      snapshot.currentMap !== this.lastMap ||
+      snapshot.buildId !== this.lastBuild
+    ) {
       this.lastMap = snapshot.currentMap;
+      this.lastBuild = snapshot.buildId;
       document
         .querySelector("#map")
-        .replaceChildren(...snapshot.maps.map((id) => new Option(id, id)));
+        .replaceChildren(
+          ...snapshot.maps.map((id) => new Option(this.api.mapName(id), id)),
+        );
       document.querySelector("#map").value = this.lastMap;
     }
     let changed = snapshot.entities.length !== this.lastEntities.length;

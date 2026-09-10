@@ -132,7 +132,7 @@ export class CharacterBindings {
       sim.state !== "ground" ||
       sim.vx !== 0 ||
       sim.vy !== 0 ||
-      this.gameplay.hitTimerMs > 0
+      this.gameplay.alertTimerMs > 0
     ) {
       return this.reject("Stand still on the ground before sitting.");
     }

@@ -1,6 +1,7 @@
 import { resolve, sep } from "node:path";
 import { mkdir, realpath } from "node:fs/promises";
 import { publishFile } from "./atlas.js";
+import { catalog as validateCatalog } from "../src/stream-validation.js";
 import {
   DELIVERY_LIMITS,
   SHELL_URLS,
@@ -60,6 +61,37 @@ function collectDestinations(value, packaged, missing) {
   }
 }
 
+/** Referenced labels/quest targets are complete metadata, not promised playable maps. */
+function collectMetadataDestinations(catalog, packaged, missing) {
+  const dependencies = [
+    catalog.serverData?.supportedDependencies?.mapIds ?? [],
+  ];
+  const quests = Object.values(catalog.quests?.records ?? {});
+  if (quests.length > 4096) throw new Error("Offline quest metadata limit");
+  for (const quest of quests) dependencies.push(quest.dependencies.mapIds);
+  for (const ids of dependencies) {
+    collectMapDependencies(ids, packaged, missing);
+  }
+}
+
+/** Add one bounded original-source map list without changing its sentinel handling. */
+function collectMapDependencies(ids, packaged, missing) {
+  if (ids.length > DELIVERY_LIMITS.resources) {
+    throw new Error("Offline map dependency limit");
+  }
+  for (const id of ids) {
+    if (!Number.isSafeInteger(id) || id < 0 || id > 999999999) {
+      throw new Error("Invalid original map dependency");
+    }
+    if (id === 999999999) continue;
+    const key = String(id).padStart(9, "0");
+    if (!packaged.has(key)) missing.add(key);
+  }
+  if (missing.size > DELIVERY_LIMITS.resources) {
+    throw new Error("Offline unavailable map limit");
+  }
+}
+
 /** All schema additions join this queue automatically; no fixed map/category snapshot. */
 async function generatedClosure(root, catalog) {
   const found = new Map();
@@ -67,6 +99,7 @@ async function generatedClosure(root, catalog) {
   collectDescriptors(catalog, found, budget);
   const packaged = new Set(Object.keys(catalog.maps));
   const missing = new Set();
+  collectMetadataDestinations(catalog, packaged, missing);
   let bytes = 0;
   for (const info of found.values()) {
     const data = await sourceFile(root, info.url);
@@ -93,6 +126,7 @@ export async function prepareRelease(root) {
   });
   const catalogBytes = await sourceFile(root, "/generated/catalog.json");
   const catalog = JSON.parse(new TextDecoder().decode(catalogBytes));
+  validateCatalog(catalog);
   if (
     catalog.schemaVersion !== 2 ||
     !catalog.maps ||

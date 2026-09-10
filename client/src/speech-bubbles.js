@@ -1,4 +1,10 @@
-import { Container, Sprite, Texture, TilingSprite } from "pixi.js";
+import {
+  CanvasSource,
+  Container,
+  Sprite,
+  Texture,
+  TilingSprite,
+} from "pixi.js";
 import { loadVisualBundle } from "./visual-resources.js";
 import { check } from "./stream-network.js";
 
@@ -163,15 +169,21 @@ export class SpeechBubbles {
     this.sprites.sRight = new TilingSprite({ texture: this.parts.s.texture });
     this.root.addChild(this.sprites.sRight);
     this.canvas = document.createElement("canvas");
-    this.canvas.width = this.parts.c.asset.width * MAX_COLUMNS;
+    this.textWidth = this.parts.c.asset.width * MAX_COLUMNS;
     // Seventy input units bound the worst possible number of wrapped lines.
-    this.canvas.height = this.parts.c.asset.height * CHAT_LIMIT;
+    this.textHeight = this.parts.c.asset.height * CHAT_LIMIT;
     this.context = this.canvas.getContext("2d");
     if (!this.context) throw new Error("Speech text canvas is unavailable");
-    this.context.font = FONT;
-    this.context.textBaseline = "top";
-    this.context.fillStyle = `#${((color >>> 0) & 0xffffff).toString(16).padStart(6, "0")}`;
-    this.textTexture = Texture.from(this.canvas);
+    this.textColor = `#${((color >>> 0) & 0xffffff).toString(16).padStart(6, "0")}`;
+    this.textTexture = new Texture({
+      source: new CanvasSource({
+        resource: this.canvas,
+        width: this.textWidth,
+        height: this.textHeight,
+        resolution: this.app.renderer.resolution,
+      }),
+    });
+    this.syncDensity(this.app.renderer.resolution);
     this.textSprite = new Sprite(this.textTexture);
     this.root.addChild(this.textSprite);
   }
@@ -194,16 +206,19 @@ export class SpeechBubbles {
     ) {
       return false;
     }
-    this.layoutText(text);
-    this.layoutSkin();
-    this.text = text;
+    this.syncDensity(this.app.renderer.resolution);
+    if (text !== this.text) {
+      this.layoutText(text);
+      this.layoutSkin();
+      this.text = text;
+    }
     this.remainingMs = DISPLAY_MS;
     // update() places it at the current avatar origin before making it visible.
     this.root.visible = false;
     return true;
   }
 
-  /** All shaping/drawing happens on submission, never in the frame update. */
+  /** Logical shaping happens only on submission; density changes only redraw existing lines. */
   layoutText(text) {
     const tile = this.parts.c.asset;
     const maximum = tile.width * MAX_COLUMNS;
@@ -234,9 +249,30 @@ export class SpeechBubbles {
         : MAX_COLUMNS;
     this.width = columns * tile.width;
     this.height = this.lines.length * tile.height;
-    this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.rasterText();
+  }
+
+  /** Called by the renderer-density owner on resize, including while simulation is paused. */
+  syncDensity(resolution) {
+    if (this.destroyed || !this.textTexture || this.resolution === resolution) {
+      return;
+    }
+    if (!Number.isFinite(resolution) || resolution <= 0) {
+      throw new Error("Invalid speech text resolution");
+    }
+    this.resolution = resolution;
+    this.textTexture.source.resize(this.textWidth, this.textHeight, resolution);
+    this.context.setTransform(resolution, 0, 0, resolution, 0, 0);
+    this.context.font = FONT;
+    this.context.textBaseline = "top";
+    this.context.fillStyle = this.textColor;
+    this.rasterText();
+  }
+
+  rasterText() {
+    this.context.clearRect(0, 0, this.textWidth, this.textHeight);
     for (let i = 0; i < this.lines.length; i++) {
-      this.context.fillText(this.lines[i], 0, i * tile.height);
+      this.context.fillText(this.lines[i], 0, i * this.parts.c.asset.height);
     }
     this.textTexture.source.update();
   }
@@ -277,6 +313,7 @@ export class SpeechBubbles {
       throw new Error("Invalid speech elapsed milliseconds");
     }
     if (this.destroyed || !this.scene || this.remainingMs < 0) return;
+    this.syncDensity(this.app.renderer.resolution);
     this.remainingMs -= ms;
     // 0048e6d4 keeps the layer at exact equality and releases it after the deadline.
     if (this.remainingMs < 0) {

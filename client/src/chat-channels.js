@@ -12,6 +12,7 @@ export class ChatChannels {
     }
     this.labels = labels;
     this.onChoose = onChoose;
+    this.layer = layer;
     this.index = 7;
     this.control = layer.button("ComboBox2", 1, HUD_CLIENT_Y + 515, {
       label: "Chat channel",
@@ -53,7 +54,10 @@ export class ChatChannels {
     }
     this.index = index;
     this.element.textContent = this.labels[index];
-    this.element.title = this.labels[index];
+    this.element.setAttribute(
+      "aria-label",
+      `Chat channel: ${this.labels[index]}`,
+    );
     for (let entry = 0; entry < this.options.length; entry++) {
       this.options[entry].setAttribute(
         "aria-selected",
@@ -65,10 +69,14 @@ export class ChatChannels {
   }
 
   show(visible) {
+    if (!visible && this.menu.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
     this.menu.hidden = !visible;
     this.element.setAttribute("aria-expanded", String(visible));
   }
   toggle() {
+    this.layer.owner.hooks.clearInput();
     this.show(this.menu.hidden);
     if (!this.menu.hidden) this.options[this.index].focus();
   }
@@ -90,6 +98,7 @@ export class ChatChannels {
     if (event.target !== this.element && !this.menu.contains(event.target)) {
       return false;
     }
+    this.layer.owner.hooks.clearInput();
     event.stopImmediatePropagation();
     if (event.key === "Escape" || event.key === "Tab") {
       event.preventDefault();

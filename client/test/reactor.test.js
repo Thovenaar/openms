@@ -1,11 +1,17 @@
 import { test, expect } from "bun:test";
 import { ReactorSystem } from "../src/reactor-system.js";
-import { PROFILE_LIMITS } from "../src/profile-validation.js";
+import { PROFILE_LIMITS, createProfile } from "../src/profile-validation.js";
+import { ProfileStore } from "../src/profile-store.js";
 
 function offeringFixture(entries, observer) {
   const inventory = Array.from({ length: entries }, (_, index) => ({
     id: 2000000 + index,
     count: 2,
+    uid: `reactor-${index}`,
+    slot: index + 1,
+    owner: "",
+    flags: 0,
+    expiresAt: null,
   }));
   const event = {
     type: 100,
@@ -38,32 +44,51 @@ function offeringFixture(entries, observer) {
       },
     },
   };
-  const store = { profile: { inventory, quests: {} }, markDirty() {} };
+  const profile = createProfile({ mapId: "100000000", x: 0, y: 0, facing: 1 });
+  profile.inventory = inventory;
+  profile.inventorySlots[1] = entries;
+  const store = ProfileStore.memory(profile);
   const system = new ReactorSystem(scene, store, {
-    onChange: () => observer(inventory[0].count),
+    onChange: () => observer(store.profile.inventory[0].count),
   });
-  return { system, inventory };
+  return { system, store, request: { uid: "reactor-0", actorId: store.id } };
 }
 
-test("offering accepts the shared profile capacity and publishes the debited inventory once", () => {
+test("offering accepts the shared profile capacity and publishes the debited inventory once", async () => {
   const observations = [];
-  const { system, inventory } = offeringFixture(
+  const { system, store, request } = offeringFixture(
     PROFILE_LIMITS.inventory,
     (count) => observations.push(count),
   );
-  expect(system.offer(2000000).consumed).toBe(1);
+  expect((await system.offer(request)).consumed).toBe(1);
   expect(observations).toEqual([1]);
-  expect(inventory[0].count).toBe(1);
-  expect(system.offer(2000000).accepted).toBe(false);
+  expect(store.profile.inventory[0].count).toBe(1);
+  expect((await system.offer(request)).accepted).toBe(false);
   system.destroy();
+  await store.destroy();
 });
 
-test("an observer failure cannot separate a committed transition from its item debit", () => {
-  const { system, inventory } = offeringFixture(1, () => {
+test("an observer failure cannot separate a committed transition from its item debit", async () => {
+  const { system, store, request } = offeringFixture(1, () => {
     throw new Error("observer failure");
   });
-  expect(() => system.offer(2000000)).toThrow("observer failure");
-  expect(inventory[0].count).toBe(1);
-  expect(system.offer(2000000).accepted).toBe(false);
+  expect((await system.offer(request)).accepted).toBe(true);
+  expect(store.profile.inventory[0].count).toBe(1);
+  expect((await system.offer(request)).accepted).toBe(false);
   system.destroy();
+  await store.destroy();
+});
+
+test("a pending offer rejects repeated input and another local actor without extra debit", async () => {
+  const { system, store, request } = offeringFixture(1, () => {});
+  expect(
+    (await system.offer({ ...request, actorId: "another-character" })).code,
+  ).toBe("invalid-actor");
+  const first = system.offer(request);
+  expect((await system.offer(request)).code).toBe("reactor-busy");
+  expect((await first).accepted).toBe(true);
+  expect(store.profile.inventory[0].count).toBe(1);
+  expect((await system.offer(request)).accepted).toBe(false);
+  system.destroy();
+  await store.destroy();
 });

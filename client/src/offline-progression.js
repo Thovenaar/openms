@@ -1,3 +1,5 @@
+import { recalculateVitals } from "./character-stats.js";
+
 /** Explicit offline policy, NOT an original MapleStory EXP/stat table. */
 export const PROGRESSION_POLICY = Object.freeze({
   authority: "offline-local-policy",
@@ -21,7 +23,7 @@ export function experienceRequired(level) {
 }
 
 /** Mutate an owned profile or transaction draft; caller persists and emits effects. */
-export function awardExperience(profile, amount, hpGrowth = 0) {
+export function awardExperience(profile, amount, hpGrowth = 0, items) {
   if (
     !Number.isSafeInteger(amount) ||
     amount < 0 ||
@@ -45,15 +47,24 @@ export function awardExperience(profile, amount, hpGrowth = 0) {
     if (profile.exp < required) break;
     profile.exp -= required;
     profile.level++;
-    profile.maxHP += PROGRESSION_POLICY.hpPerLevel + hpGrowth;
-    profile.maxMP += PROGRESSION_POLICY.mpPerLevel;
+    profile.baseMaxHP = Math.min(
+      30000,
+      profile.baseMaxHP + PROGRESSION_POLICY.hpPerLevel + hpGrowth,
+    );
+    profile.baseMaxMP = Math.min(
+      30000,
+      profile.baseMaxMP + PROGRESSION_POLICY.mpPerLevel,
+    );
     profile.str++;
     profile.dex++;
     profile.int++;
     profile.luk++;
+    gained++;
+  }
+  if (gained) {
+    recalculateVitals(profile, items);
     profile.hp = profile.maxHP;
     profile.mp = profile.maxMP;
-    gained++;
   }
   if (profile.level === PROGRESSION_POLICY.maxLevel) profile.exp = 0;
   return gained;

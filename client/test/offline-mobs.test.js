@@ -5,7 +5,7 @@ import { createMobs, damageMob, stepMob } from "../src/offline-mobs.js";
 
 // Isolating floor geometry; Shroom's mobType=4, speed=-30 and maxHP=20
 // are original 0120100.img scalars, not an invented movement classification.
-function mobWorld() {
+function mobWorld(slope = 0) {
   const footholds = [
     {
       id: 1,
@@ -14,7 +14,7 @@ function mobWorld() {
       x1: 0,
       y1: 0,
       x2: 32,
-      y2: 0,
+      y2: 32 * slope,
       prev: 0,
       next: 2,
       properties: {},
@@ -24,9 +24,9 @@ function mobWorld() {
       layer: 1,
       group: 0,
       x1: 32,
-      y1: 0,
+      y1: 32 * slope,
       x2: 64,
-      y2: 0,
+      y2: 64 * slope,
       prev: 1,
       next: 0,
       properties: {},
@@ -41,8 +41,11 @@ function mobWorld() {
   };
 }
 
-function groundedMob(info = {}, hitDuration = 0) {
-  const simulation = createSimulation(mobWorld(), { x: 10, y: 0 });
+function groundedMob(info = {}, hitDuration = 0, slope = 0) {
+  const simulation = createSimulation(mobWorld(slope), {
+    x: 10,
+    y: 10 * slope,
+  });
   const action = {
     timingKnown: true,
     frames: [
@@ -179,4 +182,31 @@ test("selected-skill admission and a missing hit pose do not fabricate immunity 
   expect(damageMob(mob, 15, 1, attack)).toBe(false);
   expect(mob.deaths).toBe(1);
   expect(mob.body.active).toBe(false);
+});
+
+test("native recoil remains world-horizontal on a slope", () => {
+  const mob = groundedMob({ pushed: 1 }, 180, 1);
+  damageMob(mob, 1, 1);
+  stepMob(mob, 30);
+  expect(mob.x).toBeCloseTo(13.72, 8);
+  expect(mob.y).toBeCloseTo(13.72, 8);
+  advance(mob, 5);
+  expect(mob.x).toBeCloseTo(26.92, 8);
+  expect(mob.y).toBeCloseTo(26.92, 8);
+});
+
+test("zero lines cannot trigger recoil even at pushed zero or reset an active hit deadline", () => {
+  const mob = groundedMob({ pushed: 0 }, 180);
+  damageMob(mob, 0, 1);
+  expect(mob.hp).toBe(20);
+  expect(mob.state).toBe("idle");
+  expect(mob.knockbackMs).toBe(0);
+  damageMob(mob, 1, 1);
+  stepMob(mob, 30);
+  damageMob(mob, 0, -1);
+  expect(mob.hp).toBe(19);
+  expect(mob.lastDamage).toBe(0);
+  expect(mob.hitRemainingMs).toBe(150);
+  stepMob(mob, 30);
+  expect(mob.x).toBeCloseTo(17.08, 8);
 });
