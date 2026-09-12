@@ -52,82 +52,22 @@
             </button>
             <button id="reload" type="button">Reload field</button>
           </div>
-          <div class="console-tabs" role="tablist" aria-label="Tool sections">
-            <button
-              id="console-tab-play"
-              role="tab"
-              type="button"
-              aria-selected="true"
-              aria-controls="console-play"
-              data-console-panel="play"
-            >
-              Play
-            </button>
-            <button
-              id="console-tab-character"
-              role="tab"
-              type="button"
-              aria-selected="false"
-              aria-controls="console-character"
-              tabindex="-1"
-              data-console-panel="character"
-            >
-              Character
-            </button>
-            <button
-              id="console-tab-inspect"
-              role="tab"
-              type="button"
-              aria-selected="false"
-              aria-controls="console-inspect"
-              tabindex="-1"
-              data-console-panel="inspect"
-            >
-              Inspect
-            </button>
-            <button
-              id="console-tab-settings"
-              role="tab"
-              type="button"
-              aria-selected="false"
-              aria-controls="console-settings"
-              tabindex="-1"
-              data-console-panel="settings"
-            >
-              Settings
-            </button>
-            <button
-              id="console-tab-agent"
-              role="tab"
-              type="button"
-              aria-selected="false"
-              aria-controls="console-agent"
-              tabindex="-1"
-              data-console-panel="agent"
-            >
-              Agent
-            </button>
-            <button
-              id="console-tab-state"
-              role="tab"
-              type="button"
-              aria-selected="false"
-              aria-controls="console-state"
-              tabindex="-1"
-              data-console-panel="state"
-            >
-              State &amp; Testing
-            </button>
-          </div>
+          <select id="console-section" aria-label="Tool section">
+            <option value="field">Field</option>
+            <option value="character">Character</option>
+            <option value="world">World</option>
+            <option value="diagnostics">Diagnostics</option>
+            <option value="agent">Agent</option>
+            <option value="settings">Settings</option>
+          </select>
         </div>
         <p id="ui-status" class="hint" role="status"></p>
-        <section
-          id="console-play"
-          role="tabpanel"
-          aria-labelledby="console-tab-play"
-          tabindex="0"
-        >
-          <h2>Play</h2>
+        <section id="console-field" aria-label="Field">
+          <h2>Field</h2>
+          <p id="console-field-hint" class="hint">
+            Travel to packaged maps and spawn development monsters; online, the
+            server authorises map travel and spawns.
+          </p>
           <p class="hint">
             Current field: <output id="map-current">Loading…</output>
           </p>
@@ -201,47 +141,21 @@
               aria-live="polite"
             ></p>
           </details>
-          <details id="sound-inspection">
-            <summary>Sound</summary>
-            <section id="audio-controls" aria-label="Audio"></section>
-          </details>
         </section>
-        <section
-          id="console-character"
-          role="tabpanel"
-          aria-labelledby="console-tab-character"
-          tabindex="0"
-          hidden
-        >
+        <section id="console-character" aria-label="Character" hidden>
           <h2>Character</h2>
-          <p class="hint">
+          <p id="console-character-hint" class="hint">
             Stage a preset or edit values, then Apply. Drafts stay here until
-            saved or discarded.
+            saved or discarded; online, the server authorises applied edits.
           </p>
           <div id="inspection-controls"></div>
         </section>
-        <section
-          id="console-inspect"
-          role="tabpanel"
-          aria-labelledby="console-tab-inspect"
-          tabindex="0"
-          hidden
-        >
-          <h2>Inspect</h2>
-          <p class="hint">
-            Preview changes affect this session, not original assets.
+        <section id="console-world" aria-label="World" hidden>
+          <h2>World</h2>
+          <p id="console-world-hint" class="hint">
+            Inspect scene entities, physics geometry, camera and life
+            placements. Previews affect this session, not original assets.
           </p>
-          <details id="error-log">
-            <summary>Error log</summary>
-            <label class="sr-only" for="error">Development error records</label>
-            <textarea
-              id="error"
-              readonly
-              spellcheck="false"
-              rows="12"
-              placeholder="No errors recorded in this session."
-            ></textarea>
-          </details>
           <fieldset
             id="scene-preview-controls"
             disabled
@@ -335,43 +249,70 @@
               </div>
             </details>
             <div id="life-inspection"></div>
-            <details id="runtime-inspection">
-              <summary>Runtime diagnostics</summary>
-              <div class="transport">
-                <label class="step-label"
-                  ><input
-                    id="step-ms"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value="16"
-                    aria-label="Step milliseconds"
-                  />
-                  ms</label
-                >
-                <button id="step" type="button">Step</button>
-              </div>
-              <p class="hint">
-                Stepping pauses gameplay and advances the chosen milliseconds.
-              </p>
-              <p id="physics-status" class="hint" role="status">
-                Waiting for physics coverage…
-              </p>
-              <pre id="settings">Waiting for original map physics…</pre>
-              <output id="status" class="hint" role="status"
-                >Starting WebGL renderer…</output
-              >
-            </details>
           </fieldset>
         </section>
-        <section
-          id="console-settings"
-          role="tabpanel"
-          aria-labelledby="console-tab-settings"
-          tabindex="0"
-          hidden
-        >
+        <section id="console-diagnostics" aria-label="Diagnostics" hidden>
+          <h2>Diagnostics</h2>
+          <p id="console-diagnostics-hint" class="hint">
+            Runtime diagnostics, error records and authoritative state testing;
+            online, resync and mutations are server-authorised.
+          </p>
+          <details id="runtime-inspection">
+            <summary>Runtime diagnostics</summary>
+            <div class="transport">
+              <label class="step-label"
+                ><input
+                  id="step-ms"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="16"
+                  aria-label="Step milliseconds"
+                />
+                ms</label
+              >
+              <button id="step" type="button">Step</button>
+            </div>
+            <p class="hint">
+              Stepping pauses gameplay and advances the chosen milliseconds.
+            </p>
+            <p id="physics-status" class="hint" role="status">
+              Waiting for physics coverage…
+            </p>
+            <pre id="settings">Waiting for original map physics…</pre>
+            <output id="status" class="hint" role="status"
+              >Starting WebGL renderer…</output
+            >
+          </details>
+          <details id="error-log">
+            <summary>Error log</summary>
+            <label class="sr-only" for="error">Development error records</label>
+            <textarea
+              id="error"
+              readonly
+              spellcheck="false"
+              rows="12"
+              placeholder="No errors recorded in this session."
+            ></textarea>
+          </details>
+          <div id="state-testing-controls"></div>
+        </section>
+        <section id="console-agent" aria-label="Agent" hidden>
+          <h2>Agent</h2>
+          <p id="console-agent-hint" class="hint">
+            Run agent and experiment controls for this session; online,
+            privileged actions are server-authorised.
+          </p>
+          <section
+            id="agent-controls"
+            aria-label="Agent and experiment controls"
+          ></section>
+        </section>
+        <section id="console-settings" aria-label="Settings" hidden>
           <h2>Settings</h2>
+          <p id="console-settings-hint" class="hint">
+            Only these tools change. Game artwork stays original.
+          </p>
           <details id="inspection-theme" class="theme-choices" open>
             <summary>Tool appearance</summary>
             <label class="theme-choice">
@@ -403,36 +344,14 @@
             </label>
           </details>
           <output id="theme-status" class="sr-only" role="status"></output>
-          <p class="hint">
-            Only these tools change. Game artwork stays original.
-          </p>
+          <details id="sound-inspection">
+            <summary>Sound</summary>
+            <section id="audio-controls" aria-label="Audio"></section>
+          </details>
           <details id="offline-inspection">
             <summary>Offline download &amp; updates</summary>
             <div id="offline-controls"></div>
           </details>
-        </section>
-        <section
-          id="console-agent"
-          role="tabpanel"
-          aria-labelledby="console-tab-agent"
-          tabindex="0"
-          hidden
-        >
-          <h2>Agent</h2>
-          <section
-            id="agent-controls"
-            aria-label="Agent and experiment controls"
-          ></section>
-        </section>
-        <section
-          id="console-state"
-          role="tabpanel"
-          aria-labelledby="console-tab-state"
-          tabindex="0"
-          hidden
-        >
-          <h2>State &amp; Testing</h2>
-          <div id="state-testing-controls"></div>
         </section>
       </aside>
       <section id="viewport" aria-label="Scene viewport"></section>

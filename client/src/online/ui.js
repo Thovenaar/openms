@@ -24,6 +24,20 @@ function conversationIdentity(event) { return event.conversationId ?? event.shop
 function interactionKey(event) { return `${conversationIdentity(event)}:${event.part ?? ""}`; }
 const CHANNELS = ["buddy", null, "party", "guild", "alliance", "spouse", "whisper", "map"];
 const UNSUPPORTED_WINDOWS = { CashShop: "cash shop", Trunk: "storage", MonsterBook: "monster book", UserList: "social management", Messenger: "messenger", Family: "family", FamilyTree: "family tree", Title: "medals", PartySearch: "party search", PartyHP: "party HP", EnchantSkill: "enhancement skills", SocialInvitation: "social invitations" };
+const PROFILE_EDITOR_NOTICE =
+  "Profile and preset editing requires an authorized GM developer session.";
+
+/** Explain the empty character host instead of leaving an unauthorized section blank. */
+function profileEditorNotice() {
+  const host = document.querySelector("#inspection-controls");
+  if (!host || host.querySelector("[data-developer-only]")) return null;
+  const text = document.createElement("p");
+  text.className = "hint";
+  text.dataset.developerOnly = "";
+  text.textContent = PROFILE_EDITOR_NOTICE;
+  host.append(text);
+  return null;
+}
 
 /** Shared native presentation with read-only publication ports and closed server intents. */
 export class OnlineUI {
@@ -70,7 +84,8 @@ export class OnlineUI {
   }
   profileHooks() {
     return {
-      createProfileControls: (owner) => this.developer() ? new ProfileControls(owner) : null,
+      createProfileControls: (owner) =>
+        this.developer() ? new ProfileControls(owner) : profileEditorNotice(),
       onProfileEdit: (patch, options) => this.editProfile(patch, options),
       profileEditSuccess: "Profile edits committed by the server.",
       onLearnSkill: (skillId) => this.request({ kind: "skills.allocate", skillId, amount: 1 }),

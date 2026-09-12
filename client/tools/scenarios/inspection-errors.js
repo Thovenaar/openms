@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { mapManifest, seededProfile } from "./native.js";
+import { mapManifest, openConsoleSection, seededProfile } from "./native.js";
 
 const MAP_ID = "000010000";
 const FIRST_ERROR = "Controlled inspection log verification: first failure";
@@ -71,7 +71,7 @@ async function copyingRetainsSelection(context) {
 
 async function run(context) {
   const { page, assert, checkpoint, output } = context;
-  await page.click("#console-tab-play");
+  await openConsoleSection(page, "field");
   const before = await page.$eval(
     "#map-selection",
     (element) => element.getBoundingClientRect().top,
@@ -90,7 +90,7 @@ async function run(context) {
     (await page.$("#input-controls")) === null,
     "Play has no Movement keys disclosure",
   );
-  await page.click("#console-tab-inspect");
+  await openConsoleSection(page, "diagnostics");
   await page.click("#error-log summary");
   await page.waitForFunction(
     (message) => document.querySelector("#error").value.includes(message),

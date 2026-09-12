@@ -11,7 +11,7 @@ import {
 import { decodePNG, comparePixels } from "./validation-png.js";
 import { compareRefreshRates } from "./physics-reference.js";
 import { waitForNativeReady } from "./native-scenario-runner.js";
-import { focusCanvas, seededProfile } from "./scenarios/native.js";
+import { focusCanvas, openConsoleSection, seededProfile } from "./scenarios/native.js";
 import { prepareFixture, seedFixture } from "./native-fixtures.js";
 
 const { values } = parseArgs({
@@ -246,7 +246,7 @@ async function livePerformance() {
 }
 /** Refine the bounded map list, then operate its actual native select. */
 async function chooseMap(id) {
-  await page.click("#console-tab-play");
+  await openConsoleSection(page, "field");
   await page.click("#map-search", { clickCount: 3 });
   await page.keyboard.press("Backspace");
   await page.type("#map-search", id);
@@ -317,13 +317,13 @@ async function transition(id) {
   );
 }
 async function geometryPreviews() {
-  await page.click("#console-tab-inspect");
+  await openConsoleSection(page, "world");
   const closed = await page.$eval(
     "#debug",
     (element) => !element.closest("details").open,
   );
   if (closed) {
-    await page.click("#console-inspect details:has(#debug) > summary");
+    await page.click("#console-world details:has(#debug) > summary");
   }
   await page.click("#debug");
   await page.waitForFunction(
@@ -345,7 +345,7 @@ async function geometryPreviews() {
   await capture("original-geometry-overlay");
   await page.select("#hitbox-reference", "");
   await page.click("#debug");
-  await page.click("#console-tab-play");
+  await openConsoleSection(page, "field");
 }
 /** Preserve URL/status diagnostics rather than parsing HTTP errors as evidence. */
 async function fetchJSON(url) {

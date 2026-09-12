@@ -6,6 +6,7 @@ import { GameplayEffects } from "./gameplay-effects.js";
 
 const MAX_EFFECTS = 32;
 const MAX_SOUND_NAMES = 512;
+const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const DESTROY_DISPLAY = Object.freeze({ children: true });
 const MOB_ATTACK_SOUNDS = Object.freeze({
   attack1: "Attack1",
@@ -50,7 +51,30 @@ function validateIndex(index) {
       throw new Error(`Invalid ${category} sound catalog`);
     }
   }
+  validateLogin(index.login);
   validateEffects(index.effects);
+}
+
+/** Optional login/title music record: absent is valid, a present one must be a sound. */
+function validateLogin(login) {
+  if (login === undefined) return;
+  if (!login?.bgm || !validDescriptor(login.bgm)) {
+    throw new Error("Invalid login music descriptor");
+  }
+}
+
+/** A published sound descriptor always names its exact original source and bytes. */
+function validDescriptor(descriptor) {
+  return Boolean(
+    descriptor &&
+    typeof descriptor.url === "string" &&
+    descriptor.url.startsWith("/generated/audio/") &&
+    HASH_PATTERN.test(descriptor.sha256) &&
+    Number.isSafeInteger(descriptor.bytes) &&
+    descriptor.bytes > 0 &&
+    typeof descriptor.source === "string" &&
+    descriptor.source.startsWith("Sound.wz:"),
+  );
 }
 
 function validateEffects(effects) {
@@ -366,6 +390,13 @@ export class AudiovisualSystem {
     this.teleport.owner.destroy();
     this.teleport = null;
   }
+  /** Login/title music shares the one BGM channel: the request is remembered while
+   * audio is still locked, and a committed scene replaces it through setScene. */
+  setTitleBgm(descriptor) {
+    if (this.destroyed) return Promise.resolve();
+    return this.audio.setBGM(descriptor ?? null);
+  }
+
   setScene(scene) {
     if (this.destroyed) return;
     this.controller.abort();

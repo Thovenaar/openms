@@ -4,13 +4,13 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { measureStage, assertion } from "../native-evidence.js";
 import { sourceIdentity } from "../browser-build.js";
-import { clickLabel, focusCanvas, openWindow, TIMEOUT } from "./native.js";
+import { clickLabel, focusCanvas, openConsoleSection, openWindow, TIMEOUT } from "./native.js";
+import { CONSOLE_SECTIONS } from "../../src/development/inspection-theme.js";
 import { PHYSICAL_CODES, keyIndexForCode, bindingAction } from "../../src/input/keymap.js";
 
 const CATALOG = fileURLToPath(new URL("../../public/generated/catalog.json", import.meta.url));
 const MAX_LOGS = 80;
 const HASH = /^[a-f0-9]{64}$/;
-const TABS = ["play", "character", "inspect", "settings", "agent", "state"];
 
 function sha(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 
@@ -252,12 +252,10 @@ async function revealControl(page, selector) {
 async function inspection(session) {
   const page = session.page;
   await sidebar(page, true);
-  for (const tab of TABS) {
-    await page.click(`#console-tab-${tab}`);
-    await page.waitForFunction((id) => !document.getElementById(`console-${id}`).hidden &&
-      document.getElementById(`console-tab-${id}`).getAttribute("aria-selected") === "true", {}, tab);
+  for (const section of CONSOLE_SECTIONS) {
+    await openConsoleSection(page, section);
   }
-  await page.click("#console-tab-inspect");
+  await openConsoleSection(page, "world");
   await revealControl(page, "#debug");
   await page.click("#debug");
   await page.waitForFunction(() => window.maple.snapshot().debug === document.querySelector("#debug").checked);
@@ -267,9 +265,9 @@ async function inspection(session) {
   await page.waitForFunction((previous) => window.maple.snapshot().follow !== previous, {}, follow);
   await page.click("#follow");
   await capture(session, "inspection-geometry");
-  await page.click("#console-tab-state");
+  await openConsoleSection(page, "diagnostics");
   const before = await page.evaluate(authoritativeState);
-  await clickLabel(page, "Request authoritative resync", "#console-state");
+  await clickLabel(page, "Request authoritative resync", "#console-diagnostics");
   await page.waitForFunction((snapshotId) => {
     const model = window.mapleOnline.observation();
     return window.mapleOnline.snapshot().status === "active" && model.snapshotId !== snapshotId;
@@ -279,7 +277,7 @@ async function inspection(session) {
   assertion(after.inputSeq >= before.inputSeq, "Resync must preserve input sequence continuity");
   session.report.resync = { before, after };
   await capture(session, "inspection-state-testing");
-  session.report.checks.push("All six inspection tabs, geometry toggle, follow off/on, State & Testing resync and active sequence continuity exercised");
+  session.report.checks.push("All six inspection sections, geometry toggle, follow off/on, State & Testing resync and active sequence continuity exercised");
 }
 
 async function smallViewport(session) {

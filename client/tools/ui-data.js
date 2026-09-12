@@ -6,6 +6,7 @@ import { extractWorldMaps } from "./worldmap-data.js";
 import { extractCashShop } from "./cash-shop-data.js";
 import { extractMonsterBook } from "./monster-book-data.js";
 import { extractAvatarCatalog } from "./avatar-catalog.js";
+import { createAppearances, extractCharacterCreate } from "./create-data.js";
 import { extractSkillMacroRules } from "./skill-macro-data.js";
 import { extractNpcWorldUI } from "./life-data.js";
 import { extractSkillWorld } from "./skill-world-data.js";
@@ -621,6 +622,14 @@ async function minimapBundles(context) {
   return minimaps;
 }
 
+/** NPC world artwork plus its shared speech-bubble bundle. */
+async function npcWorldArtwork(context) {
+  return {
+    ...(await extractNpcWorldUI(context)),
+    speech: await speechBubbleBundle(context, "npc"),
+  };
+}
+
 /** Static catalog metadata; artwork and avatar records remain independently demand-loaded. */
 export async function extractGameUI(context) {
   const bundles = await windowBundles(context);
@@ -639,19 +648,24 @@ export async function extractGameUI(context) {
   );
   const npcPortraits = await extractNpcPortraits(context);
   const dialogArtwork = await extractDialogArtwork(context, canvasRecord);
+  const characterCreate = await extractCharacterCreate(context);
+  // Create choices and their artwork share one original source: every legal
+  // appearance is packaged, so the picker never offers an unrenderable option.
+  const avatar = await extractAvatarCatalog(
+    { ...context, avatarAppearances: createAppearances(characterCreate) },
+    templates.items,
+  );
   return {
     schemaVersion: 1,
     bundles,
     minimaps,
     npcPortraits,
-    npcWorld: {
-      ...(await extractNpcWorldUI(context)),
-      speech: await speechBubbleBundle(context, "npc"),
-    },
+    npcWorld: await npcWorldArtwork(context),
     dialogArtwork,
     cashShop,
     monsterBook: monsterBook.monsterBook,
-    avatar: await extractAvatarCatalog(context, templates.items),
+    avatar,
+    characterCreate,
     skillMacroRules: await extractSkillMacroRules(context),
     social: await socialMetadata(context),
     dropArtwork: await extractDropArtwork(context, canvasRecord),

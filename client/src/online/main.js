@@ -436,6 +436,7 @@ function initializeInterfaces() {
     app,
     services,
     transport,
+    audio: ui.audio,
     hooks: { report },
   });
   inspection = new OnlineInspection({

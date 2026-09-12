@@ -478,5 +478,14 @@ export async function extractAudiovisual(context, mapIds) {
     index.effects[name] = await publishEffect(context, "MapEff.img", name);
   }
   await tutorialEffects(context, index.effects);
+  // Login/title music is a BgmUI member, not reached from any map's info/bgm.
+  // Native login dispatch is not recovered, so the descriptor names its exact source.
+  index.login = {
+    bgm: await publishSound(
+      context,
+      at(context.image("Sound", "BgmUI.img"), "Title"),
+      "Sound.wz:BgmUI.img/Title",
+    ),
+  };
   return index;
 }

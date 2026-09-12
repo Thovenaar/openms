@@ -23,22 +23,22 @@ const STAT_MAXIMUM = 13;
 const STAT_TOTAL = 25;
 const DICE_TICKS = 10;
 const DICE_TICK_MS = 60;
-const APPEARANCE_FIELDS = [
-  ["gender", "Gender", null],
-  ["skin", "Skin", null],
-  ["face", "Face", null],
-  ["hair", "Hair", null],
+/** Original create-screen rows in MakeCharInfo.img category order. Gender is its own
+ * original surface and the four apparel rows are the packet's always-present gear. */
+const CREATE_ROWS = [
+  ["gender", "Gender"],
+  ["face", "Face"],
+  ["hairBase", "Hair"],
+  ["hairColor", "Hair colour"],
+  ["skin", "Skin"],
+  ["top", "Top"],
+  ["bottom", "Bottom"],
+  ["shoes", "Shoes"],
+  ["weapon", "Weapon"],
 ];
-// Starter gear groups by authored islot; the server derives every equip slot from the catalog.
-const GEAR_FIELDS = [
-  ["weapon", "Weapon", ["Wp"]],
-  ["top", "Top", ["Ma"]],
-  ["bottom", "Bottom", ["Pn"]],
-  ["shoes", "Shoes", ["So"]],
-  ["hat", "Hat", ["Cp"]],
-];
-const STARTER_GEAR_MAX_LEVEL = 10;
-const STARTER_GEAR_CHOICES = 8;
+/** Apparel the original create packet always carried, in its transmitted order. */
+const CREATE_GEAR = ["top", "bottom", "shoes", "weapon"];
+const CREATE_TABLE_VERSION = 1;
 
 /** Local validation text is ours and shown verbatim; server codes map to explicit wording. */
 function localError(message) {
@@ -97,43 +97,9 @@ function failureText(error, code) {
   return FAILURE_TEXT.get(code) ?? `The server request failed (${code}).`;
 }
 
-/** Packaged avatar counts for verification surfaces; never drives rendering decisions. */
-function catalogCounts(catalog) {
-  const items = catalog?.ui?.items ?? {};
-  const counts = { face: 0, hair: 0, gear: 0 };
-  for (const entry of Object.values(catalog?.ui?.avatar?.entries ?? {})) {
-    if (entry.kind === "face") counts.face++;
-    else if (entry.kind === "hair") counts.hair++;
-    else if (gearChoice(entry, items)) counts.gear++;
-  }
-  return counts;
-}
-
-/** The authored slot group for one islot, or null when the catalog does not offer it. */
-function gearField(islot) {
-  return (
-    GEAR_FIELDS.find(([, , islots]) => islots.includes(islot))?.[0] ?? null
-  );
-}
-
-/** One starter-gear candidate, or null when the entry is cash, unpainted or above the level cap. */
-function gearChoice(entry, items) {
-  if (entry.kind !== "equipment" || entry.cash !== 0) return null;
-  const slots = entry.equippedSlots;
-  if (!Array.isArray(slots) || !slots.length) return null;
-  const item = items[String(entry.id)];
-  if (!item) return null;
-  const reqLevel = item.info?.reqLevel ?? 0;
-  if (reqLevel > STARTER_GEAR_MAX_LEVEL) return null;
-  const field = gearField(item.info?.islot);
-  if (!field) return null;
-  return {
-    field,
-    id: entry.id,
-    name: String(item.name ?? entry.id).trim(),
-    slot: slots[0],
-    reqLevel,
-  };
+/** Create rows use the original category name for their fallback label. */
+function optionTitle(field) {
+  return CREATE_ROWS.find(([name]) => name === field)?.[1] ?? field;
 }
 
 function rollStats(random = Math.random) {
@@ -208,13 +174,15 @@ async function solveProofOfWork(challenge, { signal, onProgress }) {
 
 /** Custom Win95 account and character selection surface; the server stays authoritative. */
 export class OnlineLogin {
-  constructor({ app, services, transport, hooks }) {
+  constructor({ app, services, transport, hooks, audio = null }) {
     this.app = app;
     this.services = services;
     this.transport = transport;
     this.hooks = hooks;
+    this.audio = audio;
     this.destroyed = false;
     this.pending = false;
+    this.prepared = false;
     this.visible = true;
     this.entered = false;
     this.generation = 0;
@@ -222,14 +190,18 @@ export class OnlineLogin {
     this.characters = [];
     this.selected = 0;
     this.stage = "account";
-    this.step = 0;
     this.draft = {
       name: "",
       stats: rollStats(),
       gender: 0,
       skin: 0,
-      face: null,
-      hair: null,
+      face: 0,
+      hairBase: 0,
+      hairColor: 0,
+      top: 0,
+      bottom: 0,
+      shoes: 0,
+      weapon: 0,
     };
     this.diceTimer = null;
     this.listeners = [];
@@ -257,7 +229,41 @@ export class OnlineLogin {
     this.host.append(this.window);
     app.canvas.parentElement.append(this.host);
     this.resize(app.screen.width, app.screen.height);
+    this.installCues();
     this.renderStage();
+  }
+
+  /** Original UI cues: every button answers hover and activation through the one audio
+   * owner. Nothing is queued before a trusted gesture, and a locked graph stays silent. */
+  installCues() {
+    const cue = (event, name) => {
+      const button = event.target?.closest?.("button");
+      if (!button || button.disabled) return;
+      this.playCue(name);
+    };
+    this.listen(this.host, "click", (event) => cue(event, "BtMouseClick"));
+    this.listen(
+      this.host,
+      "pointerenter",
+      (event) => cue(event, "BtMouseOver"),
+      true,
+    );
+  }
+
+  /** A missing or still-locked login cue never blocks sign in. */
+  playCue(name) {
+    this.audio
+      ?.playSound("UI", name)
+      .catch((error) => this.hooks.report(error));
+  }
+
+  /** Title music is remembered while audio is locked; a committed field replaces it. */
+  playTitleBgm() {
+    const descriptor = this.catalog?.audiovisual?.login?.bgm;
+    if (!descriptor) return;
+    this.audio
+      ?.setTitleBgm(descriptor)
+      .catch((error) => this.hooks.report(error));
   }
 
   buildAccountStage(body) {
@@ -477,7 +483,7 @@ export class OnlineLogin {
   buildCreateOptions() {
     const options = element("div", "online-login-options");
     this.optionRows = {};
-    for (const [field, label] of [...APPEARANCE_FIELDS, ...GEAR_FIELDS]) {
+    for (const [field, label] of CREATE_ROWS) {
       const row = element("div", "online-login-option");
       const previous = element(
         "button",
@@ -527,16 +533,16 @@ export class OnlineLogin {
 
   showCreate() {
     if (this.pending || this.destroyed) return;
+    if (!this.prepared) {
+      this.message.textContent =
+        "Still preparing the character choices from the server content.";
+      return;
+    }
     this.stage = "create";
     this.draft.name = "";
     this.draft.stats = rollStats();
-    this.draft.gender = this.appearanceChoices().gender[0] ?? 0;
-    this.draft.skin = this.appearanceChoices().skin[0] ?? 0;
-    this.draft.face = this.appearanceChoices().face[0] ?? 20000;
-    this.draft.hair = this.appearanceChoices().hair[0] ?? 30000;
-    for (const [field] of GEAR_FIELDS) {
-      this.draft[field] = this.gearChoices()[field][0]?.id ?? null;
-    }
+    this.draft.gender = 0;
+    this.adoptCreateDefaults();
     this.renderStage();
     this.renderCreate();
     this.rollDice();
@@ -584,136 +590,141 @@ export class OnlineLogin {
     this.statTotal.textContent = `Total ${total} of ${STAT_TOTAL}`;
   }
 
-  /** Choices are memoized per catalog identity; an early call must never stick. */
-  cachedChoices(key, compute) {
-    const cached = this[key];
-    if (cached && cached.catalog === this.catalog) return cached;
-    return (this[key] = { catalog: this.catalog, ...compute() });
-  }
-
-  /** Packaged appearance options come only from the catalog; missing styles are stated, not faked. */
-  appearanceChoices() {
-    return this.cachedChoices("appearance", () => {
-      const avatar = this.catalog?.ui?.avatar;
-      const faces = [];
-      const hairs = [];
-      for (const entry of Object.values(avatar?.entries ?? {})) {
-        if (entry.kind === "face") faces.push(entry.id);
-        else if (entry.kind === "hair") hairs.push(entry.id);
-      }
-      faces.sort((left, right) => left - right);
-      hairs.sort((left, right) => left - right);
-      return {
-        gender: [0],
-        skin: Object.keys(avatar?.skins ?? { 0: {} }).map(Number),
-        face: faces,
-        hair: hairs,
-      };
-    });
-  }
-
-  /** Starter gear: packaged non-cash entries of one authored slot group, level-bounded and capped. */
-  gearChoices() {
-    return this.cachedChoices("gear", () => {
-      const items = this.catalog?.ui?.items ?? {};
-      const choices = Object.fromEntries(
-        GEAR_FIELDS.map(([field]) => [field, []]),
-      );
-      for (const entry of Object.values(
-        this.catalog?.ui?.avatar?.entries ?? {},
-      )) {
-        const choice = gearChoice(entry, items);
-        if (choice) choices[choice.field].push(choice);
-      }
-      for (const list of Object.values(choices)) {
-        list.sort(
-          (left, right) => left.reqLevel - right.reqLevel || left.id - right.id,
-        );
-        list.splice(STARTER_GEAR_CHOICES);
-      }
-      return choices;
-    });
-  }
-
-  /** One packaged gear choice by id, across every starter group. */
-  gearEntry(id) {
-    const choices = this.gearChoices();
-    for (const [field] of GEAR_FIELDS) {
-      const found = choices[field].find((choice) => choice.id === id);
-      if (found) return found;
+  /** Recovered original new-character choices; there is no catalog-wide fallback,
+   * because the original screen only ever offered these values. */
+  createTable() {
+    const table = this.catalog?.ui?.characterCreate;
+    if (table?.schemaVersion !== CREATE_TABLE_VERSION) {
+      throw new Error("Packaged original character-create choices are missing");
     }
-    return null;
+    return table;
   }
 
-  optionValues(field) {
-    const appearance = APPEARANCE_FIELDS.some(([name]) => name === field);
-    if (appearance) {
-      return this.appearanceChoices()[field].map((value) => ({ value }));
+  /** One gender's authored option sets; every appearance row belongs to exactly one. */
+  createSet(gender = this.draft.gender) {
+    const set = this.createTable().genders?.[String(gender)];
+    if (!set) {
+      throw new Error(`No original create choices for gender ${gender}`);
     }
-    return [
-      { value: null },
-      ...this.gearChoices()[field].map((choice) => ({
-        value: choice.id,
-        choice,
-      })),
-    ];
+    return set;
   }
 
-  optionLabel(field, entry) {
-    if (!entry) return "—";
-    if (entry.value === null) return "None";
-    if (field === "gender") return entry.value === 0 ? "Male" : "Female";
-    if (field === "skin") return `Tone ${entry.value}`;
-    if (entry.choice) return entry.choice.name || `Item ${entry.value}`;
-    const values = this.optionValues(field);
-    const index = values.findIndex(
-      (candidate) => candidate.value === entry.value,
-    );
-    return `${this.optionRows[field].label} ${index + 1}`;
+  /** Legal values of one row in original file order. */
+  createValues(field) {
+    if (field === "gender") return [0, 1];
+    const values = this.createSet()[field];
+    if (!Array.isArray(values) || !values.length) {
+      throw new Error(`Packaged create choices lack ${field}`);
+    }
+    return values;
+  }
+
+  /** Authored label when the original names the value, otherwise its position. */
+  createLabel(field, value) {
+    if (field === "gender") return value === 0 ? "Male" : "Female";
+    if (CREATE_GEAR.includes(field)) return this.itemLabel(value);
+    const set = this.createSet();
+    const authored = set.names?.[field]?.[String(value)];
+    if (typeof authored === "string" && authored) return authored;
+    const values = set[field];
+    const index = values.indexOf(value);
+    return `${optionTitle(field)} ${index + 1} of ${values.length}`;
+  }
+
+  /** An item row shows the catalog's own name; the profile is never invented. */
+  itemLabel(id) {
+    const item = this.catalog?.ui?.items?.[String(id)];
+    const name = typeof item?.name === "string" ? item.name.trim() : "";
+    if (!name) throw new Error(`Packaged starter item ${id} has no name`);
+    return name;
+  }
+
+  /** First authored equip slot of a packaged starter item. Presentation only:
+   * the server derives the committed slot from the same catalog entry. */
+  equipSlot(id) {
+    const entry = this.catalog?.ui?.avatar?.entries?.[String(id)];
+    const slots = entry?.equippedSlots;
+    if (!Array.isArray(slots) || !slots.length || !Number.isInteger(slots[0])) {
+      throw new Error(`Packaged starter item ${id} has no authored equip slot`);
+    }
+    return slots[0];
+  }
+
+  /** Every row keeps a value the selected gender's original set allows. */
+  adoptCreateDefaults() {
+    const set = this.createSet();
+    for (const [field] of CREATE_ROWS) {
+      if (field === "gender") continue;
+      if (!set[field].includes(this.draft[field])) {
+        this.draft[field] = set[field][0];
+      }
+    }
+  }
+
+  /** The original packet submitted base hair plus its colour suffix. */
+  draftHair() {
+    const hair = this.draft.hairBase + this.draft.hairColor;
+    if (!Number.isSafeInteger(hair)) {
+      throw new Error("Character hair choice is not an original id");
+    }
+    return hair;
   }
 
   cycleOption(field, delta) {
     if (this.pending || this.destroyed) return;
-    const values = this.optionValues(field).map((entry) => entry.value);
+    const values = this.createValues(field);
     const index = values.indexOf(this.draft[field]);
     this.draft[field] = values[(index + delta + values.length) % values.length];
+    // Male and female sets differ, so a gender change re-selects the other rows.
+    if (field === "gender") this.adoptCreateDefaults();
     this.renderCreate();
     this.refreshCreatePreview();
   }
 
-  /** Packaged option counts for verification surfaces; never used for rendering decisions. */
+  /** Create-screen choices and their packaged artwork, for verification surfaces only. */
   publishOptions() {
-    const appearance = this.appearanceChoices();
-    const counts = catalogCounts(this.catalog);
+    const set = this.createSet();
+    const counts = {};
+    for (const field of [
+      "face",
+      "hairBase",
+      "hairColor",
+      "skin",
+      ...CREATE_GEAR,
+    ]) {
+      counts[field] = set[field].length;
+    }
     this.host.dataset.options = JSON.stringify({
-      face: appearance.face.length,
-      hair: appearance.hair.length,
-      skin: appearance.skin.length,
-      gear: Object.fromEntries(
-        GEAR_FIELDS.map(([field]) => [field, this.gearChoices()[field].length]),
-      ),
-      packaged: counts,
+      gender: this.draft.gender,
+      counts,
+      source: this.createTable().source,
     });
   }
 
   renderCreate() {
+    // The catalog streams after the account form is usable, so the create screen
+    // renders a preparing state instead of failing the sign-in path.
+    if (!this.prepared) {
+      for (const row of Object.values(this.optionRows)) {
+        row.value.textContent = "Preparing…";
+        row.previous.disabled = true;
+        row.next.disabled = true;
+      }
+      this.previewNote.textContent =
+        "Reading the original starting choices from the server content…";
+      this.backButton.hidden = !this.characters.length;
+      this.submitCreate.disabled = true;
+      return;
+    }
     for (const [field, row] of Object.entries(this.optionRows)) {
-      const values = this.optionValues(field);
-      const index = Math.max(
-        0,
-        values.findIndex((entry) => entry.value === this.draft[field]),
-      );
-      row.value.textContent = this.optionLabel(field, values[index]);
-      const single = values.length < 2;
+      row.value.textContent = this.createLabel(field, this.draft[field]);
+      const single = field !== "gender" && this.createValues(field).length < 2;
       row.previous.disabled = single || this.pending;
       row.next.disabled = single || this.pending;
     }
-    const appearance = this.appearanceChoices();
     this.publishOptions();
-    this.previewNote.textContent =
-      appearance.face.length === 1 && appearance.hair.length === 1
-        ? "This build packages one original face, hair and skin identity; more styles need additional extracted Character.wz artwork."
-        : `${appearance.face.length} faces, ${appearance.hair.length} hairs and ${appearance.skin.length} skin tones are packaged.`;
+    const set = this.createSet();
+    this.previewNote.textContent = `${set.face.length} faces, ${set.hairBase.length} hairs with ${set.hairColor.length} colours and ${set.skin.length} skin tones are the original starting choices.`;
     this.backButton.hidden = !this.characters.length;
     this.submitCreate.disabled = this.pending;
   }
@@ -730,19 +741,31 @@ export class OnlineLogin {
     profile.appearance = {
       skin: this.draft.skin,
       face: this.draft.face,
-      hair: this.draft.hair,
+      hair: this.draftHair(),
     };
-    profile.equipment = GEAR_FIELDS.map(([field]) => this.draft[field])
-      .filter((id) => id !== null && id !== undefined)
-      .map((id) => this.gearEntry(id))
-      .filter((choice) => Boolean(choice))
-      .map((choice) => ({ id: choice.id, slot: choice.slot }));
+    profile.equipment = CREATE_GEAR.map((field) => this.draft[field]).map(
+      (id) => ({ id, slot: this.equipSlot(id) }),
+    );
     Object.assign(profile, this.draft.stats);
     return profile;
   }
 
-  /** The carousel portrait composes the character's own appearance and equipped items. */
+  /** The carousel portrait composes the character's own appearance and equipped items.
+   * A summary without them is a server contract violation: showing a default look instead
+   * would present a character the player cannot play. */
   characterProfile(character) {
+    const appearance = character.appearance;
+    if (
+      ![0, 1].includes(character.gender) ||
+      !Number.isInteger(appearance?.skin) ||
+      !Number.isInteger(appearance?.face) ||
+      !Number.isInteger(appearance?.hair) ||
+      !Array.isArray(character.equipment)
+    ) {
+      throw new Error(
+        `Character ${character.id} is missing its authoritative look`,
+      );
+    }
     const profile = createProfile({
       mapId: this.catalog?.defaultMap ?? "100000000",
       x: 0,
@@ -750,26 +773,31 @@ export class OnlineLogin {
       facing: 1,
     });
     profile.name = character.name;
-    profile.gender = character.gender ?? 0;
+    profile.gender = character.gender;
     profile.appearance = {
-      skin: character.appearance?.skin ?? 0,
-      face: character.appearance?.face ?? 20000,
-      hair: character.appearance?.hair ?? 30000,
+      skin: appearance.skin,
+      face: appearance.face,
+      hair: appearance.hair,
     };
-    profile.equipment = (character.equipment ?? []).map((item) => ({
+    profile.equipment = character.equipment.map((item) => ({
       id: item.id,
       slot: item.slot,
     }));
     return profile;
   }
 
-  /** One composed-avatar plane per surface; each owns one prepared animation at a time. */
+  /** One composed-avatar plane per surface; each owns one prepared animation at a time.
+   * The plane scans its root's children at the host origin, so the root itself is never
+   * transformed: a nested view carries the preview scale and placement. */
   previewSlot(name, element, maxScale) {
     const root = new Container({ label: `online-login-preview-${name}` });
+    const view = new Container({ label: `online-login-preview-view-${name}` });
+    root.addChild(view);
     return {
       name,
       element,
       root,
+      view,
       maxScale,
       plane: new UIRasterPlane(root, element),
       prepared: null,
@@ -795,20 +823,23 @@ export class OnlineLogin {
         (slot.element.clientHeight - 10) / height,
       ),
     );
-    slot.root.scale.set(scale);
-    slot.root.position.set(
+    slot.view.scale.set(scale);
+    slot.view.position.set(
       (slot.element.clientWidth - (bounds.left + bounds.right) * scale) / 2,
       slot.element.clientHeight - bounds.bottom * scale - 5,
     );
     if (slot === this.cardSlot) this.portraitMark.hidden = true;
   }
 
-  async showPreview(slot, profile) {
+  async showPreview(slot, profile, clear = false) {
     if (!this.visuals || this.destroyed || !slot) return;
     const generation = ++slot.generation;
     slot.controller?.abort();
     const controller = new AbortController();
     slot.controller = controller;
+    // A selection change empties the portrait first, so the previous character's
+    // pixels never sit under the newly selected name.
+    if (clear) this.clearPreview(slot);
     let prepared;
     try {
       prepared = await this.visuals.preparePreview({
@@ -825,14 +856,23 @@ export class OnlineLogin {
     }
     slot.prepared?.destroy();
     slot.prepared = prepared;
-    slot.root.removeChildren();
-    slot.root.addChild(prepared.root);
+    slot.view.removeChildren();
+    slot.view.addChild(prepared.root);
     this.placePreview(slot, prepared);
+  }
+
+  /** Empty one portrait and restore its placeholder mark. */
+  clearPreview(slot) {
+    slot.prepared?.destroy();
+    slot.prepared = null;
+    slot.view.removeChildren();
+    if (slot === this.cardSlot) this.portraitMark.hidden = false;
   }
 
   /** A cancelled compose is silent; a real failure is stated where the player can see it. */
   previewFailure(slot, error) {
     if (error?.name === "AbortError" || this.destroyed) return;
+    this.clearPreview(slot);
     if (slot === this.createSlot) {
       this.previewNote.textContent =
         "The packaged avatar artwork could not be prepared.";
@@ -860,7 +900,7 @@ export class OnlineLogin {
         gender: this.draft.gender,
         skin: this.draft.skin,
         face: this.draft.face,
-        hair: this.draft.hair,
+        hair: this.draftHair(),
         ...this.draft.stats,
         ...this.gearPayload(),
       });
@@ -877,13 +917,10 @@ export class OnlineLogin {
     }
   }
 
-  /** Only chosen gear reaches the wire; the server derives every equip slot from the catalog. */
+  /** The original create packet always carried top, bottom, shoes and weapon. */
   gearPayload() {
     const payload = {};
-    for (const [field] of GEAR_FIELDS) {
-      const id = this.draft[field];
-      if (id !== null && id !== undefined) payload[field] = id;
-    }
+    for (const field of CREATE_GEAR) payload[field] = this.draft[field];
     return payload;
   }
 
@@ -919,12 +956,11 @@ export class OnlineLogin {
       2.4,
     );
     this.cardSlot = this.previewSlot("card", this.portrait, 1.9);
-    const appearance = this.appearanceChoices();
-    this.draft.skin = appearance.skin[0] ?? 0;
-    this.draft.face = appearance.face[0] ?? 20000;
-    this.draft.hair = appearance.hair[0] ?? 30000;
+    this.prepared = true;
+    this.adoptCreateDefaults();
     this.renderStats(this.draft.stats);
     this.renderCreate();
+    this.playTitleBgm();
     this.startBackdrop(signal);
     this.message.textContent =
       this.mode === "signup"
@@ -1116,9 +1152,7 @@ export class OnlineLogin {
     this.characterName.textContent = character.name;
     this.characterDetail.textContent = `Level ${character.level} · ${job}`;
     this.characterSlot.textContent = `Character ${this.selected + 1} of ${this.characters.length}`;
-    this.showPreview(this.cardSlot, this.characterProfile(character)).catch(
-      (error) => this.report(error),
-    );
+    this.renderPortrait(character);
     const single = this.characters.length < 2;
     this.previous.disabled = single || this.pending;
     this.next.disabled = single || this.pending;
@@ -1139,6 +1173,23 @@ export class OnlineLogin {
       this.listen(dot, "click", () => this.selectCharacter(index));
       this.dots.append(dot);
     }
+  }
+
+  /** A summary that cannot compose is reported and left empty, never defaulted. */
+  renderPortrait(character) {
+    let profile;
+    try {
+      profile = this.characterProfile(character);
+    } catch (error) {
+      this.clearPreview(this.cardSlot);
+      this.message.textContent =
+        "This character's look could not be read from the server. Sign in again.";
+      this.hooks.report(error);
+      return;
+    }
+    this.showPreview(this.cardSlot, profile, true).catch((error) =>
+      this.report(error),
+    );
   }
 
   /** Carousel keys enter the world; the creation screen keys create or step back. */
@@ -1196,6 +1247,7 @@ export class OnlineLogin {
   async enter() {
     if (this.pending || this.destroyed || !this.characters.length) return;
     const generation = ++this.generation;
+    this.playCue("CharSelect");
     this.setPending(true, "Connecting to the authoritative field…");
     try {
       await this.connectField(this.characters[this.selected].id);
@@ -1278,7 +1330,7 @@ export class OnlineLogin {
       this.previous,
       this.next,
     ]) {
-      control.disabled = pending || !this.characters.length;
+      control.disabled = pending || !this.characters.length || !this.prepared;
     }
     if (this.characters.length) {
       const single = this.characters.length < 2;
@@ -1309,6 +1361,7 @@ export class OnlineLogin {
     if (wasHidden) {
       this.selectionReset();
       this.startBackdrop(this.controller.signal);
+      this.playTitleBgm();
       this.message.textContent =
         "Connection closed. Sign in again, or press Enter to reconnect.";
     }
@@ -1345,7 +1398,7 @@ export class OnlineLogin {
       slot.controller = null;
       slot.prepared?.destroy();
       slot.prepared = null;
-      slot.root.removeChildren();
+      slot.view.removeChildren();
       slot.generation++;
     }
   }
@@ -1359,9 +1412,9 @@ export class OnlineLogin {
     );
   }
 
-  listen(target, type, handler) {
-    target.addEventListener(type, handler);
-    this.listeners.push({ target, type, handler });
+  listen(target, type, handler, capture = false) {
+    target.addEventListener(type, handler, { capture });
+    this.listeners.push({ target, type, handler, capture });
   }
 
   destroy() {
@@ -1377,8 +1430,8 @@ export class OnlineLogin {
       slot.plane.canvas.remove();
       slot.root.destroy({ children: false });
     }
-    for (const { target, type, handler } of this.listeners) {
-      target.removeEventListener(type, handler);
+    for (const { target, type, handler, capture } of this.listeners) {
+      target.removeEventListener(type, handler, { capture });
     }
     this.host.remove();
     this.listeners.length = 0;

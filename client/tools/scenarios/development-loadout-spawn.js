@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import {
   mapManifest,
+  openConsoleSection,
   seededProfile,
   settled,
   player,
@@ -46,7 +47,7 @@ function inventory(profile) {
 async function presetControls(context) {
   const { page, snapshot, assert, checkpoint } = context;
   if (!(await snapshot()).paused) await page.click("#pause");
-  await page.click("#console-tab-character");
+  await openConsoleSection(page, "character");
   const before = player(await snapshot());
   await page.select('[aria-label="Character preset"]', "job:520");
   await page.click("text/Stage preset");
@@ -153,7 +154,7 @@ async function assertSpawnLegible({ page, assert }) {
 
 async function spawnControls(context) {
   const { page, snapshot, assert, checkpoint } = context;
-  await page.click("#console-tab-play");
+  await openConsoleSection(page, "field");
   await page.click("#map-selection summary");
   await page.click("#mob-spawn-section summary");
   await page.type("#mob-search", "Snail");

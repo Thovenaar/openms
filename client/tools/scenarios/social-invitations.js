@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { validateProfile } from "../../src/profile/profile-validation.js";
-import { clickLabel, mapManifest, seededProfile, TIMEOUT } from "./native.js";
+import { clickLabel, mapManifest, openConsoleSection, seededProfile, TIMEOUT } from "./native.js";
 
 const MAP_ID = "000010000";
 const PRODUCER = "[data-local-simulation]:not([hidden])";
@@ -39,7 +39,7 @@ async function fixture({ catalog, loadJSON }) {
 }
 
 async function enableAudio(page) {
-  await page.click("#console-tab-play");
+  await openConsoleSection(page, "settings");
   if (!(await page.$eval("#sound-inspection", (element) => element.open))) {
     await page.click("#sound-inspection > summary");
   }
@@ -85,7 +85,7 @@ async function producerReady(page) {
 }
 
 async function createPeer(page) {
-  await page.click("#console-tab-character");
+  await openConsoleSection(page, "character");
   if (!(await page.$eval(PRODUCER, (element) => element.open))) {
     await page.click(`${PRODUCER} > summary`);
   }

@@ -137,7 +137,7 @@ export class LifeControls {
   /** Mob clicks stay in nondamaging metadata inspection, never the NPC dialogue hook. */
   showSelection(id) {
     this.root.open = true;
-    showInspectionPanel("inspect");
+    showInspectionPanel("world");
     this.search.value = id;
     this.populatePlacements(id.toLowerCase(), id);
     this.placement.disabled = false;

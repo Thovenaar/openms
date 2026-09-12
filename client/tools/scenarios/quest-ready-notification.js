@@ -1,11 +1,11 @@
 import { join } from "node:path";
 import tutorialDrops from "./tutorial-drops.js";
-import { clickLabel, focusCanvas, TIMEOUT } from "./native.js";
+import { clickLabel, focusCanvas, openConsoleSection, TIMEOUT } from "./native.js";
 
 const PROMPT = '.maple-ui-panel[aria-label="Quest ready notification"]';
 
 async function enableAudio(page) {
-  await page.click("#console-tab-play");
+  await openConsoleSection(page, "settings");
   if (!(await page.$eval("#sound-inspection", (element) => element.open))) {
     await page.click("#sound-inspection > summary");
   }

@@ -2,6 +2,7 @@ import {
   createProfile,
   validateProfile,
 } from "../../src/profile/profile-validation.js";
+import { CONSOLE_SECTIONS } from "../../src/development/inspection-theme.js";
 
 export const TIMEOUT = 30000;
 export const PANEL = ".maple-ui-panel";
@@ -109,6 +110,25 @@ export async function clickLabel(page, label, scope = "") {
   }
 }
 
+/** Navigate the console dropdown and wait for its selected section to render. */
+export async function openConsoleSection(page, id) {
+  if (!CONSOLE_SECTIONS.includes(id)) {
+    throw new Error(`Unknown console section: ${id}`);
+  }
+  await page.select("#console-section", id);
+  await page.waitForFunction(
+    (section) => {
+      const select = document.querySelector("#console-section");
+      const panel = document.getElementById(`console-${section}`);
+      return (
+        select?.value === section && panel !== null && !panel.hidden
+      );
+    },
+    { timeout: TIMEOUT },
+    id,
+  );
+}
+
 export async function dialogueStep(page, selector) {
   const panel = `${PANEL}[aria-label="UtilDlgEx"]`;
   await page.waitForSelector(`${panel} ${selector}`, {
@@ -130,7 +150,7 @@ export async function dialogueStep(page, selector) {
 
 /** Camera inspection buttons change only the view; NPC admission stays the native pointer path. */
 export async function viewNpc(page, placement) {
-  await page.click("#console-tab-inspect");
+  await openConsoleSection(page, "world");
   const cameraDetails = await page.$(
     'xpath///summary[text()="Camera"]/parent::details',
   );

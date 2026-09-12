@@ -5,7 +5,11 @@ import { publicationLedger } from "./extraction-state.js";
 import { extractionOutputs } from "./extraction-outputs.js";
 
 const SCHEMA = 1;
-const MAX_RECORD_BYTES = 128 * 1024 * 1024;
+/** Bounded to one record per unit; the ui catalog unit is the largest because it
+ * carries every item, skill and avatar descriptor. Measured 128.3 MiB after adding
+ * the original create appearances (faces, hair colours and skin tones), so the bound
+ * is a measured headroom, not an open limit. */
+const MAX_RECORD_BYTES = 144 * 1024 * 1024;
 const MAX_SOURCES = 100000;
 const HASH = /^[a-f0-9]{64}$/;
 const digest = (value) => hash(Buffer.from(JSON.stringify(value)));

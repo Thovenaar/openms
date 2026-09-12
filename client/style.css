@@ -514,35 +514,17 @@ aside.inspection-chrome {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--console-border);
 }
-.inspection-chrome .console-tabs {
-  display: grid;
-  grid-template-columns: repeat(5, auto);
-  gap: 0;
-}
-.inspection-chrome .console-tabs button {
-  min-height: 42px;
-  padding: 8px 2px;
+.inspection-chrome #console-section {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 6px;
   border: 1px solid var(--console-border);
-  border-bottom: 3px solid transparent;
-  border-radius: var(--console-radius) var(--console-radius) 0 0;
-  background: var(--console-button);
-  box-shadow: var(--console-shadow);
+  background: var(--console-panel);
+  color: var(--console-text);
+  font: inherit;
 }
-.inspection-chrome .console-tabs button[aria-selected="true"],
-.inspection-chrome .console-tabs button[aria-selected="true"]:hover {
-  background: var(--console-accent);
-  color: var(--console-on-accent);
-  border-bottom-color: currentColor;
-  font-weight: 700;
-}
-.inspection-chrome[data-inspection-theme="xp"]
-  .console-tabs
-  button[aria-selected="true"] {
-  background: linear-gradient(#3c8cf9, #135bd5);
-  border-top: 3px solid #ffc73c;
-  border-bottom: 1px solid #135bd5;
-}
-.inspection-chrome [role="tabpanel"] {
+.inspection-chrome > section[id^="console-"] {
   min-width: 0;
   flex: 1;
   min-height: 0;
@@ -551,7 +533,7 @@ aside.inspection-chrome {
   margin: 0 -14px;
   padding: 0 14px 20px;
 }
-.inspection-chrome [role="tabpanel"]:focus-visible {
+.inspection-chrome > section[id^="console-"]:focus-visible {
   outline-offset: 4px;
 }
 .inspection-chrome .map-search-row {

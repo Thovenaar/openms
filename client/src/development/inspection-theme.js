@@ -1,19 +1,56 @@
 const THEME_KEY = "maple-inspection-theme-v1";
 const CONSOLE_KEY = "maple-inspection-sidebar-v1";
+const SECTION_KEY = "maple-inspection-section-v1";
 const THEMES = new Set(["win95", "xp"]);
-const PANELS = ["play", "character", "inspect", "settings", "agent", "state"];
 
-/** Select one external task without rebuilding controls or losing draft values. */
+/** Canonical console section ids, in navigation order. */
+export const CONSOLE_SECTIONS = [
+  "field",
+  "character",
+  "world",
+  "diagnostics",
+  "agent",
+  "settings",
+];
+
+const DEFAULT_SECTION = "field";
+
+/** Select one console section without rebuilding controls or losing draft values. */
 export function showInspectionPanel(id) {
-  if (!PANELS.includes(id)) throw new Error(`Unknown tool section: ${id}`);
-  setConsoleVisible(true);
-  for (const name of PANELS) {
-    const selected = name === id;
-    const tab = document.getElementById(`console-tab-${name}`);
-    tab.setAttribute("aria-selected", String(selected));
-    tab.tabIndex = selected ? 0 : -1;
-    document.getElementById(`console-${name}`).hidden = !selected;
+  if (!CONSOLE_SECTIONS.includes(id)) {
+    throw new Error(`Unknown tool section: ${id}`);
   }
+  setConsoleVisible(true);
+  applySection(id);
+  persistSection(id);
+}
+
+/** Reveal exactly one panel and sync the section selector. */
+function applySection(id) {
+  for (const name of CONSOLE_SECTIONS) {
+    document.getElementById(`console-${name}`).hidden = name !== id;
+  }
+  document.querySelector("#console-section").value = id;
+}
+
+function persistSection(id) {
+  try {
+    localStorage.setItem(SECTION_KEY, id);
+  } catch (error) {
+    document.querySelector("#ui-status").textContent =
+      `Section choice kept for this session only: ${error.message}`;
+  }
+}
+
+function restoreSection() {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(SECTION_KEY);
+  } catch (error) {
+    document.querySelector("#ui-status").textContent =
+      `Saved section preference unavailable: ${error.message}`;
+  }
+  applySection(CONSOLE_SECTIONS.includes(saved) ? saved : DEFAULT_SECTION);
 }
 
 function setConsoleVisible(visible, persist = true) {
@@ -69,32 +106,8 @@ function initializeSidebar(signal) {
     .addEventListener("keydown", closeConsoleOnEscape, { signal });
 }
 
-function selectPanel(event) {
-  showInspectionPanel(event.currentTarget.dataset.consolePanel);
-}
-
-function navigatePanels(event) {
-  if (event.altKey || event.ctrlKey || event.metaKey) return;
-  let index = PANELS.indexOf(event.currentTarget.dataset.consolePanel);
-  switch (event.key) {
-    case "ArrowLeft":
-      index = (index + PANELS.length - 1) % PANELS.length;
-      break;
-    case "ArrowRight":
-      index = (index + 1) % PANELS.length;
-      break;
-    case "Home":
-      index = 0;
-      break;
-    case "End":
-      index = PANELS.length - 1;
-      break;
-    default:
-      return;
-  }
-  event.preventDefault();
-  showInspectionPanel(PANELS[index]);
-  document.getElementById(`console-tab-${PANELS[index]}`).focus();
+function changeSection(event) {
+  showInspectionPanel(event.currentTarget.value);
 }
 
 /** Own theme and navigation listeners; no body/viewport theme inheritance. */
@@ -128,10 +141,9 @@ export function initializeInspectionTheme(signal) {
     status.classList.remove("sr-only");
   }
   choices.addEventListener("change", change, { signal });
+  restoreSection();
+  document
+    .querySelector("#console-section")
+    .addEventListener("change", changeSection, { signal });
   initializeSidebar(signal);
-  for (const id of PANELS) {
-    const tab = document.getElementById(`console-tab-${id}`);
-    tab.addEventListener("click", selectPanel, { signal });
-    tab.addEventListener("keydown", navigatePanels, { signal });
-  }
 }

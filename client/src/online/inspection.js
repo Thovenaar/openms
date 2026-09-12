@@ -6,6 +6,10 @@ import { PROTOCOL } from "../../../shared/protocol.js";
 import { createOnlineDevelopment, mountOnlineExperiments } from "./inspection-development.js";
 
 const MAX_RECORDS = 80;
+const BADGE_SERVER = "SERVER";
+const BADGE_DEVELOPER = "SERVER · GM";
+const WORLD_HINT_ONLINE =
+  "Inspect scene entities, physics geometry and camera. Previews affect this client only, and world mutations remain server-authorized. The live placement inspector is offline-only.";
 
 /** Shared chrome adapter. Theme/listener ownership begins at prepare and ends at destroy. */
 export class OnlineInspection {
@@ -25,7 +29,8 @@ export class OnlineInspection {
     if (this.prepared) return;
     this.prepared = true;
     initializeInspectionTheme(this.controller.signal);
-    document.querySelector(".console-badge").textContent = "SERVER";
+    this.refreshBadge();
+    this.qualifyWorldSection();
     const step = document.querySelector("#step-ms");
     step.min = String(PROTOCOL.TICK_MS);
     step.max = String(PROTOCOL.TICK_MS * 4);
@@ -59,6 +64,20 @@ export class OnlineInspection {
         signal: this.controller.signal,
       });
     }
+  }
+
+  /** Offline keeps LOCAL; online states server authority and GM role when authorized. */
+  refreshBadge() {
+    document.querySelector(".console-badge").textContent =
+      this.authorized() ? BADGE_DEVELOPER : BADGE_SERVER;
+  }
+
+  /** The live placement inspector reads local placement metadata, so online states its absence. */
+  qualifyWorldSection() {
+    const life = document.querySelector("#life-inspection");
+    if (life) life.hidden = true;
+    const hint = document.querySelector("#console-world-hint");
+    if (hint) hint.textContent = WORLD_HINT_ONLINE;
   }
 
   authorized() {
@@ -219,6 +238,7 @@ export class OnlineInspection {
       this.model = null;
       this.offer = null;
       this.state?.refresh();
+      this.refreshBadge();
       return;
     }
     if (snapshot.presentation !== this.model?.presentation) {
@@ -231,6 +251,7 @@ export class OnlineInspection {
     this.controls.refresh(this.controlSnapshot());
     this.state.refresh();
     this.experiments.refresh();
+    this.refreshBadge();
   }
 
   event(message) {
