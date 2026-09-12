@@ -1,65 +1,11 @@
 import { resolve, dirname, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
 import { prepareRelease } from "./release-manifest.js";
+import { buildBrowser } from "./browser-build.js";
+import { measureStage } from "./native-evidence.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const MAX_SOURCE_FILES = 4096;
-const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
-
-/**
- * Hash sorted repository-relative paths and exact build-input bytes, not mtimes.
- * Length-framed entries prevent ambiguous path/content concatenations. This is
- * independent of the extracted catalog buildId and creates no generated source.
- * @returns {Promise<string>} Lowercase SHA-256 source/dependency identity.
- */
-async function sourceIdentity() {
-  const repository = resolve(root, "..");
-  const paths = [
-    "bun.lock",
-    "package.json",
-    "client/package.json",
-    "server/package.json",
-    "client/tools/dev.js",
-    "client/tools/browser-oracle.js",
-  ];
-  const sources = new Bun.Glob("src/**/*.js");
-  for await (const path of sources.scan({
-    cwd: root,
-    onlyFiles: true,
-    followSymlinks: false,
-    dot: true,
-  })) {
-    if (paths.length >= MAX_SOURCE_FILES) {
-      throw new RangeError(
-        "Source identity exceeds its build-input file limit.",
-      );
-    }
-    paths.push(`client/${path.replaceAll("\\", "/")}`);
-  }
-  paths.sort();
-  const hash = createHash("sha256").update("maple-source-v1\0");
-  let totalBytes = 0;
-  for (const path of paths) {
-    const file = Bun.file(resolve(repository, path));
-    if (file.size > MAX_SOURCE_BYTES - totalBytes) {
-      throw new RangeError(
-        "Source identity exceeds its build-input byte limit.",
-      );
-    }
-    const bytes = await file.arrayBuffer();
-    totalBytes += bytes.byteLength;
-    if (totalBytes > MAX_SOURCE_BYTES) {
-      throw new RangeError(
-        "Source identity exceeds its build-input byte limit.",
-      );
-    }
-    hash.update(`${JSON.stringify(path)}\0${bytes.byteLength}\0`);
-    hash.update(new Uint8Array(bytes));
-  }
-  return hash.digest("hex");
-}
 
 /** Resolve only public entry files, browser bundles and generated assets. */
 function resourcePath(path) {
@@ -133,8 +79,8 @@ function acceptsGzip(header) {
   return false;
 }
 
-function selectEncoding(filename, file, request) {
-  const cached = httpEncoding.get(filename);
+function selectEncoding(filename, file, request, encodings) {
+  const cached = encodings.get(filename);
   return cached?.size === file.size &&
     cached.modified === file.lastModified &&
     acceptsGzip(request.headers.get("accept-encoding"))
@@ -143,7 +89,7 @@ function selectEncoding(filename, file, request) {
 }
 
 /** Canonicalize paths before serving, so a generated-asset symlink cannot expose private input. */
-async function serveFile(resource, request) {
+async function serveFile(resource, request, encodings) {
   let filename;
   try {
     filename = await realpath(resource.filename);
@@ -161,7 +107,7 @@ async function serveFile(resource, request) {
     /[/\\](atlases|regions|maps|references|bundles|audio|releases|blobs)[/\\][a-f0-9]{64}\.(png|json|mp3|wav|bin)$/.test(
       filename,
     );
-  const encoded = selectEncoding(filename, file, request);
+  const encoded = selectEncoding(filename, file, request, encodings);
   const headers = {
     "Content-Type": file.type,
     "Content-Length": String(encoded ? encoded.byteLength : file.size),
@@ -177,7 +123,7 @@ async function serveFile(resource, request) {
   });
 }
 /** Handle only GET/HEAD and reject malformed URL encodings before touching the filesystem. */
-async function fetchAsset(request) {
+async function fetchAsset(request, encodings) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method not allowed", { status: 405 });
   }
@@ -190,35 +136,106 @@ async function fetchAsset(request) {
   if (path.includes("\0")) return new Response("Invalid path", { status: 400 });
   const resource = resourcePath(path);
   if (!resource) return new Response("Not found", { status: 404 });
-  return serveFile(resource, request);
+  return serveFile(resource, request, encodings);
 }
-const result = await Bun.build({
-  entrypoints: [
-    resolve(root, "src/main.js"),
-    resolve(root, "src/atlas-worker.js"),
-    resolve(root, "src/audio-capture-worklet.js"),
-    resolve(root, "tools/browser-oracle.js"),
-  ],
-  target: "browser",
-  format: "esm",
-  naming: "[name].[ext]",
-  sourcemap: "linked",
-  outdir: resolve(root, "dist"),
-  define: {
-    "import.meta.MAPLE_SOURCE_ID": JSON.stringify(await sourceIdentity()),
-  },
-});
-if (!result.success) {
-  throw new AggregateError(result.logs, "Browser build failed");
+/** Percent counts four completed startup stages, not estimated duration or discovered assets. */
+function startupProgress(sink) {
+  const started = performance.now();
+  let completed = 0;
+  return {
+    line(message) {
+      sink?.(
+        `[${completed * 25}% +${((performance.now() - started) / 1000).toFixed(2)}s] ${message}`,
+      );
+    },
+    complete(message) {
+      completed++;
+      this.line(message);
+    },
+  };
 }
-const release = await prepareRelease(root);
-const httpEncoding = await prepareHttpEncoding(release);
-console.log(
-  `Offline release ${release.releaseId}: ${release.resources.length} resources, ${release.totalBytes} bytes, ${release.maps.length} maps`,
-);
-const port = Number(Bun.env.PORT ?? 3100);
-if (!Number.isInteger(port) || port < 1 || port > 65535) {
-  throw new Error("PORT must be an integer from 1 to 65535");
+async function compileDevelopment(state) {
+  const started = performance.now();
+  const timings = {};
+  const progress = startupProgress(state.progress);
+  state.startup = progress;
+  progress.line(
+    "Starting: browser build, release verification, HTTP encoding, listener (4 stages)",
+  );
+  const build = await measureStage(timings, "browserBuildMs", () =>
+    buildBrowser(progress.line),
+  );
+  progress.complete(
+    `Browser build complete (${timings.browserBuildMs.toFixed(1)}ms)`,
+  );
+  const release = await measureStage(timings, "releaseMs", () =>
+    prepareRelease(root, progress.line, timings),
+  );
+  progress.complete(`Release complete (${timings.releaseMs.toFixed(1)}ms)`);
+  const encodings = await measureStage(timings, "httpEncodingMs", () =>
+    prepareHttpEncoding(release),
+  );
+  progress.complete(
+    `HTTP encoding complete (${encodings.size} resources; ${timings.httpEncodingMs.toFixed(1)}ms)`,
+  );
+  state.encodings = encodings;
+  state.identity = {
+    sourceBuildId: build.sourceBuildId,
+    assetBuildId: release.buildId,
+    releaseId: release.releaseId,
+    elapsedMs: performance.now() - started,
+    timings: { ...build.timings, ...timings },
+  };
+  progress.line(
+    `Offline release ${release.releaseId}: ${release.resources.length} resources, ${release.totalBytes} bytes, ${release.maps.length} maps`,
+  );
+  return { ...state.identity };
 }
-const server = Bun.serve({ hostname: "127.0.0.1", port, fetch: fetchAsset });
-console.log(`Maple client ready at ${server.url}`);
+
+async function rebuildDevelopment(state) {
+  if (state.pending) return state.pending;
+  state.pending = compileDevelopment(state);
+  try {
+    const identity = await state.pending;
+    if (state.listening) {
+      state.startup.complete("Rebuilt client ready on the owned listener");
+    }
+    return identity;
+  } finally {
+    state.pending = null;
+  }
+}
+
+/** One owned server; optional synchronous progress keeps programmatic callers quiet. */
+export async function startDevServer(options = {}) {
+  const port = Number(options.port ?? Bun.env.PORT ?? 3100);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("PORT must be an integer from 1 to 65535");
+  }
+  const state = {
+    encodings: new Map(),
+    identity: null,
+    pending: null,
+    progress: options.progress,
+  };
+  await rebuildDevelopment(state);
+  const listeningAt = performance.now();
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port,
+    fetch: (request) => fetchAsset(request, state.encodings),
+  });
+  state.identity.timings.listenerMs = performance.now() - listeningAt;
+  state.identity.elapsedMs += state.identity.timings.listenerMs;
+  state.listening = true;
+  state.startup.complete(`openms.dev offline client ready at ${server.url}`);
+  return {
+    server,
+    rebuild: () => rebuildDevelopment(state),
+    identity: () => ({ ...state.identity }),
+  };
+}
+
+if (import.meta.main) {
+  await startDevServer({ progress: (message) => console.log(message) });
+}

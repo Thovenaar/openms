@@ -4,6 +4,8 @@ import { parseSql, MAX_SQL_BYTES } from "./sql-data.js";
 import { hash, resource } from "./atlas.js";
 import { compileNpcScript } from "./npc-script-compiler.js";
 import { compileNpcRoutes } from "./npc-script-routes.js";
+import { compileTutorialPortal } from "./portal-data.js";
+import { TUTORIAL_PORTAL_PROGRAMS } from "../src/npc/npc-script-portals.js";
 
 const DB_ROOT = "src/main/resources/db";
 const MAX_FILES = 10000;
@@ -153,11 +155,19 @@ function collectTables(inventory) {
   return tables;
 }
 
-async function scriptInventory(root) {
+/** Only numeric NPC sources have a unique original String.wz default-talk owner. */
+function scriptDefaultTalk(source, defaultTalkForNpc) {
+  const id = /^scripts\/npc\/(\d{1,8})\.js$/.exec(source)?.[1];
+  if (!id || !defaultTalkForNpc) return undefined;
+  return defaultTalkForNpc(Number(id));
+}
+
+async function scriptInventory(root, defaultTalkForNpc, staticConfig) {
   const paths = await sourcePaths(root, "scripts", ".js");
   const files = [],
     compilations = [],
     categories = Object.create(null);
+  const portalPrograms = Object.create(null);
   let bytes = 0;
   for (const source of paths) {
     const file = await sourceFile(root, source, MAX_SCRIPT_BYTES);
@@ -177,6 +187,8 @@ async function scriptInventory(root) {
         text: file.text,
         path: source,
         sha256: file.sha256,
+        defaultTalk: scriptDefaultTalk(source, defaultTalkForNpc),
+        staticConfig,
       });
       compilations.push(compilation);
       record.sourceText = file.text;
@@ -188,13 +200,24 @@ async function scriptInventory(root) {
         dependencies: compilation.dependencies,
       };
     }
+    if (category === "portal") {
+      const script = source.slice("scripts/portal/".length, -3);
+      if (Object.hasOwn(TUTORIAL_PORTAL_PROGRAMS, script)) {
+        portalPrograms[script] = compileTutorialPortal({
+          script,
+          text: file.text,
+        });
+      }
+    }
     files.push(record);
   }
   return {
-    status: "npc-complete-source-compiler; other-categories-inventoried",
+    status:
+      "npc-complete-source-compiler; verified-tutorial-portals; other-categories-inventoried",
     categories,
     files,
     compilations,
+    portalPrograms,
   };
 }
 
@@ -283,12 +306,56 @@ function inventorySummary(inventory, tables, scripts) {
   };
 }
 
+/** Publish only the closed NPC settings and hashes, never secret configuration text. */
+async function npcRuntimePolicy(root) {
+  const sources = [];
+  const staticConfig = Object.create(null);
+  let enhancedCrafting;
+  for (const source of [
+    "config.yaml",
+    "src/main/java/client/Character.java",
+    "src/main/java/scripting/AbstractPlayerInteraction.java",
+    "src/main/java/scripting/npc/NPCScriptManager.java",
+    "src/main/java/constants/inventory/ItemConstants.java",
+  ]) {
+    const file = await sourceFile(root, source, MAX_SCRIPT_BYTES);
+    if (source === "config.yaml") {
+      const server = Bun.YAML.parse(file.text)?.server;
+      enhancedCrafting = server?.USE_ENHANCED_CRAFTING;
+      for (const key of ["USE_CPQ", "USE_ENABLE_SOLO_EXPEDITIONS"]) {
+        if (server?.[key] === undefined) continue;
+        if (typeof server[key] !== "boolean") {
+          throw new Error(`NPC server setting must be boolean: ${key}`);
+        }
+        staticConfig[key] = server[key];
+      }
+    }
+    sources.push({ source, sha256: file.sha256, bytes: file.bytes });
+  }
+  if (enhancedCrafting !== false) {
+    throw new Error(
+      "Offline NPC equipment grants require server.USE_ENHANCED_CRAFTING=false",
+    );
+  }
+  return {
+    sources,
+    enhancedCrafting,
+    equipmentRandomStats: false,
+    staticConfig,
+  };
+}
+
 /** Convert authorized reference files. No source JavaScript or SQL is executed. */
 export async function convertServerData(options = {}) {
   const root = serverReferenceRoot(options.serverRoot);
+  const policy = await npcRuntimePolicy(root);
   const inventory = await readSqlInventory(root);
   const tables = collectTables(inventory);
-  const scripts = await scriptInventory(root);
+  const scripts = await scriptInventory(
+    root,
+    options.defaultTalkForNpc,
+    policy.staticConfig,
+  );
   const datasets = Object.create(null);
   for (const [name, names] of Object.entries(DOMAINS)) {
     datasets[name] = domainData(name, names, inventory, tables);
@@ -297,6 +364,11 @@ export async function convertServerData(options = {}) {
     datasets.shops,
     compileNpcRoutes(datasets.shops.tables, scripts.compilations),
   );
+  datasets.shops.sources.push(...policy.sources);
+  datasets.shops.npcCraftingPolicy = {
+    enhancedCrafting: policy.enhancedCrafting,
+    equipmentRandomStats: policy.equipmentRandomStats,
+  };
   const summary = inventorySummary(inventory, tables, scripts);
   summary.npcRoutes = datasets.shops.routeSummary;
   const report = {
@@ -308,11 +380,12 @@ export async function convertServerData(options = {}) {
       status: scripts.status,
       categories: scripts.categories,
       files: scripts.files,
+      portalPrograms: scripts.portalPrograms,
     },
     exclusions: [
       "Account, character, inventory, keymap and storage bootstrap rows are not browser reference data; no credentials are published.",
       "Schema-only tables contain no world content. SQL defaults are not seed rows.",
-      "NPC compilation parses complete source and admits only a bounded closed declarative subset; any parse failure or unsupported construct blocks the entire route. Other script categories are inventoried, never executed.",
+      "NPC compilation admits bounded closed syntax; unknown constructs block a route. Recognized unavailable services stop the selected step before durable effects commit. Four hash-verified tutorial portal programs are admitted; other script categories remain inventories.",
       "SQL prices/drop chances are Cosmic server policy, not original Nexon client authority.",
     ],
     summary,

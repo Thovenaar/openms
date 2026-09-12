@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
 const source = readFileSync(
-  new URL("../src/audio-capture-worklet.js", import.meta.url),
+  new URL("../src/audio/audio-capture-worklet.js", import.meta.url),
   "utf8",
 );
 

@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { Texture } from "pixi.js";
-import { EntityAnimation } from "../src/animation.js";
+import { EntityAnimation } from "../src/rendering/animation.js";
+import { extractLife } from "../tools/life-data.js";
 
 function entity(additional = {}) {
   return new EntityAnimation(
@@ -178,4 +179,133 @@ test("zero-delay boundaries skip immediately and terminal alpha applies without 
   e.seek(100);
   expect(e.sprites[0].x).toBe(3);
   e.container.destroy({ children: true });
+});
+
+test("dead ghost circles independently of its footpoint, facing and completed body frame", () => {
+  const e = entity({
+    dead: [
+      {
+        delay: 0,
+        parts: [{ texture: "pixel", x: -13, y: -27, z: 0 }],
+      },
+    ],
+  });
+  e.setPosition(120, 240);
+  e.setAction("dead", "once");
+  expect([e.sprites[0].x, e.sprites[0].y]).toEqual([-23, -47]);
+  e.advance(500);
+  expect([e.sprites[0].x, e.sprites[0].y]).toEqual([-13, -57]);
+  e.advance(500);
+  expect([e.sprites[0].x, e.sprites[0].y]).toEqual([-3, -47]);
+  e.advance(500);
+  expect([e.sprites[0].x, e.sprites[0].y]).toEqual([-13, -37]);
+  e.advance(500);
+  expect([e.sprites[0].x, e.sprites[0].y]).toEqual([-23, -47]);
+  expect([e.container.x, e.container.y]).toEqual([120, 240]);
+  e.container.scale.x = -1;
+  e.seek(1000);
+  expect(e.sprites[0].x).toBe(-23);
+  expect([e.baseX, e.baseY]).toEqual([120, 240]);
+  e.setAction("still");
+  expect([e.sprites[0].x, e.sprites[0].y]).toEqual([4, 0]);
+  e.setAction("dead", "once");
+  e.advance(0);
+  expect([e.sprites[0].x, e.sprites[0].y]).toEqual([-3, -47]);
+  e.container.destroy({ children: true });
+});
+
+test("ghost phase survives same-action selection and refresh partitioning", () => {
+  const frames = [
+    { delay: 150, parts: [{ texture: "pixel", x: 0, y: 0, z: 0 }] },
+  ];
+  const a = entity({ dead: frames });
+  const b = entity({ dead: frames });
+  a.setAction("dead", "once");
+  b.setAction("dead", "once");
+  a.advance(1230);
+  for (let tick = 0; tick < 41; tick++) {
+    b.setAction("dead", "once");
+    b.advance(30);
+  }
+  expect([b.sprites[0].x, b.sprites[0].y]).toEqual([
+    a.sprites[0].x,
+    a.sprites[0].y,
+  ]);
+  a.container.destroy({ children: true });
+  b.container.destroy({ children: true });
+});
+
+function lifeProperties(values) {
+  return {
+    type: "Property",
+    children: Object.fromEntries(
+      Object.entries(values).map(([name, value]) => [
+        name,
+        { name, type: "Property", value, children: {} },
+      ]),
+    ),
+  };
+}
+
+function lifeCanvas(delay, alpha = {}) {
+  return {
+    ...lifeProperties({ delay, origin: { x: 0, y: 0 }, ...alpha }),
+    type: "Canvas",
+    width: 1,
+    height: 1,
+  };
+}
+
+test("life extraction preserves rendered death alpha and resets it for another action", async () => {
+  const root = {
+    type: "Property",
+    children: {
+      info: lifeProperties({}),
+      stand: { type: "Property", children: { 0: lifeCanvas(180) } },
+      die1: {
+        type: "Property",
+        children: {
+          // Original Blue Snail death timing/alpha, followed by an inheritance probe.
+          0: lifeCanvas(180),
+          1: lifeCanvas(180),
+          2: lifeCanvas(300, { a0: 255, a1: 0 }),
+          3: lifeCanvas(180),
+        },
+      },
+    },
+  };
+  const context = {
+    image: (archive) => (archive === "Mob" ? root : lifeProperties({})),
+    part: async () => ({ texture: "pixel", x: 0, y: 0, z: 0 }),
+  };
+  const map = {
+    children: {
+      life: {
+        children: {
+          0: {
+            ...lifeProperties({ type: "m", id: "100101", x: 0, y: 0 }),
+            name: "0",
+          },
+        },
+      },
+    },
+  };
+  const { entities } = await extractLife(context, map, "104040000");
+  const animation = new EntityAnimation(
+    entities[0],
+    new Map([["pixel", Texture.EMPTY]]),
+  );
+  try {
+    animation.setAction("die1", "once");
+    animation.advance(360);
+    expect(animation.sprites[0].alpha).toBe(1);
+    animation.advance(150);
+    expect(animation.sprites[0].alpha).toBe(128 / 255);
+    animation.advance(240);
+    expect(animation.sprites[0].alpha).toBe(0);
+    animation.setAction("stand");
+    expect(animation.sprites[0].alpha).toBe(1);
+  } finally {
+    animation.container.destroy({ children: true });
+  }
 });

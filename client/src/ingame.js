@@ -1,29 +1,37 @@
-import { GameUI } from "./game-ui.js";
-import { PortalSystem, PortalTravelGate } from "./portal-system.js";
-import { LifeSystem } from "./life-system.js";
-import { AudiovisualSystem } from "./audiovisual-system.js";
-import { OfflineField } from "./offline-field.js";
-import { mountQuestJournal } from "./ui-quest-window.js";
-import { ReactorSystem } from "./reactor-system.js";
-import { KeyBindings } from "./key-bindings.js";
-import { SpeechBubbles } from "./speech-bubbles.js";
-import { CombatPresentation } from "./combat-presentation.js";
-import { PlayerName } from "./player-name.js";
-import { SkillSystem } from "./skill-system.js";
-import { DropSystem } from "./drop-system.js";
-import { DropRenderer } from "./drop-renderer.js";
-import { CharacterBindings, EXPRESSION_NAMES } from "./character-bindings.js";
-import { updateSkillMovement } from "./physics/skill-movement.js";
+import { GameUI } from "./ui/game-ui.js";
+import { PortalSystem, PortalTravelGate } from "./world/portal-system.js";
+import { LifeSystem } from "./world/life-system.js";
+import { NpcWorldPresentation } from "./npc/npc-world-presentation.js";
+import { AudiovisualSystem } from "./audio/audiovisual-system.js";
+import { GameplayEffects } from "./audio/gameplay-effects.js";
+import { OfflineField } from "./combat/offline-field.js";
+import { mountQuestJournal } from "./ui/ui-quest-window.js";
+import { ReactorSystem } from "./world/reactor-system.js";
+import { KeyBindings } from "./input/key-bindings.js";
+import { SpeechBubbles } from "./rendering/speech-bubbles.js";
+import { CombatPresentation } from "./combat/combat-presentation.js";
+import { PlayerName } from "./character/player-name.js";
+import { SkillSystem } from "./skills/skill-system.js";
+import { DropSystem } from "./world/drop-system.js";
+import { DropRenderer } from "./world/drop-renderer.js";
+import {
+  CharacterBindings,
+  EXPRESSION_NAMES,
+} from "./input/character-bindings.js";
+import {
+  updateEquipmentMovement,
+  updateSkillMovement,
+} from "./physics/skill-movement.js";
 import { NativeInterfaces, nativeInterfaceHooks } from "./ingame-interfaces.js";
-import { AvatarVisuals } from "./avatar-visuals.js";
+import { AvatarVisuals } from "./character/avatar-visuals.js";
 import {
   prepareFieldAvatar,
   admitAvatarReplacement,
   publishFieldAvatar,
-} from "./field-avatar.js";
-import { NativeAvatarPortrait } from "./ui-avatar-portrait.js";
-import { LocalTradeSession } from "./local-trade.js";
-import { PickupEffects } from "./pickup-effects.js";
+} from "./character/field-avatar.js";
+import { NativeAvatarPortrait } from "./ui/ui-avatar-portrait.js";
+import { LocalTradeSession } from "./social/local-trade.js";
+import { PickupEffects } from "./world/pickup-effects.js";
 
 const CHAT_BINDINGS = Object.freeze({
   ChatAll: 7,
@@ -45,6 +53,7 @@ class FieldSystems {
     this.scene = scene;
     this.owner = owner;
     this.speechPose = { x: 0, headY: 0 };
+    this.tutorials = null;
     this.profileServices = owner.nativeByStore.get(store);
     if (!this.profileServices) {
       throw new Error(
@@ -54,10 +63,7 @@ class FieldSystems {
     this.profileServices.references++;
     this.destroyed = false;
     try {
-      this.portals = new PortalSystem(scene, {
-        ...owner.fieldHooks,
-        travelGate,
-      });
+      this.portals = this.createPortals(store, travelGate);
       this.reactors = new ReactorSystem(scene, store, {
         onSound: (descriptor) =>
           owner.audio.audio
@@ -68,8 +74,15 @@ class FieldSystems {
       });
       this.skills = this.createSkills(store);
       this.drops = this.createDrops(store);
+      this.operations = Object.freeze([
+        this.drops,
+        this.reactors,
+        this.skills.utilityController.pets,
+        this.skills.utilityController.enhancement,
+      ]);
       this.gameplay = this.createGameplay(store);
       this.life = new LifeSystem(scene, owner.fieldHooks);
+      this.npcWorld = this.createNpcWorld();
       this.character = new CharacterBindings(scene, store, this.gameplay, {
         now: owner.hooks.now,
         report: (message) => owner.ui.status(message),
@@ -89,6 +102,28 @@ class FieldSystems {
       throw error;
     }
   }
+  createPortals(store, travelGate) {
+    return new PortalSystem(this.scene, {
+      ...this.owner.fieldHooks,
+      travelGate,
+      getProfile: () => store.profile,
+      showTutorial: this.showTutorial.bind(this),
+      hasLevel30Character: this.profileServices.hasLevel30Character.bind(
+        this.profileServices,
+      ),
+      openTutorialNpc: this.profileServices.npc.openPortal.bind(
+        this.profileServices.npc,
+      ),
+    });
+  }
+  createNpcWorld() {
+    return new NpcWorldPresentation(this.life, this.profileServices.quests, {
+      app: this.owner.app,
+      services: this.owner.services,
+      random: this.owner.hooks.random,
+      isTalking: this.profileServices.npc.owns.bind(this.profileServices.npc),
+    });
+  }
   createSkills(store) {
     const scene = this.scene,
       owner = this.owner;
@@ -96,12 +131,21 @@ class FieldSystems {
       services: owner.services,
       audio: owner.audio.audio,
       report: owner.hooks.onError,
+      gameplay: () => this.gameplay,
+      drops: () => this.drops,
+      travelDoor: owner.hooks.travelDoor,
+      prepareEnhancement: () => owner.ui.preloadWindow("EnchantSkill"),
+      enhancementError: () => owner.ui.preloadedWindowError("EnchantSkill"),
+      openEnhancement: () =>
+        owner.ui.open("EnchantSkill").catch(owner.hooks.onError),
       isBlocked: () =>
         scene !== owner.scene ||
         owner.hooks.isBlocked() ||
         owner.ui.blocksGameplay(),
-      validateCast: () => this.gameplay.skillCastError(),
-      supportsAction: (action) => scene.actor.actions.has(action),
+      validateCast: (skill) => this.gameplay.skillCastError(skill),
+      supportsAction: (action) =>
+        scene.actor.actions.has(action) ||
+        this.skills?.worldController.supportsAction(action),
       validateAttack: (skill, info) =>
         this.gameplay.skillAttackError(skill, info),
       admitAttack: (skill, info, onHit) =>
@@ -141,15 +185,16 @@ class FieldSystems {
         releasePickup: this.pickupEffects.release.bind(this.pickupEffects),
         cardRate: this.pickupEffects.cardRate.bind(this.pickupEffects),
         familyRate: () => this.profileServices.social.familyRate("drop"),
+        mesoUp: () => this.skills.derived().mesoUp,
         prepareItemDrop: (item, slot) =>
           this.dropRenderer.prepareDrop(item, slot),
         publishItemDrop: (art, slot) =>
           this.dropRenderer.publishDrop(art, slot),
         releaseItemDrop: (art) => this.dropRenderer.releaseDrop(art),
-        confirmItemDrop: () =>
+        confirmItemDrop: (source) =>
           owner.ui.prompt({
             kind: "confirm",
-            text: "This item cannot be recovered once dropped.\r\nDo you really want to drop this item?",
+            text: source.dropWarning,
             owner: drops,
           }),
         prepareAppearance: (draft) => owner.prepareAppearance(draft),
@@ -174,6 +219,8 @@ class FieldSystems {
     return new OfflineField(scene, store, {
       ...owner.gameplayHooks,
       onKill: (templateId, mob) => {
+        owner.hooks.onEvent?.("mob-death", mob.id, null);
+        owner.audio.onMobDeath(mob, scene.simulation);
         this.profileServices.quests.applyKill(store.profile, templateId);
         owner.queueFamilyProgress(
           mob.template.info.boss ? "boss" : "kill",
@@ -189,19 +236,17 @@ class FieldSystems {
           owner.queueFamilyProgress("level", 0);
         }
       },
-      skillLevel: this.skills.level.bind(this.skills),
-      skillInfo: this.skills.info.bind(this.skills),
-      hpGrowth: this.skills.hpGrowth.bind(this.skills),
-      items: owner.catalog.ui.items,
-      derivedStats: this.skills.derived.bind(this.skills),
-      random: owner.hooks.random,
-      absorbDamage: this.skills.absorbDamage.bind(this.skills),
+      ...this.skillGameplayHooks(),
       onStrike: this.reactors.strike.bind(this.reactors),
-      onAttack: () => {
+      canStrike: this.reactors.canStrike.bind(this.reactors),
+      onAttack: (sfx) => {
         owner.hooks.onEvent?.("player-attack", scene.actor.id, null);
-        owner.audio.onPlayerAttack(scene.manifest.combat.equipment.sfx);
+        owner.audio.onPlayerAttack(sfx);
       },
       onPlayerHit: this.playerHit.bind(this),
+      onProjectile: (shot) => this.combat.onProjectile(shot),
+      projectileAdmissionError: (count) =>
+        this.combat.projectileAdmissionError(count),
       onRecovery: (amount, simulation) =>
         this.combat.onRecovery(amount, simulation),
       onMobHit: this.mobHit.bind(this),
@@ -215,15 +260,92 @@ class FieldSystems {
       },
     });
   }
+  skillGameplayHooks() {
+    const owner = this.owner;
+    return {
+      skillLevel: this.skills.level.bind(this.skills),
+      skillInfo: this.skills.info.bind(this.skills),
+      activateSkill: (id) => this.skills.activate(id),
+      growth: this.skills.growth.bind(this.skills),
+      items: owner.catalog.ui.items,
+      mobSkills: owner.catalog.ui.skillCombat.mobSkills,
+      derivedStats: this.skills.derived.bind(this.skills),
+      random: owner.hooks.random,
+      setSkillStateValue: (id, key, value) =>
+        this.skills.stateController.setValue(id, key, value),
+      cancelSkillFamily: (family) =>
+        this.skills.stateController.cancelFamily(family),
+      transformed: () => Boolean(this.skills.worldController.forms.current),
+      worldSkillActive: (id) => this.skills.worldController.active(id),
+      onSkillHit: (id, target) => this.skills.hit(id, target),
+      onSkillProjectile: (shot) =>
+        this.skills.combatController.projectile(shot),
+      onSkillDamageLine: (target, amount, presentation) =>
+        this.combat.onSkillDamageLine(target, amount, presentation),
+      onMagnetResult: (mob, success) =>
+        this.combat.onMagnetResult(mob, success),
+      skillTargetController: () => this.skills.combatController.targets,
+      resolveSkillId: (id) => this.skills.activationId(id),
+      eventSkillError: (skill) =>
+        this.skills.utilityController.events.error(skill),
+      consumeEventSkill: (skill) =>
+        this.skills.utilityController.events.consume(skill),
+      onEventAttack: (skill, target, sequence) =>
+        this.skills.utilityController.events.onAttack(skill, target, sequence),
+      onEventDamage: () => this.skills.utilityController.events.onDamage(),
+      chakraDamagePercent: () =>
+        this.skills.utilityController.chakraDamagePercent(),
+      interruptChakra: () => this.skills.utilityController.interruptChakra(),
+      targetFor: (mob, target) =>
+        this.skills.worldController.targetFor(mob, target),
+      interceptContact: (mob, action) =>
+        this.skills.worldController.interceptContact(mob, action),
+      protects: (x, y) => this.skills.worldController.protects(x, y),
+      damageForm: (amount) => this.skills.worldController.damageForm(amount),
+      absorbDamage: this.skills.absorbDamage.bind(this.skills),
+    };
+  }
+
   async prepare(signal) {
     await Promise.all([
       this.gameplay.prepare(signal),
+      this.owner.audio.prepareMobSounds(this.gameplay.mobs, signal),
+      this.prepareTutorials(signal),
+      this.npcWorld.prepare(this.owner.catalog, signal),
       this.speech.prepare(this.owner.catalog, signal),
-      this.combat.prepare(this.owner.catalog.audiovisual, signal),
+      this.combat.prepare(
+        this.owner.catalog.audiovisual,
+        signal,
+        this.owner.catalog.ui.avatar.projectiles,
+      ),
       this.skills.prepare(),
       this.owner.ui.temporaryStats.prepareEffects(this.skills),
       this.dropRenderer.prepare(signal),
     ]);
+    this.combat.prepareSkillCapacity(this.skills, this.gameplay.mobs.length);
+  }
+  async prepareTutorials(signal) {
+    let names = null;
+    for (const record of this.portals.records) {
+      if (!record.tutorialProgram?.branches.length) continue;
+      names ??= new Set();
+      for (const branch of record.tutorialProgram.branches) {
+        names.add(branch.path);
+      }
+    }
+    if (!names) return;
+    this.tutorials = new GameplayEffects(this.owner.services);
+    await this.tutorials.prepare(this.owner.catalog.audiovisual, signal, [
+      ...names,
+    ]);
+  }
+  showTutorial(path, options) {
+    options.signal.throwIfAborted();
+    if (this.destroyed || !this.tutorials) {
+      throw new Error("Original tutorial field presentation is unavailable");
+    }
+    //009388f2 ->004ad42b/00439750: the original unflipped actor-owned generic layer.
+    this.tutorials.play(path, this.scene);
   }
   playerHit(hit, simulation) {
     this.owner.hooks.onEvent?.("player-hit", hit.source?.id ?? "", hit.amount);
@@ -232,7 +354,6 @@ class FieldSystems {
   }
   mobHit(mob, amount) {
     this.owner.hooks.onEvent?.("mob-hit", mob.id, amount);
-    if (!mob.alive) this.owner.hooks.onEvent?.("mob-death", mob.id, null);
     this.combat.onMobHit(mob, amount);
     this.owner.audio.onMobHit(mob, amount, this.scene.simulation);
   }
@@ -240,11 +361,24 @@ class FieldSystems {
     this.life.refresh();
     this.reactors.refresh();
   }
-  beforePhysics(input) {
-    this.character.beforePhysics(input);
+  updateMovement() {
+    updateEquipmentMovement(
+      this.scene.simulation,
+      this.gameplay.store.profile.equipment,
+      this.owner.catalog.ui.items,
+    );
     updateSkillMovement(this.scene.simulation, this.skills.derived());
+  }
+  beforePhysics(input) {
+    this.skills.utilityController.input(input);
+    this.character.beforePhysics(input);
+    this.updateMovement();
     if (!this.gameplay.dead && !this.gameplay.blocksMovement) {
-      this.portals.handleInput(input);
+      if (input.upPressed && this.skills.worldController.useDoor()) {
+        input.upPressed = false;
+      } else {
+        this.portals.handleInput(input);
+      }
     }
   }
   step(ms, input) {
@@ -252,7 +386,7 @@ class FieldSystems {
     this.combat.update(ms);
     this.gameplay.step(ms, input);
     this.character.beforePhysics(input);
-    updateSkillMovement(this.scene.simulation, this.skills.derived());
+    this.updateMovement();
     this.reactors.step(ms);
     this.drops.step(ms);
     this.profileServices.macros.step(ms);
@@ -260,11 +394,16 @@ class FieldSystems {
   update(ms, input) {
     this.portals.update(ms, input);
     this.life.update(ms);
+    this.scene.actor.container.alpha = this.skills.derived().darkSight
+      ? 128 / 255
+      : 1;
+    this.skills.present(ms);
     const pose = this.scene.presentation;
     this.speechPose.x = pose.x;
     this.speechPose.headY =
-      pose.y + this.scene.actor.current.geometry[this.scene.actor.frame].y;
+      pose.y - this.scene.actor.avatar.speechHeights[this.scene.actor.action];
     this.speech.update(ms, this.speechPose, this.scene.camera);
+    this.tutorials?.update(ms);
     this.name.step(this.owner.app.renderer.resolution);
     this.dropRenderer.updateDemand();
     this.dropRenderer.draw();
@@ -276,6 +415,7 @@ class FieldSystems {
       gameplay: this.gameplay.snapshot(),
       reactors: this.reactors.snapshot(),
       speech: this.speech.snapshot(),
+      tutorialEffects: this.tutorials?.snapshot() ?? [],
       combatPresentation: this.combat.snapshot(),
       skills: this.skills.snapshot(),
       drops: this.drops.snapshot(),
@@ -285,9 +425,11 @@ class FieldSystems {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.owner.hooks.onSceneReleased?.(this.scene);
     this.destroyDrops();
     this.skills?.destroy();
     this.portals?.destroy();
+    this.tutorials?.destroy();
     this.life?.destroy();
     this.gameplay?.destroy();
     this.reactors?.destroy();
@@ -352,6 +494,7 @@ export class InGameSystems {
       onChatSubmit: this.submitChat.bind(this),
       onDropMesos: this.dropMesos.bind(this),
       onProfileEdit: this.editProfile.bind(this),
+      onConjureItem: this.conjureItem.bind(this),
       onLearnSkill: this.learnSkill.bind(this),
       skillAllocationError: (id) =>
         this.scene?.fieldSystems.skills.allocationError(
@@ -373,13 +516,22 @@ export class InGameSystems {
           actorId: this.store.id,
         }) ?? { accepted: false, reason: "No active field" },
       playSound: this.playSound,
+      onErrorNotification: this.notifyError.bind(this),
+      getAudioSettings: () => structuredClone(this.audio.audio.settings),
       onNpcDialogue: (panel, npc) => this.native.npc.mount(panel, npc),
       onQuestJournal: (panel) => mountQuestJournal(panel, this.quests),
     });
   }
+  async notifyError() {
+    const outcome = await this.audio.notifyError();
+    if (outcome.status === "failed") {
+      this.ui.recordError(outcome.error, { notify: false });
+    }
+  }
   initializeFieldHooks() {
     this.fieldHooks = {
       travel: this.hooks.travel,
+      travelMarket: this.hooks.travelMarket,
       travelGate: this.travelGate,
       onError: this.hooks.onError,
       isBlocked: this.npcBlocked.bind(this),
@@ -436,8 +588,9 @@ export class InGameSystems {
     const field = this.scene?.fieldSystems;
     const item = this.bindings?.items;
     if (field) {
-      if (field.drops !== excluded && field.drops?.pending) return true;
-      if (field.reactors !== excluded && field.reactors?.pending) return true;
+      for (const operation of field.operations) {
+        if (operation !== excluded && operation.pending) return true;
+      }
     }
     return item !== excluded && !!item?.pending;
   }
@@ -447,8 +600,7 @@ export class InGameSystems {
     const field = this.scene?.fieldSystems;
     return (
       controller === this.bindings?.items ||
-      controller === field?.drops ||
-      controller === field?.reactors ||
+      field?.operations.includes(controller) ||
       Boolean(this.native?.ownsOperation(controller))
     );
   }
@@ -592,7 +744,8 @@ export class InGameSystems {
     const modal = this.ui.modal();
     return !(
       owned &&
-      (!modal || ["UtilDlgEx", "Shop", "NativePrompt"].includes(modal.name))
+      (!modal ||
+        ["UtilDlgEx", "Shop", "Trunk", "NativePrompt"].includes(modal.name))
     );
   }
   showRevival() {
@@ -610,6 +763,23 @@ export class InGameSystems {
       skills.prepare(),
       this.ui.temporaryStats.prepareEffects(skills),
     ]);
+    if (skills === this.scene?.fieldSystems.skills) {
+      const field = this.scene.fieldSystems;
+      field.combat.prepareSkillCapacity(skills, field.gameplay.mobs.length);
+    }
+  }
+  assertBindingEditAvailable(patch) {
+    if (!Object.hasOwn(patch, "keyBindings")) return;
+    if (
+      this.bindings?.editing ||
+      this.bindings?.saving ||
+      this.ui.quickCaptureDraft ||
+      this.ui.bindingDrag
+    ) {
+      throw new Error(
+        "Finish or discard the native KeyConfig / quick-slot edit or carry before applying preset bindings",
+      );
+    }
   }
   async editProfile(patch) {
     if (!this.scene || this.hooks.isBlocked()) {
@@ -617,6 +787,7 @@ export class InGameSystems {
         "Character edit is unavailable during a field/profile transition",
       );
     }
+    this.assertBindingEditAvailable(patch);
     const store = this.store,
       scene = this.scene;
     this.hooks.onSave?.();
@@ -658,7 +829,10 @@ export class InGameSystems {
     ) {
       return false;
     }
-    const accepted = this.scene.fieldSystems.speech.show(text);
+    const accepted = this.scene.fieldSystems.speech.show(
+      text,
+      this.store.profile.name,
+    );
     if (accepted) this.hooks.onEvent?.("chat", this.scene.actor.id, text);
     return accepted;
   }
@@ -676,9 +850,7 @@ export class InGameSystems {
     return this.audio.playSound(category, name).catch(this.audio.reportBound);
   }
   playEffect(name) {
-    return this.audio
-      .playEffect(name, "offline gameplay")
-      .catch(this.audio.reportBound);
+    return this.audio.playGameplayEffect(name).catch(this.audio.reportBound);
   }
   activateBinding(name) {
     if (CHARACTER_BINDINGS.has(name) || name.startsWith("Expression:")) {
@@ -750,6 +922,25 @@ export class InGameSystems {
       this.scene.simulation,
     );
   }
+  async conjureItem(request) {
+    if (
+      !this.scene ||
+      this.hooks.isBlocked() ||
+      this.cashStage ||
+      this.isOperationPending() ||
+      this.ui.blocksGameplay()
+    ) {
+      return {
+        ok: false,
+        code: "field-blocked",
+        reason: "Close the current operation before conjuring an item.",
+      };
+    }
+    return this.scene.fieldSystems.drops.conjureItem(
+      request,
+      this.scene.simulation,
+    );
+  }
   pickup() {
     if (!this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay()) {
       return false;
@@ -767,8 +958,9 @@ export class InGameSystems {
       })
       .then((result) => {
         if (scene !== this.scene) return;
-        if (!result.ok) this.ui.status(result.reason);
-        else {
+        if (!result.ok) {
+          if (result.reason) this.ui.status(result.reason);
+        } else {
           this.hooks.onEvent?.(
             "player-pickup",
             String(result.itemId),
@@ -803,11 +995,13 @@ export class InGameSystems {
     for (const native of this.nativeByStore.values()) {
       if (native.controls) native.controls.root.hidden = native !== this.native;
     }
-    this.native.activate();
     this.ui.setProfile(store, this.quests);
+    this.native.activate();
     const bindings = new KeyBindings(store, this.catalog, {
       onAction: (name) => this.activateBinding(name),
       onSkill: this.activateSkill.bind(this),
+      onSkillRelease: (id) => this.scene?.fieldSystems.skills.release(id),
+      onSkillCancel: (id) => this.scene?.fieldSystems.skills.cancelHold(id),
       onCashExpression: (id) =>
         this.scene?.fieldSystems.character.useCashExpression(id) ?? false,
       onSound: this.playSound,
@@ -845,13 +1039,19 @@ export class InGameSystems {
     this.ui.chat.applySettings(this.store.profile.settings.chat);
   }
   checkpointSettings() {
+    let changed = false;
+    // Native SysOpt previews audio live; only OK may publish that draft into the save.
+    const settings =
+      this.ui.windows.get("SysOpt")?.settingsOriginal ??
+      this.audio.audio.settings;
     for (const category of ["BGM", "SE"]) {
-      const live = this.audio.audio.settings[category];
+      const live = settings[category];
       const saved = this.store.profile.settings[category];
       if (live.volume !== saved.volume || live.mute !== saved.mute) {
         saved.volume = live.volume;
         saved.mute = live.mute;
         this.store.markDirty();
+        changed = true;
       }
     }
     const chat = this.ui.chat;
@@ -860,7 +1060,9 @@ export class InGameSystems {
       saved.state = chat.state;
       saved.height = chat.height;
       this.store.markDirty();
+      changed = true;
     }
+    return changed;
   }
   async prepareScene(scene, signal, context = {}) {
     await this.prepareNative(context.store ?? this.store);
@@ -896,6 +1098,7 @@ export class InGameSystems {
       ui: this.ui.snapshot(),
       audiovisual: this.audio.snapshot(),
       quests: this.quests?.snapshot() ?? null,
+      accountStorage: this.store?.storageSnapshot() ?? null,
     };
   }
   async destroy() {

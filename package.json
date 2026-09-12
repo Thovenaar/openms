@@ -1,5 +1,5 @@
 {
-  "name": "maple-mono",
+  "name": "openms.dev",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -7,11 +7,15 @@
     "server"
   ],
   "scripts": {
-    "dev": "bun client/tools/dev.js",
-    "docs:dev": "bunx --bun vitepress dev docs",
+    "dev:client:offline": "bun client/tools/dev.js",
+    "dev:docs": "bunx --bun vitepress dev docs",
     "docs:build": "bunx --bun vitepress build docs",
     "docs:preview": "bunx --bun vitepress preview docs",
     "extract": "bun client/tools/extract.js",
+    "extract:full": "bun client/tools/extract.js --full",
+    "preflight": "bun client/tools/preflight.js",
+    "scenario": "bun client/tools/native-scenarios.js",
+    "smoke": "bun client/tools/smoke.js",
     "scan": "bun client/tools/scan.js",
     "data:server": "bun client/tools/server-data.js",
     "skills:audit": "bun client/tools/skill-report.js",

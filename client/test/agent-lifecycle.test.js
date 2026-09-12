@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { GameUI } from "../src/game-ui.js";
+import { GameUI } from "../src/ui/game-ui.js";
 
 test("a cancelled old reset cannot replace a restored human dialog or enable its pending reset", async () => {
   const reload = Promise.withResolvers();

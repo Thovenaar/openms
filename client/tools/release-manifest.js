@@ -1,17 +1,43 @@
 import { resolve, sep } from "node:path";
 import { mkdir, realpath } from "node:fs/promises";
 import { publishFile } from "./atlas.js";
-import { catalog as validateCatalog } from "../src/stream-validation.js";
+import { catalog as validateCatalog } from "../src/rendering/stream-validation.js";
+import { measureStage } from "./native-evidence.js";
 import {
   DELIVERY_LIMITS,
   SHELL_URLS,
   collectDescriptors,
   releaseId,
+  resourceByteLimit,
   sha256,
   validateRelease,
   verifyBytes,
 } from "../public/offline-manifest.js";
 
+const INTEGRITY_PROGRESS_BATCH = 256;
+const INTEGRITY_PROGRESS_MIN_MS = 250;
+const INTEGRITY_PROGRESS_INTERVAL_MS = 1000;
+
+/** Bound output to four lines/second, or one/second for slow batches. */
+function integrityProgress(progress) {
+  let reportedAt = performance.now();
+  return (completed, discovered, bytes) => {
+    if (!progress) return;
+    const now = performance.now();
+    const elapsed = now - reportedAt;
+    if (
+      elapsed < INTEGRITY_PROGRESS_MIN_MS ||
+      (completed % INTEGRITY_PROGRESS_BATCH !== 0 &&
+        elapsed < INTEGRITY_PROGRESS_INTERVAL_MS)
+    ) {
+      return;
+    }
+    reportedAt = now;
+    progress(
+      `Asset integrity: ${completed} verified, ${discovered} discovered, ${bytes} bytes (discovery continues)`,
+    );
+  };
+}
 /** Resolve only the allowlisted shell or canonical generated dependencies. */
 async function sourceFile(root, url) {
   const directory =
@@ -24,7 +50,7 @@ async function sourceFile(root, url) {
     throw new Error(`Offline source escapes public directory: ${url}`);
   }
   const file = Bun.file(filename);
-  if (file.size < 1 || file.size > DELIVERY_LIMITS.resourceBytes) {
+  if (file.size < 1 || file.size > resourceByteLimit(url)) {
     throw new Error(`Offline resource exceeds byte bound: ${url}`);
   }
   return new Uint8Array(await file.arrayBuffer());
@@ -93,7 +119,7 @@ function collectMapDependencies(ids, packaged, missing) {
 }
 
 /** All schema additions join this queue automatically; no fixed map/category snapshot. */
-async function generatedClosure(root, catalog) {
+async function generatedClosure(root, catalog, progress) {
   const found = new Map();
   const budget = { nodes: 0 };
   collectDescriptors(catalog, found, budget);
@@ -101,6 +127,11 @@ async function generatedClosure(root, catalog) {
   const missing = new Set();
   collectMetadataDestinations(catalog, packaged, missing);
   let bytes = 0;
+  let completed = 0;
+  const report = integrityProgress(progress);
+  progress?.(
+    `Asset integrity: starting (${found.size} initially discovered resources)`,
+  );
   for (const info of found.values()) {
     const data = await sourceFile(root, info.url);
     await verifyBytes(data, info);
@@ -108,19 +139,26 @@ async function generatedClosure(root, catalog) {
     if (bytes > DELIVERY_LIMITS.totalBytes) {
       throw new Error("Offline release exceeds total byte bound");
     }
-    if (!info.url.endsWith(".json")) continue;
-    const value = JSON.parse(new TextDecoder().decode(data));
-    collectDescriptors(value, found, budget);
-    collectDestinations(value, packaged, missing);
+    if (info.url.endsWith(".json")) {
+      const value = JSON.parse(new TextDecoder().decode(data));
+      collectDescriptors(value, found, budget);
+      collectDestinations(value, packaged, missing);
+    }
+    report(++completed, found.size, bytes);
   }
+  progress?.(
+    `Asset integrity: complete (${completed} resources, ${bytes} bytes)`,
+  );
   return {
     resources: [...found.values()],
     unavailableMaps: [...missing].sort(),
   };
 }
 
-/** Run after the final Bun build. A single atomic pointer exposes immutable snapshots. */
-export async function prepareRelease(root) {
+/** Atomic release publication; optional synchronous progress receives phase lines only. */
+export async function prepareRelease(root, progress, timings = {}) {
+  progress?.("Asset release: starting catalog validation");
+  const catalogStarted = performance.now();
   await mkdir(resolve(root, "public/generated/releases/blobs"), {
     recursive: true,
   });
@@ -134,18 +172,15 @@ export async function prepareRelease(root) {
   ) {
     throw new Error("Offline release requires a complete schema-v2 catalog");
   }
-  const closure = await generatedClosure(root, catalog);
-  const resources = [];
-  for (const url of SHELL_URLS) resources.push(await snapshot(root, url));
-  const catalogHash = await sha256(catalogBytes);
-  const catalogSource = `/generated/releases/blobs/${catalogHash}.bin`;
-  await publish(root, catalogSource, catalogBytes);
-  resources.push({
-    url: "/generated/catalog.json",
-    sha256: catalogHash,
-    bytes: catalogBytes.byteLength,
-    source: catalogSource,
-  });
+  timings.catalogValidationMs = performance.now() - catalogStarted;
+  const closure = await measureStage(timings, "assetIntegrityMs", () =>
+    generatedClosure(root, catalog, progress),
+  );
+  const publicationStarted = performance.now();
+  progress?.(
+    "Asset release: snapshotting shell and catalog; assembling manifest",
+  );
+  const resources = await snapshotStartup(root, catalogBytes);
   for (const info of closure.resources) {
     resources.push({ ...info, source: info.url });
   }
@@ -175,5 +210,22 @@ export async function prepareRelease(root) {
     encoded,
   );
   await publish(root, "/generated/release.json", encoded);
+  timings.releasePublicationMs = performance.now() - publicationStarted;
+  progress?.("Asset release: manifest validated and published");
   return manifest;
+}
+
+async function snapshotStartup(root, catalogBytes) {
+  const resources = [];
+  for (const url of SHELL_URLS) resources.push(await snapshot(root, url));
+  const catalogHash = await sha256(catalogBytes);
+  const catalogSource = `/generated/releases/blobs/${catalogHash}.bin`;
+  await publish(root, catalogSource, catalogBytes);
+  resources.push({
+    url: "/generated/catalog.json",
+    sha256: catalogHash,
+    bytes: catalogBytes.byteLength,
+    source: catalogSource,
+  });
+  return resources;
 }

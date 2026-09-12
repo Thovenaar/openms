@@ -4,6 +4,7 @@ import {
   createSimulation,
   advanceSimulation,
   applyExternalImpulse,
+  relocateSimulation,
 } from "../src/physics/simulation.js";
 import {
   compareRefreshRates,
@@ -170,6 +171,7 @@ test("the300pixel first query can override a near-floor rejection, but301cannot"
       30,
     );
     expect(sim.ignoredFootholdId === 1).toBe(accepted);
+    expect(sim.groundJumpSequence).toBe(accepted ? 1 : 0);
   }
 });
 
@@ -190,6 +192,20 @@ test("drop support excludes600pixels and rejects less than5pixels", () => {
       30,
     );
     expect(sim.state === "air").toBe(accepted);
+  }
+});
+
+test("accepted drop-through emits one jump event while held or refused input emits none", () => {
+  for (const forbidden of [false, true]) {
+    const sim = standing(
+      world([floor(1, 0, { forbidFallDown: forbidden }), floor(2, 100)]),
+      { x: 0, y: 0 },
+    );
+    const held = input({ down: true, jump: true, jumpPressed: true });
+    advanceSimulation(sim, held, 30);
+    expect(sim.groundJumpSequence).toBe(forbidden ? 0 : 1);
+    advanceSimulation(sim, held, 120);
+    expect(sim.groundJumpSequence).toBe(forbidden ? 0 : 1);
   }
 });
 
@@ -339,4 +355,77 @@ test("a ladder hit enters ordinary airborne integration rather than continuing t
   expect(sim.ladderId).toBe(0);
   expect(sim.x).toBeGreaterThan(5);
   expect(sim.y).toBeCloseTo(44.9, 10);
+});
+
+/** A distant upper ledge admits tall spawns without bypassing native map bounds. */
+function fallWorld(map = {}) {
+  const ledge = floor(2, -600);
+  ledge.x1 = 800;
+  ledge.x2 = 900;
+  return world([floor(1, 0), ledge], map);
+}
+
+test("fall damage begins after thirty terminal-speed quanta, not after an ordinary jump", () => {
+  const shortFall = createSimulation(fallWorld(), { x: 0, y: -575 });
+  const highFall = createSimulation(fallWorld(), { x: 0, y: -595 });
+  shortFall.vy = 670;
+  highFall.vy = 670;
+  for (let tick = 0; tick < 30; tick++) {
+    advanceSimulation(shortFall, input(), 30);
+    advanceSimulation(highFall, input(), 30);
+  }
+  expect(shortFall.landing.sequence).toBe(0);
+  expect(highFall.state).toBe("ground");
+  expect(highFall.landing.amount).toBe(8);
+  expect(highFall.landing.sequence).toBe(1);
+  advanceSimulation(highFall, input(), 30);
+  expect(highFall.landing.amount).toBe(0);
+  expect(highFall.landing.sequence).toBe(1);
+  const jump = standing(world(), { x: 0, y: 0 });
+  advanceSimulation(jump, input({ jumpPressed: true }), 30);
+  for (let tick = 0; tick < 30; tick++) advanceSimulation(jump, input(), 30);
+  expect(jump.state).toBe("ground");
+  expect(jump.landing.sequence).toBe(0);
+});
+
+test("relocation clears fall history while field protection suppresses real high falls", () => {
+  const moved = createSimulation(fallWorld(), { x: 0, y: -795 });
+  moved.vy = 670;
+  for (let tick = 0; tick < 30; tick++) advanceSimulation(moved, input(), 30);
+  expect(moved.landing.terminalTicks).toBe(30);
+  relocateSimulation(moved, { x: 0, y: -5 });
+  for (let tick = 0; tick < 5; tick++) advanceSimulation(moved, input(), 30);
+  expect(moved.state).toBe("ground");
+  expect(moved.landing.sequence).toBe(0);
+  const protectedFall = createSimulation(fallWorld({ fieldLimit: 0x100000 }), {
+    x: 0,
+    y: -595,
+  });
+  protectedFall.vy = 670;
+  for (let tick = 0; tick < 30; tick++) {
+    advanceSimulation(protectedFall, input(), 30);
+  }
+  expect(protectedFall.state).toBe("ground");
+  expect(protectedFall.landing.sequence).toBe(0);
+});
+
+test("ordinary down-jump and buoyant landings do not acquire fall damage", () => {
+  const drop = standing(world([floor(1, 0), floor(2, 500)]), { x: 0, y: 0 });
+  advanceSimulation(drop, input({ down: true, jumpPressed: true }), 30);
+  for (let tick = 0; tick < 70; tick++) advanceSimulation(drop, input(), 30);
+  expect(drop.footholdId).toBe(2);
+  expect(drop.landing.sequence).toBe(0);
+  for (const mode of ["swim", "fly"]) {
+    const buoyant = createSimulation(world(undefined, { [mode]: 1 }), {
+      x: 0,
+      y: -5,
+    });
+    // Isolate landing admission from slow buoyant integration: even a preexisting
+    // qualifying counter cannot admit a hit when the landing is not freefall.
+    buoyant.landing.terminalTicks = 30;
+    buoyant.vy = 670;
+    advanceSimulation(buoyant, input(), 30);
+    expect(buoyant.footholdId).toBe(1);
+    expect(buoyant.landing.sequence).toBe(0);
+  }
 });

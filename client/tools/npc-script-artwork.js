@@ -3,8 +3,8 @@ import {
   NPC_ARTWORK_LIMITS,
   NPC_MARKUP_TOKENS,
   validNpcArtworkPath,
-} from "../src/npc-script-markup.js";
-import { npcBinary, npcUnary } from "../src/npc-script-values.js";
+} from "../src/npc/npc-script-markup.js";
+import { npcBinary, npcUnary } from "../src/npc/npc-script-values.js";
 
 const MAX_ARTWORK_STATES = 30000;
 const MAX_ARTWORK_VALUES = 8192;
@@ -27,10 +27,13 @@ function edges(context, current) {
   if (path.length > NPC_SCRIPT_LIMITS.depth) {
     throw new Error("Artwork index depth exceeded");
   }
-  if (node.op === "variable") {
+  if (node.op === "variable" || node.op === "helper-value") {
     return (context.assignments.get(node.name) ?? []).map((id) =>
       state(id, path),
     );
+  }
+  if (node.op === "helper" || node.op === "helper-set") {
+    return [state(node.body, path)];
   }
   if (node.op === "index") {
     return indexEdges(context, node, path);
@@ -38,6 +41,10 @@ function edges(context, current) {
   if (node.op === "array" && path.length) {
     return arrayEdges(node, path);
   }
+  return operatorArtworkEdges(node, path);
+}
+
+function operatorArtworkEdges(node, path) {
   if (node.op === "conditional") {
     return [state(node.yes, path), state(node.no, path)];
   }
@@ -215,11 +222,103 @@ function collectPaths(context, value, analysis) {
   }
 }
 
+// Four monotone language facts avoid enumerating entire numeric recipe menus.
+// They prove absence of "#f"/"#F"; uncertain input still takes full path closure.
+const STARTS_F = 1,
+  ENDS_HASH = 2,
+  EMPTY = 4,
+  HAS_ARTWORK = 8;
+
+function literalShape(value) {
+  const text = String(value);
+  return (
+    (/^[fF]/.test(text) ? STARTS_F : 0) |
+    (text.endsWith("#") ? ENDS_HASH : 0) |
+    (text === "" ? EMPTY : 0) |
+    (/#f|#F/.test(text) ? HAS_ARTWORK : 0)
+  );
+}
+
+function joinedShape(left, right) {
+  return (
+    ((left | right) & HAS_ARTWORK) |
+    (left & ENDS_HASH && right & STARTS_F ? HAS_ARTWORK : 0) |
+    (left & STARTS_F) |
+    (left & EMPTY ? right & STARTS_F : 0) |
+    (right & ENDS_HASH) |
+    (right & EMPTY ? left & ENDS_HASH : 0) |
+    (left & right & EMPTY)
+  );
+}
+
+function expressionShape(context, node, shapes) {
+  if (node.op === "literal") return literalShape(node.value);
+  if (node.op === "read") return node.kind === "input-text" ? 15 : STARTS_F;
+  if (node.op === "unary" || node.op === "binary") {
+    return operatorShape(node, shapes);
+  }
+  if (node.op === "logical") return shapes[node.left] | shapes[node.right];
+  if (node.op === "conditional") return shapes[node.yes] | shapes[node.no];
+  if (node.op === "helper" || node.op === "helper-set") {
+    return shapes[node.body];
+  }
+  if (node.op === "index") return shapes[node.value];
+  return aggregateShape(context, node, shapes);
+}
+
+/** Operator families distinguish numeric output from possible text concatenation. */
+function operatorShape(node, shapes) {
+  if (node.op === "unary") {
+    return ["!", "is-array"].includes(node.operator) ? STARTS_F : 0;
+  }
+  if (node.operator === "+") {
+    return joinedShape(shapes[node.left], shapes[node.right]);
+  }
+  return ["-", "*", "/", "%"].includes(node.operator) ? 0 : STARTS_F;
+}
+
+/** Arrays and variables join every authored alternative without choosing a branch. */
+function aggregateShape(context, node, shapes) {
+  const children =
+    node.op === "array"
+      ? node.values
+      : node.op === "variable" || node.op === "helper-value"
+        ? (context.assignments.get(node.name) ?? [])
+        : [];
+  let result = 0;
+  for (const child of children) result |= shapes[child];
+  return result;
+}
+
+/** Least fixed point over bounded literal/assignment graphs, including menu accumulation. */
+function artworkShapes(context) {
+  const shapes = new Uint8Array(context.expressions.length);
+  let changed = true,
+    steps = 0;
+  while (changed) {
+    changed = false;
+    for (let id = 0; id < context.expressions.length; id++) {
+      if (++steps > NPC_SCRIPT_LIMITS.analysisSteps) {
+        throw new Error("Artwork language analysis limit exceeded");
+      }
+      const next =
+        shapes[id] | expressionShape(context, context.expressions[id], shapes);
+      if (next !== shapes[id]) {
+        shapes[id] = next;
+        changed = true;
+      }
+    }
+  }
+  return shapes;
+}
+
 /** Unknown ordinary text is harmless; unknown bytes inside an image path refuse the whole script. */
 export function collectArtworkDependencies(context) {
   const analysis = { states: 0, products: 0, textUnits: 0 };
+  const shapes = artworkShapes(context);
   for (const node of context.statements) {
     if (node.op !== "dialog" || node.text === null) continue;
+    if (!(shapes[node.text] & HAS_ARTWORK)) continue;
     try {
       for (const value of finiteText(context, node.text, analysis)) {
         collectPaths(context, value, analysis);

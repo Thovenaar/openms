@@ -122,24 +122,40 @@ async function loadImages(scene) {
   }
 }
 
-function cameraPosition(entity, state, manifest) {
-  let x = entity.x - state.camera.x;
-  let y = entity.y - state.camera.y;
+/** Native00639708/00642890 starts from a zero camera origin and follows positive center. */
+function cameraPosition(entity, state, size) {
+  const cameraX = Math.trunc(state.camera.x);
+  const cameraY = Math.trunc(state.camera.y);
   const background = entity.background;
-  if (!background) return { x, y };
+  if (!background) return { x: entity.x - cameraX, y: entity.y - cameraY };
+  const centerX = cameraX + Math.trunc(size.width / 2);
+  const centerY = cameraY + Math.trunc(size.height / 2);
   const autoX = background.type === 4 || background.type === 6;
   const autoY = background.type === 5 || background.type === 7;
-  x += Math.trunc(
-    ((manifest.camera.x - state.camera.x) * (autoX ? -100 : background.rx)) /
-      100,
-  );
-  y += Math.trunc(
-    ((manifest.camera.y - state.camera.y) * (autoY ? -100 : background.ry)) /
-      100,
-  );
-  if (autoX) x += Math.trunc((entity.elapsedMs * background.rx) / 200);
-  if (autoY) y += Math.trunc((entity.elapsedMs * background.ry) / 200);
-  return { x, y };
+  const x = autoX
+    ? entity.x + automaticOffset(entity.elapsedMs, background.rx)
+    : entity.x +
+      (autoY
+        ? Math.trunc((centerX * (background.rx + 100)) / 100)
+        : centerX + Math.trunc((centerX * background.rx) / 100));
+  const y = autoY
+    ? entity.y + automaticOffset(entity.elapsedMs, background.ry)
+    : entity.y +
+      (autoX
+        ? Math.trunc((centerY * (background.ry + 100)) / 100)
+        : centerY + Math.trunc((centerY * background.ry) / 100));
+  return { x: x - cameraX, y: y - cameraY };
+}
+
+/** Native scrolling uses a signed100px vector and an integral movement period. */
+function automaticOffset(elapsedMs, rate) {
+  if (rate === 0) return 0;
+  const period = Math.trunc(20000 / Math.abs(rate));
+  if (period < 1 || !Number.isFinite(elapsedMs)) {
+    throw new Error("Invalid oracle automatic background timing");
+  }
+  const distance = Math.sign(rate) * 100;
+  return -distance + Math.trunc((elapsedMs * distance) / period);
 }
 
 function partAlpha(entity, frame, part) {
@@ -177,7 +193,7 @@ function repeatAxes(background) {
   return background.type === 5 ? 2 : 3;
 }
 
-/** Authored zero selects the source dimension; negative/nonfinite periods fail. */
+/** Authored zero selects the original scale-adjusted canvas period. */
 function validateAuthoredPeriod(x, y) {
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
     throw new Error("Invalid oracle repeat period");
@@ -192,13 +208,27 @@ function validateRepeatDimensions(x, y) {
 }
 
 function repeatPeriod(draw, texture) {
-  const width = draw.frame.sourceSize?.width ?? texture.width;
-  const height = draw.frame.sourceSize?.height ?? texture.height;
-  const authoredX = draw.entity.background?.cx ?? 0;
-  const authoredY = draw.entity.background?.cy ?? 0;
-  validateAuthoredPeriod(authoredX, authoredY);
-  const cx = authoredX === 0 ? width : authoredX;
-  const cy = authoredY === 0 ? height : authoredY;
+  const background = draw.entity.background;
+  if (!background) {
+    return {
+      cx: draw.frame.sourceSize?.width ?? texture.width,
+      cy: draw.frame.sourceSize?.height ?? texture.height,
+    };
+  }
+  const canvas = background.canvas;
+  if (
+    !canvas ||
+    !Number.isInteger(canvas.scale) ||
+    canvas.scale < 0 ||
+    canvas.scale > 30
+  ) {
+    throw new Error("Invalid oracle original background canvas");
+  }
+  validateAuthoredPeriod(background.cx, background.cy);
+  //0063e397/0063e3aa: inclusive source dimension minus its reduced-pixel cell.
+  const trim = 2 ** canvas.scale - 1;
+  const cx = background.cx === 0 ? canvas.width - trim : background.cx;
+  const cy = background.cy === 0 ? canvas.height - trim : background.cy;
   validateRepeatDimensions(cx, cy);
   return { cx, cy };
 }
@@ -311,6 +341,22 @@ function selectedPart(part, entity) {
   return time >= part.expressionStart && time < part.expressionEnd;
 }
 
+/** Independent Canvas composition of native final reflection, rotation and move branches. */
+function avatarPose(context, frame) {
+  const angle = frame.rotate ?? 0;
+  if (angle === 0) {
+    context.translate(frame.moveX ?? 0, frame.moveY ?? 0);
+    if (frame.flip) context.scale(-1, 1);
+    return;
+  }
+  if (frame.flip) context.scale(-1, 1);
+  context.translate(frame.moveX ?? 0, frame.moveY ?? 0);
+  if (angle === 90) context.transform(0, 1, -1, 0, 0, 0);
+  else if (angle === 180) context.transform(-1, 0, 0, -1, 0, 0);
+  else if (angle === 270) context.transform(0, -1, 1, 0, 0, 0);
+  else throw new Error("Invalid original avatar rotation");
+}
+
 function drawEntity(draw, entity) {
   if (!entity.visible) return;
   const frames = entity.actions[entity.action];
@@ -324,7 +370,7 @@ function drawEntity(draw, entity) {
   }
   draw.entity = entity;
   draw.frame = entity.actions[entity.action][entity.frame];
-  draw.position = cameraPosition(entity, draw.state, draw.manifest);
+  draw.position = cameraPosition(entity, draw.state, draw.canvas);
   if (![draw.position.x, draw.position.y].every(Number.isFinite)) {
     throw new Error("Invalid oracle draw position");
   }
@@ -332,6 +378,7 @@ function drawEntity(draw, entity) {
   context.save();
   context.translate(draw.position.x, draw.position.y);
   if (entity.flip) context.scale(-1, 1);
+  if (entity.kind === "character") avatarPose(context, draw.frame);
   for (const part of [...draw.frame.parts].sort(
     (left, right) => left.z - right.z,
   )) {

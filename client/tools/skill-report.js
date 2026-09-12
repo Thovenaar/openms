@@ -1,13 +1,12 @@
 import { dirname, resolve } from "node:path";
 import { classifySkill } from "./skill-data.js";
-import { skillBooks } from "../src/ui-skill-books.js";
-import { validateProfile } from "../src/profile-validation.js";
+import { skillBooks } from "../src/ui/ui-skill-books.js";
+import { validateProfile } from "../src/profile/profile-validation.js";
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_SKILLS = 4096;
 const MAX_ENTITIES = 65536;
 const MAX_FIELDS = 256;
-const CONSUMED_VISUALS = new Set(["effect", "effect0", "hit", "hit/0"]);
 
 /** Exhaustive, deterministic catalog/controller join; no extraction, server, or browser required. */
 export function skillReport(catalog, scene, profile = null, now = Date.now()) {
@@ -24,10 +23,10 @@ export function skillReport(catalog, scene, profile = null, now = Date.now()) {
   const actions = new Set(Object.keys(actor.actions));
   const records = skills
     .sort((a, b) => a.id - b.id)
-    .map((skill) => reportRecord(skill, actions, catalog.combat));
+    .map((skill) => reportRecord(skill, actions));
   const { counts, supported } = summarizeClassifications(records);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     total: records.length,
     supported,
     unavailable: records.length - supported,
@@ -52,7 +51,7 @@ function summarizeClassifications(records) {
   return { counts, supported };
 }
 
-function reportRecord(skill, actions, combat) {
+function reportRecord(skill, actions) {
   const classification = classifySkill(skill);
   const rankFields = new Set();
   for (const rank of Object.values(skill.levels)) {
@@ -62,11 +61,6 @@ function reportRecord(skill, actions, combat) {
     }
     for (const field of fields) rankFields.add(field);
   }
-  const effectiveActions = skill.actions.length
-    ? skill.actions
-    : classification.activation === "melee"
-      ? [combat.defaultAction, combat.proneAction]
-      : [];
   return {
     id: skill.id,
     name: skill.name,
@@ -84,14 +78,8 @@ function reportRecord(skill, actions, combat) {
     actions: skill.actions,
     actionSelection: skill.actions.length
       ? "authored"
-      : classification.activation === "melee"
-        ? "equipped weapon default/prone"
-        : "no authored cast pose",
-    missingActions: effectiveActions.filter((action) => !actions.has(action)),
-    missingWeaponRectangles:
-      classification.activation === "melee"
-        ? effectiveActions.filter((action) => !combat.attacks[action])
-        : [],
+      : "native controller policy",
+    missingActions: skill.actions.filter((action) => !actions.has(action)),
     resources: resourceReport(skill, classification),
     dependencies: controllerDependencies(skill, classification, rankFields),
   };
@@ -104,16 +92,12 @@ function resourceReport(skill, classification) {
     missingVisuals: paths.filter(
       (path) => skill.visuals[path].available === false,
     ),
-    unselectedVisuals: paths.filter((path) => !CONSUMED_VISUALS.has(path)),
     soundLeaves: Object.keys(skill.sounds.leaves),
-    unselectedSounds: Object.keys(skill.sounds.leaves).filter(
-      (leaf) => leaf !== "Use" && leaf !== "Hit",
-    ),
     missingSounds: Object.entries(skill.sounds.leaves)
       .filter(([, leaf]) => !leaf.available)
       .map(([name]) => name),
     presentationPolicy: classification.supported
-      ? "baseline effect/hit; original alternate selection retained, not invented"
+      ? "controller-specific prepared branches; a catalog join does not prove native casts"
       : "controller unavailable; resources alone never admit a cast",
   };
 }

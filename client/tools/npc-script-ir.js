@@ -3,7 +3,7 @@ import {
   NPC_MARKUP_FAMILIES,
   NPC_MARKUP_TOKENS,
   npcMarkupId,
-} from "../src/npc-script-markup.js";
+} from "../src/npc/npc-script-markup.js";
 const DEPENDENCY_TOKENS = new RegExp(
   `${NPC_MARKUP_TOKENS.source}|#[ptivzmocuay@]\\d+:?#?`,
   "g",
@@ -125,6 +125,31 @@ export function cmMethod(node) {
   return callee.property.name;
 }
 
+/** Exact authored Character receiver aliases; host objects never enter the value IR. */
+export function playerMethod(node) {
+  if (
+    node?.type !== "CallExpression" ||
+    node.optional ||
+    node.callee.computed ||
+    node.callee.type !== "MemberExpression"
+  ) {
+    return null;
+  }
+  const receiver = node.callee.object;
+  const clientPlayer =
+    call(receiver, "getPlayer") &&
+    member(receiver.callee.object, "c") &&
+    receiver.callee.object.object.type === "Identifier" &&
+    receiver.callee.object.object.name === "cm";
+  if (
+    (!["getPlayer", "getChar"].includes(cmMethod(receiver)) && !clientPlayer) ||
+    receiver.arguments.length
+  ) {
+    return null;
+  }
+  return node.callee.property.name;
+}
+
 export function integerLiteral(node) {
   if (node?.type === "Literal" && Number.isSafeInteger(node.value)) {
     return node.value;
@@ -184,9 +209,12 @@ export function astInventory(root) {
 
 export function resolveVariable(context, scope, node) {
   const name = node?.type === "Identifier" ? node.name : null;
-  const variable =
-    context.scopes.get(scope)?.get(name) ??
-    context.scopes.get("global").get(name);
+  let variable = null;
+  for (let depth = 0; scope && depth <= NPC_SCRIPT_LIMITS.depth; depth++) {
+    variable = context.scopes.get(scope)?.get(name);
+    if (variable) break;
+    scope = context.scopeParents.get(scope);
+  }
   if (!variable) {
     blockScript(
       context,

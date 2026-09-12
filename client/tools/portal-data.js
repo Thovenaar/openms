@@ -1,7 +1,32 @@
-import { at, value, resolveNode } from "../src/assets/image.js";
-import { portalRouteStatus } from "../src/portal-system.js";
+import { createHash } from "node:crypto";
+import {
+  TUTORIAL_PORTAL_PROGRAMS,
+  tutorialPortalKind,
+} from "../src/npc/npc-script-portals.js";
 
-const MAX_PLAYABLE_MAPS = 512;
+/** Translate only complete, hash-verified authorized programs into the finite tutorial IR. */
+export function compileTutorialPortal({ script, text }) {
+  const program = TUTORIAL_PORTAL_PROGRAMS[script];
+  if (
+    !program ||
+    createHash("sha256").update(text).digest("hex") !== program.sha256
+  ) {
+    throw new Error(
+      `Unsupported or changed authored tutorial portal source: ${script}`,
+    );
+  }
+  return program;
+}
+
+import { at, value, resolveNode } from "../src/assets/image.js";
+import {
+  marketPortalKind,
+  portalRouteStatus,
+} from "../src/world/portal-system.js";
+
+const MAX_PLAYABLE_MAPS = 1024;
+const MAX_NPC_PLACEMENTS = 4096;
+const MAX_NPC_DESTINATIONS = 32768;
 
 function mapPortals(context, mapId) {
   const map = context.image("Map", `Map/Map${mapId[0]}/${mapId}.img`);
@@ -26,11 +51,35 @@ function destinationStatus(context, portal, target) {
   const nodes = mapPortals(context, target);
   let matches = 0;
   for (const node of nodes) {
-    if (value(node, "pn") === portal.targetName) matches++;
+    if (
+      portal.targetPortalId !== undefined
+        ? Number(node.name) === portal.targetPortalId
+        : value(node, "pn") === portal.targetName
+    ) {
+      matches++;
+    }
   }
   if (matches === 0) return "missing-named-destination";
   if (matches !== 1) return "ambiguous-named-destination";
   return null;
+}
+
+function closureRoute(portal, raw, source) {
+  const market = marketPortalKind(portal, raw);
+  if (market === "entry" && source !== "910000000") {
+    return { ...portal, targetMap: 910000000, targetName: "out00" };
+  }
+  // Dynamic return destinations are the already-admitted entry source fields.
+  // Include the authored no-saved-location fallback even when market is a seed.
+  if (market === "return") {
+    return {
+      ...portal,
+      targetMap: 100000000,
+      targetName: null,
+      targetPortalId: 0,
+    };
+  }
+  return portal;
 }
 
 /** Bounded source-driven closure; unsupported scripts and malformed named routes stay explicit.
@@ -48,38 +97,110 @@ export function collectPlayableMaps(context, seeds) {
   const ids = [...new Set(seeds)],
     seen = new Set(ids),
     blocked = [];
+  const closure = { ids, seen, blocked, npcIds: new Set() };
   for (let index = 0; index < ids.length; index++) {
     const source = ids[index];
     for (const node of mapPortals(context, source)) {
-      const portal = routeFields(node);
-      const raw = { script: value(node, "script", "") };
-      let reason = portalRouteStatus(portal, raw);
-      const target = Number.isInteger(portal.targetMap)
-        ? String(portal.targetMap).padStart(9, "0")
-        : null;
-      if (!reason) reason = destinationStatus(context, portal, target);
-      if (reason) {
-        blocked.push({
-          source,
-          portalId: portal.id,
-          name: portal.name,
-          target,
-          targetName: portal.targetName,
-          reason,
-        });
-        continue;
-      }
-      if (seen.has(target)) continue;
-      if (ids.length >= MAX_PLAYABLE_MAPS) {
-        throw new Error(
-          "Playable map closure exceeds 512 maps; select an explicit release",
-        );
-      }
-      seen.add(target);
-      ids.push(target);
+      const target = admitClosureRoute(context, source, node, blocked);
+      if (target !== null) appendDestination(closure, target);
     }
+    admitNpcDestinations(context, source, closure);
   }
   return { ids: ids.sort(), blocked };
+}
+
+function appendDestination(closure, target) {
+  if (closure.seen.has(target)) return;
+  if (closure.ids.length >= MAX_PLAYABLE_MAPS) {
+    throw new Error(
+      "Playable map closure exceeds 1024 maps; select an explicit release",
+    );
+  }
+  closure.seen.add(target);
+  closure.ids.push(target);
+}
+
+/** A saved return points back into this closure; finite authored NPC destinations extend it. */
+export function admitNpcDestinations(context, source, closure) {
+  if (!context.npcRoutes) return;
+  const map = context.image("Map", `Map/Map${source[0]}/${source}.img`);
+  const placements = Object.values(map.children.life?.children ?? {});
+  if (placements.length > MAX_NPC_PLACEMENTS) {
+    throw new Error("NPC placement limit exceeded");
+  }
+  for (const node of placements) {
+    if (value(node, "type") !== "n") continue;
+    const id = Number(value(node, "id"));
+    const route = context.npcRoutes.get(id);
+    if (!route || closure.npcIds.has(id)) continue;
+    closure.npcIds.add(id);
+    admitNpcRoute(context, source, route, closure);
+  }
+  admitPortalNpcDestinations(context, source, closure);
+}
+
+function admitPortalNpcDestinations(context, source, closure) {
+  // Portal-opened NPCs need no physical life placement, but use the same authored closure.
+  for (const node of mapPortals(context, source)) {
+    const script = tutorialPortalKind(routeFields(node), {
+      script: value(node, "script", ""),
+    });
+    const npc = TUTORIAL_PORTAL_PROGRAMS[script]?.openNpc;
+    if (!npc || closure.npcIds.has(npc.npcId)) continue;
+    const route = context.npcRoutes.get(npc.npcId);
+    if (!route) throw new Error(`Missing supported portal NPC: ${npc.npcId}`);
+    closure.npcIds.add(npc.npcId);
+    admitNpcRoute(context, source, route, closure);
+  }
+}
+
+function admitNpcRoute(context, source, route, closure) {
+  const targets = route.dependencies.mapIds;
+  if (targets.length > MAX_NPC_DESTINATIONS) {
+    throw new Error("NPC destination limit exceeded");
+  }
+  for (const id of targets) {
+    const target = String(id).padStart(9, "0");
+    if (!context.imageEntries("Map").has(`Map/Map${target[0]}/${target}.img`)) {
+      closure.blocked.push({
+        source,
+        npcId: route.npcId,
+        target,
+        reason: "npc-destination-map-unavailable",
+      });
+      continue;
+    }
+    appendDestination(closure, target);
+  }
+}
+
+/** Resolve and validate one authored edge before admitting its destination. */
+export function admitClosureRoute(context, source, node, blocked) {
+  const authored = routeFields(node);
+  const raw = { script: value(node, "script", "") };
+  if (tutorialPortalKind(authored, raw)) return null;
+  const portal = closureRoute(authored, raw, source);
+  let reason = portalRouteStatus(authored, raw);
+  if (source === "910000000" && marketPortalKind(authored, raw) === "entry") {
+    reason = "already-in-free-market";
+  }
+  const target = Number.isInteger(portal.targetMap)
+    ? String(portal.targetMap).padStart(9, "0")
+    : null;
+  if (!reason) reason = destinationStatus(context, portal, target);
+  if (!reason) return target;
+  blocked.push({
+    source,
+    portalId: portal.id,
+    name: portal.name,
+    target,
+    targetName: portal.targetName,
+    ...(portal.targetPortalId !== undefined
+      ? { targetPortalId: portal.targetPortalId }
+      : {}),
+    reason,
+  });
+  return null;
 }
 
 const MAX_PORTALS = 4096;
@@ -116,7 +237,7 @@ async function portalFrames(context, node) {
 }
 
 /** Original helper selection; unknown named variants are not silently replaced by default. */
-function graphics(node) {
+export function graphics(node) {
   const type = value(node, "pt", null);
   if (type === 2 || type === 4 || type === 7) return "portal/game/pv";
   if (type !== 10 && type !== 11) return null;
@@ -176,7 +297,7 @@ function activation(node) {
   return "unknown-type";
 }
 
-async function extractOne(context, node, helper, actionCache) {
+export async function extractOne(context, node, helper, actionCache) {
   const path = graphics(node);
   const record = {
     portalId: Number(node.name),
@@ -185,6 +306,19 @@ async function extractOne(context, node, helper, actionCache) {
     status: "metadata-only",
     activation: activation(node),
   };
+  const tutorial = tutorialPortalKind(routeFields(node), {
+    script: value(node, "script", ""),
+  });
+  if (tutorial) {
+    const program = context.portalPrograms?.[tutorial];
+    if (
+      !program ||
+      program.sha256 !== TUTORIAL_PORTAL_PROGRAMS[tutorial].sha256
+    ) {
+      throw new Error(`Missing verified tutorial portal program: ${tutorial}`);
+    }
+    record.tutorialProgram = program;
+  }
   if (!path) return { entity: null, record };
   const actions = await cachedActions(context, helper, path, actionCache);
   if (!actions) {

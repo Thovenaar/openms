@@ -2,7 +2,7 @@ import {
   NPC_MARKUP_FAMILIES,
   NPC_MARKUP_TOKENS,
   npcMarkupId,
-} from "../src/npc-script-markup.js";
+} from "../src/npc/npc-script-markup.js";
 
 const MAX_NODES = 200000;
 const MAX_QUESTS = 4096;
@@ -585,7 +585,7 @@ function packagedContent(context) {
     npcs: Object.create(null),
     mobs: Object.create(null),
   };
-  if ((context.mapIds?.length ?? 0) > 512) {
+  if ((context.mapIds?.length ?? 0) > 1024) {
     throw new Error("Quest map content exceeds release policy");
   }
   for (const id of context.mapIds ?? []) {

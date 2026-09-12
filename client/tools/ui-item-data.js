@@ -10,8 +10,12 @@ const MAX_ROOTS = 100000;
 const MAX_METADATA_NODES = 65536;
 const MAX_METADATA_DEPTH = 64;
 const MAX_SKILLS = 4096;
-// Exact current artwork templates, not inventory grants (ui-data.js's former preview).
-const EQUIPMENT_IDS = [1040002, 1060002, 1072001, 1302000];
+// Original initial appearance and one non-granted template per recovered weapon row.
+const EQUIPMENT_IDS = [
+  1040002, 1060002, 1072001, 1302000, 1312000, 1322000, 1332000, 1372000,
+  1382000, 1392000, 1402000, 1412000, 1422000, 1432000, 1442000, 1452000,
+  1462000, 1472000, 1482000, 1492000, 2060000, 2061000, 2070000, 2330000,
+];
 const ICONS = ["icon", "iconMouseOver", "iconDisabled"];
 
 /** One closure covers retained journal presentation and every admitted transaction domain. */

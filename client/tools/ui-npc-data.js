@@ -1,7 +1,7 @@
 import { at, resolveNode, value } from "../src/assets/image.js";
-import { validNpcArtworkPath } from "../src/npc-script-markup.js";
+import { validNpcArtworkPath } from "../src/npc/npc-script-markup.js";
 
-const MAX_MAPS = 512;
+const MAX_MAPS = 1024;
 const MAX_PLACEMENTS = 4096;
 const MAX_NPCS = 8192;
 const MAX_ARTWORK = 8192;
@@ -82,6 +82,8 @@ async function portraitBundle(context, id) {
       reason: "Original NPC IMG is absent from archive index",
     };
   }
+  const original = at(await context.image("Npc", sourcePath), "info");
+  const storage = storageFees(original, sourcePath);
   const { node, source } = await portraitCanvas(
     context,
     `${id.padStart(7, "0")}.img`,
@@ -123,7 +125,20 @@ async function portraitBundle(context, id) {
         "Original default canvas or static stand frame; native action animation is not reconstructed.",
     },
   });
-  return { available: true, descriptor };
+  return { available: true, descriptor, storage };
+}
+
+function storageFees(original, sourcePath) {
+  const storage = {
+    putFee: Number(value(original, "trunkPut", 100)),
+    getFee: Number(value(original, "trunkGet", 0)),
+  };
+  for (const fee of Object.values(storage)) {
+    if (!Number.isSafeInteger(fee) || fee < 0 || fee > 2147483647) {
+      throw new Error(`Invalid original NPC storage fee: ${sourcePath}`);
+    }
+  }
+  return storage;
 }
 
 async function portraitCanvas(context, imageName) {

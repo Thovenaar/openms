@@ -1,20 +1,22 @@
-import { CharacterDevelopment } from "./character-development.js";
-import { QuestSystem } from "./quest-system.js";
-import { InventoryActions } from "./inventory-actions.js";
-import { LocalSocial } from "./local-social.js";
-import { CashShopService } from "./cash-shop.js";
-import { MonsterBookService } from "./monster-book.js";
-import { SkillMacros } from "./skill-macros.js";
-import { NpcInteractions } from "./npc-interactions.js";
-import { LocalTrade } from "./local-trade.js";
-import { LocalSimulationControls } from "./local-simulation-controls.js";
-import { NativeAvatarPortrait } from "./ui-avatar-portrait.js";
+import { CharacterDevelopment } from "./character/character-development.js";
+import { QuestSystem } from "./quests/quest-system.js";
+import { questEndpointNpc } from "./quests/quest-journal-model.js";
+import { InventoryActions } from "./items/inventory-actions.js";
+import { LocalSocial } from "./social/local-social.js";
+import { CashShopService } from "./items/cash-shop.js";
+import { MonsterBookService } from "./character/monster-book.js";
+import { SkillMacros } from "./skills/skill-macros.js";
+import { NpcInteractions } from "./npc/npc-interactions.js";
+import { LocalTrade } from "./social/local-trade.js";
+import { LocalSimulationControls } from "./development/local-simulation-controls.js";
+import { NativeAvatarPortrait } from "./ui/ui-avatar-portrait.js";
 import {
   createCharacterStats,
   projectCharacterStats,
-} from "./character-stats.js";
-import { LocalChat } from "./local-chat.js";
+} from "./character/character-stats.js";
+import { LocalChat } from "./social/local-chat.js";
 import { createHitboxState, updateHitboxes } from "./physics/hitboxes.js";
+import { ProfileStore } from "./profile/profile-store.js";
 
 const AP_WARNING =
   "If you invest your AP in HP or MP, your character may have\r\ninsufficient stats to become as strong as it could be.\r\nDo you still wish to raise this skill?";
@@ -31,9 +33,11 @@ export function nativeInterfaceHooks(owner) {
     macros: () => owner.native.macros,
     inventoryActions: () => owner.native.inventory,
     shop: () => owner.native.npc.shop,
+    storage: () => owner.native.npc.storage,
+    skillUtilities: () => owner.scene.fieldSystems.skills.utilityController,
     trade: () => owner.native.trade,
     isOperationPending: (excluded) => owner.isOperationPending(excluded),
-    mapName: (id) => owner.catalog?.mapNames[id] ?? null,
+    mapName: (id) => owner.catalog?.mapNames[Number(id)] ?? null,
     apAdmission: (target) => owner.native.development.apAdmission(target),
     spendAp: (target, options) =>
       owner.native.development.spendAp(target, options),
@@ -122,6 +126,26 @@ export class NativeInterfaces {
     );
   }
 
+  /** Cosmic account-level query maps to this browser's local character roster.
+   * Temporary previews remain isolated from the durable account. */
+  async hasLevel30Character() {
+    if (this.store.profile.level >= 30) return true;
+    if (this.store.temporary) return false;
+    const entries = await ProfileStore.listCharacters({
+      items: this.owner.catalog.ui.items,
+    });
+    for (const entry of entries) {
+      if (entry.id === this.store.id) continue;
+      if (entry.error) {
+        throw new Error(
+          `Tutorial account character is unreadable: ${entry.id}`,
+        );
+      }
+      if (entry.level >= 30) return true;
+    }
+    return this.store.profile.level >= 30;
+  }
+
   initializeControllers() {
     const { owner, store } = this;
     this.development = new CharacterDevelopment(store, owner.catalog, {
@@ -136,9 +160,8 @@ export class NativeInterfaces {
       onEffect: owner.playEffect,
       onError: owner.hooks.onError,
       items: owner.catalog.ui.items,
-      mapName: (id) => owner.catalog.mapNames[id] ?? null,
-      hpGrowth: (profile) =>
-        owner.scene?.fieldSystems.skills.hpGrowth(profile) ?? 0,
+      mapName: (id) => owner.catalog.mapNames[Number(id)] ?? null,
+      growth: (profile) => owner.scene?.fieldSystems.skills.growth(profile),
       onReward: (result) => owner.publishQuestReward(result),
     });
     this.npc = new NpcInteractions(owner, store);
@@ -193,8 +216,8 @@ export class NativeInterfaces {
         chat: (actorId, text, channel, targetId) =>
           this.chat.submitAs(actorId, text, channel, targetId),
       });
-      document.querySelector("#console-character").append(this.controls.root);
     }
+    this.owner.ui.profileControls.scroll.append(this.controls.root);
     this.controls.root.hidden = false;
   }
 
@@ -211,10 +234,12 @@ export class NativeInterfaces {
   }
 
   excludesController(controller, excluded) {
-    // No exclusion must not match an NPC controller's absent shop.
+    // No exclusion must not match an absent NPC child controller.
     if (excluded === null) return false;
     if (controller === excluded) return true;
-    if (controller === this.npc) return this.npc.shop === excluded;
+    if (controller === this.npc) {
+      return this.npc.shop === excluded || this.npc.storage === excluded;
+    }
     if (controller === this.inventory) {
       return this.inventoryDelegatesTo(excluded);
     }
@@ -240,6 +265,7 @@ export class NativeInterfaces {
       controller === this.cashAccountService ||
       controller === this.trade ||
       controller === this.npc.shop ||
+      controller === this.npc.storage ||
       this.controllers.includes(controller)
     );
   }
@@ -283,6 +309,7 @@ export class NativeInterfaces {
 
   createSocial() {
     return new LocalSocial(this.store, this.owner.catalog, {
+      temporaryPeers: () => this.owner.hooks.temporaryPeers?.() ?? [],
       isBusy: () => this.isBusy(this.social),
       onError: this.owner.hooks.onError,
       medalEntries: () => this.quests.medalEntries(),
@@ -321,6 +348,11 @@ export class NativeInterfaces {
   async useItem(id, uid) {
     this.inventoryUse = true;
     try {
+      if (Math.floor(id / 10000) === 500) {
+        return await this.owner.scene.fieldSystems.skills.utilityController.pets.toggle(
+          uid,
+        );
+      }
       return await this.owner.bindings.items.use(id, uid);
     } finally {
       this.inventoryUse = false;
@@ -495,8 +527,10 @@ export class NativeInterfaces {
     if (!record) {
       throw new Error("The selected quest is not in the original catalog");
     }
-    const endpoint = record.stages[0];
-    const npcId = endpoint.check.npc || endpoint.actionCheck.npc;
+    const npcId = questEndpointNpc(
+      record,
+      this.quests.store.profile.quests[id]?.state ?? 0,
+    );
     const opened = this.owner.ui.windows.has("WorldMap");
     const panel = await this.owner.ui.open("WorldMap");
     const result = panel.markNpc(npcId);
@@ -682,6 +716,13 @@ export class NativeInterfaces {
     this.npc.windowClosed(name);
     if (name === "CashShop") this.owner.leaveCashStage();
     this.tradeWindowClosed(name);
+    if (
+      name === "EnchantSkill" &&
+      !this.destroyed &&
+      !this.owner.ui.closingAll
+    ) {
+      this.owner.ui.preloadWindow(name).catch(this.owner.hooks.onError);
+    }
     if (name === "PartyHP") {
       this.owner.ui.windows.get("UserList")?.localRefresh?.();
     }

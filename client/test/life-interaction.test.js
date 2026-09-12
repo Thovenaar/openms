@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { Container, EventBoundary, Graphics, Point, Texture } from "pixi.js";
 import "pixi.js/events";
-import { EntityAnimation } from "../src/animation.js";
-import { npcRectangle } from "../src/life-geometry.js";
-import { LifeSystem } from "../src/life-system.js";
-import { StreamScene } from "../src/stream-scene.js";
+import { EntityAnimation } from "../src/rendering/animation.js";
+import { npcRectangle } from "../src/world/life-geometry.js";
+import { LifeSystem } from "../src/world/life-system.js";
+import { MapleTVSystem } from "../src/social/mapletv-system.js";
+import { StreamScene } from "../src/rendering/stream-scene.js";
 
 const owners = [];
 afterEach(() => {
@@ -96,6 +97,7 @@ function fixture(info = {}) {
   const slot = life.createSlot(record);
   life.slots = [slot];
   life.byId.set(record.id, slot);
+  life.mapleTV = new MapleTVSystem(life.scene, life.byId);
   life.bind(slot, entity);
   life.update(0);
   owners.push(life);

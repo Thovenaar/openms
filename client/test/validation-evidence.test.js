@@ -71,7 +71,14 @@ function oracleFixture(period = 0) {
     order: 0,
     action: "stand",
     frame: 0,
-    background: { type: 1, cx: period, cy: 0, rx: 0, ry: 0 },
+    background: {
+      type: 1,
+      cx: period,
+      cy: 0,
+      rx: 0,
+      ry: 0,
+      canvas: { width: 2, height: 2, scale: 0 },
+    },
     actions: {
       stand: [
         {

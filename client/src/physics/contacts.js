@@ -152,6 +152,7 @@ function initializeAirSweep(sim, seconds) {
 }
 
 function landContact(sim, chosen, remainingMs) {
+  recordFallLanding(sim);
   const speed = sim.horizontalInput * sim.speed >= 0 ? sim.speed * 0.5 : 0;
   attachGround(sim, chosen);
   sim.speed = speed;
@@ -160,6 +161,28 @@ function landContact(sim, chosen, remainingMs) {
   sim.position += speed * remainingMs * 0.001;
   groundContacts(sim, remainingMs * 0.001, startPosition, speed);
   sim.contactScratch.pendingAir = false;
+}
+
+/** 009cbb9f: a real floor attachment in ordinary freefall proposes source -3.
+ * 0096c1d3 excludes existing floor contact, water, flight and positive float mode. */
+function recordFallLanding(sim) {
+  const landing = sim.landing;
+  if (
+    sim.foothold ||
+    sim.state === "ladder" ||
+    sim.movementMode !== "air" ||
+    landing.forbidden ||
+    landing.terminalTicks <= landing.thresholdTicks
+  ) {
+    return;
+  }
+  landing.amount = Math.max(
+    1,
+    36 - Math.trunc(336 / (landing.terminalTicks - 18)),
+  );
+  landing.facing = sim.facing;
+  landing.sequence++;
+  landing.terminalTicks = 0;
 }
 
 /** Integer intersection X then Y on the integer sweep, 009b38xx. */

@@ -20,6 +20,13 @@ import { extractCombat } from "./combat-data.js";
 import { extractReactors } from "./reactor-data.js";
 import { extractDropData, finalizeDropData } from "./drop-data.js";
 import { convertServerData, extractServerData } from "./server-data.js";
+import { extractLoadingArt } from "./loading-art.js";
+import { defaultRoots, mapBounds, spawnPortal } from "./extraction-inputs.js";
+import { originalFrames } from "./extraction-frames.js";
+import { preflightAssets } from "./preflight.js";
+import { createExtractionCache } from "./extraction-cache.js";
+import { extractionRecipes } from "./extraction-recipes.js";
+import { resourceByteLimit } from "../public/offline-manifest.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
@@ -41,17 +48,16 @@ const source = resolve(
 );
 const selected = option(
   "--maps",
-  option(
-    "--map",
-    "100000000,100000001,103040000,108000500,120000000,200090500,211040000,230000000",
-  ),
+  option("--map", defaultRoots.join(",")),
 ).split(",");
 if (
   !selected.length ||
-  selected.length > 512 ||
+  selected.length > 1024 ||
   selected.some((id) => !/^\d{9}$/.test(id))
 ) {
-  throw new Error("--maps requires at most 512 comma-separated nine-digit IDs");
+  throw new Error(
+    "--maps requires at most 1024 comma-separated nine-digit IDs",
+  );
 }
 let mapIds = [...new Set(selected)].sort();
 const started = performance.now();
@@ -71,6 +77,7 @@ const archives = new Map(),
   images = new Map(),
   canvasIds = new WeakMap();
 const inputImages = Object.create(null);
+const sourceHashes = Object.create(null);
 const textures = Object.create(null),
   formats = Object.create(null);
 const state = {
@@ -84,12 +91,15 @@ const state = {
 };
 state.regions = Object.create(null);
 state.tiledCanvases = Object.create(null);
+let incremental;
+let preflight;
+const recipe = extractionRecipes();
 const extractionContext = {
   image,
   part,
   frames,
   output,
-  imageEntries: (name) => archive(name).entries,
+  imageEntries,
   mapIds,
   bundle: (value) => packageVisualBundle(value, state),
 };
@@ -103,18 +113,46 @@ function archive(name) {
 /** @param {string} name @param {string} path */
 function image(name, path) {
   const key = `${name}.wz:${path}`;
+  retainSource(key);
+  incremental?.observe(key);
   if (!images.has(key)) {
-    const reader = archive(name).imageReader(path);
-    inputImages[key] = {
-      ...archive(name).entries.get(path),
-      sha256: hash(reader.bytes),
-      bytes: reader.bytes.length,
-    };
-    const node = parseImage(reader);
+    const node = parseImage(archive(name).imageReader(path));
     node.source = key;
     images.set(key, node);
   }
   return images.get(key);
+}
+
+/** Hash original bytes even on cache hits; archive inventory changes are dependencies too. */
+function sourceRecord(key) {
+  if (sourceHashes[key]) return sourceHashes[key];
+  const match = /^([A-Za-z0-9]+)\.wz:(.+)$/.exec(key);
+  if (!match) throw new Error(`Invalid original source key ${key}`);
+  const [, name, path] = match;
+  const original = archive(name);
+  const bytes =
+    path === "@inventory"
+      ? Buffer.from(JSON.stringify([...original.entries.keys()].sort()))
+      : original.imageReader(path).bytes;
+  sourceHashes[key] = {
+    ...(path === "@inventory"
+      ? { archive: `${name}.wz`, path }
+      : original.entries.get(path)),
+    sha256: hash(bytes),
+    bytes: bytes.length,
+  };
+  return sourceHashes[key];
+}
+
+function retainSource(key) {
+  inputImages[key] = sourceRecord(key);
+}
+
+function imageEntries(name) {
+  const key = `${name}.wz:@inventory`;
+  retainSource(key);
+  incremental?.observe(key);
+  return archive(name).entries;
 }
 /** @param {import('../src/assets/image.js').WzNode} node */
 function nodePath(node) {
@@ -159,52 +197,9 @@ async function part(node, x = 0, y = 0, z = 0) {
   const origin = value(node, "origin", { x: 0, y: 0 });
   return { texture: await texture(node), x: x - origin.x, y: y - origin.y, z };
 }
-/** Original Gr2D preserves zero-delay frames as equal-time timeline entries. */
-function frameDelay(node) {
-  const delay = Number(value(node, "delay", 120));
-  if (!Number.isSafeInteger(delay) || delay < 0) {
-    throw new Error(`Invalid frame delay at ${nodePath(node)}`);
-  }
-  return delay;
-}
-
 /** @param {import('../src/assets/image.js').WzNode} node */
 async function frames(node) {
-  node = resolveNode(node);
-  if (node.type === "Canvas") {
-    const frame = { delay: frameDelay(node), parts: [await part(node)] };
-    const start = value(node, "a0", -1),
-      end = value(node, "a1", -1);
-    if (start >= 0 || end >= 0) {
-      const a0 = start < 0 ? 255 : start;
-      frame.parts[0].opacity = a0 / 255;
-      frame.alphaEnd = (end < 0 ? a0 : end) / 255;
-    }
-    return [frame];
-  }
-  const result = [];
-  let carriedAlpha = 255;
-  for (const key of Object.keys(node.children)
-    .filter((k) => /^\d+$/.test(k))
-    .sort((a, b) => Number(a) - Number(b))) {
-    const frame = at(node, key);
-    if (frame.type !== "Canvas") {
-      throw new Error(`Expected Canvas animation frame: ${nodePath(frame)}`);
-    }
-    const delay = frameDelay(frame);
-    const start = value(frame, "a0", -1),
-      end = value(frame, "a1", -1);
-    const a0 = start < 0 ? carriedAlpha : start,
-      a1 = end < 0 ? a0 : end;
-    result.push({
-      delay,
-      parts: [{ ...(await part(frame)), opacity: a0 / 255 }],
-      alphaEnd: a1 / 255,
-    });
-    carriedAlpha = a1;
-  }
-  if (!result.length) throw new Error(`No canvas frames at ${nodePath(node)}`);
-  return result;
+  return originalFrames(node, part, nodePath);
 }
 /** Create one map entity from original placement and animation metadata. */
 function mapEntity(id, placement, frameList, flip = false) {
@@ -220,49 +215,6 @@ function mapEntity(id, placement, frameList, flip = false) {
   };
   state.entities.push(entity);
   return entity;
-}
-/** Iterative original foothold traversal; derived camera fallback remains explicitly unverified. */
-function mapBounds(map) {
-  const info = at(map, "info");
-  const extents = {
-    left: Infinity,
-    top: Infinity,
-    right: -Infinity,
-    bottom: -Infinity,
-  };
-  const queue = [at(map, "foothold")];
-  for (let i = 0; i < queue.length; i++) {
-    if (queue.length > 100000) {
-      throw new Error("Foothold traversal limit exceeded");
-    }
-    const node = queue[i];
-    if (!node.children.x1) {
-      queue.push(...Object.values(node.children));
-      continue;
-    }
-    extents.left = Math.min(extents.left, value(node, "x1"), value(node, "x2"));
-    extents.right = Math.max(
-      extents.right,
-      value(node, "x1"),
-      value(node, "x2"),
-    );
-    extents.top = Math.min(extents.top, value(node, "y1"), value(node, "y2"));
-    extents.bottom = Math.max(
-      extents.bottom,
-      value(node, "y1"),
-      value(node, "y2"),
-    );
-  }
-  const bounds = {
-    left: value(info, "VRLeft", extents.left - 100),
-    right: value(info, "VRRight", extents.right + 100),
-    top: value(info, "VRTop", extents.top - 500),
-    bottom: value(info, "VRBottom", extents.bottom + 100),
-  };
-  if (!Object.values(bounds).every(Number.isFinite)) {
-    throw new Error("Map has no finite bounds/footholds");
-  }
-  return bounds;
 }
 /** Original layer object placements. */
 async function objects(layer, l) {
@@ -318,6 +270,7 @@ async function backgrounds(map) {
       `${animated ? "ani" : "back"}/${value(entry, "no")}`,
     );
     const f = await frames(resource);
+    const canvas = textures[f[0].parts[0].texture];
     const entity = mapEntity(
       `back-${id}`,
       {
@@ -335,15 +288,17 @@ async function backgrounds(map) {
       ry: value(entry, "ry", 0),
       cx: value(entry, "cx", 0),
       cy: value(entry, "cy", 0),
+      canvas: {
+        width: canvas.width,
+        height: canvas.height,
+        scale: canvas.scale,
+      },
     };
   }
 }
 /** Local initial field placement uses the original spawn portal and feet offset. */
 function appendAvatar(map, character) {
-  const portal = Object.values(at(map, "portal").children).find(
-    (entry) => value(entry, "pn") === "sp",
-  );
-  if (!portal) throw new Error("Map has no spawn portal for initial placement");
+  const portal = spawnPortal(map);
   const actor = {
     id: "character",
     kind: "character",
@@ -355,6 +310,7 @@ function appendAvatar(map, character) {
     opacity: 1,
     action: "stand1",
     actions: character.actions,
+    avatar: character.avatar,
   };
   state.entities.push(actor);
   return actor;
@@ -414,20 +370,26 @@ function conversionReport(buildId, reports) {
     buildId,
     inputDirectory: source,
     maps: reports,
+    incremental: {
+      ...incremental.evidence,
+      verification: incremental.verification,
+    },
     policy: {
       atlasLimit: ATLAS_LIMIT,
       padding: PADDING,
       regionSize: REGION_SIZE,
-      maxMaps: 512,
+      maxMaps: 1024,
     },
     counts: {
       textures: Object.keys(textures).length,
       atlases: Object.keys(state.atlases).length,
-      images: images.size,
+      images: Object.keys(inputImages).length,
     },
     bytes: {
       originalRGBA: state.rgbaBytes,
+      newlyDecodedRGBA: state.rgbaBytes,
       roundTripCompared: state.verifiedBytes,
+      logicalReusedRGBA: incremental.evidence.reusedRGBABytes,
       atlasPNG: Object.values(state.atlases).reduce(
         (sum, a) => sum + a.bytes,
         0,
@@ -436,10 +398,11 @@ function conversionReport(buildId, reports) {
     pixelRoundTrip: {
       passed: true,
       method:
-        "PNG IDAT independently inflated and each RGBA subrect row compared byte-for-byte",
+        "New atlases compare independently inflated PNG subrects byte-for-byte; reused units verify immutable transitive output hashes against successful conversion records.",
     },
-    formats,
-    images: [...images.keys()],
+    formats: publicationFormats(),
+    newlyDecodedFormats: formats,
+    images: Object.keys(inputImages).sort(),
     durationMs: performance.now() - started,
     limitations: [
       "Camera fallback derived from footholds; exact original fallback remains unverified.",
@@ -447,6 +410,15 @@ function conversionReport(buildId, reports) {
       "Unpackaged destinations and original server-script dependencies remain explicitly unavailable.",
     ],
   };
+}
+
+function publicationFormats() {
+  const counts = Object.create(null);
+  for (const texture of Object.values(state.textures)) {
+    const key = `${texture.format}/${texture.scale}`;
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
 }
 /** Publish diagnostics after the content-addressed catalog has been committed. */
 async function publishReport(catalog, reports) {
@@ -484,29 +456,63 @@ async function extractMaps(character, combat) {
   const maps = Object.create(null),
     reports = [];
   const selectedMaps = new Set(mapIds);
+  const prerequisites = {
+    character: hash(Buffer.from(JSON.stringify(character))),
+    combat: hash(Buffer.from(JSON.stringify(combat))),
+    portalPrograms: hash(
+      Buffer.from(JSON.stringify(extractionContext.portalPrograms)),
+    ),
+  };
   for (const id of mapIds) {
-    const scene = await extractMap(id, character);
-    scene.combat = combat;
-    const result = await packageMap(scene, state);
-    const neighbors = [
-      ...new Set(
-        scene.physics.portals.map((portal) =>
-          String(portal.targetMap).padStart(9, "0"),
-        ),
+    const result = await incremental.run(
+      {
+        id: `map/${id}`,
+        recipe: await recipe("map"),
+        prerequisites,
+        sources: preflight.dependencies[id],
+      },
+      () => packagedMap(id, character, combat),
+    );
+    maps[id] = {
+      ...result.descriptor,
+      neighbors: result.neighbors.filter((target) => selectedMaps.has(target)),
+    };
+    reports.push(result.report);
+  }
+  return { maps, reports };
+}
+
+async function packagedMap(id, character, combat) {
+  const scene = await extractMap(id, character);
+  scene.combat = combat;
+  const result = await packageMap(scene, state);
+  const neighbors = [
+    ...new Set(
+      scene.physics.portals.map((portal) =>
+        String(portal.targetMap).padStart(9, "0"),
       ),
-    ]
-      .filter((target) => target !== id && selectedMaps.has(target))
-      .sort();
-    maps[id] = { ...result.descriptor, neighbors };
-    reports.push({
+    ),
+  ]
+    .filter((target) => target !== id)
+    .sort();
+  return {
+    descriptor: result.descriptor,
+    neighbors,
+    report: {
       id,
       entities: scene.entities.length,
       regions: result.manifest.regions.length,
       textures: Object.keys(result.manifest.textures).length,
       physics: scene.physics.map,
-    });
-  }
-  return { maps, reports };
+    },
+  };
+}
+
+async function cached(name, prerequisites, build) {
+  return incremental.run(
+    { id: name, recipe: await recipe(name), prerequisites },
+    build,
+  );
 }
 
 /** Reference inventories share the same immutable offline descriptor publisher. */
@@ -518,47 +524,73 @@ function reference(value) {
     Buffer.from(JSON.stringify(value)),
   );
 }
+/** Cosmic LifeFactory298-300 reads the original d0 and explicitly uses "(...)" when absent. */
+function defaultTalkForNpc(id) {
+  const record = image("String", "Npc.img").children[String(id)];
+  return record ? value(record, "d0", "(...)") : "(...)";
+}
+
+async function sharedCatalog(converted) {
+  const quests = await cached("quests", null, async () => {
+    const result = await extractQuests(extractionContext);
+    result.inventory = await reference(result.inventory);
+    return result;
+  });
+  const combat = await cached("combat", null, () =>
+    extractCombat(extractionContext),
+  );
+  const drops = extractDropData(extractionContext, converted.datasets.drops);
+  const serverData = await cached("server", converted, () =>
+    extractServerData({ output, converted }),
+  );
+  const mapNames = extractMapNames(extractionContext);
+  const ui = await cached(
+    "ui",
+    { quests, serverData, mapNames, dropItemIds: drops.itemIds, mapIds },
+    () =>
+      extractGameUI({
+        ...extractionContext,
+        quests,
+        serverData,
+        mapNames,
+        dropItemIds: drops.itemIds,
+      }),
+  );
+  finalizeDropData(drops, ui.items);
+  const audiovisual = await cached("audiovisual", mapIds, () =>
+    extractAudiovisual(extractionContext, mapIds),
+  );
+  return { quests, combat, drops, serverData, mapNames, ui, audiovisual };
+}
 
 /** Atomic catalog is the only mutable entry point. */
 async function run() {
-  const routes = explicitMaps
-    ? { ids: mapIds, blocked: [], scope: "explicit selected-content release" }
-    : collectPlayableMaps(extractionContext, mapIds);
-  mapIds = routes.ids;
-  extractionContext.mapIds = mapIds;
+  await prepareExtraction();
+  const converted = await convertServerData({ defaultTalkForNpc });
+  extractionContext.portalPrograms = converted.report.scripts.portalPrograms;
+  const routes = selectMapClosure(converted.datasets.shops.npcRoutes);
   const character = await extractAvatar(extractionContext);
-  const quests = await extractQuests(extractionContext);
-  // Full original evidence belongs to the offline closure, not the startup JSON parse.
-  quests.inventory = await reference(quests.inventory);
-  const combat = await extractCombat(extractionContext);
-  const converted = await convertServerData();
-  const drops = extractDropData(extractionContext, converted.datasets.drops);
-  const serverData = await extractServerData({ output, converted });
-  const mapNames = extractMapNames(extractionContext);
-  const ui = await extractGameUI({
-    ...extractionContext,
-    quests,
-    serverData,
-    mapNames,
-    dropItemIds: drops.itemIds,
-  });
-  finalizeDropData(drops, ui.items);
-  const audiovisual = await extractAudiovisual(
-    extractionContext,
-    mapIds,
-    combat.equipment.sfx,
-  );
+  const { quests, combat, drops, serverData, mapNames, ui, audiovisual } =
+    await sharedCatalog(converted);
   const { maps, reports } = await extractMaps(character, combat);
-  const references = extractHitboxReferences(image);
-  const hitboxes = await reference(references);
+  const hitboxes = await cached("hitboxes", null, () =>
+    reference(extractHitboxReferences(image)),
+  );
+  const loadingDecoration = await cached("loading", null, () =>
+    extractLoadingArt(extractionContext),
+  );
   const originalSources = await reference({
     schemaVersion: 1,
-    images: inputImages,
+    images: Object.fromEntries(
+      Object.entries(inputImages).sort(([a], [b]) => a.localeCompare(b, "en")),
+    ),
   });
   const content = {
+    defaultMap: mapIds.includes("000010000") ? "000010000" : mapIds[0],
     maps,
     mapNames,
     originalSources,
+    loadingDecoration,
     hitboxes,
     ui,
     audiovisual,
@@ -571,14 +603,76 @@ async function run() {
   const catalog = {
     schemaVersion: 2,
     buildId: hash(Buffer.from(JSON.stringify(content))),
-    defaultMap: mapIds.includes("100000000") ? "100000000" : mapIds[0],
     ...content,
   };
   await publishCatalog(catalog, reports);
 }
 
+async function prepareExtraction() {
+  const directory = resolve(
+    option(
+      "--cache-dir",
+      Bun.env.MAPLE_EXTRACTION_CACHE ??
+        resolve(root, "client/.cache/extraction"),
+    ),
+  );
+  incremental = await createExtractionCache({
+    directory,
+    full: args.includes("--full"),
+    state,
+    source: sourceRecord,
+    retain: retainSource,
+  });
+  const preflightReport = resolve(
+    option("--preflight-report", resolve(directory, "preflight.json")),
+  );
+  preflight = await preflightAssets({
+    assets: source,
+    maps: explicitMaps ? mapIds : undefined,
+    report: preflightReport,
+  });
+  if (preflight.status !== "pass") {
+    throw new Error(
+      `Original-asset preflight failed (${preflight.failures.length} findings); previous catalog retained. See ${preflightReport}`,
+    );
+  }
+}
+
+function selectMapClosure(npcRoutes) {
+  extractionContext.npcRoutes = new Map(
+    npcRoutes
+      .filter((route) => route.status === "supported")
+      .map((route) => [route.npcId, route]),
+  );
+  const routes = explicitMaps
+    ? { ids: mapIds, blocked: [], scope: "explicit selected-content release" }
+    : collectPlayableMaps(extractionContext, mapIds);
+  routes.seeds = mapIds;
+  routes.scope ??=
+    "original inspection roots with strict portal and supported-NPC closure";
+  mapIds = routes.ids;
+  extractionContext.mapIds = mapIds;
+  for (const id of mapIds) {
+    if (
+      !Array.isArray(preflight.dependencies[id]) ||
+      !preflight.dependencies[id].length
+    ) {
+      throw new Error(`Preflight omitted complete dependencies for map ${id}`);
+    }
+  }
+  return routes;
+}
+
 async function publishCatalog(catalog, reports) {
-  await publishFile(resolve(output, "catalog.json"), JSON.stringify(catalog));
+  const encoded = JSON.stringify(catalog);
+  if (
+    Buffer.byteLength(encoded) > resourceByteLimit("/generated/catalog.json")
+  ) {
+    throw new Error(
+      "Generated catalog exceeds its delivery byte bound; previous catalog retained",
+    );
+  }
+  await publishFile(resolve(output, "catalog.json"), encoded);
   await publishReport(catalog, reports);
 }
 try {

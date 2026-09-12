@@ -1,6 +1,6 @@
 import { coordinate } from "./geometry.js";
 
-/** 00a44889..cb: validated foothold extrema, not camera bounds. */
+/** 00a44889..cb: finite foothold extrema with native physical margins; callers bound segment count. */
 export function prepareBounds(segments, map) {
   const bounds = {
     left: Infinity,
@@ -9,10 +9,14 @@ export function prepareBounds(segments, map) {
     bottom: -Infinity,
   };
   for (const segment of segments) {
-    bounds.left = Math.min(bounds.left, segment.x1 + 30, segment.x2 + 30);
-    bounds.right = Math.max(bounds.right, segment.x1 - 30, segment.x2 - 30);
-    bounds.top = Math.min(bounds.top, segment.y1 - 300, segment.y2 - 300);
-    bounds.bottom = Math.max(bounds.bottom, segment.y1 + 10, segment.y2 + 10);
+    const x1 = coordinate(segment.x1),
+      x2 = coordinate(segment.x2);
+    const y1 = coordinate(segment.y1),
+      y2 = coordinate(segment.y2);
+    bounds.left = Math.min(bounds.left, x1 + 30, x2 + 30);
+    bounds.right = Math.max(bounds.right, x1 - 30, x2 - 30);
+    bounds.top = Math.min(bounds.top, y1 - 300, y2 - 300);
+    bounds.bottom = Math.max(bounds.bottom, y1 + 10, y2 + 10);
   }
   if (map.VRLimit) restrictViewport(bounds, map);
   if (bounds.left > bounds.right || bounds.top > bounds.bottom) {

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "maple-mono",
+      "name": "openms.dev",
       "devDependencies": {
         "@eslint/js": "9.39.5",
         "acorn": "8.18.0",
@@ -15,7 +15,7 @@
       },
     },
     "client": {
-      "name": "@maple/client",
+      "name": "@openms.dev/client",
       "dependencies": {
         "pixi.js": "8.17.1",
       },
@@ -24,7 +24,7 @@
       },
     },
     "server": {
-      "name": "@maple/server",
+      "name": "@openms.dev/server",
     },
   },
   "packages": {
@@ -158,11 +158,11 @@
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.6.0", "", {}, "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw=="],
 
-    "@maple/client": ["@maple/client@workspace:client"],
-
-    "@maple/server": ["@maple/server@workspace:server"],
-
     "@napi-rs/lzma-linux-x64-gnu": ["@napi-rs/lzma-linux-x64-gnu@1.5.1", "", { "os": "linux", "cpu": "x64" }, "sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ=="],
+
+    "@openms.dev/client": ["@openms.dev/client@workspace:client"],
+
+    "@openms.dev/server": ["@openms.dev/server@workspace:server"],
 
     "@pixi/colord": ["@pixi/colord@2.9.6", "", {}, "sha512-nezytU2pw587fQstUu1AsJZDVEynjskwOL+kibwcdxsMBFqPsFFNA7xl0ii/gXuDi6M0xj3mfRJj8pBSc2jCfA=="],
 

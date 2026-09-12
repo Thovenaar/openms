@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { PassiveRecovery } from "../src/passive-recovery.js";
+import { PassiveRecovery } from "../src/character/passive-recovery.js";
 
 test("moving resets HP recovery without resetting MP; full and dead reset independently", () => {
   const sim = { x: 0, y: 0 };

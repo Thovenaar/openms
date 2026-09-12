@@ -1,9 +1,9 @@
 {
-  "name": "@maple/client",
+  "name": "@openms.dev/client",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun tools/dev.js",
+    "dev:offline": "bun tools/dev.js",
     "test": "bun test"
   },
   "dependencies": {

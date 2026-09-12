@@ -2,14 +2,16 @@
 export const DELIVERY_LIMITS = Object.freeze({
   resources: 65536,
   resourceBytes: 32 * 1024 * 1024,
+  catalogBytes: 64 * 1024 * 1024,
   manifestBytes: 16 * 1024 * 1024,
   totalBytes: 8 * 1024 * 1024 * 1024,
-  nodes: 20000000,
-  maps: 512,
+  nodes: 64000000,
+  maps: 1024,
   releases: 64,
   clients: 256,
   // At most eight request buffers, one status scan and one installer scan at once.
   responses: 8,
+  queuedResponses: 256,
 });
 export const SHELL_URLS = Object.freeze([
   "/index.html",
@@ -23,6 +25,13 @@ export const SHELL_URLS = Object.freeze([
   "/app-icon.svg",
 ]);
 export const HASH = /^[a-f0-9]{64}$/;
+
+/** The aggregate world catalog has its own ceiling; individual assets remain bounded separately. */
+export function resourceByteLimit(url) {
+  return url === "/generated/catalog.json"
+    ? DELIVERY_LIMITS.catalogBytes
+    : DELIVERY_LIMITS.resourceBytes;
+}
 
 /** Only canonical same-origin paths are legal; no query, traversal, or redirects. */
 export function validPath(path) {
@@ -42,7 +51,7 @@ export function validateDescriptor(info) {
     !HASH.test(info.sha256) ||
     !Number.isSafeInteger(info.bytes) ||
     info.bytes < 1 ||
-    info.bytes > DELIVERY_LIMITS.resourceBytes
+    info.bytes > resourceByteLimit(info.url)
   ) {
     throw new Error(
       `Invalid offline resource descriptor: ${info?.url ?? "unnamed"}`,
@@ -98,6 +107,169 @@ export function collectDescriptors(root, found, budget) {
       if (value && typeof value === "object") pending.push(value);
     }
   }
+}
+
+// HUD preparation borrows Basic and ToolTip; the minimap belongs to the current field.
+const STARTUP_UI_BUNDLES = Object.freeze([
+  "StatusBar",
+  "Basic",
+  "ToolTip",
+  "Cursor",
+  "TemporaryStatView",
+  "MiniMap",
+]);
+
+/** Select inline roots only: never enumerate optional catalogs or neighboring maps. */
+function collectStartupDescriptors(catalog, mapId, found, budget) {
+  const ui = catalog.ui ?? {};
+  for (const name of STARTUP_UI_BUNDLES) {
+    collectDescriptors(ui.bundles?.[name], found, budget);
+  }
+  for (const root of [
+    ui.minimaps?.[mapId],
+    ui.speechBubbles,
+    ui.npcWorld,
+    ui.avatar?.projectiles,
+    ui.dropArtwork,
+    ui.fieldResources?.[mapId],
+  ]) {
+    collectDescriptors(root, found, budget);
+  }
+  collectStartupAudio(catalog.audiovisual, mapId, found, budget);
+}
+
+function collectStartupAudio(audiovisual, mapId, found, budget) {
+  for (const root of [
+    audiovisual?.maps?.[mapId],
+    audiovisual?.combat?.digits,
+  ]) {
+    collectDescriptors(root, found, budget);
+  }
+  collectGameplayDescriptors(audiovisual, found, budget);
+}
+
+function collectGameplayDescriptors(audiovisual, found, budget) {
+  for (const name of ["Teleport", "LevelUp", "QuestClear"]) {
+    const effect = audiovisual?.effects?.[name];
+    if (!effect?.bundle) {
+      throw new Error(`Unpackaged mandatory effect: ${name}`);
+    }
+    collectDescriptors(effect.bundle, found, budget);
+  }
+  for (const name of [
+    "LevelUp",
+    "QuestClear",
+    "Tombstone",
+    "DropItem",
+    "PickUpItem",
+  ]) {
+    const sound = audiovisual?.sounds?.Game?.[name];
+    if (!sound) throw new Error(`Unpackaged mandatory sound: Game/${name}`);
+    collectDescriptors(sound, found, budget);
+  }
+}
+
+function mapLifeDescriptor(catalog, placement) {
+  const id = Number(placement.authored?.id);
+  if (placement.kind === "npc") return catalog.ui?.npcPortraits?.[id];
+  if (placement.kind === "mob") {
+    return catalog.audiovisual?.combat?.sounds?.Mob?.[id];
+  }
+  return null;
+}
+
+/** Field-local conversation portraits and mob cues do not pull other maps' life assets. */
+function collectMapLifeDescriptors(catalog, scene, found, budget) {
+  const placements = scene.life?.placements ?? [];
+  if (
+    !Array.isArray(placements) ||
+    placements.length > DELIVERY_LIMITS.resources
+  ) {
+    throw new Error("Invalid offline map life inventory");
+  }
+  for (const placement of placements) {
+    collectDescriptors(mapLifeDescriptor(catalog, placement), found, budget);
+  }
+}
+
+/** Tutorial programs name original UI.wz paths, published verbatim in the catalog. */
+function collectTutorialDescriptors(catalog, scene, found, budget) {
+  const records = scene.portalPresentation?.records ?? [];
+  if (!Array.isArray(records) || records.length > DELIVERY_LIMITS.resources) {
+    throw new Error("Invalid offline tutorial inventory");
+  }
+  for (const record of records) {
+    collectTutorialBranches(
+      catalog.audiovisual?.effects,
+      record,
+      found,
+      budget,
+    );
+  }
+}
+
+function collectTutorialBranches(effects, record, found, budget) {
+  const branches = record.tutorialProgram?.branches ?? [];
+  if (!Array.isArray(branches) || branches.length > DELIVERY_LIMITS.resources) {
+    throw new Error("Invalid offline tutorial branches");
+  }
+  for (const branch of branches) {
+    const effect = effects?.[branch.path];
+    if (!effect) throw new Error(`Unpackaged tutorial effect: ${branch.path}`);
+    collectDescriptors(effect, found, budget);
+  }
+}
+
+function packagedMapDescriptor(catalog, mapId) {
+  if (
+    (typeof mapId !== "string" && !Number.isSafeInteger(mapId)) ||
+    !catalog?.maps ||
+    !Object.hasOwn(catalog.maps, mapId)
+  ) {
+    throw new Error(`Map is not packaged: ${mapId}`);
+  }
+  const map = validateDescriptor(catalog.maps[mapId]);
+  if (!map.url.endsWith(".json")) {
+    throw new Error(`Invalid offline map descriptor: ${map.url}`);
+  }
+  return map;
+}
+
+/**
+ * Collect one packaged map's transitive resources plus shared startup artwork/audio.
+ * loadJSON must return parsed JSON only after verifying descriptor SHA-256 and bytes.
+ * The returned Map owns canonical URL descriptors, including every visited JSON file.
+ * @param {object} catalog Verified, inline generated catalog.
+ * @param {string|number} mapId Packaged map identity.
+ * @param {function(object): Promise<object>} loadJSON Verified JSON loader.
+ * @returns {Promise<Map<string, {url: string, sha256: string, bytes: number}>>}
+ */
+export async function collectMapResources(catalog, mapId, loadJSON) {
+  const map = packagedMapDescriptor(catalog, mapId);
+  const id = String(mapId);
+  const found = new Map();
+  const budget = { nodes: 0 };
+  collectDescriptors(map, found, budget);
+  collectStartupDescriptors(catalog, id, found, budget);
+  let totalBytes = 0;
+  // Map iteration includes newly discovered descriptors; resource/node limits bound it.
+  for (const info of found.values()) {
+    totalBytes += info.bytes;
+    if (totalBytes > DELIVERY_LIMITS.totalBytes) {
+      throw new Error("Offline closure byte limit exceeded");
+    }
+    if (!info.url.endsWith(".json")) continue;
+    const root = await loadJSON(info);
+    if (info.url === map.url && root?.id !== id) {
+      throw new Error(`Offline map identity mismatch: ${id}`);
+    }
+    if (info.url === map.url) {
+      collectMapLifeDescriptors(catalog, root, found, budget);
+      collectTutorialDescriptors(catalog, root, found, budget);
+    }
+    collectDescriptors(root, found, budget);
+  }
+  return found;
 }
 
 export async function sha256(buffer) {

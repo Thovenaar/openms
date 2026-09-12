@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { PhysicalDamage } from "../src/physical-damage.js";
+import { PhysicalDamage } from "../src/combat/physical-damage.js";
 import {
   createCharacterStats,
   projectCharacterStats,
-} from "../src/character-stats.js";
+} from "../src/character/character-stats.js";
 
 // Original starter PAD17 and Red Snail level4/PDD3; character inputs isolate arithmetic.
 const SNAIL = Object.freeze({ level: 4, PDDamage: 3, eva: 0 });
@@ -47,6 +47,7 @@ function profileFixture() {
     luk: 4,
     maxHP: 50,
     maxMP: 5,
+    inventory: [],
     equipment: [
       { uid: "sword", id: 1302000, count: 1, slot: -11 },
       { uid: "hat", id: 1002000, count: 1, slot: -1 },
@@ -124,15 +125,77 @@ test("equipment instances, temporary contributions and learned mastery are count
   expect(profile.str).toBe(12);
 });
 
-test("unsupported weapon mastery does not reuse the sword damage projection", () => {
-  const { profile, hooks } = profileFixture();
-  hooks.items[1452000] = { info: { incPAD: 17 } };
-  profile.equipment[0].id = 1452000;
+test("ranged mastery and projectile PAD do not leak into the close-range fallback", () => {
+  const source = new PhysicalDamage(() => 0);
+  const stats = swordStats({
+    weaponType: 45,
+    level: 4,
+    str: 100,
+    dex: 200,
+    pad: 110,
+    mastery: 9,
+    projectilePAD: 10,
+    padWithoutProjectile: 100,
+  });
+  const target = { level: 4, PDDamage: 0, eva: 0 };
+  expect(
+    source.generate(stats, target, 100, {
+      action: "shoot1",
+      ranged: true,
+      projectilePAD: 10,
+    }),
+  ).toBe(480);
+  expect(
+    source.generate(stats, target, 100, {
+      action: "swingT1",
+      ranged: false,
+      projectilePAD: 0,
+    }),
+  ).toBe(107);
+});
+
+test("dagger job primary and spear/polearm action coefficients remain distinct", () => {
+  const source = new PhysicalDamage(() => 0);
+  const stats = swordStats({
+    level: 4,
+    str: 100,
+    dex: 200,
+    luk: 300,
+    pad: 100,
+    projectilePAD: 0,
+    padWithoutProjectile: 100,
+  });
+  const target = { level: 4, PDDamage: 0, eva: 0 };
+  stats.weaponType = 33;
+  stats.job = 400;
+  expect(source.generate(stats, target)).toBe(397);
+  stats.job = 100;
+  expect(source.generate(stats, target)).toBe(236);
+  const use = { action: "swingT2", ranged: false, projectilePAD: 0 };
+  stats.weaponType = 43;
+  expect(source.generate(stats, target, 100, use)).toBe(227);
+  stats.weaponType = 44;
+  expect(source.generate(stats, target, 100, use)).toBe(245);
+  use.action = "stabT1";
+  expect(source.generate(stats, target, 100, use)).toBe(227);
+});
+
+test("capped PAD does not debit projectile attack a second time from a melee fallback", () => {
+  const { profile, hooks, temporary } = profileFixture();
+  profile.level = 10;
+  profile.job = 400;
+  profile.luk = 300;
+  profile.equipment[0].id = 1472000;
+  hooks.items[1472000] = { info: { incPAD: 1999 } };
+  hooks.items[2070000] = { info: { incPAD: 15, reqLevel: 10 } };
+  temporary.pad = 0;
+  const source = new PhysicalDamage(() => 0);
+  const use = { action: "stabO1", ranged: false, projectilePAD: 0 };
   const stats = projectCharacterStats(profile, hooks, createCharacterStats());
-  expect(stats.acc).toBeNull();
-  expect(() => new PhysicalDamage(() => 0).generate(stats, SNAIL)).toThrow(
-    "one-handed sword",
-  );
+  const withoutStars = source.generate(stats, SNAIL, 100, use);
+  profile.inventory.push({ uid: "stars", id: 2070000, count: 1, slot: 1 });
+  projectCharacterStats(profile, hooks, stats);
+  expect(source.generate(stats, SNAIL, 100, use)).toBe(withoutStars);
 });
 
 test("incoming physical EVA uses four-word windows and integer half-level penalties", () => {
@@ -160,4 +223,129 @@ test("incoming physical EVA caps ordinary and thief branches independently", () 
   expect(source.evades(stats, info)).toBe(false);
   stats.job = 400;
   expect(source.evades(stats, info)).toBe(true);
+});
+
+test("incoming magnitude uses squared attack and matching defense instead of PAD divided by20", () => {
+  const stats = {
+    level: 1,
+    job: 0,
+    str: 0,
+    dex: 0,
+    int: 0,
+    luk: 0,
+    eva: 0,
+    pdd: 0,
+    mdd: 0,
+  };
+  // Controlled defense baseline, not a substitute for packaged StandardPDD.
+  const options = { magic: false, standardPDD: [new Array(201).fill(0)] };
+  const info = { level: 1, acc: 100, PADamage: 100, MADamage: 100 };
+  const source = new PhysicalDamage(Math.random, () => 9999999);
+  expect(source.receive(stats, info, options)).toBe(84);
+  stats.pdd = 100;
+  expect(source.receive(stats, info, options)).toBe(37);
+  stats.str = 250;
+  expect(source.receive(stats, info, options)).toBe(17);
+  options.magic = true;
+  stats.str = 0;
+  expect(source.receive(stats, info, options)).toBe(79);
+  stats.mdd = 100;
+  expect(source.receive(stats, info, options)).toBe(54);
+});
+
+test("below-standard physical defense penalizes higher-level targets without changing attack RNG", () => {
+  const stats = {
+    level: 10,
+    job: 0,
+    str: 12,
+    dex: 5,
+    int: 4,
+    luk: 4,
+    eva: 0,
+    pdd: 10,
+    mdd: 4,
+  };
+  const options = { magic: false, standardPDD: [new Array(201).fill(100)] };
+  const info = { level: 10, acc: 100, PADamage: 100 };
+  const source = new PhysicalDamage(Math.random, () => 9999999);
+  const equal = source.receive(stats, info, options);
+  info.level = 11;
+  expect(source.receive(stats, info, options)).toBeGreaterThan(equal);
+  info.level = 1;
+  expect(source.receive(stats, info, options)).toBeLessThan(equal);
+});
+
+test("magical evasion uses the level-penalized EVA interval and equality boundary", () => {
+  const source = replay([0, 0, 0, 0, 0, 0, 0, 0]);
+  const stats = { level: 10, job: 0, eva: 100 };
+  const info = { level: 10, acc: 10 };
+  expect(source.evades(stats, info, true)).toBe(true);
+  info.level = 12;
+  expect(source.evades(stats, info, true)).toBe(false);
+});
+
+test("equipped and allocated stats enter physical receiving without double-counting temporary defense", () => {
+  const { profile, hooks, temporary } = profileFixture();
+  const stats = createCharacterStats();
+  const options = { magic: false, standardPDD: [new Array(201).fill(7)] };
+  const info = { level: 1, acc: 100, PADamage: 100 };
+  const source = new PhysicalDamage(Math.random, () => 9999999);
+  projectCharacterStats(profile, hooks, stats);
+  const naked = source.receive(stats, info, options);
+  hooks.items[1002000].info.incPDD = 50;
+  projectCharacterStats(profile, hooks, stats);
+  const equipped = source.receive(stats, info, options);
+  expect(equipped).toBeLessThan(naked);
+  temporary.pdd = 50;
+  projectCharacterStats(profile, hooks, stats);
+  const buffed = source.receive(stats, info, options);
+  expect(buffed).toBeLessThan(equipped);
+  profile.str += 100;
+  projectCharacterStats(profile, hooks, stats);
+  expect(source.receive(stats, info, options)).toBeLessThan(buffed);
+});
+
+test("Invincible reduces untruncated physical magnitude once and never reduces magic", () => {
+  const stats = {
+    level: 1,
+    job: 0,
+    str: 0,
+    dex: 0,
+    int: 0,
+    luk: 0,
+    eva: 0,
+    pdd: 0,
+    mdd: 0,
+    invincible: 20,
+  };
+  const options = { magic: false, standardPDD: [new Array(201).fill(0)] };
+  const info = { level: 1, acc: 100, PADamage: 100, MADamage: 100 };
+  const source = new PhysicalDamage(Math.random, () => 9999999);
+  //84.9999995 * .8 truncates to67, not84 - trunc(84 * .2) =68.
+  expect(source.receive(stats, info, options)).toBe(67);
+  options.magic = true;
+  expect(source.receive(stats, info, options)).toBe(79);
+});
+
+test("sufficient physical defense permits native nonpositive MISS while magic keeps its separate minimum", () => {
+  const stats = {
+    level: 1,
+    job: 0,
+    str: 0,
+    dex: 0,
+    int: 0,
+    luk: 0,
+    eva: 0,
+    pdd: 1000,
+    mdd: 1000,
+  };
+  const options = { magic: false, standardPDD: [new Array(201).fill(0)] };
+  const info = { level: 1, acc: 100, PADamage: 100, MADamage: 100 };
+  const source = new PhysicalDamage(Math.random, () => 9999999);
+  expect(source.receive(stats, info, options)).toBe(-391);
+  options.magic = true;
+  expect(source.receive(stats, info, options)).toBe(1);
+  info.MADamage = 0;
+  stats.mdd = 0;
+  expect(source.receive(stats, info, options)).toBe(0);
 });

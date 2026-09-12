@@ -97,7 +97,8 @@ function appendMapBlocks(map, blocked) {
     throw new Error("Unsupported map option count");
   }
   for (const key of UNSUPPORTED_MAP) {
-    const value = map[key];
+    // Recovered jump, movement-skill, downward-jump and falling-damage bits only.
+    const value = key === "fieldLimit" ? (map[key] ?? 0) & ~0x120003 : map[key];
     if (value !== undefined && value !== 0 && value !== "") {
       blocked.push(
         `map.${key}: original active consumer not fully reconstructed`,
@@ -158,7 +159,7 @@ export function createDiagnostics() {
       "binary64 arithmetic replaces original x87 intermediates",
       "collision rational comparisons use binary64 instead of original integer products",
       "rare object/group collision exceptions require original dynamic actor context",
-      "base avatar only: equipment, skills, mounts and morphs not applied",
+      "gameplay movement stats, shoe fs/swim and active forms are projected without mutating their sources",
       "active unsupported map options are reported, not given guessed coefficients",
       "held jump: retry permissible ground/ladder states; buoyant impulses repeat every 300ms (provisional offline policy)",
       "local gameplay movement locks gate controls, not gravity, friction or existing velocity",

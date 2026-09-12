@@ -1,5 +1,5 @@
 {
-  "name": "@maple/server",
+  "name": "@openms.dev/server",
   "private": true,
   "type": "module",
   "description": "Reserved workspace. Backend implementation intentionally deferred."

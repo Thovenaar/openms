@@ -1,14 +1,17 @@
+import { npcRemoteService, npcRemoteLoop } from "./npc-script-services.js";
 import {
   NPC_DIALOG_METHODS,
   NPC_SCRIPT_LIMITS,
   addDependency,
   blockScript,
+  call,
   cmMethod,
   dependencySets,
   integerLiteral,
   parseNpcSource,
   resolveVariable,
   sourceSpan,
+  playerMethod,
 } from "./npc-script-ir.js";
 import {
   collectConcatenationDependencies,
@@ -18,14 +21,22 @@ import {
 } from "./npc-script-expressions.js";
 import {
   boundedLoop,
+  loopComparison,
   inspectScopes,
   staticJavaShop,
 } from "./npc-script-scope.js";
 import { validateCallbackOutputs } from "./npc-script-flow.js";
 import { collectArtworkDependencies } from "./npc-script-artwork.js";
+import { lowerNpcHelpers } from "./npc-script-helpers.js";
+import { SAVED_LOCATION_TYPES } from "../src/profile/profile-domains.js";
+import { lowerNpcArrayAssignment } from "./npc-script-arrays.js";
+import { lowerNpcRecords } from "./npc-script-records.js";
 
 const EFFECTS = Object.freeze({
   gainMeso: { kind: "meso", min: 1, max: 1 },
+  changeJobById: { kind: "job", min: 1, max: 1 },
+  resetStats: { kind: "reset-stats", min: 0, max: 0 },
+  warp: { kind: "warp", min: 1, max: 2, dependency: "mapIds" },
   gainItem: { kind: "item", min: 1, max: 3, dependency: "itemIds" },
   forceStartQuest: {
     kind: "quest-start",
@@ -82,8 +93,21 @@ function declarationStatement(context, scope, node) {
   const values = [];
   for (const declaration of node.declarations) {
     const variable = resolveVariable(context, scope, declaration.id);
-    if (!variable || variable.host || !declaration.init) continue;
-    const value = compileExpression(context, scope, declaration.init);
+    if (
+      !variable ||
+      variable.host ||
+      (!declaration.init && node.kind === "var")
+    ) {
+      continue;
+    }
+    const initializer = declaration.init ?? {
+      type: "Identifier",
+      name: "undefined",
+      start: declaration.start,
+      end: declaration.end,
+      loc: declaration.loc,
+    };
+    const value = compileExpression(context, scope, initializer);
     values.push({ name: variable.key, value });
     rememberAssignment(context, variable.key, value);
   }
@@ -91,6 +115,12 @@ function declarationStatement(context, scope, node) {
 }
 
 function assignmentStatement(context, scope, node) {
+  if (
+    node.type === "AssignmentExpression" &&
+    node.left.type === "MemberExpression"
+  ) {
+    node = lowerNpcArrayAssignment(context, scope, node);
+  }
   const target =
     node.type === "AssignmentExpression" ? node.left : node.argument;
   const variable = resolveVariable(context, scope, target);
@@ -122,20 +152,26 @@ function assignmentStatement(context, scope, node) {
     return { op: "unsupported" };
   }
   const value = compileExpression(context, scope, node.right);
-  if (node.operator === "=") rememberAssignment(context, variable.key, value);
-  else {
-    if (node.operator === "+=") {
-      context.concatenations.push({
-        left: compileExpression(context, scope, target),
-        right: value,
-        node,
-      });
-      rememberAssignment(context, variable.key, value);
-    }
-    context.unboundedAssignments.add(variable.key);
-    context.requirements.add("finite-checked-scalar-arithmetic");
-  }
+  recordAssignmentOperation(context, { node, target, variable, value }, scope);
   return { op: "assign", name: variable.key, operator: node.operator, value };
+}
+
+function recordAssignmentOperation(context, assignment, scope) {
+  const { node, target, variable, value } = assignment;
+  if (node.operator === "=") {
+    rememberAssignment(context, variable.key, value);
+    return;
+  }
+  if (node.operator === "+=") {
+    context.concatenations.push({
+      left: compileExpression(context, scope, target),
+      right: value,
+      node,
+    });
+    rememberAssignment(context, variable.key, value);
+  }
+  context.unboundedAssignments.add(variable.key);
+  context.requirements.add("finite-checked-scalar-arithmetic");
 }
 
 function numberOptions(context, node) {
@@ -254,6 +290,7 @@ function effectStatement(context, scope, node, spec) {
     compileExpression(context, scope, argument),
   );
   context.requirements.add("atomic-local-turn");
+  if (spec.kind === "warp") context.requirements.add("atomic-field-travel");
   if (spec.kind === "item") return itemEffect(context, node, refs);
   if (spec.dependency && refs.length) {
     context.dependencyRequests.push({
@@ -278,18 +315,19 @@ function effectStatement(context, scope, node, spec) {
 }
 
 function continuationCall(context, scope, node) {
-  if (node.callee.type !== "Identifier" || node.callee.name !== "action") {
-    return null;
-  }
+  if (node.callee.type !== "Identifier") return null;
+  const name = node.callee.name,
+    definition = context.functions.get(name);
   if (
-    scope !== "start" ||
-    !context.functions.has("action") ||
-    node.arguments.length !== 3
+    !definition ||
+    context.scopeOwners.get(scope) === "global" ||
+    node.arguments.length > 3
   ) {
     return null;
   }
   return {
-    op: "call-action",
+    op: "call",
+    name,
     args: node.arguments.map((argument) =>
       compileExpression(context, scope, argument),
     ),
@@ -306,7 +344,104 @@ function terminalCall(context, node, method) {
   return { op: "shop", shopId, translation: "cm.openShopNPC(literal)" };
 }
 
+/** Exact authored Java storage bridge; arguments are verified, never evaluated as host calls. */
+function storageCall(context, node) {
+  if (!call(node, "sendStorage") || node.arguments.length !== 2) return null;
+  const storage = node.callee.object;
+  if (!call(storage, "getStorage") || storage.arguments.length !== 0) {
+    return null;
+  }
+  const player = storage.callee.object;
+  const client = node.arguments[0];
+  if (
+    cmMethod(player) !== "getPlayer" ||
+    player.arguments.length !== 0 ||
+    cmMethod(client) !== "getClient" ||
+    client.arguments.length !== 0
+  ) {
+    return null;
+  }
+  const npcId = integerLiteral(node.arguments[1]);
+  addDependency(context, "npcIds", npcId, node);
+  context.requirements.add("account-local-storage");
+  return { op: "storage", npcId };
+}
+
+/** Character.setCS toggles chaos-scroll crafting, not cash-shop state. */
+function craftingScrollCall(context, scope, node) {
+  if (!call(node, "setCS")) return null;
+  const player = node.callee.object;
+  if (cmMethod(player) !== "getPlayer" || player.arguments.length !== 0) {
+    return null;
+  }
+  if (
+    node.arguments.length !== 1 ||
+    (node.arguments[0].type === "Literal" &&
+      typeof node.arguments[0].value !== "boolean")
+  ) {
+    blockScript(context, node, "setCS requires exactly one boolean argument");
+  }
+  return effectStatement(context, scope, node, {
+    kind: "crafting-scroll",
+    min: 1,
+    max: 1,
+  });
+}
+
+function savedLocationCall(context, scope, node) {
+  if (playerMethod(node) !== "saveLocation") return null;
+  const type = node.arguments[0]?.value;
+  if (node.arguments.length !== 1 || !SAVED_LOCATION_TYPES.includes(type)) {
+    blockScript(
+      context,
+      node,
+      "Saved location requires one literal native location type",
+    );
+    return { op: "unsupported" };
+  }
+  context.requirements.add("saved-location-authority");
+  return effectStatement(context, scope, node, {
+    kind: "save-location",
+    min: 1,
+    max: 1,
+  });
+}
+
+function defaultDialog(context, scope, node) {
+  if (cmMethod(node) !== "sendDefault") return null;
+  if (node.arguments.length || typeof context.defaultTalk !== "string") {
+    blockScript(
+      context,
+      node,
+      "sendDefault requires the routed NPC's original String.wz d0 text",
+    );
+    return { op: "unsupported" };
+  }
+  const text = { ...node, type: "Literal", value: context.defaultTalk };
+  delete text.callee;
+  delete text.arguments;
+  const translated = {
+    ...node,
+    callee: {
+      ...node.callee,
+      property: { ...node.callee.property, name: "sendOk" },
+    },
+    arguments: [text],
+  };
+  return dialogStatement(context, scope, translated, NPC_DIALOG_METHODS.sendOk);
+}
+
 function callStatement(context, scope, node) {
+  const remote = npcRemoteService(node);
+  if (remote) return { op: "unavailable", service: remote };
+  const saved =
+    savedLocationCall(context, scope, node) ??
+    defaultDialog(context, scope, node);
+  if (saved) return saved;
+  const storage = storageCall(context, node);
+  if (storage) return storage;
+  const crafting = craftingScrollCall(context, scope, node);
+  if (crafting) return crafting;
   const javaShop = staticJavaShop(context, scope, node);
   if (javaShop) {
     addDependency(context, "shopIds", javaShop.shopId, node);
@@ -365,11 +500,76 @@ function childStatement(context, work, node) {
   work.push({ node, id });
   return id;
 }
+function loopAfter(context, work, node, scope) {
+  if (node.update?.type !== "SequenceExpression") return null;
+  const body = node.update.expressions.slice(1).map((expression) => {
+    const statement = {
+      type: "ExpressionStatement",
+      expression,
+      start: expression.start,
+      end: expression.end,
+      loc: expression.loc,
+    };
+    context.nodeScopes.set(statement, scope);
+    return statement;
+  });
+  const block = {
+    type: "BlockStatement",
+    body,
+    start: node.update.start,
+    end: node.update.end,
+    loc: node.update.loc,
+  };
+  context.nodeScopes.set(block, scope);
+  return childStatement(context, work, block);
+}
+
+function lexicalBindings(context, node) {
+  const scope =
+    node.type === "Program" ? "global" : context.blockScopes.get(node);
+  return [...(context.scopes.get(scope)?.values() ?? [])]
+    .filter(
+      (variable) => ["let", "const"].includes(variable.kind) && !variable.host,
+    )
+    .map((variable) => variable.key);
+}
+
+function switchStatement(context, work, node, scope) {
+  const cases = node.cases.map((branch) => {
+    const block = {
+      ...branch,
+      type: "BlockStatement",
+      body: branch.consequent,
+    };
+    context.nodeScopes.set(block, scope);
+    return {
+      test:
+        branch.test === null
+          ? null
+          : compileExpression(context, scope, branch.test),
+      body: childStatement(context, work, block),
+    };
+  });
+  return {
+    op: "switch",
+    test: compileExpression(
+      context,
+      context.scopeParents.get(scope),
+      node.discriminant,
+    ),
+    cases,
+    lexicals: lexicalBindings(context, node),
+  };
+}
 
 function controlStatement(context, work, node, scope) {
+  if (node.type === "SwitchStatement") {
+    return switchStatement(context, work, node, scope);
+  }
   if (node.type === "BlockStatement" || node.type === "Program") {
     return {
       op: "block",
+      lexicals: lexicalBindings(context, node),
       body: node.body
         .filter((child) => child.type !== "FunctionDeclaration")
         .map((child) => childStatement(context, work, child)),
@@ -383,33 +583,43 @@ function controlStatement(context, work, node, scope) {
       no: childStatement(context, work, node.alternate),
     };
   }
-  if (node.type === "ForStatement") {
-    const loop = boundedLoop(context, scope, node);
-    if (!loop) {
-      blockScript(
-        context,
-        node,
-        "Only canonical finite literal/array menu-building for loops are supported",
-      );
-    }
-    if (loop && node.test.right.type === "MemberExpression") {
-      context.loopBounds.push({
-        expression: compileExpression(context, scope, node.test.right.object),
-        node,
-      });
-    }
-    return {
-      op: "for",
-      ...loop,
-      init: childStatement(context, work, node.init),
-      test: node.test ? compileExpression(context, scope, node.test) : null,
-      update: node.update
-        ? assignmentStatement(context, scope, node.update)
-        : null,
-      body: childStatement(context, work, node.body),
-    };
+  return node.type === "ForStatement"
+    ? forStatement(context, work, node, scope)
+    : null;
+}
+
+function forStatement(context, work, node, scope) {
+  const remote = npcRemoteLoop(context, scope, node);
+  if (remote) return remote;
+  const update =
+    node.update?.type === "SequenceExpression"
+      ? node.update.expressions[0]
+      : node.update;
+  const loop = boundedLoop(context, scope, node);
+  if (!loop) {
+    blockScript(
+      context,
+      node,
+      "Only canonical finite literal/array menu-building for loops are supported",
+    );
   }
-  return null;
+  const comparison = loopComparison(node);
+  if (loop && comparison.right.type === "MemberExpression") {
+    context.loopBounds.push({
+      expression: compileExpression(context, scope, comparison.right.object),
+      node,
+    });
+  }
+  return {
+    op: "for",
+    lexicals: lexicalBindings(context, node),
+    ...loop,
+    init: childStatement(context, work, node.init),
+    test: node.test ? compileExpression(context, scope, node.test) : null,
+    update: update ? assignmentStatement(context, scope, update) : null,
+    body: childStatement(context, work, node.body),
+    after: loopAfter(context, work, node, scope),
+  };
 }
 
 function leafStatement(context, scope, node) {
@@ -420,6 +630,16 @@ function leafStatement(context, scope, node) {
     return expressionStatement(context, scope, node);
   }
   if (node.type === "EmptyStatement") return { op: "empty" };
+  if (node.type === "BreakStatement" && !node.label) {
+    let parent = context.parents.get(node);
+    for (let depth = 0; parent && depth < NPC_SCRIPT_LIMITS.depth; depth++) {
+      if (["ForStatement", "SwitchStatement"].includes(parent.type)) {
+        return { op: "break" };
+      }
+      if (parent.type === "FunctionDeclaration") break;
+      parent = context.parents.get(parent);
+    }
+  }
   if (node.type === "ReturnStatement" && !node.argument) {
     return { op: "return" };
   }
@@ -451,8 +671,8 @@ function compiledProgram(context, root) {
         (parameter) =>
           context.scopes.get(name).get(parameter.name)?.key ?? null,
       ),
-      locals: [...context.scopes.get(name).values()]
-        .filter((variable) => !variable.host)
+      locals: context.variables
+        .filter((variable) => variable.owner === name && !variable.host)
         .map((variable) => variable.key),
     };
   }
@@ -461,11 +681,11 @@ function compiledProgram(context, root) {
   collectLoopBounds(context);
   collectArtworkDependencies(context);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     initial,
     functions,
     globals: context.variables
-      .filter((variable) => variable.scope === "global" && !variable.host)
+      .filter((variable) => variable.owner === "global" && !variable.host)
       .map((variable) => variable.key),
     expressions: context.expressions,
     statements: context.statements,
@@ -482,10 +702,13 @@ function compiledProgram(context, root) {
 export function compileNpcScript(input) {
   const { text, path, sha256 } = input;
   const context = compilerContext(text, { path, sha256 });
+  context.defaultTalk = input.defaultTalk;
+  context.staticConfig = input.staticConfig;
   let program = null;
   try {
-    const root = parseNpcSource(text);
+    const root = lowerNpcHelpers(context, lowerNpcRecords(context, parseNpcSource(text)));
     inspectScopes(context, root);
+    context.root = root;
     program = compiledProgram(context, root);
     if (!context.blockers.length) {
       validateCallbackOutputs(context, program, root);

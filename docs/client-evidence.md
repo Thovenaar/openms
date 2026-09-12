@@ -29,16 +29,16 @@ Verified at client `0x009f7159`: create `ResMan`, `NameSpace`, `NameSpace#FileSy
 
 Recovered original strings and consumers:
 
-| Resource | Original string / semantics | Evidence |
-|---|---|---|
-| map | `Map/Map/Map%d/%09d.img` | ID 2498, encoded address `0x00b259c4`; consumers `0x0052950e`, `0x005cf792` |
-| tile | `Map/Tile/`, `tS`, `u`, `no`, `zM` | IDs 1489–1493; `0x0063a100`, `0x0063a5c4` |
-| object | `Map/Obj/%s.img/%s/%s/%s`, `oS`, `l0`, `l1`, `l2` | IDs 1495–1499; `0x0063ad16` |
-| background | `Map/Back/`, `bS`, `no`, `ani` | IDs 1507–1513; `0x0063cd4e` |
-| body/head | `Character/%08d.img` | ID 2327 |
-| equipment | `Character/{Face,Hair,Cap,Accessory,Coat,Longcoat,Pants,Shoes,Glove,Shield,Cape,Ring,PetEquip,Weapon,TamingMob,Sub,Dragon}/%08d.img` | IDs 2328–2344; `0x005c94a1` |
-| avatar ordering | `smap.img`, `zmap.img` | IDs 948, 949; startup `0x004010bd`, `0x00401086` |
-| frame placement | `origin`, `map`, `brow`, `navel` | IDs 959, 950, 1074, 1075; `0x00407a36`, startup globals and `0x004016a5` |
+| Resource        | Original string / semantics                                                                                                          | Evidence                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| map             | `Map/Map/Map%d/%09d.img`                                                                                                             | ID 2498, encoded address `0x00b259c4`; consumers `0x0052950e`, `0x005cf792` |
+| tile            | `Map/Tile/`, `tS`, `u`, `no`, `zM`                                                                                                   | IDs 1489–1493; `0x0063a100`, `0x0063a5c4`                                   |
+| object          | `Map/Obj/%s.img/%s/%s/%s`, `oS`, `l0`, `l1`, `l2`                                                                                    | IDs 1495–1499; `0x0063ad16`                                                 |
+| background      | `Map/Back/`, `bS`, `no`, `ani`                                                                                                       | IDs 1507–1513; `0x0063cd4e`                                                 |
+| body/head       | `Character/%08d.img`                                                                                                                 | ID 2327                                                                     |
+| equipment       | `Character/{Face,Hair,Cap,Accessory,Coat,Longcoat,Pants,Shoes,Glove,Shield,Cape,Ring,PetEquip,Weapon,TamingMob,Sub,Dragon}/%08d.img` | IDs 2328–2344; `0x005c94a1`                                                 |
+| avatar ordering | `smap.img`, `zmap.img`                                                                                                               | IDs 948, 949; startup `0x004010bd`, `0x00401086`                            |
+| frame placement | `origin`, `map`, `brow`, `navel`                                                                                                     | IDs 959, 950, 1074, 1075; `0x00407a36`, startup globals and `0x004016a5`    |
 
 The string-pool recovery itself is independently reproducible: `0x0079e993` reads table `0x00bdc9d4`, takes the first signed byte as a rotation amount and the following NUL-terminated bytes as payload. `0x0079ebf3` rotates the key bitstream; `0x0079e7e8` repeats it by index modulo key length; `0x0079ecde` XORs each payload byte, preserving the key byte if XOR would produce NUL. Key and length are at `0x00b001ec`/`0x00b001fc`, count at `0x00b00200`. This is the client's string-obfuscation algorithm, **not** the WZ archive encryption algorithm.
 
@@ -46,18 +46,18 @@ The string-pool recovery itself is independently reproducible: `0x0079e993` read
 
 Let `B = -0x40000000`; increasing depth is the intended layer ordering. The browser subtracts `B` from every root world depth. Renderer ties are **not world Y sorting**: `50403a4b` compares the first distinct overlay ancestors' signed depth, then their renderer serial (`virtual +0x0c(1)`). `5040399b` assigns the serial on insertion; `50409efd` assigns a new serial on depth mutation. Nested overlays stay with their ancestor group. Fresh read-only exports are `ghidra-client/depth-renderer*.txt`; `depth-renderer-ties.txt` resolves the accessors. The browser uses authored extraction order as the static initial serial (native initial map creation order remains unproved), and monotonic serials for dynamic insertion/depth changes. Stream reload preserves the authored static tie seed instead of making network completion order visible.
 
-| Entity | Original depth expression | Evidence |
-|---|---|---|
-| tile | `B + 19990 + layer*30000 - tile.zM*10 + tileCanvas.z` | `0x0063a5c4`, expression `iVar5 - 0x3fffb1ea + (param_1*3000-iVar4)*10` |
-| object | `B + 2000 + layer*30000 + obj.z` | `0x0063c212`; assembly `0x0063c27b IMUL ... 0x7530`, `0x0063c289 LEA ... +0xc00007d0` |
-| back (`front=0`) | `B - 128000 + index*1000` | `0x0063cd4e` |
-| front (`front!=0`) | `B + 272000 + index*1000` | `0x0063cd4e` |
-| ordinary mob | `B + 29991 + (layer*3000-group)*10` | `00664e35`, `depth-actors.txt`, `depth-actor-instructions.txt` |
-| NPC | `B + 29995 + (layer*3000-group)*10` | `006d267d` |
-| local player | `B + 29992 + (activeController?5:0) + (layer*3000-group)*10` | `0092fd16`; local active controller selects `29997` |
-| drop | `B + 29999 + (layer*3000-group)*10` | `00505900`, instruction `00505f82` |
-| combat number, miss, LevelUp | `B + 398500` (`0xc00614a4`) | `0043849c`, `0043dee8`, `0093780b`; `depth-label-instructions.txt` and `depth-effect-instructions.txt` |
-| ordinary name/function | relative overlay `z=2`, **parented to the actor's layer**, separately attached to its unflipped position vector | `005f1775`, `005f17bb`, `005f1805`; NPC passes artwork `+0xe4` in `006d5e6c` |
+| Entity                       | Original depth expression                                                                                       | Evidence                                                                                               |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| tile                         | `B + 19990 + layer*30000 - tile.zM*10 + tileCanvas.z`                                                           | `0x0063a5c4`, expression `iVar5 - 0x3fffb1ea + (param_1*3000-iVar4)*10`                                |
+| object                       | `B + 2000 + layer*30000 + obj.z`                                                                                | `0x0063c212`; assembly `0x0063c27b IMUL ... 0x7530`, `0x0063c289 LEA ... +0xc00007d0`                  |
+| back (`front=0`)             | `B - 128000 + index*1000`                                                                                       | `0x0063cd4e`                                                                                           |
+| front (`front!=0`)           | `B + 272000 + index*1000`                                                                                       | `0x0063cd4e`                                                                                           |
+| ordinary mob                 | `B + 29991 + (layer*3000-group)*10`                                                                             | `00664e35`, `depth-actors.txt`, `depth-actor-instructions.txt`                                         |
+| NPC                          | `B + 29995 + (layer*3000-group)*10`                                                                             | `006d267d`                                                                                             |
+| local player                 | `B + 29992 + (activeController?5:0) + (layer*3000-group)*10`                                                    | `0092fd16`; local active controller selects `29997`                                                    |
+| drop                         | `B + 29999 + (layer*3000-group)*10`                                                                             | `00505900`, instruction `00505f82`                                                                     |
+| combat number, miss, LevelUp | `B + 398500` (`0xc00614a4`)                                                                                     | `0043849c`, `0043dee8`, `0093780b`; `depth-label-instructions.txt` and `depth-effect-instructions.txt` |
+| ordinary name/function       | relative overlay `z=2`, **parented to the actor's layer**, separately attached to its unflipped position vector | `005f1775`, `005f17bb`, `005f1805`; NPC passes artwork `+0xe4` in `006d5e6c`                           |
 
 Do not mistake vector `+0x18` for a foothold pointer: `009b12a8` writes its first activation argument there; the foothold is `+0x110`. Jumping does not remove the active local user's five-depth increment. Last contact layer/group survive ordinary flight; an initially uncontacted vector uses layer7/group0. Mob `00664e35` also contains controller-mode3 (`B+270100`) and explicit Zakum/Horntail/Pink Bean template overrides. These special controller/boss depth paths are retained as evidence, **not generalized ordinary-mob behavior**; their complete runtime controllers remain unavailable.
 
@@ -97,19 +97,25 @@ The parent camera origin contributes another full camera displacement. Total mov
 `0x0063e2c5` uses bit 0 for X repetition and bit 1 for Y repetition. `0x0063cd4e` maps:
 
 | type | repeat | auto movement |
-|---|---|---|
-| 0 | none | none |
-| 1 | X | none |
-| 2 | Y | none |
-| 3 | X,Y | none |
-| 4 | X | X |
-| 5 | Y | Y |
-| 6 | X,Y | X |
-| 7 | X,Y | Y |
+| ---- | ------ | ------------- |
+| 0    | none   | none          |
+| 1    | X      | none          |
+| 2    | Y      | none          |
+| 3    | X,Y    | none          |
+| 4    | X      | X             |
+| 5    | Y      | Y             |
+| 6    | X,Y    | X             |
+| 7    | X,Y    | Y             |
 
 Explicit `cx,cy` control period. With zero period and ordinary non-special backgrounds, the fallback is the canvas dimension plus `1 - (1 << canvasScale)`; this equals the canvas dimension for scale zero. A separate resize/special branch uses field-geometry width/height. The exact tiling seam/boundary convention for nonzero canvas scale was not visually validated.
 
 Auto-X types 4/6 clear the origin parent, then attach camera ratios `(0, ry+100)`; total camera movement is zero in X and `1+ry/100` in Y. Auto-Y types 5/7 use `(rx+100,0)`. The scrolling axis's `rx` or `ry` is a speed, not also a parallax ratio. The client sets an initial offset of minus 100 for positive speed, then schedules movement to the base coordinate after `trunc(20000/abs(speed))` milliseconds. Thus positive speed moves in the positive coordinate direction; the nominal rate is `speed/200` pixels per millisecond, with original integer-duration quantization. Zero-speed handling and unusual out-of-range properties should not be extrapolated from this branch without further tracing.
+
+### Same-map teleport delivery boundary
+
+Retained `vector-functions/51408d23.c.txt` commits DOUBLE camera history and signed renderer time only when requested; `51408e33` supplies its distance/time residual. A same-map target discontinuity is not evidence for resetting that history. The browser keeps these evaluators unchanged. `origin-layer-probe.json` independently records Henesys `Map.wz:Back/grassySoil.img/back/0`:256×256, origin(128,128), type3, rx/ry/cx/cy0; client `0063e2c5` supplies both-axis repetition. Its prepared sprite pool is viewport-bounded and the packaged background is always resident.
+
+The browser-specific failure boundary was relocation publication before intermediate/destination spatial regions were ready: a6178-pixel `hp01 -> hp01_1` target change can outrun200-ms demand. Staging and pinning the swept camera viewport before publication repairs that delivery boundary while preserving the original smooth filter, integer repetition, and zero same-map fade. This does not establish that always-background eviction caused the reported fully blank frame. The settled `same-map-teleport` scenario passed with real Up in serial and isolated-context parallel runs; [consecutive-frame observations](native-ui-validation/reported-fixes/native-report.json) and [reviewed intermediate artwork](native-ui-validation/reported-fixes/teleport-frame-60.png) establish retained artwork and smooth, unfaded browser travel. They are not an original Windows reference capture.
 
 ## Frames, alpha, placement, and pixels
 
@@ -143,13 +149,13 @@ Subsequent address-directed work recovered the standard fixed-loadout anchor for
 
 An actual run over `100000000,100000001,103000000,108000500,230000000` produced `ghidra-client/origin-layer-probe.json`: **69 NPC placements and51 backgrounds**. Sixty-seven placements were more than one pixel above their authored foothold when drawn literally at map-editor `y`. Representative anchors:
 
-| Map/entity | authored anchor | authored `cy` / finite ground | first stand opaque bottom relative to origin |
-|---|---|---|---|
-| `100000000/1012000` | `(149,267)` | `274 / 274` | `0` |
-| `100000001/1012101` Maya | `(-17,36)` | `38 / 38` | `0`; origin `(23,77)` |
-| `103000000/2042002` | `(-1390,303)` | `308 / 307.6771653543307` | `0` |
-| `108000500/1072008` Kyrin | `(-227,137)` | `150 / 150` | `2` |
-| `230000000/9250023` | `(-362,85)` | `100 / 100` | `-42`, deliberately floating artwork |
+| Map/entity                | authored anchor | authored `cy` / finite ground | first stand opaque bottom relative to origin |
+| ------------------------- | --------------- | ----------------------------- | -------------------------------------------- |
+| `100000000/1012000`       | `(149,267)`     | `274 / 274`                   | `0`                                          |
+| `100000001/1012101` Maya  | `(-17,36)`      | `38 / 38`                     | `0`; origin `(23,77)`                        |
+| `103000000/2042002`       | `(-1390,303)`   | `308 / 307.6771653543307`     | `0`                                          |
+| `108000500/1072008` Kyrin | `(-227,137)`    | `150 / 150`                   | `2`                                          |
+| `230000000/9250023`       | `(-362,85)`     | `100 / 100`                   | `-42`, deliberately floating artwork         |
 
 Native `006d089a` reads packet position, direction and foothold, creates its NPC vector, then initializes through `009c1d70 -> 009b12a8 -> 009b1553`. The latter resolves contact distance from the foothold tangent and clamps to `[0,length]`; the usual finite floor has `x=clamp(authoredX,x1,x2)` and `y=y1+(x-x1)*(y2-y1)/(x2-x1)`. The offline extractor now resolves that authored floor before integer world placement; it retains raw map `y/cy`, never substitutes an arbitrary pixel offset, and leaves wall/missing-contact cases authored. This is initialization on the supplied authored contact, not a claim to reconstruct network NPC activation or movement. The camera attachment baseline for backgrounds, special canvas scaling and deliberate canvas-origin floating remain separate questions: no compensating background shift was invented.
 

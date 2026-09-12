@@ -52,7 +52,7 @@ function numericChildren(node, maximum) {
 }
 
 /** 00739a92/0073a865 redirects info/link; each original IMG stays authoritative. */
-function linkedTemplate(context, id) {
+export function linkedTemplate(context, id) {
   let current = id;
   const seen = new Set(),
     sources = [];
@@ -102,7 +102,7 @@ async function artwork(context, node) {
   return { frames, bounds, duration };
 }
 
-function eventRecord(node) {
+export function eventRecord(node) {
   const type = Number(value(node, "type")),
     state = Number(value(node, "state"));
   if (
@@ -171,7 +171,7 @@ async function stateEvents(context, node, actions, id) {
   return events;
 }
 
-async function stateRecord(context, node, actions) {
+export async function stateRecord(context, node, actions) {
   const id = Number(node.name);
   if (!Number.isSafeInteger(id) || id >= MAX_STATES) {
     throw new Error("Invalid reactor state index");
@@ -287,7 +287,7 @@ function drawingDepth(map, placement, backTile) {
   return depth;
 }
 
-function placementRecord(node, template) {
+export function placementRecord(node, template) {
   const x = Number(value(node, "x")),
     y = Number(value(node, "y"));
   const reactorTime = Number(value(node, "reactorTime", 0));
@@ -295,7 +295,7 @@ function placementRecord(node, template) {
     !Number.isFinite(x) ||
     !Number.isFinite(y) ||
     !Number.isSafeInteger(reactorTime) ||
-    reactorTime < 0
+    reactorTime < -1
   ) {
     throw new Error("Invalid reactor placement");
   }
@@ -306,7 +306,8 @@ function placementRecord(node, template) {
     y,
     flip: Number(value(node, "f", 0)) !== 0,
     name: value(node, "name", ""),
-    respawnMs: reactorTime * 1000,
+    // Original -1 and zero disable respawn; metadata retains the authored seconds.
+    respawnMs: reactorTime > 0 ? reactorTime * 1000 : 0,
     metadata: metadata(node),
     entityId: null,
   };

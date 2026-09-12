@@ -6,6 +6,35 @@ const docsRoot = fileURLToPath(new URL("../", import.meta.url));
 const repositoryRoot = resolve(docsRoot, "..");
 const repositoryUrl = "https://github.com/tensorfish/maple-mono";
 
+/** Publish client/server sections without moving retained Markdown or evidence.
+ * @param {string} path Markdown path relative to docs/.
+ */
+export function documentationRoute(path) {
+  if (path === "README.md") return "client/index.md";
+  if (path === "index.md" || /^(client|server)\//.test(path)) return path;
+  return `client/${path}`;
+}
+
+/** @param {string} target Absolute Markdown source. @param {string} suffix */
+function pageHref(target, suffix) {
+  const source = relative(docsRoot, target).split(sep).join("/");
+  const path = documentationRoute(source)
+    .replace(/(^|\/)index\.md$/, "$1")
+    .replace(/\.md$/, "");
+  return `/${path.split("/").map(encodeURIComponent).join("/")}${suffix}`;
+}
+
+/** Resolve source-style Markdown links before converting their public routes.
+ * @param {string} target Absolute candidate source.
+ */
+function markdownTarget(target) {
+  const extension = extname(target);
+  if (extension === ".md") return target;
+  if (extension !== ".html" && extension !== "") return null;
+  const path = `${target.slice(0, target.length - extension.length)}.md`;
+  return statSync(path, { throwIfNoEntry: false })?.isFile() ? path : null;
+}
+
 /** @param {string} directory @param {string} target */
 function isInside(directory, target) {
   const path = relative(directory, target);
@@ -39,17 +68,19 @@ function repositoryHref(href, source) {
 function targetHref(target, href, suffix) {
   const inDocs = isInside(docsRoot, target);
   const extension = extname(target);
-  if (inDocs && [".md", ".html"].includes(extension)) return href;
+  if (inDocs) {
+    const page = markdownTarget(target);
+    if (page) return pageHref(page, suffix);
+  }
   const status = statSync(target, { throwIfNoEntry: false });
   if (!status) {
     if (inDocs && extension === "") return href;
     throw new Error(`Missing documentation link target: ${href} (${target})`);
   }
   if (inDocs && status.isDirectory()) {
-    const index = statSync(resolve(target, "index.md"), {
-      throwIfNoEntry: false,
-    });
-    if (index?.isFile()) return href;
+    const path = resolve(target, "index.md");
+    const index = statSync(path, { throwIfNoEntry: false });
+    if (index?.isFile()) return pageHref(path, suffix);
   }
   if (!isInside(repositoryRoot, target)) {
     throw new Error(`Documentation link leaves the repository: ${href}`);
@@ -69,7 +100,7 @@ function targetHref(target, href, suffix) {
  * @param {Parameters<import('vitepress').MarkdownRenderer['core']['process']>[0]} state
  */
 function adaptRepositoryLinks(state) {
-  const source = state.env.path;
+  const source = state.env.realPath ?? state.env.path;
   if (typeof source !== "string") {
     throw new Error("Repository links require the Markdown source path");
   }

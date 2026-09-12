@@ -1,3 +1,4 @@
+import { npcRemoteService } from "./npc-script-services.js";
 import {
   NPC_SCRIPT_LIMITS,
   astInventory,
@@ -8,7 +9,18 @@ import {
   resolveVariable,
 } from "./npc-script-ir.js";
 
-const RESERVED = new Set(["cm", "Java", "undefined", "start", "action"]);
+const RESERVED = new Set([
+  "cm",
+  "Java",
+  "Array",
+  "global",
+  "__proto__",
+  "constructor",
+  "prototype",
+  "undefined",
+  "start",
+  "action",
+]);
 
 function shopFactoryImport(node) {
   return (
@@ -19,6 +31,18 @@ function shopFactoryImport(node) {
     node.arguments[0].type === "Literal" &&
     node.arguments[0].value === "server.ShopFactory"
   );
+}
+
+function javaImport(node) {
+  if (
+    !call(node, "type") ||
+    node.callee.object.name !== "Java" ||
+    node.arguments.length !== 1 ||
+    typeof node.arguments[0].value !== "string"
+  ) {
+    return null;
+  }
+  return node.arguments[0].value;
 }
 
 function declare(context, scope, declaration, kind) {
@@ -35,7 +59,9 @@ function declare(context, scope, declaration, kind) {
     existing = table.get(node.name);
   if (
     existing &&
-    (kind !== "var" || existing.kind !== "var" || existing.host)
+    (kind !== "var" ||
+      !["var", "parameter"].includes(existing.kind) ||
+      existing.host)
   ) {
     blockScript(
       context,
@@ -49,33 +75,28 @@ function declare(context, scope, declaration, kind) {
     throw new Error("NPC variable limit");
   }
   const variable = {
-    key: `${scope}:${node.name}`,
+    key: `${context.scopeOwners.get(scope)}:binding$${context.variables.length}`,
     name: node.name,
     scope,
+    owner: context.scopeOwners.get(scope),
     kind,
-    host: shopFactoryImport(declaration.init) ? "shop-factory" : null,
+    host: shopFactoryImport(declaration.init)
+      ? "shop-factory"
+      : javaImport(declaration.init),
+    remoteService: npcRemoteService(declaration.init),
     declarationEnd: declaration.end ?? node.end,
   };
   table.set(node.name, variable);
   context.variables.push(variable);
 }
 
-function isEntrypoint(node, parent) {
-  return (
-    parent?.type === "Program" &&
-    ["start", "action"].includes(node.id?.name) &&
-    !node.async &&
-    !node.generator
-  );
-}
-
 function functionScope(context, node, parent) {
   const name = node.id?.name;
-  if (!isEntrypoint(node, parent)) {
+  if (unsupportedFunctionKind(node, parent, name)) {
     blockScript(
       context,
       node,
-      "Only top-level synchronous start/action entrypoints are supported",
+      "Only top-level synchronous named functions are supported",
     );
     return null;
   }
@@ -91,16 +112,30 @@ function functionScope(context, node, parent) {
   }
   context.functions.set(name, node);
   context.scopes.set(name, new Map());
+  context.scopeOwners.set(name, name);
+  context.scopeParents.set(name, "global");
   for (const parameter of node.params) {
     declare(context, name, { id: parameter }, "parameter");
   }
   return name;
 }
 
-/** Function var hoisting is retained. Nested lexical bindings are explicitly refused. */
+function unsupportedFunctionKind(node, parent, name) {
+  return (
+    parent?.type !== "Program" ||
+    node.async ||
+    node.generator ||
+    (RESERVED.has(name) && !["start", "action"].includes(name))
+  );
+}
+
+/** Hoisted var bindings coexist with unique lexical block bindings and runtime TDZ checks. */
 export function inspectScopes(context, root) {
   const nodes = astInventory(root),
     ownership = new WeakMap([[root, "global"]]);
+  context.scopeOwners = new Map([["global", "global"]]);
+  context.scopeParents = new Map();
+  context.blockScopes = new WeakMap();
   for (const node of nodes) {
     const parent = context.parents.get(node),
       inherited = ownership.get(node) ?? "global";
@@ -108,16 +143,58 @@ export function inspectScopes(context, root) {
     if (node.type === "FunctionDeclaration") {
       scope = functionScope(context, node, parent) ?? inherited;
     }
+    if (
+      ["BlockStatement", "SwitchStatement", "ForStatement"].includes(node.type)
+    ) {
+      const child = `${scope}$block${context.scopes.size}`;
+      context.scopes.set(child, new Map());
+      context.scopeOwners.set(child, context.scopeOwners.get(scope));
+      context.scopeParents.set(child, scope);
+      context.blockScopes.set(node, child);
+      scope = child;
+    }
     context.nodeScopes.set(node, scope);
     inheritChildScopes(context, node, scope, ownership);
     if (node.type === "VariableDeclaration") {
       inspectDeclarations(context, node, parent, scope);
     }
   }
+  declareSloppyGlobals(context, root);
+  for (const variable of context.variables) {
+    if (context.functions.has(variable.name)) {
+      blockScript(
+        context,
+        root,
+        "Authored function bindings cannot be shadowed or reassigned",
+      );
+    }
+  }
   if (!context.functions.has("start")) {
     blockScript(context, root, "Missing start entrypoint");
   }
   context.astNodes = nodes.length;
+}
+
+function declareSloppyGlobals(context, root) {
+  for (const expression of astInventory(root)) {
+    if (
+      expression.type !== "AssignmentExpression" ||
+      expression.operator !== "=" ||
+      expression.left.type !== "Identifier"
+    ) {
+      continue;
+    }
+    let scope = context.nodeScopes.get(expression),
+      found = false;
+    for (let depth = 0; scope && depth <= NPC_SCRIPT_LIMITS.depth; depth++) {
+      if (context.scopes.get(scope)?.has(expression.left.name)) {
+        found = true;
+        break;
+      }
+      scope = context.scopeParents.get(scope);
+    }
+    if (!found) declare(context, "global", { id: expression.left }, "var");
+  }
 }
 
 function inheritChildScopes(context, node, scope, ownership) {
@@ -131,27 +208,33 @@ function inheritChildScopes(context, node, scope, ownership) {
 }
 
 function inspectDeclarations(context, node, parent, scope) {
-  const topLevel =
-    parent?.type === "Program" ||
-    context.parents.get(parent)?.type === "FunctionDeclaration";
-  const staticImport = node.declarations.every((declaration) =>
-    shopFactoryImport(declaration.init),
-  );
-  const hasStaticImport = node.declarations.some((declaration) =>
-    shopFactoryImport(declaration.init),
-  );
-  if (
-    (node.kind !== "var" && !staticImport) ||
-    (hasStaticImport && !topLevel)
-  ) {
-    blockScript(
-      context,
-      node,
-      "Only function-scoped var declarations and direct static ShopFactory imports are supported",
-    );
-  }
   for (const declaration of node.declarations) {
-    declare(context, scope, declaration, node.kind);
+    const host = javaImport(declaration.init);
+    if (host && !["server.ShopFactory", "config.YamlConfig"].includes(host)) {
+      blockScript(
+        context,
+        declaration,
+        `Remote Java service unavailable: ${host}; no local host access is authorized`,
+      );
+    }
+    if (
+      host &&
+      (host !== "config.YamlConfig" || node.kind === "var") &&
+      parent?.type !== "Program" &&
+      context.parents.get(parent)?.type !== "FunctionDeclaration"
+    ) {
+      blockScript(
+        context,
+        declaration,
+        "Static host imports must execute directly at program/function entry",
+      );
+    }
+    declare(
+      context,
+      node.kind === "var" ? context.scopeOwners.get(scope) : scope,
+      declaration,
+      node.kind,
+    );
   }
 }
 
@@ -184,7 +267,10 @@ export function staticJavaShop(context, scope, node) {
   if (!binding || id === null || id <= 0) return null;
   const variable = resolveVariable(context, scope, binding);
   if (variable?.host !== "shop-factory") return null;
-  if (variable.scope === scope && variable.declarationEnd > node.start) {
+  if (
+    variable.owner === context.scopeOwners.get(scope) &&
+    variable.declarationEnd > node.start
+  ) {
     return null;
   }
   return {
@@ -198,8 +284,9 @@ function loopInitializer(context, scope, node) {
   const declaration = node.init;
   if (
     declaration?.type !== "VariableDeclaration" ||
-    declaration.kind !== "var" ||
-    declaration.declarations.length !== 1
+    !["var", "let"].includes(declaration.kind) ||
+    declaration.declarations.length < 1 ||
+    declaration.declarations.length > 4
   ) {
     return null;
   }
@@ -235,9 +322,19 @@ function safeLoopBody(node, name) {
   return true;
 }
 
+export function loopComparison(node) {
+  const test = node.test;
+  return test?.type === "LogicalExpression" && test.operator === "&&"
+    ? test.right
+    : test;
+}
+
 function canonicalProgress(node, name) {
-  const test = node.test,
-    update = node.update;
+  const test = loopComparison(node),
+    update =
+      node.update?.type === "SequenceExpression"
+        ? node.update.expressions[0]
+        : node.update;
   if (test?.type !== "BinaryExpression" || test.operator !== "<") return false;
   if (test.left.type !== "Identifier" || test.left.name !== name) return false;
   if (update?.type !== "UpdateExpression" || update.operator !== "++") {
@@ -261,13 +358,29 @@ function canonicalBound(node, from) {
     maximum >= from
   );
 }
+function safeLoopUpdates(node, name) {
+  if (node.update?.type !== "SequenceExpression") return true;
+  const updates = node.update.expressions;
+  return (
+    updates.length <= 4 &&
+    updates
+      .slice(1)
+      .every(
+        (update) =>
+          update.type === "AssignmentExpression" &&
+          update.left.type === "Identifier" &&
+          update.left.name !== name,
+      )
+  );
+}
 
 /** Only canonical literal/array-bounded loops; every body operation is compiled separately. */
 export function boundedLoop(context, scope, node) {
   const initial = loopInitializer(context, scope, node);
   if (!initial || !canonicalProgress(node, initial.variable.name)) return null;
-  if (!canonicalBound(node.test.right, initial.from)) return null;
+  if (!canonicalBound(loopComparison(node).right, initial.from)) return null;
   if (!safeLoopBody(node, initial.variable.name)) return null;
+  if (!safeLoopUpdates(node, initial.variable.name)) return null;
   return {
     from: initial.from,
     variable: initial.variable.key,

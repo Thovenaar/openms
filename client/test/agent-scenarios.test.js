@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { AgentScenarios } from "../src/agent-scenarios.js";
-import { createProfile } from "../src/profile-validation.js";
+import { AgentScenarios } from "../src/development/agent-scenarios.js";
+import { createProfile } from "../src/profile/profile-validation.js";
 
 function fixture() {
   const profile = createProfile({ mapId: "100000000", x: 0, y: 0, facing: 1 });

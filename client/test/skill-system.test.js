@@ -1,15 +1,37 @@
 import { expect, test } from "bun:test";
-import { SkillSystem } from "../src/skill-system.js";
-import { createProfile, validateProfile } from "../src/profile-validation.js";
+import { SkillSystem } from "../src/skills/skill-system.js";
+import {
+  createProfile,
+  validateProfile,
+} from "../src/profile/profile-validation.js";
 import {
   configureTemporaryState,
   durationFrame,
   temporaryState,
-} from "../src/temporary-stats.js";
+} from "../src/skills/temporary-stats.js";
+import { classifySkill } from "../tools/skill-data.js";
+
+// Allocation-only synthetic Evan records: these books are absent from the supplied Skill.wz.
+const ALLOCATION_ONLY = Object.freeze({
+  activation: "unavailable",
+  supported: false,
+  owner: null,
+  hooks: [],
+  reason: "Synthetic allocation fixture has no native cast",
+});
+
+function advance(system, ms) {
+  if (!Number.isSafeInteger(ms) || ms < 0 || ms > 60000) {
+    throw new RangeError("Invalid fixture elapsed time");
+  }
+  for (let elapsed = 0; elapsed < ms; elapsed += 30) {
+    system.step(Math.min(30, ms - elapsed));
+  }
+}
 
 /** Rank values are the original Skill.wz:100.img level/1 rows, not damage-policy fixtures. */
 function skill(id, levels, options = {}) {
-  return {
+  const record = {
     id,
     bookId: Math.floor(id / 10000),
     levels,
@@ -22,13 +44,10 @@ function skill(id, levels, options = {}) {
     allocationCost: { kind: "sp", amount: 1 },
     visuals: {},
     sounds: { leaves: {} },
-    classification: {
-      activation: "melee",
-      supported: true,
-      hooks: ["sword-attack"],
-    },
     ...options,
   };
+  record.classification ??= classifySkill(record);
+  return record;
 }
 
 function skillStore() {
@@ -63,21 +82,33 @@ function skillStore() {
   return store;
 }
 
+/** Isolate skill resource/timer transactions from the separately tested field damage engine. */
+function fieldAuthority(authority) {
+  const world = { mobs: [] };
+  return {
+    skillCombat: { use: {}, clear() {} },
+    worldSkills: () => world,
+    prepareSkillCombat() {},
+    skillAttackError: () => authority.denied,
+    beginSkillAttack() {},
+    skillStateError: () => authority.denied,
+    skillStateCast() {},
+  };
+}
+
 function fixture(extra = {}) {
   const store = skillStore();
   const catalog = {
     ui: {
+      items: Object.fromEntries(
+        store.profile.equipment.map(({ id }) => [id, { id, info: {} }]),
+      ),
       skills: {
         1001003: skill(
           1001003,
           { 1: { time: 75, mpCon: 8, pdd: 2 } },
           {
             actions: ["alert2"],
-            classification: {
-              activation: "self-buff",
-              supported: true,
-              hooks: ["derived-stats"],
-            },
           },
         ),
         1001004: skill(1001004, { 1: { mpCon: 4, damage: 165 } }),
@@ -89,17 +120,18 @@ function fixture(extra = {}) {
     },
   };
   const scene = {
-    simulation: { x: 0, y: 0, facing: 1 },
+    manifest: { id: "100000000", physics: { map: {} } },
+    simulation: { x: 0, y: 0, facing: 1, state: "ground", worldMovement: {} },
     presentation: { x: 0, y: 0 },
   };
   const authority = { blocked: false, denied: null, action: true };
+  const field = fieldAuthority(authority);
   const system = new SkillSystem(scene, store, catalog, {
     now: () => 1000,
     isBlocked: () => authority.blocked,
     validateCast: () => authority.denied,
     supportsAction: () => authority.action,
-    validateAttack: () => authority.denied,
-    admitAttack() {},
+    gameplay: () => field,
     startAction() {},
     report(error) {
       throw error;
@@ -142,13 +174,13 @@ test("Iron Body expires once at authored duration and does not stack on recast",
   await system.prepare();
   expect(system.activate(1001003).ok).toBe(true);
   expect(system.derived().pdd).toBe(2);
-  system.step(30000);
+  advance(system, 30000);
   expect(system.activate(1001003).ok).toBe(true);
   expect(system.derived().pdd).toBe(2);
-  system.step(60000);
-  system.step(14999);
+  advance(system, 60000);
+  advance(system, 14999);
   expect(system.derived().pdd).toBe(2);
-  system.step(1);
+  advance(system, 1);
   expect(system.derived().pdd).toBe(0);
   expect(store.profile.mp).toBe(4);
   system.destroy();
@@ -160,12 +192,12 @@ test("learned expiration and cooldown boundaries prevent resource consumption", 
   grant(store, 1001004, 4000);
   await system.prepare();
   expect(system.activate(1001004).ok).toBe(true);
-  system.step(1999);
+  advance(system, 1999);
   expect(system.activate(1001004).ok).toBe(false);
   expect(store.profile.mp).toBe(16);
-  system.step(1);
+  advance(system, 1);
   expect(system.activate(1001004).ok).toBe(true);
-  system.step(1000);
+  advance(system, 1000);
   expect(system.level(1001004)).toBe(0);
   expect(system.activate(1001004).ok).toBe(false);
   expect(store.profile.mp).toBe(12);
@@ -219,9 +251,21 @@ test("destroying a preparing owner cancels publication of learned resources", as
 
 test("Evan early books spend their own SP while late books require existing mastery", async () => {
   const extra = {
-    22121000: skill(22121000, { 1: {}, 2: {} }),
-    22171000: skill(22171000, { 1: {}, 2: {} }),
-    22181000: skill(22181000, { 1: {}, 2: {} }),
+    22121000: skill(
+      22121000,
+      { 1: {}, 2: {} },
+      { classification: ALLOCATION_ONLY },
+    ),
+    22171000: skill(
+      22171000,
+      { 1: {}, 2: {} },
+      { classification: ALLOCATION_ONLY },
+    ),
+    22181000: skill(
+      22181000,
+      { 1: {}, 2: {} },
+      { classification: ALLOCATION_ONLY },
+    ),
   };
   const { system, store } = fixture(extra);
   store.profile.job = 2218;
@@ -253,6 +297,7 @@ test("beginner entitlement cannot be regained by changing job families", async (
     { 1: {}, 2: {}, 3: {} },
     {
       allocationCost: { kind: "beginner-entitlement", amount: 1 },
+      classification: ALLOCATION_ONLY,
     },
   );
   const { system, store } = fixture({ 20011000: entry });
@@ -318,50 +363,32 @@ test("ordinary allocation does not manufacture mastery or treat it as the rank c
 });
 
 test("Recovery includes its final duration tick but excludes a learned-expiration tick", async () => {
-  const recovery = skill(
-    1001,
-    { 1: { mpCon: 5, time: 30, cooltime: 120, x: 4 } },
-    {
-      classification: {
-        activation: "self-buff",
-        supported: true,
-        hooks: ["periodic-recovery"],
-      },
-    },
-  );
+  const recovery = skill(1001, {
+    1: { mpCon: 5, time: 30, cooltime: 120, x: 4 },
+  });
   const { system, store } = fixture({ 1001: recovery });
   store.profile.hp = 1;
   grant(store, 1001);
   await system.prepare();
   expect(system.activate(1001).ok).toBe(true);
-  system.step(4999);
+  advance(system, 4999);
   expect(store.profile.hp).toBe(1);
-  system.step(25001);
+  advance(system, 25001);
   expect(store.profile.hp).toBe(25);
-  system.step(30000);
+  advance(system, 30000);
   expect(store.profile.hp).toBe(25);
   system.destroy();
   const expiring = fixture({ 1001: recovery });
   grant(expiring.store, 1001, 6000);
   await expiring.system.prepare();
   expect(expiring.system.activate(1001).ok).toBe(true);
-  expiring.system.step(5000);
+  advance(expiring.system, 5000);
   expect(expiring.store.profile.hp).toBe(40);
   expiring.system.destroy();
 });
 
 test("Magic Guard transfers only available MP and death removes absorption", async () => {
-  const guard = skill(
-    2001002,
-    { 1: { mpCon: 6, time: 111, x: 11 } },
-    {
-      classification: {
-        activation: "self-buff",
-        supported: true,
-        hooks: ["magic-guard"],
-      },
-    },
-  );
+  const guard = skill(2001002, { 1: { mpCon: 6, time: 111, x: 11 } });
   const { system, store } = fixture({ 2001002: guard });
   store.profile.job = 200;
   system.refresh();
@@ -392,9 +419,9 @@ test("partial potion overlap projects only effective masks and restores source t
   expect(system.derived().speed).toBe(5);
   expect(system.effectAt(0).source).toBe(-2001000);
   expect(system.effectAt(1).maskHigh).toBe(128);
-  system.step(877);
+  advance(system, 877);
   expect(durationFrame(system.effectAt(0))).toBe(2);
-  system.step(124);
+  advance(system, 124);
   expect(system.effectCount()).toBe(1);
   expect(system.effectAt(0).source).toBe(1001003);
   expect(system.effectAt(0).remaining).toBe(73999);
@@ -411,20 +438,20 @@ test("right-up cancellation preserves cooldown and inherited source order withou
   const potion = temporaryState("item", 2001002);
   configureTemporaryState(potion, { speed: 10 }, 30000);
   system.effects.start(potion);
-  system.step(1000);
+  advance(system, 1000);
   const next = new SkillSystem(system.scene, store, catalog, system.hooks);
   next.inherit(system);
   system.destroy();
   expect(next.effectAt(0).source).toBe(-2001002);
   expect(next.effectAt(1).source).toBe(1001003);
-  next.step(1000);
+  advance(next, 1000);
   expect(next.effectAt(0).remaining).toBe(28000);
   expect(next.cancelEffect("skill", 1001003)).toBe(true);
   expect(next.derived().pdd).toBe(0);
   await next.prepare();
   expect(next.activate(1001003).ok).toBe(false);
   expect(next.effectAt(0).source).toBe(-2001002);
-  next.step(8000);
+  advance(next, 8000);
   expect(next.activate(1001003).ok).toBe(true);
   next.destroy();
 });

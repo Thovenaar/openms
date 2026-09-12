@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { GameUI } from "../src/game-ui.js";
-import { KeyBindings } from "../src/key-bindings.js";
-import { createProfile } from "../src/profile-validation.js";
-import { retireBindingLayer } from "../src/ui-icons.js";
-import { ProfileStore } from "../src/profile-store.js";
+import { GameUI } from "../src/ui/game-ui.js";
+import { KeyBindings } from "../src/input/key-bindings.js";
+import { createProfile } from "../src/profile/profile-validation.js";
+import { retireBindingLayer } from "../src/ui/ui-icons.js";
+import { ProfileStore } from "../src/profile/profile-store.js";
+import { beginItemCarry } from "../src/ui/ui-carry.js";
 
 function pointer(target, values = {}) {
   return {
@@ -63,7 +64,6 @@ function fixture() {
     expiresAt: null,
   });
   const store = ProfileStore.memory(initial, { items: { 2000000: item } });
-  const profile = store.profile;
   const bindings = new KeyBindings(
     store,
     { ui: { items: { 2000000: item } } },
@@ -85,7 +85,33 @@ function fixture() {
   };
   const quick = { ...surface(), x: 100, y: 100 };
   const ui = carryUi(bindings, store, quick, item);
-  const source = {
+  const source = carrySource(ui);
+  quick.keyLayer = source;
+  quick.iconLayer = source;
+  const capture = {
+    held: true,
+    hasPointerCapture: () => capture.held,
+    releasePointerCapture() {
+      capture.held = false;
+      ui.onCaptureLost({ pointerId: 7 });
+    },
+  };
+  return {
+    ui,
+    bindings,
+    get profile() {
+      return store.profile;
+    },
+    store,
+    keys,
+    quick,
+    source,
+    capture,
+  };
+}
+
+function carrySource(ui) {
+  return {
     owner: ui,
     root: { visible: true },
     element: {},
@@ -98,17 +124,6 @@ function fixture() {
       this.disposed = true;
     },
   };
-  quick.keyLayer = source;
-  quick.iconLayer = source;
-  const capture = {
-    held: true,
-    hasPointerCapture: () => capture.held,
-    releasePointerCapture() {
-      capture.held = false;
-      ui.onCaptureLost({ pointerId: 7 });
-    },
-  };
-  return { ui, bindings, profile, store, keys, quick, source, capture };
 }
 
 function carryUi(bindings, store, quick, item) {
@@ -116,6 +131,8 @@ function carryUi(bindings, store, quick, item) {
   Object.assign(ui, {
     bindings,
     store,
+    controller: new AbortController(),
+    epoch: 0,
     windows: new Map(),
     pending: new Map(),
     bindingDrag: null,
@@ -151,7 +168,7 @@ function atElement(element, action) {
   const previous = globalThis.document;
   globalThis.document = { elementFromPoint: () => element };
   try {
-    action();
+    return action();
   } finally {
     globalThis.document = previous;
   }
@@ -175,7 +192,7 @@ function place(f, element, x, y) {
   const down = pointer(element, { clientX: x, clientY: y });
   f.ui.captureBindingPointer(down);
   expect(down.stopped).toBe(true);
-  atElement(element, () =>
+  return atElement(element, () =>
     f.ui.onBindingMouseDown(
       pointer(element, {
         pointerId: undefined,
@@ -240,17 +257,16 @@ test("placing a carried assignment in the palette removes it rather than activat
   f.bindings.destroy();
 });
 
-test("occupied quickslot publishes outside an editor and carries the displaced action for the next placement", () => {
+test("occupied quickslot publishes outside an editor and carries the displaced action for the next placement", async () => {
   const f = fixture();
   const inventory = structuredClone(f.profile.inventory);
   pick(f);
   f.ui.endDrag(pointer(f.capture, { type: "pointerup" }));
-  place(f, f.quick.element, 108, 142);
+  await place(f, f.quick.element, 108, 142);
   expect(f.profile.keyBindings.keys[29]).toEqual({ type: 2, id: 2000000 });
   expect(f.ui.bindingDrag.binding).toEqual({ type: 5, id: 52 });
-  expect(f.bindings.editing).toBe(false);
   f.ui.endDrag(pointer(f.quick.element, { type: "pointerup" }));
-  place(f, f.quick.element, 108, 109);
+  await place(f, f.quick.element, 108, 109);
   expect(f.profile.keyBindings.keys[42]).toEqual({ type: 5, id: 52 });
   expect(f.profile.inventory).toEqual(inventory);
   expect(f.ui.bindingDrag).toBeNull();
@@ -314,4 +330,40 @@ test("native item doubleclick consumes through item authority, never placing an 
   f.ui.captureBindingClick(double);
   expect(double.stopped).toBe(true);
   f.bindings.destroy();
+});
+
+test("ground placement releases carry before its quantity dialog and cancellation does not pick it up again", async () => {
+  const f = fixture();
+  const canvas = {};
+  const answer = Promise.withResolvers();
+  f.ui.app = { canvas };
+  f.ui.prompt = () => answer.promise;
+  f.ui.hooks.inventoryActions = () => ({
+    drop() {
+      throw new Error("Cancelled quantity input must not discard inventory");
+    },
+  });
+  const begin = () =>
+    beginItemCarry(f.ui, pointer(f.capture), f.profile.inventory[0], {
+      source: f.source,
+      path: "item",
+    });
+  try {
+    expect(begin()).toBe(true);
+    f.ui.endDrag(pointer(f.capture, { type: "pointerup" }));
+    place(f, canvas, 300, 200);
+    const next = pointer(canvas);
+    expect(f.ui.captureBindingPointer(next)).toBe(false);
+    expect(next.defaultPrevented).toBe(false);
+    answer.resolve(null);
+    await answer.promise;
+    await Promise.resolve();
+    expect(begin()).toBe(true);
+    expect(f.store.profile.inventory[0].count).toBe(2);
+  } finally {
+    answer.resolve(null);
+    f.ui.endBindingDrag();
+    f.bindings.destroy();
+    await f.store.destroy();
+  }
 });

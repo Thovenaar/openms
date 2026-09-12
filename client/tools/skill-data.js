@@ -1,289 +1,40 @@
 import { resolveNode } from "../src/assets/image.js";
 import { publishSound } from "./audiovisual-data.js";
+import { classifyStateSkill } from "../src/skills/skill-state-rules.js";
+import { classifyCombatSkill } from "../src/skills/skill-combat-rules.js";
+import { classifyWorldSkill } from "../src/skills/skill-world-rules.js";
+import { classifyUtilitySkill } from "../src/skills/skill-utility-rules.js";
 
 const MAX_NODES = 65536;
 const MAX_DEPTH = 64;
 const MAX_FRAMES = 512;
-const STAT_FIELDS = ["pad", "pdd", "mad", "mdd", "acc", "eva", "speed", "jump"];
-const BUFF_FIELDS = new Set([
-  "hs",
-  "time",
-  "mpCon",
-  "hpCon",
-  "cooltime",
-  ...STAT_FIELDS,
-]);
-const PASSIVE_HOOKS = {
-  1000000: "recovery",
-  1000001: "max-hp-progression",
-  1000002: "endure",
-  // 00764f44: trunc(character level * learned rank * 0.1), not an authored mp scalar.
-  2000000: "mp-recovery",
-  // 00764c72/00764d62/00764f44: authored time/hp/mp recovery only.
-  4100002: "hp-mp-recovery",
-  4200001: "hp-mp-recovery",
-  // 00764f44: authored mp bonus to each natural recovery interval.
-  1110000: "mp-recovery",
-  1210000: "mp-recovery",
-  11110000: "mp-recovery",
-  11000000: "max-hp-progression",
-};
-
-// Original WZ rank identities; Cosmic StatEffect's named buff branches establish semantics.
-const RECOVERY = new Set([1001, 10001001, 20001001]);
-const MAGIC_GUARD = new Set([2001002, 12001001]);
-const STANCE = new Set([1121002, 1221002, 1321002]);
-const NIMBLE = new Set([1002, 10001002, 20001002]);
-const PARTY_STATS = new Set([
-  1101006, 1301006, 2101001, 2201001, 2301004, 4101004, 4201003, 11101003,
-  12101000, 14101003,
-]);
-const MELEE = new Set([1001004, 1001005, 11001002, 11001003]);
-const TIMED_FIELDS = new Set([
-  "hs",
-  "time",
-  "mpCon",
-  "hpCon",
-  "cooltime",
-  "x",
-  "prop",
-]);
-const PARTY_FIELDS = new Set([...BUFF_FIELDS, "lt", "rb"]);
-const TELEPORT = new Set([2101002, 2201002, 2301001, 12101003]);
-const MOVEMENT = new Set([
-  1121006, 1221007, 1321003, 4111006, 11101005, 14101004, 21001001,
-]);
-
-/** Exhaustive classification is not an assertion that every original controller exists. */
+/** Exact original identities dispatch to implemented owners; artwork never implies semantics. */
 export function classifySkill(record) {
-  const p = record.properties;
-  const ranks = Object.values(record.levels);
-  const family = Math.floor(record.bookId / 100) % 10;
+  if (record.flags.disabled) {
+    return unavailable("disabled", "Disabled by the original skill record");
+  }
   if (record.bookId >= 800 && record.bookId < 1000) {
-    return capability("server", "GM/event permission and map controller");
+    return unavailable("server", "Original GM/event permission is required");
   }
-  if (PASSIVE_HOOKS[record.id]) {
-    const hook = PASSIVE_HOOKS[record.id];
-    const result = capability("passive", null, hook);
-    if (hook === "max-hp-progression") {
-      result.reason =
-        "Level-up growth x implemented; authored AP-investment growth y requires currently unavailable AP-allocation authority";
-    }
-    return result;
-  }
-  const controller =
-    classifyActorController(p) ??
-    classifyResourceController(ranks) ??
-    classifySharedController(record, ranks) ??
-    classifyWeaponController(record, ranks, family);
-  if (controller) return controller;
-  return classifyRemainingSkill(record, ranks);
-}
-
-/** Named families prevent weapon-book heuristics from hiding independently recoverable buffs. */
-function classifySharedController(record, ranks) {
-  if (TELEPORT.has(record.id)) {
-    return capability(
-      "movement",
-      "Directional teleport destination/foothold admission and original displacement consumer",
+  if (record.flags.timeLimited) {
+    return unavailable(
+      "event",
+      "Original time-limited event entitlement is required",
     );
   }
-  if (MOVEMENT.has(record.id)) {
-    return capability(
-      "movement",
-      "Skill-specific impulse, action transition and swept target/collision controller",
-    );
+  const classification =
+    classifyUtilitySkill(record) ??
+    classifyWorldSkill(record) ??
+    classifyStateSkill(record) ??
+    classifyCombatSkill(record);
+  if (!classification) {
+    throw new Error(`Unclassified original skill ${record.id}`);
   }
-  const buff = classifyNamedBuff(record, ranks);
-  if (buff) return buff;
-  if (admitsSelfBuff(record, ranks)) {
-    return capability("self-buff", missingStatConsumer(ranks), "derived-stats");
-  }
-  return null;
+  return classification;
 }
 
-/** Named buff identities still require every rank's original supported field shape. */
-function classifyNamedBuff(record, ranks) {
-  if (RECOVERY.has(record.id) && ranks.every(isTimedRank)) {
-    return capability("self-buff", null, "periodic-recovery");
-  }
-  if (MAGIC_GUARD.has(record.id) && ranks.every(isTimedRank)) {
-    return capability("self-buff", null, "magic-guard");
-  }
-  if (STANCE.has(record.id) && ranks.every(isTimedRank)) {
-    return capability("self-buff", null, "stance");
-  }
-  if (NIMBLE.has(record.id) && ranks.every(isStatBuffRank)) {
-    return capability("self-buff", null, "derived-stats");
-  }
-  if (PARTY_STATS.has(record.id) && ranks.every(isPartyStatRank)) {
-    const missing = missingStatConsumer(ranks);
-    return capability("self-buff", missing, "solo-party-stats");
-  }
-  return null;
-}
-
-function isTimedRank(rank) {
-  return (
-    rank.time > 0 &&
-    rank.x >= 0 &&
-    Object.keys(rank).every((key) => TIMED_FIELDS.has(key))
-  );
-}
-
-function isPartyStatRank(rank) {
-  return (
-    rank.time > 0 &&
-    rank.lt &&
-    rank.rb &&
-    Object.keys(rank).every((key) => PARTY_FIELDS.has(key))
-  );
-}
-
-/** Derived values without a damage/hit consumer do not constitute a functional buff. */
-function missingStatConsumer(ranks) {
-  if (ranks.some((rank) => rank.mad)) {
-    return "Magic attack/stat damage consumer is unavailable";
-  }
-  if (ranks.some((rank) => rank.acc || rank.eva)) {
-    return "Accuracy/evasion hit-miss consumer is unavailable";
-  }
-  return null;
-}
-
-/** Actor and map controllers take precedence over resource and weapon families. */
-function classifyActorController(p) {
-  if (p.summon) {
-    return capability(
-      "summon",
-      "Summon actor, target, damage and lifetime controller",
-    );
-  }
-  if (p.keydown || p.repeat || p.keydownend) {
-    return capability(
-      "channel",
-      "Held-skill/channel state and authored release controller",
-    );
-  }
-  if (p.cDoor || p.mDoor) {
-    return capability("map", "Server portal creation and party authorization");
-  }
-  return null;
-}
-
-/** Rank-authored consumption and transitions require their original controllers. */
-function classifyResourceController(ranks) {
-  if (
-    ranks.some(
-      (r) => r.itemCon || r.itemConsume || r.bulletConsume || r.moneyCon,
-    )
-  ) {
-    return capability(
-      "consumable",
-      "Slot-aware projectile/item/meso transaction and weapon controller",
-    );
-  }
-  if (ranks.some((r) => r.morph || r.moveTo)) {
-    return capability(
-      "morph",
-      "Morph/mount actor or map transition controller",
-    );
-  }
-  return null;
-}
-
-/** Only the reconstructed sword attacks bypass weapon-family admission. */
-function classifyWeaponController(record, ranks, family) {
-  const p = record.properties;
-  if (MELEE.has(record.id)) {
-    return capability("melee", null, "sword-attack");
-  }
-  if (
-    p.ball ||
-    ranks.some((rank) => rank.ball) ||
-    family === 3 ||
-    family === 4 ||
-    family === 5
-  ) {
-    return capability(
-      "weapon",
-      "Weapon-specific actor, projectile/status and attack controller",
-    );
-  }
-  if (family === 2 && ranks.some((r) => r.damage || r.mad)) {
-    return capability(
-      "magic",
-      "Magic/element damage and spell target controller",
-    );
-  }
-  return null;
-}
-
-/** Timed scalar ranks must contain only reconstructed derived-stat fields. */
-function isStatBuffRank(rank) {
-  return (
-    rank.time > 0 &&
-    STAT_FIELDS.some((key) => rank[key] !== undefined) &&
-    Object.keys(rank).every((key) => BUFF_FIELDS.has(key))
-  );
-}
-
-/** Affected/area/party branches cannot be reduced to a self-only cast. */
-function admitsSelfBuff(record, ranks) {
-  const p = record.properties;
-  return (
-    ranks.length > 0 &&
-    ranks.every(isStatBuffRank) &&
-    record.actions.length &&
-    !p.affected &&
-    !p.mob &&
-    !p.special &&
-    !p.weapon &&
-    !p["weapon "]
-  );
-}
-
-/** Preserve explicit unavailable reasons for otherwise unclassified skills. */
-function classifyRemainingSkill(record, ranks) {
-  const p = record.properties;
-  if (
-    !record.actions.length &&
-    !p.effect &&
-    !p.effect0 &&
-    !p.hit &&
-    !ranks.some(
-      (rank) =>
-        rank.mpCon ||
-        rank.hpCon ||
-        rank.cooltime ||
-        rank.fixdamage ||
-        rank.damagepc,
-    )
-  ) {
-    return capability(
-      "passive",
-      "Passive transition, weapon-stat or attack hook not reconstructed",
-    );
-  }
-  if (ranks.some((r) => r.damage)) {
-    return capability(
-      "attack",
-      "Skill-specific weapon/action, combo/status and damage controller",
-    );
-  }
-  return capability(
-    "special",
-    "Party/target/status or exceptional skill controller; scalar shape alone does not establish self-cast semantics",
-  );
-}
-
-function capability(activation, reason, hook = null) {
-  return {
-    activation,
-    supported: reason === null,
-    reason,
-    hooks: hook ? [hook] : [],
-  };
+function unavailable(activation, reason) {
+  return { activation, supported: false, reason, hooks: [], owner: null };
 }
 
 /** Parent links preserve the resolved original sound identity, including alias targets. */

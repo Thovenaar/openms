@@ -10,6 +10,9 @@ import {
 } from "./validation-metrics.js";
 import { decodePNG, comparePixels } from "./validation-png.js";
 import { compareRefreshRates } from "./physics-reference.js";
+import { waitForNativeReady } from "./native-scenario-runner.js";
+import { focusCanvas, seededProfile } from "./scenarios/native.js";
+import { prepareFixture, seedFixture } from "./native-fixtures.js";
 
 const { values } = parseArgs({
   options: {
@@ -57,25 +60,6 @@ function check(name, pass, details = {}) {
   report.checks.push({ name, pass: Boolean(pass), ...details });
 }
 const snapshot = () => page.evaluate(() => window.maple.snapshot());
-async function ready() {
-  await page.waitForFunction(() => Boolean(window.maple), { timeout: 120000 });
-  await page.evaluate(() => window.maple.ready);
-  await page.waitForFunction(
-    () => Boolean(window.maple.snapshot().currentMap),
-    { timeout: 120000 },
-  );
-}
-/** The initial center can hit the nearby Regular Cab while the avatar is falling. */
-async function focusCanvas() {
-  const canvas = await page.$("#scene-canvas");
-  if (!canvas) throw new Error("Playable canvas missing");
-  try {
-    const bounds = await canvas.boundingBox();
-    await page.mouse.click(bounds.x + 8, bounds.y + 8);
-  } finally {
-    await canvas.dispose();
-  }
-}
 
 async function hold(key, milliseconds) {
   await page.keyboard.down(key);
@@ -190,7 +174,8 @@ async function coldLoad() {
     waitUntil: "domcontentloaded",
     timeout: 120000,
   });
-  await ready();
+  // Two first-control discoveries may each transfer the bounded 16-MiB manifest.
+  await waitForNativeReady(page, 300000);
   report.coldLoad = {
     readyMs: performance.now() - start,
     measurement: await measureProbe(page),
@@ -204,7 +189,7 @@ async function coldLoad() {
   );
 }
 async function movement() {
-  await focusCanvas();
+  await focusCanvas(page);
   await delay(700);
   const before = await snapshot();
   await hold("ArrowRight", 600);
@@ -240,7 +225,7 @@ async function movement() {
 }
 async function livePerformance() {
   await page.evaluate(() => window.maple.pause(false));
-  await focusCanvas();
+  await focusCanvas(page);
   await resetProbe(page);
   await hold("ArrowRight", duration * 1000);
   report.live = {
@@ -259,12 +244,37 @@ async function livePerformance() {
       report.live.measurement.runtimeCPU.frame.samples > 0,
   };
 }
+/** Refine the bounded map list, then operate its actual native select. */
+async function chooseMap(id) {
+  await page.click("#console-tab-play");
+  await page.click("#map-search", { clickCount: 3 });
+  await page.keyboard.press("Backspace");
+  await page.type("#map-search", id);
+  await page.waitForFunction(
+    (id) => {
+      const select = document.querySelector("#map");
+      return select.options.length === 1 && select.options[0].value === id;
+    },
+    { timeout: 30000 },
+    id,
+  );
+  await page.click("#map");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Enter");
+}
+
 async function transition(id) {
   await page.evaluate(() => window.maple.pause(false));
   const before = await snapshot();
+  await chooseMap(id);
+  const selected = await snapshot();
+  check(
+    `Map ${id} selection waits for explicit Go`,
+    selected.currentMap === before.currentMap && !selected.loading,
+  );
   await resetProbe(page);
   const start = performance.now();
-  await page.select("#map", id);
+  await page.click("#map-go");
   const pending = await snapshot();
   if (pending.loading) {
     check(
@@ -290,10 +300,12 @@ async function transition(id) {
     state: compactState(after),
   });
   check(
-    `Map ${id} transition commits without renderer error`,
-    !after.lastError,
+    `Map ${id} transition publishes a prepared field`,
+    after.currentMap === id &&
+      after.field.gameplay?.prepared &&
+      after.fieldTransition.phase === "idle",
   );
-  await focusCanvas();
+  await focusCanvas(page);
   await hold("ArrowRight", 300);
   await hold("Alt", 80);
   await delay(350);
@@ -386,6 +398,42 @@ function selectedBrowserMaps(available) {
   return selected;
 }
 
+/** Durable test setup only; hostile maps must not turn a world tour into a death replay. */
+async function seedWorldFixture() {
+  const catalog = await fetchJSON(`${values.url}/generated/catalog.json`);
+  const descriptor = catalog.maps["100000000"];
+  const manifest = await fetchJSON(new URL(descriptor.url, values.url));
+  const spawn = manifest.physics.portals.find((portal) => portal.name === "sp");
+  if (!spawn) throw new Error("Henesys lacks its authored spawn portal");
+  const profile = seededProfile(catalog, {
+    mapId: manifest.id,
+    x: spawn.x,
+    y: spawn.y - 10,
+    facing: 1,
+  });
+  profile.hp = 30000;
+  profile.maxHP = 30000;
+  profile.baseMaxHP = 30000;
+  const fixture = prepareFixture(
+    {
+      profile,
+      provenance: {
+        kind: "seeded-not-earned",
+        source: descriptor,
+        scope:
+          "World rendering and mobility, not combat or progression. HP/base/max 30000 are explicit setup; ordinary damage and movement remain enabled.",
+      },
+    },
+    catalog,
+  );
+  await Bun.write(
+    join(output, "fixture.json"),
+    JSON.stringify(fixture, null, 2),
+  );
+  await seedFixture(page, values.url, fixture);
+  report.fixture = { file: "fixture.json", provenance: fixture.provenance };
+}
+
 async function run() {
   browser = await puppeteer.launch({
     executablePath: values.chrome,
@@ -399,6 +447,7 @@ async function run() {
   });
   page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+  await seedWorldFixture();
   page.on("pageerror", (error) => report.errors.push(String(error)));
   await page.evaluateOnNewDocument(installProbe);
   const throttle = await throttleNetwork(page);

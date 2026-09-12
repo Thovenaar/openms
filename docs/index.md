@@ -1,31 +1,39 @@
-# Maple Mono documentation
+# openms.dev documentation
 
-Maple Mono reconstructs an original-asset browser client with plain JavaScript, JSDoc, Bun, and PixiJS. These pages distinguish recovered original behavior, provisional local offline authority, measured browser results, and remaining fidelity gaps. Start with the [project setup](README.md); the existing technical pages remain authoritative.
+openms.dev reconstructs an original-asset browser client with JavaScript, JSDoc, Bun, and PixiJS. Documentation is organized by service: the implemented offline **Client** and the reserved **Server** workspace. Recovered behavior, local policy, measured results, and missing capabilities remain explicitly distinguished.
 
-## Explore
+## Client
 
-- **Setup:** [run the project](README.md), identify the [original inputs](inputs.md), and follow the [coding style](coding-style.md).
-- **Architecture:** [subsystem interfaces](reconstruction-contract.md), [scene and inspection APIs](scene-contract.md), [agent actions and reversible experiments](agent-interface.md), and [offline integration](offline-integration-contract.md).
-- **Asset decoding and streaming:** [decoder evidence](asset-evidence.md), [inventory coverage](ingame-inventory.md), [release delivery](asset-delivery.md), and [progressive streaming](streaming.md).
-- **Physics:** [recovered motion](physics-evidence.md), [options](physics-options.md), [refinements](physics-refinements.md), [geometry](hitboxes.md), and [avatar actions](avatar-actions.md).
-- **UI:** [in-game controls and windows](ingame-ui.md), [complete native binding/domain contracts](offline-binding-actions.md), and [audio/effects](ingame-audiovisual.md).
-- **Offline gameplay:** [current gameplay and acceptance](offline-gameplay.md), [learned skills and capability limits](skills.md), and [validated character development](offline-profile.md), with combat, quests, saves, portals, life, and reactors in the sidebar.
-- **Reverse-engineering evidence:** [original client/rendering findings](client-evidence.md) and [missing Windows reference captures](windows-reference-captures.md).
-- **Browser validation:** [native offline UI acceptance](native-ui-validation.md), [reproduction method](validation-method.md), and the earlier [integrated](ingame-validation/results.md), [physics](physics-validation/results.md), and [rendering](validation.md#initial-renderer-extraction-and-validation) baselines.
+[Open the client documentation](README.md) for setup and `bun run dev:client:offline`.
 
-## Evidence and scope
+- **Architecture:** [subsystem contracts](reconstruction-contract.md), [scene and inspection APIs](scene-contract.md), [agent experiments](agent-interface.md), and [offline integration](offline-integration-contract.md).
+- **Assets and streaming:** [decoding evidence](asset-evidence.md), [inventory](ingame-inventory.md), [delivery](asset-delivery.md), and [streaming](streaming.md).
+- **Physics:** [motion evidence](physics-evidence.md), [options](physics-options.md), [refinements](physics-refinements.md), [geometry](hitboxes.md), and [avatar actions](avatar-actions.md).
+- **UI:** [in-game windows](ingame-ui.md), [binding actions](offline-binding-actions.md), and [audio/effects](ingame-audiovisual.md).
+- **Offline gameplay:** [scope and acceptance](offline-gameplay.md), [combat](offline-combat.md), [skills](skills.md), [quests](ingame-quests.md), [character development](offline-profile.md), [saves](offline-saves.md), and [portals](ingame-portals.md).
+- **Evidence and validation:** [original client findings](client-evidence.md), [Windows reference gaps](windows-reference-captures.md), [validation procedure](validation-method.md), and [measured results](validation.md).
 
-Raw reports, source references, captures, and archives stay in their original repository locations. On this site, links to those files and directories open the exact GitHub repository path; Markdown pages stay within the site. No original Windows execution, missing server behavior, or unmeasured fidelity is implied by a documentation build.
+## Server
 
-The [native UI acceptance](native-ui-validation.md) joins nine independent browser slices, preserved defect reports, exact corrected-build replays and source gates. The earlier [expanded report](ingame-validation/expanded/report.json) retains complete installed-release/server-stopped proof and world comparisons under its own release identity. [Skill coverage](skills.md) separates 35 implemented controllers from 499 unavailable skills; [server-data conversion](offline-data.md) distinguishes supplied seed records from schema-only tables and unexecuted scripts. Historical audit/benchmark counts apply only to their recorded runs.
+[Open the server documentation](server/index.md) for workspace status, reference-data inputs, and authority boundaries.
+
+- **Workspace:** the private Bun server package and its current implementation status.
+- **Reference data:** the authorized Cosmic checkout and the client-side conversion tools that consume it.
+- **Authority boundaries:** why local peers, IndexedDB saves, and supported offline scripts are not a network backend.
+
+There is no implemented backend or server development command. Server-reference data does not imply an operating server.
+
+## Project guidance
+
+Follow the [JavaScript coding style](coding-style.md) and [input provenance](inputs.md). Authoritative Markdown and raw evidence stay at their existing repository paths; the site publishes client pages under `/client/` and server pages under `/server/`. Repository-file links continue to target the actual Git remote. Historical captures, identities, and benchmark counts are not renamed or reinterpreted.
 
 ## Run this site
 
 From the repository root:
 
 ```sh
-bun install
-bun run docs:dev
+bun install --frozen-lockfile
+bun run dev:docs
 ```
 
-For a production build and local inspection, run `bun run docs:build`, then `bun run docs:preview`. The site is rooted in `docs/`; generated output and cache live under `docs/.vitepress/`.
+Development commands follow `dev:<service>[:mode]`. For a production build and local inspection, use `bun run docs:build`, then `bun run docs:preview`. The site is rooted in `docs/`; generated output and cache stay under `docs/.vitepress/`.

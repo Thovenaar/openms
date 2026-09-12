@@ -1,19 +1,21 @@
 import { expect, test } from "bun:test";
-import { ProfileStore } from "../src/profile-store.js";
+import { ProfileStore } from "../src/profile/profile-store.js";
 import {
   createProfile,
+  PROFILE_VERSION,
   migrateProfile,
   validateProfile,
-} from "../src/profile-validation.js";
+} from "../src/profile/profile-validation.js";
 import {
   grantItem,
   consumeItem,
   consumeTemplate,
   firstItem,
   itemCount,
-} from "../src/inventory-model.js";
-import { LocalSocial } from "../src/local-social.js";
-import { LocalTrade, LocalTradeSession } from "../src/local-trade.js";
+} from "../src/items/inventory-model.js";
+import { LocalSocial } from "../src/social/local-social.js";
+import { LocalTrade, LocalTradeSession } from "../src/social/local-trade.js";
+import { UPGRADE_STATS } from "../src/profile/profile-item-state.js";
 
 const LOCATION = { mapId: "100000000", x: 0, y: 0, facing: 1 };
 const ITEMS = {
@@ -37,6 +39,9 @@ function legacyProfile(version) {
   delete old.monsterBook;
   delete old.skillMacros;
   delete old.social;
+  delete old.pets;
+  delete old.mount;
+  delete old.savedLocations;
   delete old.settings.questTracker;
   delete old.settings.gameOptions;
   delete old.settings.alerts;
@@ -98,6 +103,66 @@ test("invalid transaction restores equal mutable data without advancing save rev
   store.markDirty();
   await store.flush();
   await store.destroy();
+});
+
+test("unavailable proposed resources reject the whole profile before persistence", async () => {
+  const store = ProfileStore.memory(createProfile(LOCATION), {
+    prepareResources: async () => {
+      throw new Error("Required avatar unavailable");
+    },
+  });
+  const before = structuredClone(store.profile);
+  const revision = store.revision;
+  try {
+    await expect(
+      store.commitProfile((draft) => {
+        draft.appearance.hair = 30020;
+        draft.meso += 7;
+      }),
+    ).rejects.toThrow();
+    expect(store.profile).toEqual(before);
+    expect(store.revision).toBe(revision);
+  } finally {
+    store.prepareResources = null;
+    await store.destroy().catch((error) => {
+      if (error.code !== "storage-failure") throw error;
+    });
+  }
+});
+
+test("resource publication failure reports independently without undoing a saved profile", async () => {
+  const failure = new Error("Cache metadata publication unavailable");
+  const warnings = [];
+  const store = ProfileStore.memory(createProfile(LOCATION), {
+    prepareResources: async () => ({
+      commit: async () => {
+        throw failure;
+      },
+      discard: async () => {
+        throw new Error("Committed resources were discarded");
+      },
+      report: (error) => warnings.push(error),
+    }),
+  });
+  try {
+    await store.commitProfile((draft) => {
+      draft.appearance.hair = 30020;
+      draft.meso = 7;
+    });
+    expect(store.profile.appearance.hair).toBe(30020);
+    expect(store.profile.meso).toBe(7);
+    expect(store.status).toBe("saved");
+    expect(warnings).toEqual([failure]);
+    await store.commitProfile((draft) => {
+      draft.hp = 12;
+    });
+    expect(store.profile.hp).toBe(12);
+    expect(store.profile.appearance.hair).toBe(30020);
+    expect(store.revision).toBe(2);
+  } finally {
+    store.prepareResources = null;
+    await store.destroy();
+  }
 });
 
 test("flush and teardown drain accepted transactions while concurrent edits are rejected", async () => {
@@ -167,6 +232,121 @@ test("migration refuses unrepresentable quantities and missing equipped metadata
   old.inventory = [];
   expect(() => migrateProfile(old, { 2000000: ITEMS[2000000] })).toThrow();
   expect(old.equipment).toEqual(before.equipment);
+});
+
+test("schema5 migration preserves owned identities and all preexisting domains without draft aliases", () => {
+  const old = createProfile(LOCATION);
+  old.schemaVersion = 5;
+  delete old.pets;
+  delete old.mount;
+  delete old.savedLocations;
+  const before = structuredClone(old);
+  const migrated = migrateProfile(old, ITEMS);
+  expect(migrated.schemaVersion).toBe(PROFILE_VERSION);
+  validateProfile(migrated, ITEMS);
+  const preserved = structuredClone(migrated);
+  delete preserved.pets;
+  delete preserved.mount;
+  delete preserved.savedLocations;
+  preserved.schemaVersion = 5;
+  expect(preserved).toEqual(before);
+  migrated.equipment[0].count = 2;
+  expect(old).toEqual(before);
+});
+
+test("schema6 migration preserves its source and rejects forged market return state", () => {
+  const old = createProfile(LOCATION);
+  old.schemaVersion = 6;
+  delete old.savedLocations;
+  const before = structuredClone(old);
+  const migrated = migrateProfile(old, ITEMS);
+  expect(migrated.savedLocations.FREE_MARKET).toBeNull();
+  expect(old).toEqual(before);
+  migrated.savedLocations.FREE_MARKET = 102000000;
+  validateProfile(migrated, ITEMS);
+  migrated.savedLocations.FREE_MARKET = 910000000;
+  expect(() => validateProfile(migrated, ITEMS)).toThrow();
+  old.savedLocations = { freeMarket: 102000000 };
+  expect(() => migrateProfile(old, ITEMS)).toThrow();
+});
+
+test("schema7 migration preserves a saved market return without aliasing or admitting malformed slots", () => {
+  const old = createProfile(LOCATION);
+  old.schemaVersion = 7;
+  old.savedLocations = { freeMarket: 100000100 };
+  const before = structuredClone(old);
+  const migrated = migrateProfile(old, ITEMS);
+  expect(migrated.savedLocations.FREE_MARKET).toBe(100000100);
+  migrated.savedLocations.WORLDTOUR = 200000000;
+  validateProfile(migrated, ITEMS);
+  expect(old).toEqual(before);
+  migrated.savedLocations.WORLDTOUR = 999999999;
+  expect(() => validateProfile(migrated, ITEMS)).toThrow();
+  old.savedLocations.WORLDTOUR = 100000000;
+  expect(() => migrateProfile(old, ITEMS)).toThrow();
+});
+
+test("pet commits enforce real item ownership and distinct summoned slots", async () => {
+  const profile = createProfile(LOCATION);
+  grantItem(profile, { id: 5000000, descriptor: {}, info: { slotMax: 1 } }, 2);
+  profile.pets = profile.inventory
+    .filter((item) => item.id === 5000000)
+    .map((item, index) => ({
+      uid: crypto.randomUUID(),
+      itemUid: item.uid,
+      name: "Kino",
+      level: 1,
+      closeness: 0,
+      fullness: 100,
+      expiresAt: item.expiresAt,
+      summonedSlot: index,
+    }));
+  const store = ProfileStore.memory(profile);
+  const before = structuredClone(store.profile);
+  const revision = store.revision;
+  await expect(
+    store.commitProfile((draft) => {
+      draft.pets[1].summonedSlot = 0;
+    }),
+  ).rejects.toThrow();
+  await expect(
+    store.commitProfile((draft) => {
+      draft.pets[0].itemUid = crypto.randomUUID();
+    }),
+  ).rejects.toThrow();
+  expect(store.profile).toEqual(before);
+  expect(store.revision).toBe(revision);
+  await store.commitProfile((draft) => {
+    draft.pets[0].fullness = 80;
+  });
+  expect(store.profile.pets[0].fullness).toBe(80);
+  await store.destroy();
+});
+
+test("equipment upgrades persist without accepting overflowing native stat shorts", async () => {
+  const profile = createProfile(LOCATION);
+  profile.equipment[0].upgrade = {
+    slots: 6,
+    level: 1,
+    stats: Object.fromEntries(
+      UPGRADE_STATS.map((stat) => [stat, stat === "incSTR" ? 3 : 0]),
+    ),
+  };
+  const store = ProfileStore.memory(profile);
+  const before = structuredClone(store.profile);
+  const revision = store.revision;
+  await expect(
+    store.commitProfile((draft) => {
+      draft.equipment[0].upgrade.stats.incSTR = 32768;
+    }),
+  ).rejects.toThrow();
+  expect(store.profile).toEqual(before);
+  expect(store.revision).toBe(revision);
+  await store.commitProfile((draft) => {
+    draft.equipment[0].upgrade.stats.incSTR = 4;
+  });
+  expect(store.profile.equipment[0].upgrade.stats.incSTR).toBe(4);
+  await store.destroy();
 });
 
 test("chat bounds reject an invalid atomic edit while valid saved settings survive", async () => {

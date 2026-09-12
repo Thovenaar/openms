@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Maple original-asset offline reconstruction",
-  "short_name": "Maple Offline",
-  "description": "Local original-asset reconstruction. Offline download covers the selected packaged catalog only.",
+  "name": "openms.dev offline client",
+  "short_name": "openms.dev",
+  "description": "openms.dev original-asset offline client. Offline download covers the selected packaged catalog only.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -1,15 +1,16 @@
 import { expect, test } from "bun:test";
-import { KeyBindings } from "../src/key-bindings.js";
+import { KeyBindings } from "../src/input/key-bindings.js";
 import {
   createProfile,
   migrateProfile,
   validateProfile,
-} from "../src/profile-validation.js";
+  PROFILE_VERSION,
+} from "../src/profile/profile-validation.js";
 import {
   configureTemporaryState,
   temporaryState,
   TemporaryStats,
-} from "../src/temporary-stats.js";
+} from "../src/skills/temporary-stats.js";
 
 const LOCATION = { mapId: "100000000", x: 0, y: 0, facing: 1 };
 
@@ -106,6 +107,9 @@ test("v1 migration preserves gameplay and rejects damaged or future saves", () =
   delete old.monsterBook;
   delete old.skillMacros;
   delete old.social;
+  delete old.pets;
+  delete old.mount;
+  delete old.savedLocations;
   old.equipment = [];
   old.inventory.push({ id: 2000000, count: 7 });
   old.hp = 17;
@@ -123,7 +127,7 @@ test("v1 migration preserves gameplay and rejects damaged or future saves", () =
   expect(migrated.keyBindings.keys[18]).toEqual({ type: 4, id: 0 });
   old.hp = -1;
   expect(() => migrateProfile(old)).toThrow();
-  migrated.schemaVersion = 6;
+  migrated.schemaVersion = PROFILE_VERSION + 1;
   expect(() => migrateProfile(migrated)).toThrow();
 });
 
@@ -144,13 +148,14 @@ test("replacement moves unique bindings live; cancel restores modifier aliases a
   service.destroy();
 });
 
-test("quick placement outside an editor checkpoints normal bindings; draft placement remains cancellable", () => {
+test("quick placement outside an editor checkpoints normal bindings; draft placement remains cancellable", async () => {
   const { service, profile } = fixture();
-  expect(service.assignQuick(29, { type: 2, id: 2000000 })).toBe(true);
+  expect(await service.assignQuick(29, { type: 2, id: 2000000 })).toBe(true);
   expect(profile.keyBindings.keys[29]).toEqual({ type: 2, id: 2000000 });
-  expect(service.editing).toBe(false);
   service.beginEdit();
-  expect(service.assignQuick(42, { type: 2, id: 2000000 }, 29)).toBe(true);
+  expect(await service.assignQuick(42, { type: 2, id: 2000000 }, 29)).toBe(
+    true,
+  );
   expect(service.lookup("ShiftLeft")).toEqual({ type: 2, id: 2000000 });
   expect(profile.keyBindings.keys[29]).toEqual({ type: 2, id: 2000000 });
   service.cancel();
@@ -159,21 +164,39 @@ test("quick placement outside an editor checkpoints normal bindings; draft place
   service.destroy();
 });
 
-test("carry revalidates ownership and source identity and cannot mutate across a profile transaction", () => {
+test("failed direct quickslot persistence restores gameplay bindings and permits a later placement", async () => {
+  const { service, store, profile } = fixture();
+  const before = structuredClone(profile.keyBindings);
+  const commit = store.commitKeyBindings.bind(store);
+  store.commitKeyBindings = async () => {
+    throw new Error("Save unavailable");
+  };
+  await expect(
+    service.assignQuick(29, { type: 2, id: 2000000 }),
+  ).rejects.toThrow();
+  expect(profile.keyBindings).toEqual(before);
+  expect(service.actionForCode("ControlLeft")).toBe("attack");
+  store.commitKeyBindings = commit;
+  await service.assignQuick(29, { type: 2, id: 2000000 });
+  expect(service.lookup("ControlLeft")).toEqual({ type: 2, id: 2000000 });
+  service.destroy();
+});
+
+test("carry revalidates ownership and source identity and cannot mutate across a profile transaction", async () => {
   const { service, store, profile, controls } = fixture();
   const item = { type: 2, id: 2000000 };
   expect(service.canCarry(item)).toBe(true);
   expect(service.canCarry(item, 29)).toBe(false);
   store.profileTransactionPending = true;
-  expect(service.assignQuick(29, item)).toBe(false);
+  expect(await service.assignQuick(29, item)).toBe(false);
   expect(service.canCarry(item)).toBe(false);
   store.profileTransactionPending = false;
   controls.blocked = true;
-  expect(service.assignQuick(29, item)).toBe(false);
+  expect(await service.assignQuick(29, item)).toBe(false);
   controls.blocked = false;
   profile.inventory[0].count = 0;
   expect(service.canCarry(item)).toBe(false);
-  expect(service.assignQuick(29, item)).toBe(false);
+  expect(await service.assignQuick(29, item)).toBe(false);
   expect(profile.keyBindings.keys[29]).toEqual({ type: 5, id: 52 });
   profile.skills[1000000] = { level: 1, expiresAt: null };
   expect(service.canCarry({ type: 1, id: 1000000 })).toBe(false);
@@ -266,7 +289,12 @@ test("failed durable item use and concurrent admission leave vitals, stack and e
   const prior = temporaryState("item", 2020000);
   configureTemporaryState(prior, { pdd: 2 }, 20000);
   effects.start(prior);
-  service.hooks.skillSystem = () => ({ store, effects, destroyed: false });
+  service.hooks.skillSystem = () => ({
+    store,
+    effects,
+    destroyed: false,
+    level: () => 0,
+  });
   service.hooks.prepareTemporaryStat = async () => {};
   let rejectCommit;
   let enteredCommit;
@@ -305,7 +333,12 @@ test("durable timed use publishes real stats and exact selected instance only af
   });
   catalog.ui.items[2000000].spec = { hp: 50, speed: 8, time: 10001 };
   const effects = new TemporaryStats();
-  service.hooks.skillSystem = () => ({ store, effects, destroyed: false });
+  service.hooks.skillSystem = () => ({
+    store,
+    effects,
+    destroyed: false,
+    level: () => 0,
+  });
   service.hooks.prepareTemporaryStat = async () => {};
   expect((await service.useItem(2000000, "second-stack")).ok).toBe(true);
   expect(store.profile.hp).toBe(50);

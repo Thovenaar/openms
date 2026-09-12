@@ -1,6 +1,6 @@
 import { at, value } from "../src/assets/image.js";
 
-const MAX_MAPS = 512;
+const MAX_MAPS = 1024;
 const MAX_LIFE = 65536;
 const MAX_MOB_ROWS = 256;
 const MAX_ITEMS = 32768;

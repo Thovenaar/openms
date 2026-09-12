@@ -1,5 +1,7 @@
 import { avatarMaps, extractAvatarRecord } from "./avatar-data.js";
-import { equippedSlots } from "../src/inventory-model.js";
+import { equippedSlots } from "../src/items/inventory-model.js";
+import { extractProjectiles } from "./combat-data.js";
+import { extractEquipmentEffects } from "./equipment-effect-data.js";
 
 const MAX_IMAGES = 50000;
 const MAX_CATALOG_ITEMS = 32768;
@@ -149,6 +151,7 @@ export async function extractAvatarCatalog(context, items) {
       stand: record.stand,
       walk: record.walk,
       attack: record.attack,
+      combat: record.combat,
       unresolved: record.unresolved,
       equippedSlots:
         record.kind === "equipment"
@@ -157,5 +160,11 @@ export async function extractAvatarCatalog(context, items) {
       descriptor: await packageRecord(context, record),
     };
   }
-  return { schemaVersion: 1, entries, skins };
+  return {
+    schemaVersion: 1,
+    entries,
+    skins,
+    equipmentEffects: await extractEquipmentEffects(context, wanted),
+    projectiles: await extractProjectiles(context, items),
+  };
 }

@@ -21,6 +21,12 @@ Let `q=30ms`, `r(v)=trunc(v + 0.5)` for nonnegative `v`, otherwise `trunc(v - 0.
 - Ordinary **items** set the vector's 300ms rotation cycle through `00506142..00506182`; mesos instead animate their canvases through `00506e62`. The renderer rotates around the actual canvas center, not an assumed 32px cell. Item rotation continues during fall and stops at settlement.
 - Native packets provide distinct source and landing coordinates; client code does **not** derive server fanout. Cosmic `MapleMap.java:768` begins its normal drop index at **1**, and lines 670–673 apply 25px alternating offsets: `0,+25,-25,+50,-50,...`. The previous local zero-based application duplicated the first position; it is corrected. Local support selection projects those X coordinates onto authored footholds and falls back to the first supported drop point when a lateral point has no floor. Cosmic's more elaborate map-edge/binary-search placement is not claimed as reproduced.
 
+### Untradeable discard
+
+Eligible untradeable/quest-item discard first presents the original warning: `This item can't be taken back once \r\nthrown away. Will you still drop it?`. Cancel preserves the instance. Confirmation revalidates ownership/quantity and commits the debit before publishing the disappearing drop; this is not a recoverable floor pickup.
+
+Native spawn mode3 is separate from explosive ownership type3. It uses the ordinary launch and rotation while fading from the first positive30ms sample: `max(0,trunc(255*(1000-(age-30))/1000))/255` (`00505559..005055d8`). Landing or the original3000ms lifetime cap retires it; it does not wait on the floor before beginning an invented fade. The [native replay](native-ui-validation/reported-r2/report.json) captures Favorite Doll4000517 warning/cancel, accepted removal, launch and alpha124/255 at age540ms.
+
 ### Idle and pickup
 
 - Idle increments phase by the double `0.09424769999999999` (`00af3730`) every 30ms and uses `trunc(Yg+3*sin(phase))` (`00504d98..00504e44`), with no arbitrary bounce height.

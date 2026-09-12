@@ -69,11 +69,37 @@ function validateSpawn(spawn) {
   }
 }
 
+/** 009cbeb8/009cbb9f: preallocated terminal-speed quanta and one landing outcome.
+ * 00b3eaf0=600000;00b3e3b0=1/30. FieldLimit0x100000 suppresses falling damage. */
+function createLandingState(map, settings) {
+  return {
+    terminalTicks: 0,
+    thresholdTicks: Math.trunc(600000 / settings.fallSpeed / 30),
+    forbidden: ((map.fieldLimit ?? 0) & 0x100000) !== 0,
+    sequence: 0,
+    amount: 0,
+    facing: 1,
+  };
+}
+
+/** Retain unmodified force coefficients for noncompounding skill updates. */
+function createEffectiveSettings(world) {
+  const settings = prepareSettings(world);
+  settings.baseForceScale = settings.forceScale;
+  settings.baseFriction = settings.friction;
+  settings.baseDrag = settings.drag;
+  return settings;
+}
+
+function createWorldMovement() {
+  return { wingsX: 0, form: null, equipmentFs: 1, equipmentSwim: 100 };
+}
+
 /** Validate contract physics metadata and allocate all reusable state before play.
  * Coordinates are original world pixels at the avatar's feet. */
 export function createSimulation(world, spawn) {
   validateSpawn(spawn);
-  const effectiveSettings = prepareSettings(world);
+  const effectiveSettings = createEffectiveSettings(world);
   const geometry = prepareSegments(world.footholds);
   if (geometry.segments.length === 0) {
     throw new Error("Map has no playable foothold geometry");
@@ -104,7 +130,11 @@ export function createSimulation(world, spawn) {
     contactGroup: 0,
     spaceGroup: geometry.spaceGroup,
     horizontalInput: 0,
+    verticalInput: 0,
+    worldMovement: createWorldMovement(),
+    fieldLimit: world.map.fieldLimit ?? 0,
     contactScratch: createContactScratch(),
+    landing: createLandingState(world.map, effectiveSettings),
     ignoredFootholdId: 0,
     geometry,
     ladders,
@@ -160,6 +190,8 @@ export function relocateSimulation(sim, arrival) {
   sim.ignoredFootholdId = 0;
   sim.crouching = false;
   sim.jumpRepeatMs = 0;
+  sim.landing.terminalTicks = 0;
+  sim.landing.amount = 0;
   sim.contactScratch.pendingAir = false;
   sim.contactScratch.segment = null;
   sim.contactScratch.first = null;
@@ -285,6 +317,10 @@ function validateInput(input, elapsedMs) {
 function step(sim, input) {
   sim.previousX = sim.x;
   sim.previousY = sim.y;
+  const landing = sim.landing;
+  landing.amount = 0;
+  landing.terminalTicks =
+    sim.vy >= sim.effectiveSettings.fallSpeed ? landing.terminalTicks + 1 : 0;
   if (sim.seat) return;
   updateEnvironment(sim);
   const horizontal = sim.movementLocked
@@ -295,6 +331,7 @@ function step(sim, input) {
     ? 0
     : Number(input.down) - Number(input.up);
   if (horizontal !== 0) sim.facing = horizontal;
+  sim.verticalInput = vertical;
   sim.crouching =
     !sim.movementLocked &&
     sim.state === "ground" &&
@@ -326,6 +363,16 @@ function integrate(sim, direction, vertical) {
     sim.state = sim.movementMode;
     if (sim.state === "air") airVelocity(sim, direction, SECONDS);
     else floatVelocity(sim, direction, vertical, SECONDS);
+    // 009b2d18: descending Wings velocity = rank.x * global jumpSpeed /1000.
+    if (
+      !(sim.fieldLimit & 2) &&
+      sim.worldMovement.wingsX > 0 &&
+      vy > 0 &&
+      sim.state === "air"
+    ) {
+      sim.vy =
+        (sim.worldMovement.wingsX * sim.effectiveSettings.baseJumpSpeed) / 1000;
+    }
     sim.x += (vx + sim.vx) * SECONDS * 0.5;
     sim.y += (vy + sim.vy) * SECONDS * 0.5;
     airContacts(sim, SECONDS, vx, vy);
@@ -339,6 +386,8 @@ function scheduleJump(sim, input, direction) {
   input.jumpPressed = false;
   sim.jumpRepeatMs = Math.max(0, sim.jumpRepeatMs - QUANTUM_MS);
   if (!input.jump) sim.jumpRepeatMs = 0;
+  // 0094c3e4: the independent JUMP bit blocks even unboosted jumps.
+  if (sim.fieldLimit & 1) return;
   if (sim.movementLocked || (!pressed && !input.jump)) return;
   const buoyant =
     !sim.foothold && sim.state !== "ladder" && sim.movementMode !== "air";
@@ -390,7 +439,10 @@ function floatJump(sim, direction) {
 }
 
 function beginDrop(sim) {
-  if (sim.foothold.properties.forbidFallDown) return;
+  // 0094c4f8 checks the field's independent no-downward-jump bit.
+  if (sim.fieldLimit & 0x20000 || sim.foothold.properties.forbidFallDown) {
+    return;
+  }
   const target = dropTarget(sim);
   if (!target) return;
   sim.ignoredFootholdId = sim.foothold.id;
@@ -399,6 +451,7 @@ function beginDrop(sim) {
   // Original 009b1c51 / 00b3e3a0, not a tuned browser impulse.
   sim.vy = -0.35355339 * sim.effectiveSettings.jumpSpeed;
   sim.crouching = false;
+  sim.groundJumpSequence = (sim.groundJumpSequence + 1) >>> 0;
   detachGround(sim);
 }
 

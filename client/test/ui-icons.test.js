@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { replaceIcons } from "../src/ui-icons.js";
-import { skillTooltip } from "../src/ui-tooltip.js";
+import { replaceIcons } from "../src/ui/ui-icons.js";
+import { skillTooltip } from "../src/ui/ui-tooltip.js";
 
 // Network failure fixture; visibility and ownership are the renderer/DOM contract.
 function layer() {

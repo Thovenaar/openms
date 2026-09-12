@@ -22,8 +22,6 @@ public class clientFieldRefs extends GhidraScript {
         Instruction instruction = instructions.next();
         if (instruction.getAddress().getOffset() >= end) break;
         if (++scanned > 10000000) throw new IOException("Instruction bound exceeded");
-        String mnemonic = instruction.getMnemonicString();
-        if (!mnemonic.equals("LEA") && !mnemonic.equals("ADD") && !mnemonic.equals("MOV")) continue;
         boolean matches = false;
         for (int operand = 0; operand < instruction.getNumOperands(); operand++) {
           for (Object part : instruction.getOpObjects(operand)) {

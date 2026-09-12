@@ -1,6 +1,7 @@
 node_modules/
 client/public/generated/
 client/dist/
+client/.cache/
 docs/.vitepress/cache/
 docs/.vitepress/dist/
 .DS_Store

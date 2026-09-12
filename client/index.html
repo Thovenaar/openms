@@ -3,39 +3,55 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Maple · Original asset reconstruction</title>
+    <title>openms.dev · Offline client</title>
     <link rel="stylesheet" href="/style.css" />
     <link rel="manifest" href="/app.webmanifest" />
     <link rel="icon" href="/app-icon.svg" type="image/svg+xml" />
   </head>
   <body>
-    <header class="inspection-chrome" data-inspection-theme="xp">
-      <div class="console-brand">
-        <h1>Maple tools</h1>
-        <p class="hint">Local workspace · separate from the game</p>
-      </div>
-      <section
-        id="agent-controls"
-        aria-label="Agent and experiment controls"
-      ></section>
-      <button
-        id="console-toggle"
-        type="button"
-        aria-expanded="true"
-        aria-controls="gm-console"
-      >
-        Hide tools
-      </button>
-    </header>
     <main>
-      <section id="viewport" aria-label="Scene viewport"></section>
+      <div
+        id="console-access"
+        class="inspection-chrome"
+        data-inspection-theme="win95"
+      >
+        <button
+          id="console-toggle"
+          type="button"
+          aria-expanded="true"
+          aria-controls="gm-console"
+          aria-label="Minimize development tools"
+          title="Minimize development tools"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4 6h16M4 12h16M4 18h16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            />
+          </svg>
+        </button>
+        <span class="console-rail-label" aria-hidden="true">DEV</span>
+      </div>
       <aside
         id="gm-console"
         class="inspection-chrome"
-        data-inspection-theme="xp"
-        aria-label="Game master console"
+        data-inspection-theme="win95"
+        aria-label="Development inspection"
       >
+        <div class="console-heading">
+          <h1>Development inspection</h1>
+          <span class="console-badge">LOCAL</span>
+        </div>
         <div class="console-toolbar">
+          <div class="transport">
+            <button id="pause" type="button" aria-pressed="false">Pause</button>
+            <button id="input-config" type="button" disabled>
+              Key bindings
+            </button>
+            <button id="reload" type="button">Reload field</button>
+          </div>
           <div class="console-tabs" role="tablist" aria-label="Tool sections">
             <button
               id="console-tab-play"
@@ -80,16 +96,19 @@
             >
               Settings
             </button>
-          </div>
-          <div class="transport">
-            <button id="pause" type="button" aria-pressed="false">Pause</button>
-            <button id="input-config" type="button" disabled>
-              Key bindings
+            <button
+              id="console-tab-agent"
+              role="tab"
+              type="button"
+              aria-selected="false"
+              aria-controls="console-agent"
+              tabindex="-1"
+              data-console-panel="agent"
+            >
+              Agent
             </button>
-            <button id="reload" type="button">Reload field</button>
           </div>
         </div>
-        <div id="error" role="alert" hidden></div>
         <p id="ui-status" class="hint" role="status"></p>
         <section
           id="console-play"
@@ -98,20 +117,44 @@
           tabindex="0"
         >
           <h2>Play</h2>
-          <fieldset id="scene-controls" disabled>
-            <legend>Map</legend>
-            <label class="sr-only" for="map">Packaged map</label>
-            <select id="map" aria-label="Packaged map"></select>
-          </fieldset>
-          <details id="input-controls">
-            <summary>Movement keys</summary>
-            <p class="hint">
-              Click the map to play. Arrows move and climb; Up enters portals.
-              Enter opens chat. Jump, attack and windows use your key bindings.
-            </p>
+          <p class="hint">
+            Current field: <output id="map-current">Loading…</output>
+          </p>
+          <details id="map-selection" open>
+            <summary>Map</summary>
+            <fieldset id="scene-controls" disabled>
+              <legend class="sr-only">Map selection</legend>
+              <label for="map-search">Find map by original name or ID</label>
+              <div class="map-search-row">
+                <input
+                  id="map-search"
+                  type="search"
+                  maxlength="120"
+                  placeholder="Map name or ID"
+                  autocomplete="off"
+                  aria-describedby="map-search-status"
+                />
+                <button
+                  id="map-search-clear"
+                  type="button"
+                  aria-label="Clear map search"
+                  disabled
+                >
+                  Clear
+                </button>
+              </div>
+              <label class="sr-only" for="map">Packaged map</label>
+              <select id="map" size="8" aria-label="Packaged map"></select>
+              <button id="map-go" type="button" class="primary">
+                Go to selected map
+              </button>
+              <p id="map-search-status" class="hint" role="status"></p>
+            </fieldset>
           </details>
-          <h3>Sound</h3>
-          <section id="audio-controls" aria-label="Audio"></section>
+          <details id="sound-inspection">
+            <summary>Sound</summary>
+            <section id="audio-controls" aria-label="Audio"></section>
+          </details>
         </section>
         <section
           id="console-character"
@@ -122,7 +165,8 @@
         >
           <h2>Character</h2>
           <p class="hint">
-            Edit values, then Apply. Switching sections keeps your draft.
+            Stage a preset or edit values, then Apply. Drafts stay here until
+            saved or discarded.
           </p>
           <div id="inspection-controls"></div>
         </section>
@@ -137,6 +181,17 @@
           <p class="hint">
             Preview changes affect this session, not original assets.
           </p>
+          <details id="error-log">
+            <summary>Error log</summary>
+            <label class="sr-only" for="error">Development error records</label>
+            <textarea
+              id="error"
+              readonly
+              spellcheck="false"
+              rows="12"
+              placeholder="No errors recorded in this session."
+            ></textarea>
+          </details>
           <fieldset
             id="scene-preview-controls"
             disabled
@@ -267,12 +322,36 @@
           hidden
         >
           <h2>Settings</h2>
-          <label for="inspection-theme">Tool appearance</label>
-          <select id="inspection-theme">
-            <option value="xp">Windows XP · blue</option>
-            <option value="win95">Windows 95 · classic</option>
-            <option value="y2k">Y2K · midnight chrome</option>
-          </select>
+          <details id="inspection-theme" class="theme-choices" open>
+            <summary>Tool appearance</summary>
+            <label class="theme-choice">
+              <input
+                type="radio"
+                name="inspection-theme"
+                value="win95"
+                checked
+              />
+              <span
+                ><strong>Windows 95</strong
+                ><small>Classic gray, raised edges · default</small></span
+              >
+              <span
+                class="theme-swatch theme-swatch-win95"
+                aria-hidden="true"
+              ></span>
+            </label>
+            <label class="theme-choice">
+              <input type="radio" name="inspection-theme" value="xp" />
+              <span
+                ><strong>Windows XP</strong
+                ><small>Luna blue, cream panels, rounded controls</small></span
+              >
+              <span
+                class="theme-swatch theme-swatch-xp"
+                aria-hidden="true"
+              ></span>
+            </label>
+          </details>
           <output id="theme-status" class="sr-only" role="status"></output>
           <p class="hint">
             Only these tools change. Game artwork stays original.
@@ -282,7 +361,21 @@
             <div id="offline-controls"></div>
           </details>
         </section>
+        <section
+          id="console-agent"
+          role="tabpanel"
+          aria-labelledby="console-tab-agent"
+          tabindex="0"
+          hidden
+        >
+          <h2>Agent</h2>
+          <section
+            id="agent-controls"
+            aria-label="Agent and experiment controls"
+          ></section>
+        </section>
       </aside>
+      <section id="viewport" aria-label="Scene viewport"></section>
     </main>
     <script type="module" src="/dist/main.js"></script>
   </body>

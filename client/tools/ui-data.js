@@ -7,11 +7,23 @@ import { extractCashShop } from "./cash-shop-data.js";
 import { extractMonsterBook } from "./monster-book-data.js";
 import { extractAvatarCatalog } from "./avatar-catalog.js";
 import { extractSkillMacroRules } from "./skill-macro-data.js";
+import { extractNpcWorldUI } from "./life-data.js";
+import { extractSkillWorld } from "./skill-world-data.js";
+import { extractSkillUtility } from "./skill-utility-data.js";
+import { extractSkillCombat } from "./skill-combat-data.js";
+import { extractSkillTargets } from "./skill-target-data.js";
+import {
+  DOJO_SKILLS,
+  PYRAMID_SKILLS,
+  eventMapFamily,
+  eventFieldAllows,
+} from "../src/skills/skill-event-rules.js";
 
 const MAX_UI_NODES = 16000;
 const MAX_UI_DEPTH = 64;
-const MAX_UI_MAPS = 512;
+const MAX_UI_MAPS = 1024;
 const MAX_ITEM_NAME_NODES = 150000;
+const MAX_SKILL_BOOK_IMAGES = 256;
 const MAX_ITEM_NAMES = 50000;
 const BRANCHES = [
   "Item",
@@ -22,6 +34,8 @@ const BRANCHES = [
   "Quest",
   "UserInfo",
   "Shop",
+  "Trunk",
+  "EnchantSkill",
   "TradingRoom",
   "TemporaryStatView",
   "GameMenu",
@@ -104,12 +118,14 @@ async function branchRoots(context, { imageName, branch, extras }) {
   if (branch === "MiniMap") {
     await addMinimapMarkers(context, stack);
   }
-  return { stack, sources };
+  const books =
+    branch === "Skill" ? await addSkillBooks(context, stack, sources) : null;
+  return { stack, sources, books };
 }
 
 /** Iterative traversal retains alias paths and original anchors; bounded path depth detects UOL ancestor cycles. */
 async function branchBundle(context, imageName, branch, extras = []) {
-  const { stack, sources } = await branchRoots(context, {
+  const { stack, sources, books } = await branchRoots(context, {
     imageName,
     branch,
     extras,
@@ -154,6 +170,7 @@ async function branchBundle(context, imageName, branch, extras = []) {
     aliases,
     entities,
     sources,
+    books,
   });
 }
 
@@ -168,9 +185,35 @@ async function addMinimapMarkers(context, stack) {
   }
 }
 
+/** Native008ac38a paints the selected book's Skill info/icon and String bookName. */
+async function addSkillBooks(context, stack, sources) {
+  const images = context.imageEntries("Skill");
+  if (!(images instanceof Map) || images.size > MAX_SKILL_BOOK_IMAGES) {
+    throw new Error("Original skill book image index exceeds its bound");
+  }
+  const strings = await context.image("String", "Skill.img");
+  const books = Object.create(null);
+  for (const image of images.keys()) {
+    if (!/^\d+\.img$/.test(image)) continue;
+    const key = image.slice(0, -4);
+    const root = await context.image("Skill", image);
+    const icon = at(root, "info/icon");
+    const name = value(at(strings, key), "bookName", null);
+    if (!icon || typeof name !== "string" || !name) {
+      throw new Error(`Original skill book header is unavailable: ${image}`);
+    }
+    const path = `Skill/Book/${Number(key)}/icon`;
+    stack.push({ node: icon, path, depth: 0 });
+    books[Number(key)] = { iconPath: path, name };
+    sources.push(`Skill.wz:${image}/info/icon`);
+  }
+  sources.push("String.wz:Skill.img/<book>/bookName");
+  return books;
+}
+
 function publishBranch(
   context,
-  { imageName, branch, assets, aliases, entities, sources },
+  { imageName, branch, assets, aliases, entities, sources, books },
 ) {
   const metadata = {
     source: `UI.wz:${imageName}${branch ? `/${branch}` : ""}`,
@@ -180,6 +223,7 @@ function publishBranch(
     timing:
       "Static canvases; absent frame timing unsupported. Explicit authored delays retained in assets.",
   };
+  if (books) metadata.books = books;
   if (branch === "MiniMap") {
     metadata.markerSource = "Map.wz:MapHelper.img/minimap";
   }
@@ -208,16 +252,54 @@ function cursorStates(assets) {
   return states;
 }
 
+/** 005cf792 reads info/link once; nonzero link selects the String.wz map-name record. */
+async function minimapNames(context, mapId, map) {
+  const link = value(at(map, "info"), "link", "");
+  if (link !== "" && !/^\d{1,9}$/.test(String(link))) {
+    throw new Error(`Invalid original map-name link: ${mapId}`);
+  }
+  const namesMapId = Number(link) || Number(mapId);
+  const root = await context.image("String", "Map.img");
+  const regions = Object.values(root.children);
+  if (regions.length > 64) throw new Error("Map-name region budget exceeded");
+  let names = { streetName: "", mapName: "", namesMapId };
+  for (const region of regions) {
+    const node = region.children[String(namesMapId)];
+    if (!node) continue;
+    names = {
+      streetName: value(node, "streetName", ""),
+      mapName: value(node, "mapName", ""),
+      namesMapId,
+    };
+    if (
+      typeof names.streetName !== "string" ||
+      typeof names.mapName !== "string"
+    ) {
+      throw new Error(`Invalid original map names: ${mapId}`);
+    }
+  }
+  return names;
+}
+
 /** Original per-map minimap canvas and scalar coordinate metadata, independently demand-loaded. */
 async function minimapBundle(context, mapId) {
   const path = `Map/Map${mapId[0]}/${mapId}.img`;
   const map = await context.image("Map", path);
+  const names = await minimapNames(context, mapId, map);
   if (!map.children.miniMap) {
-    return { available: false, reason: "Original map has no miniMap branch." };
+    return {
+      available: false,
+      ...names,
+      reason: "Original map has no miniMap branch.",
+    };
   }
   const node = at(map, "miniMap");
   if (!node.children.canvas) {
-    return { available: false, reason: "Original miniMap has no canvas." };
+    return {
+      available: false,
+      ...names,
+      reason: "Original miniMap has no canvas.",
+    };
   }
   const record = await canvasRecord(
     context,
@@ -225,23 +307,56 @@ async function minimapBundle(context, mapId) {
     "miniMap/canvas",
     0,
   );
+  const properties = minimapProperties(node);
+  const entities = [record.entity];
+  const assets = { "miniMap/canvas": record.asset };
+  const mapMark = value(at(map, "info"), "mapMark", "");
+  if (typeof mapMark !== "string") {
+    throw new Error(`Invalid original map mark: ${mapId}`);
+  }
+  await appendMinimapMark(context, mapMark, entities, assets);
+  const metadata = {
+    source: `Map.wz:${path}/miniMap`,
+    assets,
+    ...names,
+    mapMark,
+    namesSource: "String.wz:Map.img",
+    markSource:
+      mapMark && mapMark !== "None"
+        ? `Map.wz:MapHelper.img/mark/${mapMark}`
+        : null,
+    properties,
+  };
+  const descriptor = await context.bundle({
+    id: `ui:minimap:${mapId}`,
+    entities,
+    metadata,
+  });
+  return { available: true, ...names, descriptor };
+}
+
+async function appendMinimapMark(context, mapMark, entities, assets) {
+  if (mapMark && mapMark !== "None") {
+    const helper = await context.image("Map", "MapHelper.img");
+    const mark = await canvasRecord(
+      context,
+      at(helper, `mark/${mapMark}`),
+      "miniMap/mark",
+      1,
+    );
+    entities.push(mark.entity);
+    assets["miniMap/mark"] = mark.asset;
+  }
+}
+
+function minimapProperties(node) {
   const properties = Object.create(null);
   for (const [key, child] of Object.entries(node.children)) {
     if (["number", "string"].includes(typeof child.value)) {
       properties[key] = child.value;
     }
   }
-  const metadata = {
-    source: `Map.wz:${path}/miniMap`,
-    assets: { "miniMap/canvas": record.asset },
-    properties,
-  };
-  const descriptor = await context.bundle({
-    id: `ui:minimap:${mapId}`,
-    entities: [record.entity],
-    metadata,
-  });
-  return { available: true, descriptor };
+  return properties;
 }
 
 /** Full original item-name table; labels do not confer possession, use rules or instance statistics. */
@@ -258,6 +373,7 @@ async function itemLabels(context) {
     "Ins.img",
     "Etc.img",
     "Cash.img",
+    "Pet.img",
   ]) {
     const root = await context.image("String", imageName);
     collectItemLabels(root, state, imageName);
@@ -317,15 +433,15 @@ function recordItemLabel(state, key, node, source) {
   state.details[id] = { name, description, source };
 }
 
-/** Original normal speech skin; layout and lifetime consumers are retained separately. */
-async function speechBubbleBundle(context) {
+/** Player and NPC speech share the original skin extraction and color contract. */
+async function speechBubbleBundle(context, skin = "0") {
   const image = await context.image("UI", "ChatBalloon.img");
-  const color = value(at(image, "0"), "clr", null);
+  const color = value(at(image, skin), "clr", null);
   if (!Number.isInteger(color)) {
-    throw new Error("Original normal speech color is missing or invalid");
+    throw new Error(`Original speech color is missing or invalid: ${skin}`);
   }
   return {
-    bundle: await branchBundle(context, "ChatBalloon.img", "0"),
+    bundle: await branchBundle(context, "ChatBalloon.img", skin),
     color,
   };
 }
@@ -389,6 +505,9 @@ async function windowBundles(context) {
   bundles.WorldMap = await extractWorldMaps(context, canvasRecord);
   bundles.MesoDrop = await branchBundle(context, "Basic.img", "Notice3", [
     "Notice4",
+  ]);
+  bundles.UtilDlg = await branchBundle(context, "Basic.img", "YesNo3", [
+    "Notice3",
   ]);
   return bundles;
 }
@@ -525,6 +644,10 @@ export async function extractGameUI(context) {
     bundles,
     minimaps,
     npcPortraits,
+    npcWorld: {
+      ...(await extractNpcWorldUI(context)),
+      speech: await speechBubbleBundle(context, "npc"),
+    },
     dialogArtwork,
     cashShop,
     monsterBook: monsterBook.monsterBook,
@@ -536,27 +659,69 @@ export async function extractGameUI(context) {
     itemLabels: strings.labels,
     items: templates.items,
     skills: templates.skills,
+    fieldResources: fieldSkillResources(context, templates.skills),
     speechBubbles: await speechBubbleBundle(context),
-    coverage: {
-      ...templates.coverage,
-      cashCommodities: Object.keys(cashShop.commodities).length,
-      cashItems: cashShop.itemIds.length,
-      monsterBookItemIds: monsterBook.itemIds,
-      monsterBook: monsterBook.coverage,
-      scriptMetadata: dependencyCoverage(context, {
-        items: templates.items,
-        npcPortraits,
-        dialogArtwork,
-      }),
-      missingPortraits: Object.entries(npcPortraits)
-        .filter(([, entry]) => entry.available === false)
-        .map(([id, entry]) => ({ id: Number(id), ...entry })),
-      missingDialogArtwork: Object.entries(dialogArtwork)
-        .filter(([, entry]) => entry.available === false)
-        .map(([path, entry]) => ({ path, ...entry })),
+    skillWorld: await extractSkillWorld(context),
+    skillUtility: await extractSkillUtility(context, templates.items),
+    skillCombat: {
+      ...extractSkillCombat(context),
+      targets: await extractSkillTargets(context),
     },
+    coverage: uiCoverage(context, templates, {
+      cashShop,
+      monsterBook,
+      npcPortraits,
+      dialogArtwork,
+    }),
     authority:
       "Original static artwork/metadata with recovered native consumers; mutable state is real local-profile authority, with explicitly labeled authorized Cosmic server-reference policy.",
     evidence: "docs/ingame-ui.md",
+  };
+}
+
+/** Original field type and map predicates select event artwork, never grant event authority. */
+function fieldSkillResources(context, skills) {
+  const result = Object.create(null);
+  for (const mapId of context.mapIds) {
+    const family = eventMapFamily(Number(mapId));
+    if (!family) continue;
+    const map = context.image("Map", `Map/Map${mapId[0]}/${mapId}.img`);
+    const fieldType = value(at(map, "info"), "fieldType", 0);
+    if (!eventFieldAllows(family, fieldType)) continue;
+    const resources = [];
+    const ids = family === "dojo" ? DOJO_SKILLS : PYRAMID_SKILLS;
+    for (const id of ids) {
+      const skill = skills[id];
+      if (!skill?.classification.supported) continue;
+      resources.push(skill.visuals, skill.descriptor);
+      for (const name of ["Use", "Hit"]) {
+        const sound = skill.sounds?.leaves?.[name];
+        if (sound) resources.push(sound);
+      }
+    }
+    result[mapId] = resources;
+  }
+  return result;
+}
+
+function uiCoverage(context, templates, sources) {
+  const { cashShop, monsterBook, npcPortraits, dialogArtwork } = sources;
+  return {
+    ...templates.coverage,
+    cashCommodities: Object.keys(cashShop.commodities).length,
+    cashItems: cashShop.itemIds.length,
+    monsterBookItemIds: monsterBook.itemIds,
+    monsterBook: monsterBook.coverage,
+    scriptMetadata: dependencyCoverage(context, {
+      items: templates.items,
+      npcPortraits,
+      dialogArtwork,
+    }),
+    missingPortraits: Object.entries(npcPortraits)
+      .filter(([, entry]) => entry.available === false)
+      .map(([id, entry]) => ({ id: Number(id), ...entry })),
+    missingDialogArtwork: Object.entries(dialogArtwork)
+      .filter(([, entry]) => entry.available === false)
+      .map(([path, entry]) => ({ path, ...entry })),
   };
 }

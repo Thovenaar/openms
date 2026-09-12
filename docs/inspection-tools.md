@@ -4,14 +4,16 @@ The header and sidebar are browser development tools, not reconstructed native M
 
 ## Workspace and themes
 
-- **Play**, **Character**, **Inspect**, and **Settings** are four task-based tabs, not a sequence. Left/Right and Home/End switch tabs. Their existing DOM remains mounted, so switching sections preserves unsaved form values.
-- **Play** keeps map selection and Music/Sound effects controls visible. Movement keys and audio diagnostics are secondary disclosures. Volume readouts show percentages without changing the native 0–128 audio range.
+- **Play**, **Character**, **Inspect**, **Settings**, and **Agent** are five task-based tabs, not a sequence. Left/Right and Home/End switch tabs. Their existing DOM remains mounted, so switching sections preserves unsaved form values. The active tab uses a solid theme-accent background, contrasting text, bold weight and a visible bottom border, not a subtle underline alone.
+- **Play** keeps map selection and Music/Sound effects controls visible. The redundant Movement keys disclosure is removed; native KeyConfig remains in the toolbar. Volume readouts show percentages without changing the native 0–128 audio range.
 - **Character** shows identity and HP/MP first. Presets, attributes, progress/wallet, skill editing, and destructive actions remain available behind named disclosures. Apply/Discard are disabled when there is no draft.
 - **Inspect** groups geometry, bounded scene/life searches, camera controls, and runtime stepping. Scene-dependent controls remain disabled until a map exists. A world mob selection reveals this tab and its exact life placement.
+- **Inspect → Error log** projects the same bounded, deduplicated session journal as native Game Logs into selectable readonly text. Errors never insert a banner above Play or shift its controls. New records preserve text while it is focused for copying; blur refreshes the journal. Successful map changes clear current failure state, not log history. Startup failures remain visible before the renderer is ready.
 - **Settings** contains the existing XP, Windows95, and Y2K theme choice and offline-release tools. The theme still persists under `maple-inspection-theme-v1`; storage failures are reported.
+- **Agent** alone contains **Allow agent control**, **Stop agent**, ownership status, **Experimental · temporary profile**, and **Exit experiment**. Switching tabs does not grant permission or move these controls into another panel.
 - Theme attributes and variables remain on `.inspection-chrome` only. The body, viewport, and `.maple-ui-root` do not inherit the console theme.
 - **Hide tools** expands the canvas; **Show tools** restores it through the existing viewport resize owner. On desktop, the toolbar stays outside each panel's scroll area rather than covering scrolled controls. Below 960px, tools follow the game in ordinary page flow.
-- Pause/resume, key bindings, reload, errors, and agent permission/Exit controls remain available outside the task panels. Static console navigation initializes before renderer startup, so a renderer failure cannot strand the offline controls.
+- Pause/resume, key bindings and reload remain in the toolbar **above all five tabs**, outside panel scrolling. Error/status feedback is also outside the task panels; Agent permissions/Exit are not. Static console navigation initializes before renderer startup, so a renderer failure cannot strand the offline controls.
 
 The design follows [NN/G progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/) and the GOV.UK guidance for [details](https://design-system.service.gov.uk/components/details/) and [tabs](https://design-system.service.gov.uk/components/tabs/): keep frequent controls visible, give secondary groups descriptive labels, and use a small set of independent tasks instead of a wizard or deeply nested settings tree. These are external-tool design choices, not reconstructed MapleStory chrome.
 
@@ -26,13 +28,15 @@ Open **Character**. Identity and HP/MP use a two-column form, with full-width na
 
 Presets are explicit GM policies, not native game grants:
 
-| Preset | Fields replaced |
-| --- | --- |
-| Restore resources | HP and MP become the current profile's maximum HP and MP. |
-| Training budget | AP becomes 20; only SP pool 0 becomes 10. Other SP pools, learned skills, job and level are untouched. |
-| Drop testing | Wallet becomes exactly 100,000 mesos; no drop is spawned. Use the native inventory meso-drop action to exercise drop authority separately. |
+| Preset            | Fields replaced                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Restore resources | HP and MP become the current profile's maximum HP and MP.                                                                                  |
+| Training budget   | AP becomes 20; only SP pool 0 becomes 10. Other SP pools, learned skills, job and level are untouched.                                     |
+| Drop testing      | Wallet becomes exactly 100,000 mesos; no drop is spawned. Use the native inventory meso-drop action to exercise drop authority separately. |
 
 **Save checkpoint** retains the existing persistence action; **Revive character** retains its existing admission rules. Reset remains behind **Destructive actions** and uses the existing confirmation owner. Reactor offering uses an owned inventory item and the existing offering hook, not a fabricated inventory grant.
+
+**Conjure world item** searches the complete packaged item catalog by name or ID, with at most200 displayed matches and explicit refinement feedback. It creates a real transient drop in front of the character after metadata, ground, ownership and original-art preflight; it does not directly grant inventory. Normal settlement and pickup perform the durable credit. Reactor offering uses the same searchable catalog but still requires actual owned quantity.
 
 ## Bounded entity inspection
 
@@ -51,6 +55,7 @@ The **Local multiplayer simulation** disclosure is an outside-game producer for 
 
 - Social actions create actual local consent requests and atomically maintain reciprocal Buddy/Party/Guild/Alliance/Family/Messenger state. Receiving actions remain visible; opening a window never fabricates a roster.
 - Peer trade actions invite/accept/decline, offer an actual owned UID/quantity, add mesos, confirm, chat or cancel through `LocalTrade`. The active character uses native UserInfo/TradingRoom; peer controls are not a shortcut around its acceptance surface.
+- **Edit selected local peer** changes the selected non-active character's level (1–200, resetting EXP) or grants/removes validated item quantities through atomic local-profile transactions. Name/ID search spans the packaged catalog; removing an item selects its actual owned UID. These are explicit setup controls, not earned progression, a remote inventory protocol, or permission to mutate the active character through peer tools.
 - Cash funding is explicitly GM setup. Selected-peer gift purchase spends its NX Prepaid through `CashShopService`; receipt claim consumes a real persisted gift envelope for the selected receiver. These controls neither switch the live profile nor synthesize a receipt.
 - Local chat selects an actual sender/channel and reuses recipient, relationship, blacklist and permission admission. It does not invent All-chat delivery or a spouse.
 - A pending action disables conflicting mutation and retains failure feedback. The native UI, atomic profile authority and resource preparation still own the result. Teardown removes subscriptions/listeners; no producer polls the profile every frame.
@@ -59,15 +64,25 @@ See [profile transactions](offline-profile.md#atomic-ownership), [native binding
 
 ## Agent experiments and record/replay
 
-The redesigned header reuses the existing **Allow agent control**, **Stop agent**, ownership status, **Experimental · temporary profile**, and **Exit experiment** controls. Permission is never inferred from theme or profile state.
+The **Agent** panel reuses the existing permission, stop, ownership and experiment controls. Permission is never inferred from theme, active tab or profile state.
 
-Use the existing [`maple.agent` and `maple.dev.scenarios` workflow](agent-interface.md#temporary-scenarios-and-recording) for bounded recording and replay. After a human grant and `maple.agent.acquire`, begin a scenario, immediately start recording, dispatch normal actions, advance up to eight 30ms ticks per step, stop recording, and pass that recording to `run`. Exit restores the retained baseline. No second simulation, direct profile mutation, or separate recording format was added.
+Use the existing [`maple.agent` and `maple.dev.scenarios` workflow](agent-interface.md#temporary-scenarios-and-recording) for explicit agent command recording and replay. After a human grant and `maple.agent.acquire`, begin a scenario, immediately start recording, dispatch normal actions, advance up to eight30ms ticks per step, stop recording, and pass that recording to `run`. Exit restores the retained baseline. This command workflow remains distinct from the native error-diagnostic journal below; both use the existing world/scenario owners, not a second simulation.
 
-There are deliberately no misleading native Record/Replay buttons: trusted pointer/key input anywhere revokes the agent lease before action handlers run. A console button must not bypass that takeover safeguard. Existing Exit remains usable after permission loss. Read-only paginated `maple.agent.observe` and `maple.dev.describe({entityId})` complement the visible search without requiring a lease.
+Trusted human pointer/key input still revokes the agent lease before action handlers run. Exit remains usable after permission loss. Read-only paginated `maple.agent.observe` and `maple.dev.describe({entityId})` complement visible search without requiring a lease. Native diagnostic replay authorizes only the selected validated dump; it never grants an agent lease.
 
-## Simplified-console native proof
+### Native Game Logs diagnostics
 
-The [console report](ingame-validation/console-simple/report.json) records the actual integrated browser, not a module fixture. [Before](ingame-validation/console-simple/before.png), [Play](ingame-validation/console-simple/play-desktop.png), [Character draft](ingame-validation/console-simple/character-draft.png), and [390px/DPR2](ingame-validation/console-simple/play-mobile-dpr2.png) captures were inspected.
+The in-game **Game Logs** window provides **Export JSON**, **Import**, and **Replay locally**. These are bounded local error diagnostics, not agent command-recording buttons or GM networking. Dumps include character/account/loaded-peer state, native UI and chat/drafts, field/physics/input/random state, offline/streaming context and exact source/assets/release identity; treat the downloaded file as private. Export is a browser JSON download, import is a selected local file, and nothing uploads.
+
+`game-diagnostics.js` retains one initial field baseline and a finite journal of ordinary native handlers' inputs, accepted/refused agent commands and profile checkpoints. Captured native events cover pointer/carry, keys, wheel/scroll, focus, editor values/selections and paired IME composition. Events must be trusted; the sole composition exception accepts an untrusted `compositionend` only for the same target as a captured trusted start. Fixed owned roots and bounded data paths exclude links, password/file controls, Game Logs and agent controls; imported code, selectors, arbitrary property dispatch and prototype keys are not accepted.
+
+Admission requires the exact same build/assets/release and recorded gameplay viewport. JSON is limited to16MiB, depth32 and262,144 nodes; the journal to8,192 events,4MiB and120,000 fixed30ms ticks. Missing/incomplete baselines, exhausted bounds or unsupported external state changes retain explicit non-replayable context rather than a fabricated replay. Browser focus/visibility or viewport changes invalidate recording or cancel replay; native pointer/key takeover, Escape and the visible Cancel control also cancel replay.
+
+Replay creates memory-only profile/account/peer authorities while retaining and detaching the actual live scene, UI nodes, windows and drafts. It does not flush a dirty live baseline into IndexedDB on entry. Completion, cancellation and failure restore those retained owners, input, view, audio/pause state and UI preferences; temporary progress never replaces live or durable character/account state. Matching error signatures and compared authoritative state are reported separately from divergence. Browser tasks, asset/audio timing, wall time and UUID creation are external inputs, so an unreproduced error is not reported as deterministic success. See [validation](validation.md) for identity-scoped results and [validation method](validation-method.md) for procedures.
+
+## Historical simplified-console native proof
+
+The historical four-tab [console report](ingame-validation/console-simple/report.json) records its actual integrated browser, not a module fixture or the current five-tab layout. [Before](ingame-validation/console-simple/before.png), [Play](ingame-validation/console-simple/play-desktop.png), [Character draft](ingame-validation/console-simple/character-draft.png), and [390px/DPR2](ingame-validation/console-simple/play-mobile-dpr2.png) captures were inspected.
 
 - Desktop rendered controls fell from 42 to 17 in the tested default view. The previous sidebar needed 2648px of scroll content; the final Play panel fits its 807px viewport without vertical overflow.
 - Native edits survived tab switches and keyboard navigation. STR0 revealed/focused the collapsed Attributes field without changing live STR12. Wallet preview showed100000 while the live wallet stayed0; Discard preserved authority.
@@ -78,7 +93,7 @@ The [console report](ingame-validation/console-simple/report.json) records the a
 - Review found and fixed missing no-map disabling, late static navigation, and stale geometry-validator navigation. A held catalog request left moved controls disabled until map commit. A deliberately intercepted renderer-initialization rejection left Settings/offline actions reachable; this fault injection is not gameplay evidence.
 - Manual replay found a sticky-toolbar hit interception: a scrolled camera button's center hit the Inspect tab instead. Independent panel scrolling now keeps the toolbar outside the clipping region; replay hit `entity-focus` and set camera(-353,-55)/follow=false.
 
-The retained native validator and focused regression captures are linked in the report. Strict lint and147 tests/876 assertions pass. No new permanent UI tests, gameplay authority, save schema, or native-window styling were introduced.
+That retained native validator and focused regression captures are linked in the report. Its historical strict lint and147 tests/876 assertions passed. That iteration introduced no new permanent UI tests, gameplay authority, save schema, or native-window styling; these statements do not describe the later schema8/native-diagnostic changes.
 
 ## Historical isolated-module proof
 
@@ -100,7 +115,7 @@ The earlier [integrated item report](ingame-validation/expanded/items/evidence.j
 2. Preview and discard each preset, confirming native stats/wallet remain unchanged. Apply the wallet/training presets, confirm the native windows update, then reload to verify the durable commit. Exercise invalid values and profile/map ownership changes while saving; rejected edits must retain a usable draft.
 3. Use Inspect to search a late resident ID, toggle a harmless artwork preview, change its layer, center the camera, then restore Follow. Search no matches and verify mutation controls cannot run. Confirm native mob combat still owns its animation.
 4. Search an NPC by original name in the placement inspector. Reveal geometry and inspect a preview, then use the NPC's world target for actual dialogue. A mob selection must never offer an action override or trigger NPC dialogue.
-5. At 390px width and with keyboard-only Tab/Enter navigation, reach theme selection, all four tabs, preset Apply/Discard, map selection, pause and diagnostics. Scroll the console without losing access to the game.
-6. Exercise the existing agent recording/replay sequence on the integrated build. Confirm trusted human takeover still revokes the lease, temporary profile progress cannot become a durable save, and Exit experiment restores the retained baseline under every theme.
+5. At390px width and with keyboard-only Tab/Enter navigation, reach theme selection, all five tabs, preset Apply/Discard, map selection, pause and diagnostics. Confirm active-tab contrast, Agent-only permissions and the transport toolbar above the tabs. Scroll the console without losing access to the game.
+6. Exercise the existing agent recording/replay sequence on the integrated build. Confirm trusted human takeover still revokes the lease, temporary profile progress cannot become a durable save, and Exit experiment restores the retained baseline under every theme. Separately exercise native Game Logs export/import/replay and cancellation with open windows and drafts; record restoration and any nondeterministic divergence rather than conflating that path with agent command recording.
 
 `initialize()` owns the static navigation/theme abort signal before offline/renderer initialization; `destroy()` aborts it. Scene controls retain their own listener lifetime. Offline delivery mounts under Settings in `#offline-controls`. Existing `onProfileEdit`, audio-setting storage and agent ownership/experiment interfaces remain unchanged.

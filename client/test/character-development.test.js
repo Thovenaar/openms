@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { CharacterDevelopment } from "../src/character-development.js";
-import { createProfile } from "../src/profile-validation.js";
-import { experienceRequired } from "../src/offline-progression.js";
-import { ProfileStore } from "../src/profile-store.js";
-import { grantItem } from "../src/inventory-model.js";
+import { CharacterDevelopment } from "../src/character/character-development.js";
+import { createProfile } from "../src/profile/profile-validation.js";
+import { experienceRequired } from "../src/character/offline-progression.js";
+import { ProfileStore } from "../src/profile/profile-store.js";
+import { grantItem } from "../src/items/inventory-model.js";
+import { keyIndexForCode } from "../src/input/keymap.js";
 
 const LOCATION = { mapId: "100000000", x: 0, y: 0, facing: 1 };
 
@@ -101,6 +102,22 @@ test("all original books are editable jobs without gifts or erasing learned reco
   expect(store.profile).toEqual({ ...before, job: 900 });
 });
 
+test("preset skills and bindings commit together, but a cross-job shortcut rejects the whole edit", async () => {
+  const { store, service } = fixture();
+  const key = keyIndexForCode("KeyA");
+  const keyBindings = structuredClone(store.profile.keyBindings);
+  keyBindings.keys[key] = { type: 1, id: 1001000 };
+  await service.edit({ job: 100, skills: learned(20), keyBindings });
+  expect(store.profile.job).toBe(100);
+  expect(store.profile.skills[1001000].level).toBe(20);
+  expect(store.profile.keyBindings.keys[key]).toEqual({ type: 1, id: 1001000 });
+  const committed = structuredClone(store.profile);
+  await expect(
+    service.edit({ name: "Wrong job", job: 200, keyBindings }),
+  ).rejects.toThrow();
+  expect(store.profile).toEqual(committed);
+});
+
 test("edit waits for durability and owns nested patch values throughout and after commit", async () => {
   const { store, storage, service } = fixture();
   let release;
@@ -109,7 +126,15 @@ test("edit waits for durability and owns nested patch values throughout and afte
       release = resolve;
     });
   const before = structuredClone(store.profile);
-  const patch = { remainingSp: Array(10).fill(2), skills: learned(3) };
+  const key = keyIndexForCode("KeyA");
+  const keyBindings = structuredClone(store.profile.keyBindings);
+  keyBindings.keys[key] = { type: 1, id: 1001000 };
+  const patch = {
+    job: 100,
+    remainingSp: Array(10).fill(2),
+    skills: learned(3),
+    keyBindings,
+  };
   const expected = structuredClone(patch);
   let settled = false;
   const commit = service.edit(patch).then(() => {
@@ -117,6 +142,7 @@ test("edit waits for durability and owns nested patch values throughout and afte
   });
   patch.remainingSp[0] = 999;
   patch.skills[1001000].level = 19;
+  patch.keyBindings.keys[key].id = 1121000;
   await Promise.resolve();
   expect(settled).toBe(false);
   expect(store.profile).toEqual(before);
@@ -124,6 +150,7 @@ test("edit waits for durability and owns nested patch values throughout and afte
   await commit;
   patch.remainingSp[1] = 888;
   patch.skills[1001000].masterLevel = 1;
+  patch.keyBindings.keys[key].type = 0;
   expect(store.profile).toEqual({ ...before, ...expected });
 });
 
@@ -238,7 +265,8 @@ function apFixture(options = {}) {
   const store = ProfileStore.memory(createProfile(LOCATION));
   const catalog = fixture().service.catalog;
   catalog.ui.coverage.skillCoverage.playerBooks = [
-    0, 100, 1100, 2100, 200, 1200, 300, 1300, 400, 1400, 500, 1500, 2200,
+    0, 100, 1100, 2100, 200, 1200, 300, 1300, 400, 1400, 500, 510, 1500, 1510,
+    2200,
   ];
   for (const [id, bookId] of [
     [1000001, 100],
@@ -310,8 +338,10 @@ const AP_GROWTH = [
   [1300, 18, 10, null],
   [400, 18, 10, null],
   [1400, 18, 10, null],
-  [500, 20, 11, 5100000],
-  [1500, 20, 11, 15100000],
+  [500, 20, 11, null],
+  [510, 20, 11, 5100000],
+  [1500, 20, 11, null],
+  [1510, 20, 11, 15100000],
   [2200, 12, 8, null],
 ];
 for (const [job, hp, mp, skill] of AP_GROWTH) {

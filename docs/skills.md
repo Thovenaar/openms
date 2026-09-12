@@ -15,38 +15,47 @@ Each `catalog.ui.skills[id]` preserves the existing `descriptor`, `iconPath`, `i
 - Every visual sequence, including nested rank, `CharLevel`, `finalAttack`, `prepare`, `affected`, `hit`, `ball`, `special`, and other authored branches. Original frame delay/origin/alpha and source identities flow through the existing atlas/part pipeline. Unresolvable aliases are explicit unavailable records.
 - Every skill sound leaf, exact leaf name, alias and resolved source identity. Missing sound trees are explicit original absence. Sound payloads are original MP3s, not synthesized replacements.
 
-`catalog.ui.coverage.skillCoverage` contains sorted `playerBooks`, separate `domains`, `total` and deterministic capability `counts`. The executed [complete controller/action audit](ghidra-client-corrections/expanded-skill-coverage.json) reclassified all **534** retained records with the current source classifier, increasing supported controllers from **16 to35**:
+`catalog.ui.coverage.skillCoverage` contains sorted `playerBooks`, separate `domains`, `total` and deterministic capability `counts`. The current regenerated534-record catalog classifies485 runtime-capable and49 unavailable records. These are source capabilities, **not534 individually replayed skills**. The earlier [controller/action audit](ghidra-client-corrections/expanded-skill-coverage.json) retains its historical35-controller result; current counts are:
 
 | Classification | Runtime-capable | Unavailable dependency |
 | --- | ---: | ---: |
-| Passive | 10 | 62 |
-| Timed self/solo-party buff | 21 | 6 |
-| Sword melee | 4 | 0 |
-| Other weapon/projectile | 0 | 187 |
-| Channel | 0 | 17 |
-| Morph/mount | 0 | 5 |
-| Teleport/impulse movement | 0 | 11 |
-| Other attack | 0 | 56 |
-| Special/party/target | 0 | 91 |
-| Summon | 0 | 23 |
-| Map/door | 0 | 1 |
-| Magic | 0 | 16 |
-| Item/projectile-consuming | 0 | 10 |
-| GM/event/server | 0 | 14 |
+| Passive | 112 | 0 |
+| Combat | 163 | 0 |
+| Self buff | 124 | 0 |
+| Utility | 21 | 0 |
+| Form | 9 | 0 |
+| Summon | 21 | 2 |
+| Impulse | 4 | 0 |
+| Channel | 14 | 0 |
+| Rush | 4 | 0 |
+| Teleport | 4 | 0 |
+| Area | 3 | 0 |
+| Dash | 2 | 0 |
+| Door / assault / wings / recoil | 4 | 0 |
+| Disabled | 0 | 33 |
+| Server-only | 0 | 14 |
 
 These are capability classifications, **not a claim of complete native runtime fidelity**. The generated catalog computes them anew from the extraction input. Unavailable records state the missing controller/transaction/server prerequisite and remain visible in the full catalog.
 
 The reusable audit command, from `client/`, is:
 
 ```sh
-bun tools/skill-report.js public/generated/catalog.json default ../docs/ghidra-client-corrections/expanded-skill-coverage.json
+bun tools/skill-report.js public/generated/catalog.json default /tmp/maple-skill-coverage.json
 ```
 
-An optional fourth argument accepts an exported schema4 profile and joins **every type-1 binding** to its learned/unexpired job ownership, current controller and missing actor actions. `default` resolves the current catalog's hashed default-map manifest; an explicit map manifest can instead audit another extracted actor. No extraction or browser startup is required. The report includes every record's authored action list, equipment fallback policy, missing actor actions/weapon rectangles, rank-field inventory, visual/sound leaves, unselected alternate visuals, admission flags and independently observed controller dependencies. This run found **103 records with absent extracted actor actions**, **zero unresolved visual sequences**, and **zero unavailable sound leaves**; assets being present does not establish their selection/controller semantics.
+An optional fourth argument accepts an exported profile and joins **every type-1 binding** to learned/unexpired job ownership, its current controller and missing actor actions. `default` resolves the catalog's hashed default-map manifest; another manifest audits another extracted actor. No extraction/browser startup is required. The report includes authored action lists, equipment fallback, missing actor actions/rectangles, rank fields, visual/sound leaves and admission dependencies. The historical report's103 missing actor-action records and zero unresolved visual/sound leaves describe that earlier input/build, not current native acceptance.
 
-The remaining **499 records** are not all missing “server scripts.” Exact distinctions include slot-aware ammunition/items/mesos; held/release input transitions; projectile timing; summon lifetime/target ownership; combo/state transitions; mob status probability/expiry; morph movement; map/party authorization; and actor actions absent from the extracted avatar. Six scalar buff records have identifiable but **unconsumed** stats: Meditation `2101001/2201001/12101000` requires magic damage; Focus `3001003/13001002` and Bless `2301004` require accuracy/evasion hit-miss authority. They remain unavailable rather than spending resources for an inert derived flag. Original event/client script execution is not supplied; Cosmic is an authorized server reference, never a substitute Nexon client source tree.
+The49 current unavailable classifications retain explicit per-record reasons:33 disabled,14 server-only and two summons. Classification alone does not satisfy learned rank, job, equipment, ammunition/items, resource capacity, map state or actor-art admission. Original event/client script execution and remote server authorization are not supplied; Cosmic remains an authorized server reference, never substitute Nexon client source.
 
 The audit also corrected false passive labels: Three Snails has rank-nested `ball`/`hit` and fixed damage, while Teleport/Soul Rush have active resource rows even without top-level actions/effects. Three Snails now names its projectile controller dependency; eleven teleport/impulse skills identify relocation/foothold or swept-motion admission separately. No action/effect absence is treated as proof of passivity when authored active costs are present.
+
+### Reported projectile and teleport corrections
+
+Ordinary arrows/stars and ranged skills use the recovered20px seeking strips widened by distance/4 (`006789ed`, `00953fca/00955e6b`) against actual mob bodies, not a one-pixel horizontal line. Flight targets the acquired body's center with `trunc(distance*1.5)` timing and generation checks. Targetless admitted shots still publish original projectiles. Authored skill `ball` sequences take precedence; ammunition artwork supplies Lucky Seven/Double Shot when no skill ball exists. Magic Bolt2001004 uses its original ball; Magic Claw2001005 intentionally uses original effect/hit only because no ball is authored.
+
+Repeated stars use120ms spacing (`00942831`) and the original repeated-bullet spread. Ordinary claw action codes24–26 reuse `swingO1/2/3`; Lucky Seven's fallback uses `swingO1`, not a melee stab. Prepared projectile capacity is checked through the field's skill admission boundary before HP/MP/ammunition/cooldown mutation. `CombatPresentation.snapshot().emitted` counts **damage numbers**, not projectile launches; zero on an empty shot is expected and visual evidence is required.
+
+Skill teleport remains synchronous admitted origin→relocation→arrival publication; its original animations restart even on repeated use. The separate portal Teleport owner preloads both endpoints. Native replay fixtures and source identities are indexed in [validation](validation.md); neither visual reuse nor a capability count establishes original Windows timing parity.
 
 ## Learning and admission
 

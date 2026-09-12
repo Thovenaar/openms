@@ -1,5 +1,12 @@
 import { at, resolveNode } from "../src/assets/image.js";
 import { readRectangle } from "./hitbox-data.js";
+import {
+  weaponType,
+  MELEE_ACTIONS,
+  RANGED_ACTIONS,
+  weaponActionNames,
+  validateWeaponCombat,
+} from "../src/combat/weapon-usage.js";
 
 const MAX_ACTIONS = 128;
 const MAX_PROPERTIES = 32768;
@@ -18,12 +25,40 @@ function scalarFields(node) {
   return result;
 }
 
-/** Starter weapon selection is local; its afterimage and rectangles are original. */
-export function extractCombat(context) {
-  const weaponPath = "Weapon/01302000.img";
+/** Original00792d21: six job families, zero initial defense, positive values forward-filled. */
+function standardDefense(context) {
+  const root = context.image("Base", "StandardPDD.img");
+  const rows = Array.from({ length: 6 }, () => new Array(201).fill(0));
+  for (let family = 0; family < rows.length; family++) {
+    const node = root.children[family];
+    if (!node) break;
+    let current = 0;
+    for (let level = 0; level < rows[family].length; level++) {
+      const child = node.children[level];
+      if (child) {
+        const defense = resolveNode(child).value;
+        if (!Number.isSafeInteger(defense)) {
+          throw new Error(
+            `Invalid original standard defense ${family}/${level}`,
+          );
+        }
+        if (defense > 0) current = defense;
+      }
+      rows[family][level] = current;
+    }
+  }
+  return rows;
+}
+
+/** One immutable descriptor per actual base weapon, never the cash overlay. */
+export function extractWeaponCombat(context, weaponId) {
+  const type = weaponType(weaponId);
+  if (!type) return null;
+  const weaponPath = `Weapon/${String(weaponId).padStart(8, "0")}.img`;
   const equipment = scalarFields(
     at(context.image("Character", weaponPath), "info"),
   );
+  if (equipment.cash) return null;
   const afterimagePath = `Afterimage/${equipment.afterImage}.img`;
   const source = `Character.wz:${afterimagePath}`;
   const root = at(context.image("Character", afterimagePath), "0");
@@ -35,21 +70,77 @@ export function extractCombat(context) {
     if (!node.children.lt || !node.children.rb) continue;
     attacks[name] = { rectangle: readRectangle(node, `${source}/0/${name}`) };
   }
-  const octoSkill = at(context.image("Skill", "500.img"), "skill/5001003");
-  return {
-    schemaVersion: 1,
-    weaponId: 1302000,
+  const category = equipment.attack;
+  if (!MELEE_ACTIONS[category]?.length) {
+    throw new Error(`Original basic attack row unavailable: ${weaponId}`);
+  }
+  const combat = {
+    schemaVersion: 2,
+    weaponId,
+    weaponType: type,
     source: `Character.wz:${weaponPath}/info`,
     equipment,
     attacks,
-    defaultAction: "swingO1",
+    defaultAction: MELEE_ACTIONS[category][0],
     proneAction: "proneStab",
+  };
+  completeAttackMetadata(context, combat);
+  return validateWeaponCombat(combat);
+}
+
+/** Native shots use the forward ray, not a fabricated melee afterimage rectangle. */
+function completeAttackMetadata(context, combat) {
+  const ranged = RANGED_ACTIONS[combat.equipment.attack];
+  for (const name of weaponActionNames(combat)) {
+    if (!combat.attacks[name]) {
+      if (!ranged?.includes(name)) {
+        throw new Error(
+          `Original weapon hit rectangle unavailable: ${combat.weaponId}/${name}`,
+        );
+      }
+      combat.attacks[name] = { rectangle: null };
+    }
+    combat.attacks[name].timing = attackTiming(context, name);
+  }
+}
+
+/**00406abd: direct actions release before their final frame; aliases sum negative delays. */
+function attackTiming(context, action) {
+  const root = at(context.image("Character", "00002000.img"), action);
+  let duration = 0,
+    release = 0,
+    last = 0,
+    alias = false;
+  const frames = Object.values(root.children);
+  if (!frames.length || frames.length > 4096) {
+    throw new Error("Weapon timing bound exceeded");
+  }
+  for (const frame of frames) {
+    const data = scalarFields(frame);
+    last = data.delay ?? 150;
+    if (!Number.isSafeInteger(last)) {
+      throw new Error("Invalid original weapon delay");
+    }
+    alias ||= data.action !== undefined;
+    duration += Math.abs(last);
+    if (last < 0) release -= last;
+  }
+  return { duration, release: alias ? release : duration - Math.abs(last) };
+}
+
+/** Per-field global inputs only; equipped attack metadata is owned by the avatar. */
+export function extractCombat(context) {
+  const octoSkill = at(context.image("Skill", "500.img"), "skill/5001003");
+  return {
+    schemaVersion: 2,
+    standardPDD: standardDefense(context),
     capabilities: {
-      basicAttack: "local timing/damage; original equipped swordOL geometry",
+      basicAttack:
+        "all original ordinary weapon rows, equipped afterimage geometry and native melee/ranged arbitration",
       skills:
         "learned SkillSystem: catalog-classified sword attacks, self-stat buffs and passive consumers; unrecovered controllers remain unavailable",
       projectile:
-        "unavailable: ranged weapon/ammunition not equipped; 009537d5/0095571f trajectory/hit phases unresolved",
+        "ordinary bow/crossbow/claw/gun ammunition, authored bullet canvases and native1.5ms/pixel flight",
       summon:
         "unavailable: no learned summon skill or authoritative summon controller; artwork alone never spawns actors",
       mobProjectile:
@@ -62,10 +153,48 @@ export function extractCombat(context) {
         source: "Skill.wz:500.img/skill/5001003/level/1",
         levelOne: scalarFields(at(octoSkill, "level/1")),
         status:
-          "not learned/equipped; selected-skill-only mobs reject basic sword damage",
+          "not learned/equipped; selected-skill-only mobs reject basic damage",
       },
       experienceTable:
         "not recovered from retained original consumers or Etc inventory; explicit local quadratic progression",
     },
   };
+}
+
+/** Compile only release-catalog ammunition; every projectile is its own original bullet animation. */
+export async function extractProjectiles(context, items) {
+  const entities = [],
+    sources = Object.create(null);
+  const templates = Object.values(items);
+  if (templates.length > MAX_PROPERTIES) {
+    throw new Error("Projectile catalog bound exceeded");
+  }
+  for (const item of templates) {
+    const category = Math.trunc(item.id / 10000);
+    if (category !== 206 && category !== 207 && category !== 233) continue;
+    const path = `Consume/${String(category).padStart(4, "0")}.img`;
+    const id = String(item.id).padStart(8, "0");
+    const root = at(context.image("Item", path), id);
+    sources[item.id] = `Item.wz:${path}/${id}/bullet`;
+    const actions = { bullet: await context.frames(at(root, "bullet")) };
+    if (root.children.hit) actions.hit = await context.frames(at(root, "hit"));
+    entities.push({
+      id: String(item.id),
+      order: entities.length,
+      kind: "effect",
+      x: 0,
+      y: 0,
+      z: 0,
+      visible: true,
+      flip: false,
+      opacity: 1,
+      action: "bullet",
+      actions,
+    });
+  }
+  return context.bundle({
+    id: "ordinary-projectiles",
+    entities,
+    metadata: { sources },
+  });
 }

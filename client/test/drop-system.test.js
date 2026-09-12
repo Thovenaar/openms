@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { DropSystem, DROP_POLICY } from "../src/drop-system.js";
-import { ProfileStore } from "../src/profile-store.js";
-import { createProfile } from "../src/profile-validation.js";
+import { DropSystem, DROP_POLICY } from "../src/world/drop-system.js";
+import { ProfileStore } from "../src/profile/profile-store.js";
+import { createProfile } from "../src/profile/profile-validation.js";
+import { grantItem } from "../src/items/inventory-model.js";
 
 const LOCATION = { mapId: "100040000", x: 0, y: 0, facing: 1 };
 const ITEM = 4000004;
@@ -162,12 +163,7 @@ test("prepared partial drops conserve attributes and reject concurrent input wit
   });
   land(drops);
   expect((await drops.pickup(LOCATION)).ok).toBe(true);
-  expect(
-    store.profile.inventory.find((item) => item.uid === ground.uid),
-  ).toEqual({ ...ground, slot: 2 });
-  expect(
-    store.profile.inventory.reduce((total, item) => total + item.count, 0),
-  ).toBe(7);
+  expect(store.profile.inventory).toEqual([{ ...source, count: 7 }]);
   drops.destroy();
   await store.destroy();
 });
@@ -199,6 +195,111 @@ test("failed item-art preparation never debits the source or retains world capac
     pending: false,
     reserved: 0,
   });
+  drops.destroy();
+  await store.destroy();
+});
+
+function advance(drops, milliseconds) {
+  for (let elapsed = 0; elapsed < milliseconds; elapsed += 30) drops.step(30);
+}
+
+test("ten repeated durable pickups merge and exact authored capacity spills without losing identity", async () => {
+  const store = ProfileStore.memory(createProfile(LOCATION));
+  // Original Item.wz:Etc/0400.img/04000001/info/slotMax =200.
+  const shell = { id: 4000001, descriptor: {}, info: { slotMax: 200 } };
+  const drops = system(store, [row(shell.id)], { [shell.id]: shell });
+  for (let index = 0; index < 10; index++) {
+    drops.spawn(MOB);
+    land(drops);
+    expect((await drops.pickup(LOCATION)).ok).toBe(true);
+    advance(drops, 720);
+  }
+  expect(store.profile.inventory.map((item) => item.count)).toEqual([10]);
+  const firstUid = store.profile.inventory[0].uid;
+  await store.commitProfile((draft) => grantItem(draft, shell, 189));
+  drops.spawn(MOB);
+  land(drops);
+  expect((await drops.pickup(LOCATION)).ok).toBe(true);
+  advance(drops, 720);
+  drops.spawn(MOB);
+  land(drops);
+  const remainderUid = drops.slots.find((slot) => slot.active).instance.uid;
+  expect((await drops.pickup(LOCATION)).ok).toBe(true);
+  expect(store.profile.inventory.map((item) => item.count)).toEqual([200, 1]);
+  expect(store.profile.inventory.map((item) => item.uid)).toEqual([
+    firstUid,
+    remainderUid,
+  ]);
+  drops.destroy();
+  await store.destroy();
+});
+
+test("transferred quantities fill compatible stacks, preserving incompatible and indivisible instances", () => {
+  const profile = createProfile(LOCATION);
+  const template = ITEMS[ITEM];
+  grantItem(profile, template, 99);
+  const incoming = { uid: "incoming", id: ITEM, count: 5 };
+  grantItem(profile, template, 5, incoming);
+  expect(profile.inventory.map((item) => item.count)).toEqual([100, 4]);
+  expect(profile.inventory[1].uid).toBe("incoming");
+  for (const attributes of [
+    { owner: "Other" },
+    { flags: 8 },
+    { expiresAt: 4102444800000 },
+  ]) {
+    grantItem(profile, template, 1, attributes);
+  }
+  expect(profile.inventory.map((item) => item.count)).toEqual([
+    100, 4, 1, 1, 1,
+  ]);
+  for (const id of [1000000, 2070000]) {
+    const separate = { id, descriptor: {}, info: { slotMax: 100 } };
+    grantItem(profile, separate, 1, { uid: `first-${id}` });
+    grantItem(profile, separate, 1, { uid: `second-${id}` });
+    expect(
+      profile.inventory
+        .filter((item) => item.id === id)
+        .map((item) => item.count),
+    ).toEqual([1, 1]);
+  }
+});
+
+test("untradeable cancellation preserves ownership and accepted drop fades during its visible launch", async () => {
+  const profile = createProfile(LOCATION);
+  const items = {
+    [ITEM]: { ...ITEMS[ITEM], info: { slotMax: 100, tradeBlock: 1 } },
+  };
+  grantItem(profile, items[ITEM], 1);
+  const source = { ...profile.inventory[0] };
+  const store = ProfileStore.memory(profile);
+  const drops = system(store, [], items);
+  const sounds = [];
+  drops.hooks.onSound = (sound) => sounds.push(sound);
+  drops.hooks.confirmItemDrop = async () => false;
+  drops.hooks.prepareItemDrop = async () => ({ ready: true });
+  drops.hooks.publishItemDrop = () => {};
+  drops.hooks.releaseItemDrop = () => {};
+  expect(
+    (await drops.dropItem({ uid: source.uid, count: 1 }, LOCATION)).code,
+  ).toBe("cancelled");
+  expect(store.profile.inventory).toEqual([source]);
+  expect(drops.count).toBe(0);
+  drops.hooks.confirmItemDrop = async () => true;
+  expect(
+    (await drops.dropItem({ uid: source.uid, count: 1 }, LOCATION)).ok,
+  ).toBe(true);
+  expect(store.profile.inventory).toEqual([]);
+  drops.step(30);
+  const slot = drops.slots.find((entry) => entry.active);
+  expect(slot.state).toBe("launching");
+  expect(slot.alpha).toBe(1);
+  advance(drops, 510);
+  expect(slot.y).toBe(-100);
+  expect(slot.alpha).toBeCloseTo(0.49);
+  expect((await drops.pickup(LOCATION)).code).toBe("nothing-nearby");
+  advance(drops, 510);
+  expect(drops.count).toBe(0);
+  expect(sounds).not.toContain("DropItem");
   drops.destroy();
   await store.destroy();
 });

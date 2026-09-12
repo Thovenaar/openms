@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { Texture } from "pixi.js";
-import { EntityAnimation } from "../src/animation.js";
-import { CharacterBindings } from "../src/character-bindings.js";
+import { EntityAnimation } from "../src/rendering/animation.js";
+import { CharacterBindings } from "../src/input/character-bindings.js";
 
 const actors = [];
 afterEach(() => {

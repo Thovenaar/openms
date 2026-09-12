@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 import { at, resolveNode, value } from "../src/assets/image.js";
+import { extractMapleTV } from "./mapletv-data.js";
+import { effectFrames } from "./audiovisual-data.js";
+import { mobMovementMetadata } from "../src/combat/mob-movement-metadata.js";
 
 const MAX_PLACEMENTS = 4096;
 const MAX_TEMPLATES = 8192;
@@ -7,11 +10,13 @@ const MAX_ACTIONS = 128;
 const MAX_FRAMES = 1024;
 const MAX_METADATA = 32768;
 const MAX_LINKS = 32;
+const MAX_SPEECH = 256;
+const MAX_TELEVISIONS = 128;
 // Extraction context owns this cache; no runtime/global residency is introduced.
 const caches = new WeakMap();
 
 /** Preserve authored optional scalar/vector fields without inventing defaults. */
-function fields(node) {
+export function fields(node) {
   const result = Object.create(null);
   if (!node) return result;
   const entries = Object.entries(resolveNode(node).children);
@@ -54,7 +59,7 @@ function metadata(root) {
 }
 
 /** Original Mob links chain (0067cf06); NPC loader redirects artwork once (006dce02). */
-function linkedImage(context, kind, id) {
+export function linkedImage(context, kind, id) {
   const archive = kind === "npc" ? "Npc" : "Mob";
   const original = context.image(archive, `${id}.img`);
   const chain = [
@@ -83,7 +88,7 @@ function linkedImage(context, kind, id) {
 }
 
 /** Strict WZ integer/string delay boundary; NPC absent delay is 180 ms at 0040de3a. */
-function delayValue(raw, kind) {
+export function delayValue(raw, kind) {
   if (raw === undefined) return kind === "npc" ? 180 : null;
   if (
     typeof raw !== "number" &&
@@ -98,17 +103,37 @@ function delayValue(raw, kind) {
   return ms === 0 ? null : ms;
 }
 
-function bodyRectangle(frame) {
+export function bodyRectangle(frame) {
   const lt = value(frame, "lt"),
     rb = value(frame, "rb");
-  if (lt === undefined && rb === undefined) return null;
-  if (!lt || !rb || ![lt.x, lt.y, rb.x, rb.y].every(Number.isFinite)) {
-    throw new Error("Incomplete life body rectangle");
+  for (const corner of [lt, rb]) {
+    if (
+      corner !== undefined &&
+      (!corner || ![corner.x, corner.y].every(Number.isFinite))
+    ) {
+      throw new Error("Incomplete life body rectangle");
+    }
   }
+  // 0040cd9a/0040cda7 -> 0040ce24: either absent corner installs an empty body.
+  // docs/ghidra-client-corrections/iteration-mob-missing-corner.txt retains original code.
+  if (lt === undefined || rb === undefined) return null;
   if (lt.x > rb.x || lt.y > rb.y) {
     throw new Error("Inverted life body rectangle");
   }
   return { left: lt.x, top: lt.y, right: rb.x, bottom: rb.y };
+}
+
+function actionAlpha(canvas, key, inherited) {
+  const alpha = value(canvas, key, -1);
+  return alpha < 0 ? inherited : alpha;
+}
+
+export function lifeOrigin(canvas) {
+  const origin = value(canvas, "origin");
+  if (!origin || ![origin.x, origin.y].every(Number.isFinite)) {
+    throw new Error("Life canvas lacks a valid original origin");
+  }
+  return origin;
 }
 
 /** Parts retain shared artwork hashes and original origins; timing never uses context.frames defaults. */
@@ -120,7 +145,8 @@ async function extractAction(context, node, kind) {
   }
   const frames = [],
     geometry = [];
-  let timingKnown = true;
+  let timingKnown = true,
+    carriedAlpha = 255;
   for (const key of keys) {
     const canvas = at(node, key);
     if (canvas.type !== "Canvas") {
@@ -129,11 +155,14 @@ async function extractAction(context, node, kind) {
     const raw = value(canvas, "delay");
     const delay = delayValue(raw, kind);
     if (delay === null) timingKnown = false;
-    const origin = value(canvas, "origin");
-    if (!origin || ![origin.x, origin.y].every(Number.isFinite)) {
-      throw new Error("Life canvas lacks a valid original origin");
-    }
-    frames.push({ delay: delay ?? 0, parts: [await context.part(canvas)] });
+    const origin = lifeOrigin(canvas);
+    // 006657de applies authored a0/a1; omitted endpoints inherit the prior alpha.
+    const start = actionAlpha(canvas, "a0", carriedAlpha),
+      end = actionAlpha(canvas, "a1", start);
+    const part = await context.part(canvas);
+    part.opacity = start / 255;
+    frames.push({ delay: delay ?? 0, parts: [part], alphaEnd: end / 255 });
+    carriedAlpha = end;
     geometry.push({
       key,
       delayRaw: raw ?? null,
@@ -157,7 +186,7 @@ async function extractAction(context, node, kind) {
 }
 
 /** Original name/function lookup retains missing strings and flags separately from artwork links. */
-async function extractTemplate(context, kind, id) {
+export async function extractTemplate(context, kind, id) {
   const linked = linkedImage(context, kind, id);
   const infoNode = at(kind === "mob" ? linked.node : linked.original, "info");
   const strings = context.image(
@@ -173,11 +202,9 @@ async function extractTemplate(context, kind, id) {
   );
   const combat =
     kind === "mob" ? mobCombat(infoNode, actionMetadata, linked.node) : null;
-  const defaultAction = actions.stand
-    ? "stand"
-    : actions.fly
-      ? "fly"
-      : (Object.keys(actions)[0] ?? null);
+  const info = fields(infoNode);
+  const movement = kind === "mob" ? mobMovementMetadata(info, actions) : null;
+  const defaultAction = defaultLifeAction(actions, movement);
   const artworkHash = createHash("sha256")
     .update(JSON.stringify(actions))
     .digest("hex");
@@ -190,21 +217,29 @@ async function extractTemplate(context, kind, id) {
       artworkHash,
       name: stringsFields.name ?? null,
       function: stringsFields.func ?? null,
-      info: fields(infoNode),
+      info,
       sources: linked.chain,
       actions: actionMetadata,
       defaultAction,
+      speech: kind === "npc" ? npcSpeech(linked, stringNode, actions) : null,
       artworkStatus: defaultAction
         ? "original-action-artwork"
         : "unavailable: no original action canvases",
       combat,
+      movement,
       stringSource: `String.wz:${kind === "npc" ? "Npc" : "Mob"}.img/${Number(id)}`,
     },
   };
 }
 
+function defaultLifeAction(actions, movement) {
+  if (movement?.type === 3 || (!actions.stand && actions.fly)) return "fly";
+  if (actions.stand) return "stand";
+  return Object.keys(actions)[0] ?? null;
+}
+
 /** Extract only original action canvas branches; retain each timing/body record. */
-async function extractTemplateActions(context, root, kind) {
+export async function extractTemplateActions(context, root, kind) {
   const actions = Object.create(null);
   const actionMetadata = Object.create(null);
   const branches = Object.entries(root.children);
@@ -221,6 +256,80 @@ async function extractTemplateActions(context, root, kind) {
     actionMetadata[name] = extracted.metadata;
   }
   return { actions, actionMetadata };
+}
+
+/** 006dce02 resolves speak keys against the original-id String/Npc record. */
+function speechRows(node, strings) {
+  const rows = Object.entries(node?.children ?? {});
+  if (rows.length > MAX_SPEECH) {
+    throw new Error("NPC speech count exceeds policy");
+  }
+  return rows.map(([index, child]) => {
+    const key = resolveNode(child).value;
+    const text = strings?.children?.[key]?.value;
+    if (
+      text !== undefined &&
+      (typeof text !== "string" || text.length > MAX_SPEECH)
+    ) {
+      throw new Error("NPC speech text exceeds policy");
+    }
+    return { index, key: key ?? null, text: text ?? null };
+  });
+}
+
+/** Ordinary action choices exclude stand/move and authored special actions (006de126). */
+function npcSpeech(linked, strings, actions) {
+  const choices = [];
+  for (const name of Object.keys(actions)) {
+    const branch = at(linked.node, name);
+    if (name === "stand" || name === "move" || value(branch, "special", 0)) {
+      continue;
+    }
+    choices.push({
+      action: name,
+      lines: speechRows(branch.children.speak, strings),
+      durationMs: actions[name].reduce(
+        (total, frame) => total + frame.delay,
+        0,
+      ),
+    });
+  }
+  return {
+    lines: speechRows(at(linked.original, "info").children.speak, strings),
+    actions: choices,
+    source: "006d2c8c/006d20b1/006d271f; original NPC speak keys",
+  };
+}
+
+/** Native world indicators use QuestIcon0/1/2, not journal decoration or icon3+. */
+export async function extractNpcWorldUI(context) {
+  const root = context.image("UI", "UIWindow.img");
+  const actions = Object.create(null);
+  for (let state = 0; state < 3; state++) {
+    actions[state] = (
+      await effectFrames(context, at(root, `QuestIcon/${state}`))
+    ).frames;
+  }
+  const entity = {
+    id: "npc-quest-marker",
+    kind: "effect",
+    order: 0,
+    x: 0,
+    y: 0,
+    z: 3,
+    visible: false,
+    flip: false,
+    opacity: 1,
+    action: "0",
+    actions,
+  };
+  return {
+    markers: await context.bundle({
+      id: "npc-quest-markers",
+      entities: [entity],
+      metadata: { source: "UI.wz:UIWindow.img/QuestIcon/{0,1,2}" },
+    }),
+  };
 }
 
 /** Preserve executable type-0 inputs and classify other attack families explicitly. */
@@ -260,19 +369,24 @@ function mobAttack(name, metadata, root) {
   };
 }
 
-function placement(node, mapId) {
+/** Validate one authored placement coordinate independently for aggregate preflight. */
+export function placementCoordinate(authored, key, mapId) {
+  if (key !== "x" && key !== "y" && authored[key] === undefined) return;
+  if (
+    !Number.isSafeInteger(authored[key]) ||
+    Math.abs(authored[key]) > 1000000
+  ) {
+    throw new Error(`Invalid life ${key} on ${mapId}`);
+  }
+}
+
+export function placement(node, mapId) {
   const authored = fields(node);
   if (!/^(m|n)$/.test(authored.type) || !/^\d{1,7}$/.test(authored.id)) {
     throw new Error(`Invalid life template reference on ${mapId}`);
   }
   for (const key of ["x", "y", "fh", "cy", "rx0", "rx1"]) {
-    if (key !== "x" && key !== "y" && authored[key] === undefined) continue;
-    if (
-      !Number.isSafeInteger(authored[key]) ||
-      Math.abs(authored[key]) > 1000000
-    ) {
-      throw new Error(`Invalid life ${key} on ${mapId}`);
-    }
+    placementCoordinate(authored, key, mapId);
   }
   if (authored.rx0 > authored.rx1) {
     throw new Error("Inverted life authored range");
@@ -335,16 +449,21 @@ function lifeEntity(record, template, planes) {
     order: 100000 + Number(record.id.slice(5)),
     x: Math.trunc(x),
     y: Math.trunc(y),
-    z: (record.kind === "npc" ? 29995 : 29991) + (segment?.plane ?? 210000),
+    z:
+      template.metadata.movement?.type === 3
+        ? 270100
+        : (record.kind === "npc" ? 29995 : 29991) + (segment?.plane ?? 210000),
     visible: record.authored.hide !== 1,
-    flip: record.authored.f === 0,
+    // Cosmic spawnNPC sends f!=1; native006d232a flips when the received bit is0.
+    flip:
+      record.kind === "npc" ? record.authored.f === 1 : record.authored.f === 0,
     opacity: 1,
     action: template.metadata.defaultAction,
     actions: template.actions,
   };
 }
 
-function lifeManifest(mapId, placements, templates) {
+function lifeManifest(mapId, placements, templates, mapleTV) {
   return {
     schemaVersion: 1,
     mode: "metadata-preview",
@@ -352,11 +471,12 @@ function lifeManifest(mapId, placements, templates) {
     mapId,
     placements,
     templates,
+    mapleTV,
     policies: {
       placementFacing:
-        "preview mapping f=0 mirrors, f=1 retains artwork; placement-to-actor bit unproved",
+        "NPC authored f=1 mirrors: Cosmic spawnNPC f!=1 then native006d232a bit==0; mob preview f=0 mirrors",
       depth:
-        "NPC006d267d, ordinary mob00664e35; authored foothold plane, native uncontacted plane7/group0; special controller/boss overrides unavailable",
+        "NPC006d267d, mob00664e35; fly controller3 uses270100, otherwise authored foothold plane or uncontacted plane7/group0; boss overrides unavailable",
       ground:
         "NPC anchor projected to authored finite floor via009b1553; canvas origin remains literal; map y/cy retained separately",
       placementHide: "preview suppression only; live server activation unknown",
@@ -376,6 +496,7 @@ export async function extractLife(context, map, mapId) {
   const cache = caches.get(context);
   const entities = [],
     placements = [],
+    mapleTV = [],
     templates = Object.create(null);
   const planes = placementPlanes(map);
   const children = map.children.life
@@ -406,8 +527,27 @@ export async function extractLife(context, map, mapId) {
     templates[record.template] = template.metadata;
     placements.push(record);
     if (template.metadata.defaultAction) {
-      entities.push(lifeEntity(record, template, planes));
+      const actor = lifeEntity(record, template, planes);
+      entities.push(actor);
+      if (record.kind === "npc" && template.metadata.info.MapleTV) {
+        await appendTelevision(context, actor, template.metadata.info, {
+          entities,
+          mapleTV,
+        });
+      }
     }
   }
-  return { entities, life: lifeManifest(mapId, placements, templates) };
+  return {
+    entities,
+    life: lifeManifest(mapId, placements, templates, mapleTV),
+  };
+}
+
+async function appendTelevision(context, actor, info, output) {
+  if (output.mapleTV.length >= MAX_TELEVISIONS) {
+    throw new Error("MapleTV placement count exceeds policy");
+  }
+  const television = await extractMapleTV(context, actor, info);
+  output.entities.push(...television.entities);
+  output.mapleTV.push(television.controller);
 }
