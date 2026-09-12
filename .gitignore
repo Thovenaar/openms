@@ -1,4 +1,5 @@
 node_modules/
+artifacts/
 client/public/generated/
 client/dist/
 client/.cache/
