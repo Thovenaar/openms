@@ -4,7 +4,10 @@ import {
   validateProfile,
 } from "../../client/src/profile/profile-validation.js";
 import { isRechargeable } from "../../client/src/items/inventory-model.js";
-import { admitCharacterSlot, MAX_ACCOUNT_CHARACTERS } from "./character-creation.js";
+import {
+  admitCharacterSlot,
+  MAX_ACCOUNT_CHARACTERS,
+} from "./character-creation.js";
 import { characterSummary } from "./character-summary.js";
 
 const MAX_ATTEMPTS = 3;
@@ -292,12 +295,19 @@ export class Database {
     return { id: rows[0].id, name, passwordHash, role };
   }
   async registerPlayer(name, passwordHash, profile) {
-    if (!/^[A-Za-z0-9_-]{3,16}$/.test(name) || typeof passwordHash !== "string" || passwordHash.length > 1024) throw failure("NOT_ALLOWED");
+    if (
+      !/^[A-Za-z0-9_-]{3,16}$/.test(name) ||
+      typeof passwordHash !== "string" ||
+      passwordHash.length > 1024
+    ) {
+      throw failure("NOT_ALLOWED");
+    }
     this.validate(profile);
     const accountId = id();
     const characterId = id();
     return this.transaction(async (tx) => {
-      const rows = await tx`INSERT INTO account(id,name,password_hash,role) VALUES(${accountId},${name},${passwordHash},'player') ON CONFLICT(name) DO NOTHING RETURNING id`;
+      const rows =
+        await tx`INSERT INTO account(id,name,password_hash,role) VALUES(${accountId},${name},${passwordHash},'player') ON CONFLICT(name) DO NOTHING RETURNING id`;
       if (!rows[0]) return null;
       await this.insertCharacter(tx, accountId, profile, characterId);
       return { id: accountId, name, passwordHash, role: "player" };
@@ -318,33 +328,68 @@ export class Database {
   }
   async listCharacters(accountId) {
     const rows = await this
-      .sql`SELECT c.id,c.profile,(SELECT COALESCE(jsonb_agg(worn.data),'[]'::jsonb) FROM (SELECT data FROM item_instance WHERE owner_id=c.id AND location='equipped' ORDER BY id LIMIT 33) worn) AS equipment FROM character c WHERE c.account_id=${accountId} ORDER BY c.id LIMIT 65`;
+      .sql`SELECT c.id,c.profile,(SELECT COALESCE(jsonb_agg(worn.data),'[]'::jsonb) FROM (SELECT data FROM item_instance WHERE owner_id=c.id AND location='equipped' ORDER BY id LIMIT 33) worn) AS equipment FROM character c WHERE c.account_id=${accountId} AND c.deleted_at IS NULL ORDER BY c.id LIMIT 65`;
     if (rows.length > 64) throw failure("SERVER_BUSY");
-    return rows.map((row) => characterSummary(row.id, row.profile, row.equipment, this.items));
+    return rows.map((row) =>
+      characterSummary(row.id, row.profile, row.equipment, this.items),
+    );
+  }
+
+  /** Soft deletion keeps the append-only history tables' references valid, frees the
+   * account's name slot and refuses every later play session. A live lease is refused
+   * rather than stolen from its owner. */
+  async deleteCharacter(accountId, characterId) {
+    return this.transaction(async (tx) => {
+      const accounts =
+        await tx`SELECT id FROM account WHERE id=${accountId} FOR UPDATE`;
+      if (!accounts[0]) throw failure("UNAUTHENTICATED");
+      const rows =
+        await tx`SELECT id,lease_until>clock_timestamp() AS leased FROM character WHERE id=${characterId} AND account_id=${accountId} AND deleted_at IS NULL FOR UPDATE`;
+      if (!rows[0]) throw failure("NOT_FOUND");
+      if (rows[0].leased) throw failure("CHARACTER_BUSY");
+      await tx`UPDATE character SET deleted_at=clock_timestamp(),lease_owner=NULL,lease_until=NULL,field_instance=NULL,field_epoch=NULL WHERE id=${characterId}`;
+      return { id: characterId };
+    });
   }
   async createAccountCharacter(accountId, profile, admit) {
     this.validate(profile);
     const characterId = id();
     return this.transaction(async (tx) => {
-      const accounts = await tx`SELECT id FROM account WHERE id=${accountId} FOR UPDATE`;
+      const accounts =
+        await tx`SELECT id FROM account WHERE id=${accountId} FOR UPDATE`;
       if (!accounts[0]) throw failure("UNAUTHENTICATED");
-      const rows = await tx`SELECT profile->>'name' AS name FROM character WHERE account_id=${accountId} ORDER BY id LIMIT ${MAX_ACCOUNT_CHARACTERS + 1}`;
-      admitCharacterSlot(rows.map((row) => row.name), profile.name);
+      const rows =
+        await tx`SELECT profile->>'name' AS name FROM character WHERE account_id=${accountId} AND deleted_at IS NULL ORDER BY id LIMIT ${MAX_ACCOUNT_CHARACTERS + 1}`;
+      admitCharacterSlot(
+        rows.map((row) => row.name),
+        profile.name,
+      );
       admit();
       await this.insertCharacter(tx, accountId, profile, characterId);
-      return characterSummary(characterId, profile, profile.equipment, this.items);
+      return characterSummary(
+        characterId,
+        profile,
+        profile.equipment,
+        this.items,
+      );
     });
   }
   async createCharacter(accountId, profile) {
     this.validate(profile);
     const characterId = id();
-    await this.transaction((tx) => this.insertCharacter(tx, accountId, profile, characterId));
+    await this.transaction((tx) =>
+      this.insertCharacter(tx, accountId, profile, characterId),
+    );
     return this.loadCharacter(accountId, characterId);
   }
   async insertCharacter(tx, accountId, profile, characterId) {
     await tx`INSERT INTO character(id,account_id,profile,meso,map_id) VALUES(${characterId},${accountId},${cacheProfile(profile)},${profile.meso},${Number(profile.location.mapId)})`;
     const empty = { inventory: [], equipment: [], meso: 0 };
-    const entry = { characterId, transactionId: characterId, reason: "bootstrap" };
+    const entry = {
+      characterId,
+      transactionId: characterId,
+      reason: "bootstrap",
+    };
     await this.materializeItems(tx, entry, empty, profile);
     await this.currencyLedger(tx, { ...entry, delta: profile.meso });
     await tx`INSERT INTO character_op_log(character_id,operation_id,transaction_id,kind,effect) VALUES(${characterId},${characterId},${characterId},'bootstrap',${{ kind: "bootstrap", profile: cacheProfile(profile) }})`;
@@ -370,15 +415,20 @@ export class Database {
   async loadCharacter(accountId, characterId) {
     return this.transaction(async (tx) => {
       const rows =
-        await tx`SELECT * FROM character WHERE id=${characterId} AND account_id=${accountId} FOR SHARE`;
+        await tx`SELECT * FROM character WHERE id=${characterId} AND account_id=${accountId} AND deleted_at IS NULL FOR SHARE`;
       return rows[0] ? this.hydrate(tx, rows[0]) : null;
     });
   }
   async acquireLease(accountId, characterId) {
     return this.transaction(async (tx) => {
       const rows =
-        await tx`UPDATE character SET fencing_generation=fencing_generation+1,lease_owner=${this.owner},lease_until=clock_timestamp()+${LEASE_SECONDS}*interval '1 second' WHERE id=${characterId} AND account_id=${accountId} AND (lease_until IS NULL OR lease_until<=clock_timestamp()) RETURNING *`;
-      if (!rows[0]) throw failure("CHARACTER_BUSY");
+        await tx`UPDATE character SET fencing_generation=fencing_generation+1,lease_owner=${this.owner},lease_until=clock_timestamp()+${LEASE_SECONDS}*interval '1 second' WHERE id=${characterId} AND account_id=${accountId} AND deleted_at IS NULL AND (lease_until IS NULL OR lease_until<=clock_timestamp()) RETURNING *`;
+      if (!rows[0]) {
+        // A deleted or foreign character is not "busy"; name the actual outcome.
+        const present =
+          await tx`SELECT id FROM character WHERE id=${characterId} AND account_id=${accountId} AND deleted_at IS NULL`;
+        throw failure(present[0] ? "CHARACTER_BUSY" : "NOT_FOUND");
+      }
       return this.hydrate(tx, rows[0]);
     });
   }

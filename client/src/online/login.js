@@ -8,6 +8,7 @@ import { AvatarVisuals } from "../character/avatar-visuals.js";
 import { UIRasterPlane } from "../ui/ui-raster-plane.js";
 import { createProfile } from "../profile/profile-validation.js";
 import { LoginBackdrop } from "./login-backdrop.js";
+import { OnlineDialogs } from "./dialogs.js";
 
 const MAX_CHARACTERS = 64;
 const MAX_NONCE = 64 * 1024 * 1024;
@@ -79,6 +80,7 @@ const FAILURE_TEXT = new Map([
     "INVALID_MESSAGE",
     "The server rejected those values. Check the name, stats and look.",
   ],
+  ["NOT_FOUND", "That character no longer exists. Refresh the list."],
   ["SERVER_BUSY", "The server is busy right now. Try again in a moment."],
   [
     "REQUEST_FAILED",
@@ -217,20 +219,31 @@ export class OnlineLogin {
     this.buildAccountStage(body);
     this.buildCharacterStage(body);
     this.buildCreateStage(body);
-    this.message = element(
-      "p",
-      "online-login-message",
-      "Preparing the sign in window…",
-    );
-    this.message.setAttribute("role", "status");
-    this.message.setAttribute("aria-live", "polite");
-    body.append(this.message);
     this.window.append(body);
     this.host.append(this.window);
     app.canvas.parentElement.append(this.host);
+    this.dialogs = new OnlineDialogs(this.host);
     this.resize(app.screen.width, app.screen.height);
     this.installCues();
+    this.setStatus("Preparing the sign in window…");
     this.renderStage();
+  }
+
+  /** Progress and notices belong to the stage that produced them; failures open a dialog. */
+  activeStatus() {
+    if (this.stage === "create") return this.createStatus;
+    if (this.stage === "characters") return this.characterStatus;
+    return this.accountStatus;
+  }
+
+  setStatus(text = "") {
+    for (const node of [
+      this.accountStatus,
+      this.characterStatus,
+      this.createStatus,
+    ]) {
+      if (node) node.textContent = node === this.activeStatus() ? text : "";
+    }
   }
 
   /** Original UI cues: every button answers hover and activation through the one audio
@@ -293,12 +306,6 @@ export class OnlineLogin {
       field("Password", this.password),
       this.confirmRow,
     );
-    this.hint = element(
-      "p",
-      "online-login-hint",
-      "Accounts use a proof-of-work challenge instead of a captcha; clients may compute it in parallel.",
-    );
-    form.append(this.hint);
     this.submitButton = element(
       "button",
       "maple95-button primary online-login-submit",
@@ -306,6 +313,10 @@ export class OnlineLogin {
     );
     this.submitButton.type = "submit";
     form.append(this.submitButton);
+    this.accountStatus = element("p", "online-login-status", "");
+    this.accountStatus.setAttribute("role", "status");
+    this.accountStatus.setAttribute("aria-live", "polite");
+    form.append(this.accountStatus);
     this.listen(form, "submit", (event) => {
       event.preventDefault();
       this.submit().catch((error) => this.report(error));
@@ -388,11 +399,17 @@ export class OnlineLogin {
       "maple95-button online-login-signout",
       "Sign out",
     );
+    this.deleteButton = element(
+      "button",
+      "maple95-button online-login-delete",
+      "Delete character",
+    );
     for (const button of [
       this.enterButton,
       this.createButton,
       this.refreshButton,
       this.signOutButton,
+      this.deleteButton,
     ]) {
       button.type = "button";
       actions.append(button);
@@ -407,7 +424,53 @@ export class OnlineLogin {
     this.listen(this.signOutButton, "click", () =>
       this.signOut().catch((error) => this.report(error)),
     );
+    this.listen(this.deleteButton, "click", () =>
+      this.deleteSelected().catch((error) => this.report(error)),
+    );
+    this.characterStatus = element("p", "online-login-status", "");
+    this.characterStatus.setAttribute("role", "status");
+    this.characterStatus.setAttribute("aria-live", "polite");
+    actions.after(this.characterStatus);
     return actions;
+  }
+
+  /** Deletion is irreversible, so it always asks first and never runs while busy. */
+  async deleteSelected() {
+    if (this.pending || this.destroyed) return;
+    const character = this.characters[this.selected];
+    if (!character) return;
+    const confirmed = await this.dialogs.confirm({
+      title: "Delete character",
+      text: `Delete ${character.name}? This cannot be undone.`,
+      confirm: "Delete",
+    });
+    if (!confirmed || this.pending || this.destroyed) return;
+    await this.performDelete(character);
+  }
+
+  async performDelete(character) {
+    const generation = ++this.generation;
+    this.setPending(true, `Deleting ${character.name}…`);
+    try {
+      const characters = await this.transport.deleteCharacter(character.id);
+      if (this.destroyed || generation !== this.generation) return;
+      this.selected = 0;
+      this.acceptCharacters(characters);
+      this.setStatus(`${character.name} was deleted.`);
+    } catch (error) {
+      if (this.destroyed || generation !== this.generation) return;
+      // A character deleted by another tab is already gone; refresh instead of
+      // leaving the stale entry on screen.
+      if (safeCode(error) === "NOT_FOUND") {
+        await this.refreshCharacters();
+        return;
+      }
+      this.report(error);
+    } finally {
+      if (!this.destroyed && generation === this.generation) {
+        this.setPending(false);
+      }
+    }
   }
 
   /** One screen: roll the dice, choose gender, basic gear and a name, then create. */
@@ -444,6 +507,10 @@ export class OnlineLogin {
     this.listen(this.submitCreate, "click", () =>
       this.createCharacter().catch((error) => this.report(error)),
     );
+    this.createStatus = element("p", "online-login-status", "");
+    this.createStatus.setAttribute("role", "status");
+    this.createStatus.setAttribute("aria-live", "polite");
+    actions.after(this.createStatus);
     stage.append(actions);
     this.createStage = stage;
     body.append(stage);
@@ -534,8 +601,9 @@ export class OnlineLogin {
   showCreate() {
     if (this.pending || this.destroyed) return;
     if (!this.prepared) {
-      this.message.textContent =
-        "Still preparing the character choices from the server content.";
+      this.setStatus(
+        "Still preparing the character choices from the server content.",
+      );
       return;
     }
     this.stage = "create";
@@ -557,8 +625,9 @@ export class OnlineLogin {
       this.showCharacters(this.characters);
       return;
     }
-    this.message.textContent =
-      "Roll the dice, choose a look and name your first character.";
+    this.setStatus(
+      "Roll the dice, choose a look and name your first character.",
+    );
   }
 
   rollDice() {
@@ -888,8 +957,7 @@ export class OnlineLogin {
   async createCharacter() {
     const name = this.characterNameInput.value.trim();
     if (!CHARACTER_NAME_PATTERN.test(name)) {
-      this.message.textContent =
-        "Character names use 4 to 13 letters or digits.";
+      this.notify("Character names use 4 to 13 letters or digits.");
       return;
     }
     const generation = ++this.generation;
@@ -933,12 +1001,12 @@ export class OnlineLogin {
     );
     this.selecting = this.characters.length > 0;
     this.renderStage();
-    this.message.textContent = `${created.name} is ready. Enter the world when you are.`;
+    this.setStatus(`${created.name} is ready. Enter the world when you are.`);
     this.enterButton.focus();
   }
 
   reportCreationFailure(error) {
-    this.message.textContent = failureText(error, safeCode(error));
+    this.notify(failureText(error, safeCode(error)));
     this.hooks.report(
       new Error(`Character creation failed (${safeCode(error)})`, {
         cause: error,
@@ -962,10 +1030,11 @@ export class OnlineLogin {
     this.renderCreate();
     this.playTitleBgm();
     this.startBackdrop(signal);
-    this.message.textContent =
+    this.setStatus(
       this.mode === "signup"
         ? "Choose an account name and password."
-        : "Sign in with your server account.";
+        : "Sign in with your server account.",
+    );
     this.renderStage();
     this.name?.focus();
   }
@@ -997,15 +1066,19 @@ export class OnlineLogin {
   selectMode(mode) {
     if (this.pending || this.mode === mode || this.accountStage.hidden) return;
     this.mode = mode;
-    this.message.textContent =
+    this.setStatus(
       mode === "signup"
         ? "Choose an account name and password."
-        : "Sign in with your server account.";
+        : "Sign in with your server account.",
+    );
     this.renderStage();
   }
 
   /** Stage visibility and tab state derive from the active stage plus the character list. */
   renderStage() {
+    const changed = this.renderedStage !== this.stage;
+    this.renderedStage = this.stage;
+    if (changed) this.setStatus("");
     const creating = this.stage === "create";
     const selecting =
       !creating && (this.characters.length > 0 || this.selecting === true);
@@ -1095,14 +1168,17 @@ export class OnlineLogin {
       signal: this.controller.signal,
       onProgress: (nonce, elapsed) => {
         const rate = Math.round((nonce / Math.max(1, elapsed)) * 1000);
-        this.message.textContent = `Solving the proof-of-work challenge… ${nonce} hashes (${rate}/s)`;
+        this.setStatus(
+          `Solving the proof-of-work challenge… ${nonce} hashes (${rate}/s)`,
+        );
       },
     });
   }
 
   async authorize(credentials, proof) {
-    this.message.textContent =
-      this.mode === "signup" ? "Creating the account…" : "Signing in…";
+    this.setStatus(
+      this.mode === "signup" ? "Creating the account…" : "Signing in…",
+    );
     return this.mode === "signup"
       ? this.transport.register({ ...credentials, proof })
       : this.transport.login({ ...credentials, proof });
@@ -1116,8 +1192,9 @@ export class OnlineLogin {
       this.characters = [];
       this.selecting = false;
       this.showCreate();
-      this.message.textContent =
-        "No characters yet. Roll the dice, choose a look and name your first character.";
+      this.setStatus(
+        "No characters yet. Roll the dice, choose a look and name your first character.",
+      );
       return;
     }
     this.showCharacters(characters);
@@ -1182,8 +1259,9 @@ export class OnlineLogin {
       profile = this.characterProfile(character);
     } catch (error) {
       this.clearPreview(this.cardSlot);
-      this.message.textContent =
-        "This character's look could not be read from the server. Sign in again.";
+      this.notify(
+        "This character's look could not be read from the server. Sign in again.",
+      );
       this.hooks.report(error);
       return;
     }
@@ -1226,15 +1304,15 @@ export class OnlineLogin {
         this.selecting = false;
         this.characters = [];
         this.showCreate();
-        this.message.textContent =
-          "No characters yet. Roll the dice, choose a look and name your first character.";
+        this.setStatus(
+          "No characters yet. Roll the dice, choose a look and name your first character.",
+        );
         return;
       }
       this.characters = characters.slice(0, MAX_CHARACTERS);
       this.selected = Math.min(this.selected, this.characters.length - 1);
       this.renderCarousel();
-      this.message.textContent =
-        "Choose a character, then enter the authoritative field.";
+      this.setStatus("Choose a character, then enter the authoritative field.");
     } catch (error) {
       if (!this.destroyed && generation === this.generation) this.report(error);
     } finally {
@@ -1268,7 +1346,7 @@ export class OnlineLogin {
       if (error?.code !== "CHARACTER_BUSY") throw error;
       const delay = Number(this.transport.retryAfterMs);
       if (!Number.isFinite(delay) || delay < 0 || delay > 5000) throw error;
-      this.message.textContent = "That character is still connected. Retrying…";
+      this.setStatus("That character is still connected. Retrying…");
       await new Promise((resolve) => {
         setTimeout(resolve, delay);
       });
@@ -1285,8 +1363,7 @@ export class OnlineLogin {
       await this.transport.revoke();
       if (this.destroyed || generation !== this.generation) return;
       this.selectionReset();
-      this.message.textContent =
-        "Signed out. Sign in with your server account.";
+      this.setStatus("Signed out. Sign in with your server account.");
       this.name.focus();
     } catch (error) {
       if (!this.destroyed && generation === this.generation) this.report(error);
@@ -1311,7 +1388,7 @@ export class OnlineLogin {
   setPending(pending, message) {
     this.pending = pending;
     this.host.setAttribute("aria-busy", String(pending));
-    if (message) this.message.textContent = message;
+    if (message) this.setStatus(message);
     for (const control of [
       this.name,
       this.password,
@@ -1327,6 +1404,7 @@ export class OnlineLogin {
       this.createButton,
       this.refreshButton,
       this.signOutButton,
+      this.deleteButton,
       this.previous,
       this.next,
     ]) {
@@ -1362,8 +1440,9 @@ export class OnlineLogin {
       this.selectionReset();
       this.startBackdrop(this.controller.signal);
       this.playTitleBgm();
-      this.message.textContent =
-        "Connection closed. Sign in again, or press Enter to reconnect.";
+      this.setStatus(
+        "Connection closed. Sign in again, or press Enter to reconnect.",
+      );
     }
   }
 
@@ -1403,10 +1482,17 @@ export class OnlineLogin {
     }
   }
 
+  /** Windows 95 style modal for anything the player must acknowledge. */
+  notify(text) {
+    this.dialogs
+      .message({ title: "MapleStory", text, ok: "OK" })
+      .catch((error) => this.hooks.report(error));
+  }
+
   report(error) {
     // Local validation text is ours; server codes map to explicit wording (never raw server text).
     const code = safeCode(error);
-    this.message.textContent = failureText(error, code);
+    this.notify(failureText(error, code));
     this.hooks.report(
       new Error(`Online login request failed (${code})`, { cause: error }),
     );
@@ -1426,6 +1512,7 @@ export class OnlineLogin {
     this.rollTimer = null;
     this.releasePreview();
     this.stopBackdrop();
+    this.dialogs?.destroy();
     for (const slot of this.previewSlots()) {
       slot.plane.canvas.remove();
       slot.root.destroy({ children: false });

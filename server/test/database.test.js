@@ -109,3 +109,71 @@ test.skipIf(!databaseUrl)(
   },
   30000,
 );
+
+/** Soft deletion keeps append-only history valid, frees the name and refuses later play. */
+async function proveDeletion(database, content) {
+  const account = await database.createAccount({
+    name: "delete_proof",
+    passwordHash: await Bun.password.hash(randomUUID()),
+    role: "player",
+  });
+  const manifest = await content.map(content.catalog.defaultMap);
+  const arrival = nearestSavedArrival(manifest, { x: 0, y: 0, facing: 1 });
+  const profile = createProfile({
+    mapId: manifest.id,
+    x: arrival.x,
+    y: arrival.y,
+    facing: 1,
+  });
+  profile.name = "Deleted1";
+  const created = await database.createCharacter(account.id, profile);
+  expect((await database.listCharacters(account.id)).map((row) => row.id)).toEqual([created.id]);
+
+  // A live lease is refused rather than stolen from its owner.
+  const actor = await database.acquireLease(account.id, created.id);
+  await expect(
+    database.deleteCharacter(account.id, created.id),
+  ).rejects.toMatchObject({ code: "CHARACTER_BUSY" });
+  await database.releaseLease(actor);
+
+  await database.deleteCharacter(account.id, created.id);
+  expect(await database.listCharacters(account.id)).toEqual([]);
+  // The deleted character's name is free again and its lease can never be taken.
+  const replacement = createProfile({
+    mapId: manifest.id,
+    x: arrival.x,
+    y: arrival.y,
+    facing: 1,
+  });
+  replacement.name = "Deleted1";
+  const recreated = await database.createAccountCharacter(account.id, replacement, () => {});
+  expect(recreated.name).toBe("Deleted1");
+  await expect(
+    database.acquireLease(account.id, created.id),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  expect(await database.loadCharacter(account.id, created.id)).toBeNull();
+
+  // Deletion is account-scoped, and append-only history survives with valid references.
+  const stranger = await database.createAccount({
+    name: "delete_stranger",
+    passwordHash: await Bun.password.hash(randomUUID()),
+    role: "player",
+  });
+  await expect(
+    database.deleteCharacter(stranger.id, recreated.id),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const history =
+    await database.sql`SELECT count(*)::int AS entries FROM character_op_log WHERE character_id=${created.id}`;
+  expect(history[0].entries).toBeGreaterThan(0);
+  const receipts =
+    await database.sql`SELECT count(*)::int AS entries FROM operation_receipt WHERE character_id=${created.id}`;
+  expect(receipts[0].entries).toBe(0);
+}
+
+test.skipIf(!databaseUrl)(
+  "native PostgreSQL soft deletion frees the name and refuses deleted characters",
+  async () => {
+    await withDatabase(proveDeletion);
+  },
+  30000,
+);

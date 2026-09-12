@@ -108,11 +108,6 @@
 .online-login-label {
   color: var(--login-text);
 }
-.online-login-hint {
-  margin: 0;
-  color: var(--login-muted);
-  font-size: 12px;
-}
 .online-login input {
   min-width: 0;
   padding: 3px 4px;
@@ -246,16 +241,59 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.online-login-message {
-  min-height: 32px;
+.online-login-status {
   margin: 0;
-  padding: 6px 8px;
-  background: var(--login-panel);
-  box-shadow: var(--login-sunken);
+  min-height: 16px;
+  color: var(--login-muted);
+  font-size: 12px;
+}
+.online-login-actions + .online-login-status {
+  padding-left: 2px;
+}
+.online-login-delete {
+  margin-left: auto;
+}
+/* One modal dialog at a time, framed like a Windows 95 message box. */
+.online-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgb(0 0 0 / 18%);
+}
+.online-dialog {
+  position: relative;
+  width: min(360px, 100%);
+  box-shadow:
+    var(--login-raised),
+    0 0 0 1px #000,
+    0 6px 18px rgb(0 0 0 / 35%);
+}
+.maple95-dialog-close {
+  width: 18px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: var(--login-face);
+  box-shadow:
+    inset 1px 1px #fff,
+    inset -1px -1px #404040;
+  color: var(--login-text);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.online-dialog-text {
+  margin: 0;
+  min-height: 34px;
   color: var(--login-text);
 }
-.online-login[data-stage="account"] .online-login-message {
-  color: var(--login-text);
+.online-dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 8px;
 }
 .online-login[data-viewport="compact"] .online-login-row {
   grid-template-columns: minmax(0, 1fr);

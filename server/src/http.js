@@ -8,6 +8,8 @@ import { prepareCreatedCharacter } from "./character-creation.js";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_BODY_CHUNKS = 64;
+const CHARACTER_PATH = "/api/v1/characters/";
+const CHARACTER_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const ERROR_STATUS = new Map([
   ["UNAUTHENTICATED", 401],
   ["SESSION_EXPIRED", 401],
@@ -108,9 +110,14 @@ export class OnlineHttp {
   }
 
   route(request, path, server) {
-    if (request.method === "GET" && path !== "/api/v1/challenge") return this.readRoute(request, path);
+    if (request.method === "GET" && path !== "/api/v1/challenge") {
+      return this.readRoute(request, path);
+    }
     if (request.method === "GET" && path === "/api/v1/challenge") {
-      const { cookie, ...challenge } = this.auth.challenge(request, server.requestIP(request)?.address ?? "unknown");
+      const { cookie, ...challenge } = this.auth.challenge(
+        request,
+        server.requestIP(request)?.address ?? "unknown",
+      );
       return response(challenge, 200, cookie);
     }
     if (request.method === "POST") {
@@ -118,6 +125,9 @@ export class OnlineHttp {
     }
     if (request.method === "DELETE" && path === "/api/v1/session") {
       return this.logout(request);
+    }
+    if (request.method === "DELETE" && path.startsWith(CHARACTER_PATH)) {
+      return this.deleteCharacter(request, path.slice(CHARACTER_PATH.length));
     }
     return response({ code: "NOT_FOUND" }, 404);
   }
@@ -155,9 +165,10 @@ export class OnlineHttp {
   async authenticate(request, path, server) {
     const body = await requestBody(request);
     const address = server.requestIP(request)?.address ?? "unknown";
-    const result = path === "/api/v1/accounts"
-      ? await this.auth.register(request, body, address)
-      : await this.auth.login(request, body, address);
+    const result =
+      path === "/api/v1/accounts"
+        ? await this.auth.register(request, body, address)
+        : await this.auth.login(request, body, address);
     const { csrfToken, expiresAt, role } = result.session;
     return response({ csrfToken, expiresAt, role }, 200, result.cookie);
   }
@@ -174,6 +185,23 @@ export class OnlineHttp {
       () => this.auth.csrf(session, body.csrfToken),
     );
     return response({ character });
+  }
+
+  /** Deletion is a durable account-scoped state change; the session CSRF token is
+   * required in the header because the request carries no body. */
+  async deleteCharacter(request, characterId) {
+    this.auth.origin(request);
+    const session = this.auth.session(request);
+    this.auth.csrf(session, request.headers.get("x-csrf-token"));
+    if (!CHARACTER_ID.test(characterId)) {
+      return response({ code: "NOT_FOUND" }, 404);
+    }
+    return response({
+      deleted: await this.database.deleteCharacter(
+        session.accountId,
+        characterId,
+      ),
+    });
   }
 
   configuration(request) {

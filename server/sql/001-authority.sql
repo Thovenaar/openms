@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS character (
  field_instance text, field_epoch text, map_id integer NOT NULL CHECK(map_id BETWEEN 0 AND 999999998),
  updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- Deletion is soft so the append-only history tables keep valid references: a deleted
+-- character is excluded from listing, name admission and every lease, which also frees
+-- its name slot for reuse.
+ALTER TABLE character ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 CREATE TABLE IF NOT EXISTS operation_receipt (
  character_id text NOT NULL REFERENCES character(id), operation_id uuid NOT NULL,
  digest text NOT NULL, receipt jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),

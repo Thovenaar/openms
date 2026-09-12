@@ -77,7 +77,8 @@ function log(message) {
 }
 
 function check(report, name, pass, details = {}) {
-  report.checks.push({ name, pass: Boolean(pass), ...details });
+  // Details may carry their own name (for example a character's); the check owns its name.
+  report.checks.push({ ...details, name, pass: Boolean(pass) });
 }
 
 function openPage(browser) {
@@ -107,7 +108,21 @@ async function signIn(page, tools, account) {
   await page.waitForSelector('.online-login [name="name"]', { visible: true });
   await page.type('.online-login [name="name"]', account);
   await page.type('.online-login [name="password"]', tools.password);
+  // The sign-in tab shares its label, so submit through the form's own button.
   await page.click(".online-login-submit");
+  try {
+    await waitForCarousel(page);
+  } catch {
+    // A refused challenge or a stale build states its reason; surface it, then retry once.
+    const state = await readDialog(page);
+    log(`sign in retry (${JSON.stringify(state.text ?? "no dialog")})`);
+    if (state.open) await pressDialog(page, "confirm");
+    await page.click(".online-login-submit");
+    await waitForCarousel(page);
+  }
+}
+
+async function waitForCarousel(page) {
   await page.waitForFunction(
     () => {
       const stage = document.querySelector(
@@ -143,10 +158,174 @@ async function enterWorld(page) {
     await press(page, "Enter the world");
     await wait(ENTER_RETRY_MS);
   }
-  const message = await page.evaluate(
-    () => document.querySelector(".online-login-message")?.textContent,
-  );
+  const message = await page.evaluate(() => {
+    const dialog = document.querySelector(".online-dialog-text")?.textContent;
+    const status = document.querySelector(".online-login-status")?.textContent;
+    return dialog || status || null;
+  });
   throw new Error(`Entering the world failed: ${message}`);
+}
+
+/** The bottom message box is gone; failures must surface as a Win95 dialog. */
+function readDialog(page) {
+  return page.evaluate(() => {
+    const overlay = document.querySelector(".online-dialog-overlay");
+    const cancel = document.querySelector(".online-dialog-cancel");
+    return {
+      open: Boolean(overlay && !overlay.hidden),
+      title: document.querySelector(".online-dialog .maple95-title")
+        ?.textContent,
+      text: document.querySelector(".online-dialog-text")?.textContent,
+      confirm: document.querySelector(".online-dialog-confirm")?.textContent,
+      cancel: cancel && !cancel.hidden ? cancel.textContent : null,
+      messageBoxes: document.querySelectorAll(
+        ".online-login-message, .online-login-hint",
+      ).length,
+    };
+  });
+}
+
+async function pressDialog(page, choice) {
+  await page.evaluate(
+    (selector) => {
+      const button = document.querySelector(selector);
+      if (button) button.click();
+    },
+    choice === "confirm" ? ".online-dialog-confirm" : ".online-dialog-cancel",
+  );
+  await page.waitForFunction(
+    () => document.querySelector(".online-dialog-overlay")?.hidden !== false,
+    { timeout: 10000 },
+  );
+}
+
+async function expectDialog(page) {
+  await page.waitForFunction(
+    () => document.querySelector(".online-dialog-overlay")?.hidden === false,
+    { timeout: 10000 },
+  );
+  return readDialog(page);
+}
+
+/** Account characters as the server reports them, plus the carousel count. */
+function listNames(page) {
+  return page.evaluate(async () => {
+    const response = await fetch("/api/v1/characters", { cache: "no-store" });
+    const value = await response.json();
+    return {
+      names: value.characters.map((character) => character.name),
+      dots: document.querySelectorAll(".online-login-dot").length,
+    };
+  });
+}
+
+/** Select one carousel entry by name; false when it is no longer listed. */
+function selectCharacter(page, name) {
+  return page.evaluate((expected) => {
+    const dots = Array.from(document.querySelectorAll(".online-login-dot"));
+    const index = dots.findIndex((dot) =>
+      dot.getAttribute("aria-label")?.includes(expected),
+    );
+    if (index < 0) return false;
+    dots[index].click();
+    return true;
+  }, name);
+}
+
+/** Open the confirm dialog and accept it, waiting for the entry to disappear. */
+async function deleteSelected(page) {
+  const before = await page.evaluate(
+    () => document.querySelectorAll(".online-login-dot").length,
+  );
+  await press(page, "Delete character");
+  await expectDialog(page);
+  await pressDialog(page, "confirm");
+  await page.waitForFunction(
+    (count) => document.querySelectorAll(".online-login-dot").length < count,
+    { timeout: 30000 },
+    before,
+  );
+}
+
+/** Previous runs leave the character they created for their field checks. */
+async function cleanupEvidenceCharacters(page) {
+  const removed = [];
+  for (const name of await evidenceNames(page)) {
+    if (!(await selectCharacter(page, name))) continue;
+    await wait(500);
+    await deleteSelected(page);
+    removed.push(name);
+  }
+  return removed;
+}
+
+function evidenceNames(page) {
+  return page.evaluate(async () => {
+    const response = await fetch("/api/v1/characters", { cache: "no-store" });
+    const value = await response.json();
+    return value.characters
+      .map((character) => character.name)
+      .filter((name) => /^(Evidence|Probe|Doomed)/.test(name))
+      .slice(0, 8);
+  });
+}
+
+/** A too-short name exercises the failure path: one Win95 dialog, no inline box. */
+async function proveValidationDialog(page, tools) {
+  await page.evaluate(() => {
+    document.querySelector('.online-login [name="character"]').value = "abc";
+  });
+  await press(page, "Create");
+  const open = await expectDialog(page)
+    .then(() => true)
+    .catch(() => false);
+  if (!open) return null;
+  const dialog = await readDialog(page);
+  await page.screenshot({ path: join(tools.output, "error-dialog.png") });
+  return dialog;
+}
+
+/** Delete asks first, cancels harmlessly, then removes the character when confirmed. */
+async function deleteCreatedCharacter(page, tools, created) {
+  const before = await listNames(page);
+  await press(page, "Delete character");
+  const confirm = await expectDialog(page);
+  await page.screenshot({ path: join(tools.output, "delete-confirm.png") });
+  await pressDialog(page, "cancel");
+  const afterCancel = await listNames(page);
+  await press(page, "Delete character");
+  await expectDialog(page);
+  await pressDialog(page, "confirm");
+  await page.waitForFunction(
+    (count) => document.querySelectorAll(".online-login-dot").length < count,
+    { timeout: 30000 },
+    before.dots,
+  );
+  return {
+    before,
+    confirm,
+    afterCancel,
+    after: await listNames(page),
+    name: created.name,
+  };
+}
+
+/** Create, prove the invalid-name dialog and deletion, then create the playable character. */
+async function exerciseCreation(page, tools) {
+  await press(page, "Create character");
+  const create = await readCreateScreen(page);
+  await page.screenshot({ path: join(tools.output, "create.png") });
+  const rejection = await proveValidationDialog(page, tools);
+  if (rejection) await pressDialog(page, "confirm");
+  const doomed = await createCharacter(page);
+  const deletion = await deleteCreatedCharacter(page, tools, doomed);
+  // Deletion returns to the carousel, so reopen the create screen for the playable one.
+  await press(page, "Create character");
+  await page.waitForFunction(
+    () => document.querySelector(".online-login")?.dataset.stage === "create",
+    { timeout: TIMEOUT },
+  );
+  return { create, rejection, deletion, created: await createCharacter(page) };
 }
 
 async function captureAudio(page, seconds) {
@@ -301,16 +480,25 @@ async function readCreateScreen(page) {
 }
 
 async function createCharacter(page) {
-  await page.type(
-    '.online-login [name="character"]',
-    `Evidence${Date.now() % 1000000}`,
-  );
+  const input = '.online-login [name="character"]';
+  // The field keeps whatever a previous step typed, so replace it outright.
+  await page.$eval(input, (node) => {
+    node.value = "";
+  });
+  await page.type(input, `Evidence${Date.now() % 1000000}`);
   // The field caps names at 13 characters, so read back what it accepted.
-  const name = await page.$eval(
-    '.online-login [name="character"]',
-    (node) => node.value,
-  );
-  await page.click(".online-login-create-submit");
+  const name = await page.$eval(input, (node) => node.value);
+  const ready = await page.evaluate(() => ({
+    stage: document.querySelector(".online-login")?.dataset.stage,
+    dialogOpen:
+      document.querySelector(".online-dialog-overlay")?.hidden === false,
+    disabled:
+      document.querySelector(".online-login-create-submit")?.disabled ?? null,
+  }));
+  if (ready.stage !== "create" || ready.dialogOpen || ready.disabled) {
+    throw new Error(`Create is not available: ${JSON.stringify(ready)}`);
+  }
+  await press(page, "Create");
   await page.waitForFunction(
     (expected) => {
       const host = document.querySelector(".online-login");
@@ -439,11 +627,42 @@ function checkCreateChoices(report, create) {
   );
 }
 
+function checkDeletion(report, deletion) {
+  const removed = deletion.before.names.filter(
+    (name) => !deletion.after.names.includes(name),
+  );
+  check(
+    report,
+    "Delete asks first, cancels harmlessly and removes the character when confirmed",
+    deletion.confirm.open &&
+      deletion.confirm.cancel === "Cancel" &&
+      /cannot be undone/.test(deletion.confirm.text ?? "") &&
+      deletion.afterCancel.names.length === deletion.before.names.length &&
+      removed.length === 1 &&
+      removed[0] === deletion.name &&
+      deletion.after.dots === deletion.before.dots - 1,
+    deletion,
+  );
+}
+
+function checkDialogs(report, rejection, deletion) {
+  check(
+    report,
+    "Failures open a Win95 dialog and the login keeps no bottom message box",
+    rejection?.open === true &&
+      rejection.messageBoxes === 0 &&
+      deletion.confirm.messageBoxes === 0,
+    { rejection, messageBoxes: deletion.confirm.messageBoxes },
+  );
+}
+
 function checkPlayerSession(
   report,
-  { create, created, fieldSelf, player, errors },
+  { create, created, fieldSelf, player, errors, rejection, deletion },
 ) {
   checkCreateChoices(report, create);
+  checkDeletion(report, deletion);
+  checkDialogs(report, rejection, deletion);
   check(
     report,
     "Changing the face repaints the create preview",
@@ -481,10 +700,14 @@ async function playerSession(browser, tools) {
   const { page, errors } = await openPage(browser);
   try {
     await signIn(page, tools, tools.accounts.player);
-    await press(page, "Create character");
-    const create = await readCreateScreen(page);
-    await page.screenshot({ path: join(tools.output, "create.png") });
-    const created = await createCharacter(page);
+    const cleaned = await cleanupEvidenceCharacters(page);
+    const { create, rejection, deletion, created } = await exerciseCreation(
+      page,
+      tools,
+    );
+    log(
+      `cleaned=${cleaned.length} doomed=${deletion.name} created=${created.name}`,
+    );
     await enterWorld(page);
     await wait(1500);
     await page.screenshot({ path: join(tools.output, "field-created.png") });
@@ -503,13 +726,23 @@ async function playerSession(browser, tools) {
     await page.screenshot({
       path: join(tools.output, "console-online-player.png"),
     });
-    Object.assign(tools.report, { created, fieldSelf, player, create });
+    Object.assign(tools.report, {
+      created,
+      fieldSelf,
+      player,
+      create,
+      rejection,
+      deletion,
+      cleaned,
+    });
     checkPlayerSession(tools.report, {
       create,
       created,
       fieldSelf,
       player,
       errors,
+      rejection,
+      deletion,
     });
     tools.report.playerErrors = errors;
   } finally {

@@ -310,6 +310,17 @@ export class OnlineTransport {
     return this.characters;
   }
 
+  /** Soft deletion on the server; the account's remaining characters come back fresh. */
+  async deleteCharacter(characterId) {
+    if (typeof characterId !== "string" || !ID.test(characterId)) {
+      throw failure("INVALID_CHARACTER");
+    }
+    await request(`/api/v1/characters/${characterId}`, "DELETE", null, {
+      "x-csrf-token": this.config.csrfToken,
+    });
+    return this.listCharacters();
+  }
+
   /** Credentials are proof-of-work gated in login()/register(); entry needs only a character. */
   async connect({ characterId } = {}) {
     if (this.closed) throw failure("TRANSPORT_CLOSED");
