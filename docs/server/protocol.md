@@ -189,13 +189,13 @@ Every server record after establishment contains `{v:1,type,connectionEpoch:Id,s
 
 | `type` | Additional fields |
 | --- | --- |
-| `welcome` | `playSession:Id,fieldEpoch:Id,rulesHash:Hash,assetBuildId:Hash,tickMs:30,inputLeadTicks:U32,resume:"continued" or "snapshot",limits:{inputPerSecond:U32,commandPerSecond:U32,maxMessageBytes:U32}` |
+| `welcome` | `playSession:Id,fieldEpoch:Id,rulesHash:Hash,assetBuildId:Hash,serverTime:ServerTime,tickMs:30,inputLeadTicks:U32,inputBufferTicks:U32,resume:"continued" or "snapshot",limits:{inputPerSecond:U32,commandPerSecond:U32,maxMessageBytes:U32}` |
 | `snapshot` | `snapshotId:Id,fieldEpoch:Id,eventSeq:Seq,ackInputSeq:Seq or null,part:U32,parts:U32,view:SnapshotPart` |
 | `state` | `snapshotId:Id,baseSnapshotId:Id,fieldEpoch:Id,eventSeq:Seq,ackInputSeq:Seq or null,changes:[EntityChange]` |
 | `result` | `eventSeq:Seq,operationId:OperationId,status:"committed" or "rejected",code:ResultCode,domainRevision:Revision,transactionId:Id or null` |
 | `event` | `eventSeq:Seq,fieldEpoch:Id,event:DomainEvent` |
 | `transition` | `eventSeq:Seq,transitionId:Id,phase:"prepare" or "committed" or "aborted",sourceEpoch:Id,destination:FieldRef or null,requiredContent:[Hash],deadline:ServerTime,code:ResultCode` |
-| `ping` | `nonce:Id` |
+| `ping` | `nonce:Id,serverTime:ServerTime` |
 | `closing` | `code:ResultCode,retryAfterMs:U32` |
 
 `FieldRef={instanceId:Id,mapId:TemplateId,fieldEpoch:Id,spawn:Point}` is **server-only**. `ResultCode` is one of `OK`, `INVALID_MESSAGE`, `UNAUTHENTICATED`, `CHARACTER_BUSY`, `STALE_CONNECTION`, `STALE_FIELD`, `STALE_REVISION`, `OPERATION_CONFLICT`, `OPERATION_EXPIRED`, `NOT_ALLOWED`, `NOT_IN_RANGE`, `REQUIREMENTS_NOT_MET`, `NOT_FOUND`, `INSUFFICIENT_FUNDS`, `INVENTORY_FULL`, `COOLDOWN`, `RATE_LIMITED`, `CONTENT_MISMATCH`, `PROTOCOL_MISMATCH`, `UNSUPPORTED_VERSION`, `RESYNC_REQUIRED`, `TRANSITION_FAILED`, `SERVER_BUSY`, `SESSION_EXPIRED`. Rejections must not disclose unseen entities/private state. Client presentation maps codes to native feedback without exposing stacks/secrets.
@@ -254,7 +254,19 @@ Proposed initial values: simulate every **30 ms**, publish the acting character'
 - Interpolate remote entities behind current server time; bounded extrapolation ends in a hold, not guessed damage. Arrival delays never alter economic/quest authority.
 - Server owns mob AI/positions, contact damage, hitboxes, target caps, attack duration, ammunition, costs and RNG. Clients cannot report damage dealt/taken, a kill, a drop, a hit list or a mob movement result.
 - Initial policy has **no historical hit rewind**. That avoids a client-controlled past-position exploit but adds latency to hit admission. If measurements require lag compensation, add a short bounded server-history window using server-observed timing, never accept arbitrary timestamps or rewind economic state. Keep it a separately reviewed rule/version.
-- Cap catch-up at four ticks per scheduling slice while retaining elapsed-time debt. Persistent debt triggers admission shedding and controlled field suspension/recovery, not silent time loss, faster client movement, infinite catch-up or an automatic player ban. Measure p95/p99 tick debt, corrections and input latency before increasing concurrency.
+- Cap catch-up at four ticks per scheduling slice while retaining elapsed-time debt, and hold **one** shared constant for both runtimes: the online client adopts the server-advertised schedule and never applies its offline browser catch-up allowance, which is not an online authority. Persistent debt triggers admission shedding and controlled field suspension/recovery, not silent time loss, faster client movement, infinite catch-up or an automatic player ban. Measure p95/p99 tick debt, corrections and input latency before increasing concurrency.
+
+### Sync model and divergence budget
+
+"In sync" means both sides hold the same state **for the same tick index**, verified by comparing state at tick `N`. It does not mean the same state at the same wall-clock instant, which no protocol can provide while `RTT > 0`; the client renders ahead of the authority and reconciles per tick.
+
+1. **Tick timeline and offset.** `welcome` and every `ping` carry the server's absolute `serverTime`. The client estimates its offset from several samples of `(serverTime - localReceiveTime) + oneWayEstimate`, keeps the median, slews small corrections instead of jumping, and hard-resyncs only past a stated drift bound. It stamps each `input` with the `targetTick` that estimate predicts the sample will be applied at. A client-supplied absolute time is never accepted as authority.
+2. **Server input buffer.** The server consumes tick `t` at a deadline of `oneWay + inputBufferTicks`; a sample arriving by its deadline is applied to its `targetTick`, and one arriving later is refused rather than re-timed onto another tick. A tick with no input holds the last continuous input for at most three ticks, then neutralizes. The buffer is the only defense against jitter starvation, and its cost is exactly `inputBufferTicks` of added latency for every player. Initial policy is one tick (30 ms), raised only from measured jitter.
+3. **Client step rate.** The client emits exactly one sample and runs exactly one kernel quantum per server tick; per-frame sampling is coalesced into the held-state sample for the tick it will be applied at. A client that runs the kernel at its own rate diverges without bound: at twice the server rate the gap grows with every tick rather than settling. The online client follows the server-advertised schedule.
+4. **One arithmetic.** The shared kernel uses one frozen formulation: integers and fixed-point where the original is integer, `+ - * / sqrt`, and no transcendental function or `Math.hypot`. `Math.hypot` and a hand-rolled `sqrt(x*x + y*y)` already disagree on roughly 1% of sampled inputs inside a single engine, so a kernel that mixes formulations cannot stay in sync across V8 and Bun. The differential harness in the proof list is the gate that settles it.
+5. **Divergence budget.** Divergence is measured per recipient as divergence ticks (ticks where the client's replayed state differs from the authoritative state for that tick) plus correction magnitude and its convergence. Acceptance: zero divergence ticks and zero corrections on a clean link; bounded, non-growing corrections under stated jitter and loss; correction magnitude inside presentation tolerance. Correction distance alone is not a pass criterion without its tick count and convergence.
+
+The alignment properties above are asserted against the real movement kernel in `client/test/sync-alignment.test.js`: stamped inputs reproduce the server state exactly per tick, rewind plus suffix replay restores the authoritative timeline, a one-tick buffer removes jitter starvation that a zero-tick buffer leaves standing, and per-frame stepping diverges with duration while coalescing stays exact.
 
 ## Map transition state machine
 
@@ -286,7 +298,7 @@ Class assignment is part of the action definition. A new action may not join the
 - **Class 1/2:** `input`, `buff.cancel`, `skill.cast`, `stats.allocate`, `skills.allocate`, `chat.send`, `npc.open`, `npc.answer`, `trade.invite`, `trade.answer`, `trade.offer`, `trade.cancel`, `revive.request` with `method:"return"`.
 - **Class 3:** `drop.pickup`, `inventory.move`, `equipment.equip`, `equipment.unequip`, `item.use`, `item.drop`, `mesos.drop`, `equipment.scroll`, `portal.enter`, `revive.request` with `method:"consumable"`, `quest.accept`, `quest.claim`, `quest.abandon`, `shop.buy`, `shop.sell`, `shop.recharge`, `trade.confirm`.
 - Combat is never class 3. An attack resolves in memory and publishes `combat` events; its durable consequences are the class-2 HP/MP/EXP checkpoint plus any class-3 pickup or reward the server itself decides.
-- Ammo and consumable debits are class 2 because their failure mode is under-debiting (a bounded loss to the economy), never duplication. Anything that **creates** an item, moves ownership between characters, or grants an entitlement is class 3 regardless of how frequent it is.
+- Implicit ammunition consumption during an attack is class 2: its failure mode is under-debiting, a bounded loss to the economy, never duplication. An explicit `item.use` command, including a potion, is class 3 like every other inventory mutation. Anything that **creates** an item, moves ownership between characters, or grants an entitlement is class 3 regardless of how frequent it is.
 - Whole-profile rewrites are not a durability mechanism. The character snapshot is a cache of the op log; no economic invariant may depend on snapshot cadence, and no two domains may be recovered from snapshots taken at different times.
 
 Ordering rules that keep the classes composable:
@@ -498,7 +510,7 @@ For WSS/TCP, coalescing cannot remove bytes already queued in the transport. Mon
 
 Server-only private data includes full inventories, quest/account state, RNG state, moderation flags and unpublished shop/reward logic. Broadcast only public appearance/nearby entity state; trade offers go to their two participants, chat only to authorized recipients. Do not put sensitive runtime responses into public content packages or offline caches.
 
-Metrics: tick duration/debt, queue bytes, admission rejects by stable code, snapshot bytes, prediction correction distance, input age, transaction latency/retries, duplicate receipt lookup, field handoff failures and reconnect completion. Logs retain operation IDs, rules version, actor/field epoch and bounded reason, not credentials or whole chat/payload dumps. Suspicious movement is rejected/corrected; lag alone is not a ban decision. Administrative grants use separate authenticated, role-scoped, audited server tooling—never a production gameplay message switch.
+Metrics: tick duration/debt, queue bytes, admission rejects by stable code, snapshot bytes, prediction correction distance and divergence ticks, input age, transaction latency/retries, duplicate receipt lookup, field handoff failures and reconnect completion. Logs retain operation IDs, rules version, actor/field epoch and bounded reason, not credentials or whole chat/payload dumps. Suspicious movement is rejected/corrected; lag alone is not a ban decision. Administrative grants use separate authenticated, role-scoped, audited server tooling—never a production gameplay message switch.
 
 ## Implementation order and required proof
 
