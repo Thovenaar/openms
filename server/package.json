@@ -2,5 +2,9 @@
   "name": "@openms.dev/server",
   "private": true,
   "type": "module",
-  "description": "Reserved workspace. Backend implementation intentionally deferred."
+  "description": "Authoritative Bun and PostgreSQL online runtime",
+  "scripts": {
+    "dev": "bun tools/dev.js",
+    "start": "bun src/index.js"
+  }
 }

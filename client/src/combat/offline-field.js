@@ -1,6 +1,6 @@
 import { createHitboxState, updateHitboxes } from "../physics/hitboxes.js";
 import { applyExternalImpulse } from "../physics/simulation.js";
-import { placeBody } from "../world/life-geometry.js";
+import { placeBody } from "../world/life-geometry-numeric.js";
 import { OfflineMobRenderer } from "./offline-mob-renderer.js";
 import { PassiveRecovery } from "../character/passive-recovery.js";
 import {

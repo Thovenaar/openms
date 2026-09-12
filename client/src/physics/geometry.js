@@ -55,7 +55,7 @@ function makeSegment(source) {
   const y2 = coordinate(source.y2);
   const dx = x2 - x1;
   const dy = y2 - y1;
-  const length = Math.hypot(dx, dy);
+  const length = Math.sqrt(dx * dx + dy * dy);
   if (
     !Number.isSafeInteger(source.layer) ||
     source.layer < 0 ||

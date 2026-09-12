@@ -1,0 +1,35 @@
+.service-label {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.service-label svg {
+  flex: 0 0 16px;
+  margin-top: 4px;
+  color: var(--vp-c-text-2);
+}
+
+.VPSidebarItem.level-0 > .item .service-label svg {
+  color: var(--vp-c-brand-1);
+}
+
+.VPSidebarItem.collapsible > .item {
+  min-height: 36px;
+  align-items: flex-start;
+}
+
+.VPSidebarItem.collapsible > .item:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.VPSidebarItem.level-1 > .items {
+  padding-left: 12px;
+}
+
+.VPSidebarItem .service-label span {
+  overflow-wrap: anywhere;
+}

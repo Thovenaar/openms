@@ -135,6 +135,8 @@ export class StreamScene {
     this.failures = new Set();
     this.spriteCount = 0;
     this.cameraPath = null;
+    // Region ownership changes let a non-owning scene rebind references (online NPCs).
+    this.onEntitiesChanged = null;
   }
   async prepare(signal, arrival = null, avatar = null) {
     const cancel = () => this.destroy();
@@ -175,6 +177,33 @@ export class StreamScene {
       throw error;
     } finally {
       signal.removeEventListener("abort", cancel);
+    }
+  }
+  /** Online presentation: no spawn selection, simulation, or authored live actors. */
+  async preparePresentation(signal, position) {
+    check(signal);
+    this.camera.x = position.x - this.viewport.width / 2;
+    this.camera.y = position.y - this.viewport.height / 2;
+    try {
+      await this.actorRegion.load(
+        this.manifest.actors.filter(
+          (entity) =>
+            !["character", "mob", "npc", "drop"].includes(entity.kind),
+        ),
+      );
+      for (const descriptor of this.manifest.regions) {
+        if (
+          descriptor.always ||
+          intersects(descriptor.bounds, this.camera, this.viewport, 0)
+        ) {
+          await this.loadRegion(descriptor);
+          check(signal);
+        }
+      }
+      return this;
+    } catch (error) {
+      this.destroy();
+      throw error;
     }
   }
   async loadRegion(descriptor) {
@@ -226,6 +255,7 @@ export class StreamScene {
     }
     this.container.sortChildren();
     this.fieldSystems?.refresh();
+    this.onEntitiesChanged?.();
   }
   /** Initialize and update the same pose contract, including paused map entry. */
   updateActor(pose) {

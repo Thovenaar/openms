@@ -20,7 +20,7 @@ import {
   projectileTargetDistance,
   isRangedWeapon,
 } from "../combat/weapon-usage.js";
-import { placeBody } from "../world/life-geometry.js";
+import { placeBody } from "../world/life-geometry-numeric.js";
 import {
   overlaps,
   rectangleState,

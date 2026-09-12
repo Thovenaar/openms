@@ -1,5 +1,26 @@
 # Validation results
 
+## Online authority implementation
+
+The Bun authority runtime, the separate online browser and their shared protocol are implemented and exercised end to end. Strict lint passes with zero warnings; **450 tests / 2,510 assertions across 64 files** pass under `bun test`, and the PostgreSQL durability regression (`server/test/database.test.js`) passes against the owned development cluster when `OPENMS_TEST_DATABASE_URL` is set — durable JSON round-trip, committed-receipt replay, digest conflict, rejected-mutation rollback and writer fencing after lease rotation.
+
+```text
+rules   29b62c34f87869e5ee6121861a6680c51e9c254974dc12f35997bab15714e572
+assets  043b687e03c3a376795d6f0204300bc5bb5da5051b384c5cd8fb0fa80d93f524
+catalog a59bc8443ef953c4b90fb1ed0c9b23e44767346a2e6d8f21a9e3980dfe4d75a6
+bundle  6e4aafcba575b45b8b301db05f98afac8bb4fd9051193288d832c6dc1abc3dfd
+```
+
+The [protocol smoke report](validation/online/protocol-smoke.json) passes 15 checks against a live server over HTTP and WebSocket: client/server content identity agreement, an isolated developer field, refusal of development authority for a player, delta-baseline identity, held input moving the server-owned character, a committed development profile edit, a mesos debit, same-operation replay returning the original transaction, no double debit, digest conflict, pause freezing the isolated field tick, fixed server stepping, reconnect rotating the connection epoch while retaining the play session, and rejection of a forged client position.
+
+The [dialogue lifecycle report](validation/online/dialogue-lifecycle.json) passes 23 checks over the same transport: authored NPC identity, committed `npc.open`, authored menu choices, the quest branch, bounded authored pages, `quest.offer` only at the final confirmation page, a committed `quest.accept` with its own transaction, offer revocation after acceptance, the post-accept authored pages, `dialogue.closed` at the terminal page, and `dialogue.closed` on cancel.
+
+Real Chromium against the development proxy and server confirmed: login and world entry with no page errors, authoritative movement with zero corrections and no prediction overflows at ~12 ms round trip, reconnect preserving `inputSeq` (0 → 28 → 79) and resuming movement, region-owned NPC artwork rendered at the projected position with a pointer affordance, a click producing a committed `npc.open` and the authored menu, then the authored quest prose, page advancement and the accept button carrying the authored quest name ([menu capture](validation/online/npc-menu.png)). At the 800×600 minimum viewport the canvas is exactly 800×600 with the controls stacked below it, `document.documentElement.scrollWidth` is 800 and there is no horizontal overflow ([capture](validation/online/minimum-viewport.png)).
+
+Integration defects found and fixed during this work: the client acknowledged a stale baseline after a state delta (which stopped all later deltas), reconnect reset the client input sequence while the server keeps a per-character high-water mark, the predictor stamped a target tick one tick behind the newest motion (stalling on links slower than one 30 ms tick) and now schedules from a server-measured RTT/clock offset with `ping.roundTripMs`, the client resync throttle contradicted the server's five-second limit, monster-kill quest progress never reached durable state, committed inventory/character/drop commands published no authoritative observation, rejected conversation/trade results reported the character revision, NPC entities requested mob-only artwork instead of binding the region-owned sprite (which also made ledge NPCs unreachable through an invented reach limit the original client does not have), the shop row read a nonexistent price field, dialogue prose and choice labels were rendered as raw token markup, and login failed unrecoverably when a second tab refreshed the single-slot login nonce.
+
+Not claimed here: original-client pixel fidelity, complete skill/controller coverage, class-3 parity for every action, production hardening, or that the shared headless browser harness is itself a product surface. The harness freezes idle tabs between turns, which expires server sessions and surfaces as `SOCKET_ERROR`/`NOT_ACTIVE` on the next interaction; reconnect/resume recovers it and it is not a client defect.
+
 ## Gameplay corrections and authority proposal
 
 This revision publishes **735 maps, 327 packaged monster templates and 71 original Skill book headers**. Strict lint passes with zero warnings; **444 tests / 2,494 assertions across 62 files** pass. The [spawn inventory](native-ui-validation/gameplay-authority/spawn-coverage.json) independently verifies every published map-manifest hash and finds 3,315 eligible spawn portals across all 735 maps, with none missing.
@@ -39,13 +60,13 @@ The supplied original client directory contains WZ archives and executables, not
 
 The [completed extraction](native-ui-validation/gameplay-authority/extraction-stages.json) took **712.184 seconds**, rebuilding 739 units with three cache hits. Its asset build is `043b687e03c3a376795d6f0204300bc5bb5da5051b384c5cd8fb0fa80d93f524`; publication verified 49,369 resources totaling 4,536,439,054 bytes.
 
-| Measurement | Seconds | Boundary |
-| --- | ---: | --- |
-| Whole extraction | 712.184 | Parent duration, not added to its stages |
-| 735 map units | 502.285 | Dominant conversion/packaging work |
-| UI unit | 173.914 | Includes original book-header extraction |
-| Audiovisual unit | 13.815 | Separate conversion unit |
-| Preflight | 17.955 | Included in the parent duration, executed once |
+| Measurement      | Seconds | Boundary                                       |
+| ---------------- | ------: | ---------------------------------------------- |
+| Whole extraction | 712.184 | Parent duration, not added to its stages       |
+| 735 map units    | 502.285 | Dominant conversion/packaging work             |
+| UI unit          | 173.914 | Includes original book-header extraction       |
+| Audiovisual unit |  13.815 | Separate conversion unit                       |
+| Preflight        |  17.955 | Included in the parent duration, executed once |
 
 A bounded [three-second macOS sample](native-ui-validation/gameplay-authority/extraction-live.sample.txt) observed about 7.5 GiB footprint and 7.7 GiB peak on the 24 GiB M3 host. Heap-helper threads account for roughly 41% of on-CPU samples; stripped symbols do not justify finer JavaScript attribution. A momentary low CPU/RSS reading does not establish an I/O bottleneck.
 

@@ -10,7 +10,7 @@ import {
 } from "../input/keymap.js";
 import { JOB_LABELS } from "../ui/ui-job-labels.js";
 import { requiresSkillMastery, skillBooks } from "../ui/ui-skill-books.js";
-import { AP_POLICY } from "../character/character-development.js";
+import { AP_POLICY } from "../character/ap-rules.js";
 import { recalculateVitals } from "../character/character-stats.js";
 import {
   equipInventory,

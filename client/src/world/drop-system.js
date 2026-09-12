@@ -219,7 +219,7 @@ function validateCredit(drop) {
 }
 
 /** Native dialog 0081dac6..0081dadd; Cosmic MesoDropHandler confirms 10..50000. */
-function debitMesos(profile, amount) {
+export function debitMesos(profile, amount) {
   if (
     !Number.isSafeInteger(amount) ||
     amount < DROP_POLICY.minimumMesoDrop ||

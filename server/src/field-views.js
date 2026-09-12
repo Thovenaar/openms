@@ -1,0 +1,204 @@
+import { animationId, protocolError } from "../../shared/protocol.js";
+import { inventoryType } from "../../client/src/items/inventory-model.js";
+import { progressQuestViews } from "./interaction-quest.js";
+import { UPGRADE_STATS } from "../../client/src/profile/profile-item-state.js";
+import { equipmentUpgrade } from "../../client/src/items/equipment-enhancement.js";
+
+const TABS = ["equip", "use", "setup", "etc", "cash"];
+const STATS = [
+  "str",
+  "dex",
+  "int",
+  "luk",
+  "hp",
+  "mp",
+  "pad",
+  "mad",
+  "pdd",
+  "mdd",
+  "acc",
+  "eva",
+  "speed",
+  "jump",
+];
+
+export function fieldReference(actor) {
+  return {
+    instanceId: actor.field.id,
+    mapId: actor.field.mapId,
+    fieldEpoch: actor.field.epoch,
+    spawn: { x: actor.arrival.x, y: actor.arrival.y },
+  };
+}
+
+export function actorEntity(actor) {
+  const sim = actor.simulation;
+  const profile = actor.profile;
+  const name =
+    profile.hp <= actor.pendingDamage
+      ? "dead"
+      : actor.attackState.active
+        ? actor.attackState.action
+        : (actor.castAction ?? sim.action);
+  return {
+    id: actor.id,
+    kind: "player",
+    templateId: 0,
+    position: { x: sim.x, y: sim.y },
+    velocity: { x: sim.vx, y: sim.vy },
+    foothold: sim.foothold?.id ?? null,
+    facing: sim.facing,
+    action: animationId(name),
+    actionStartTick: actor.actionStartTick,
+    appearance: {
+      name: profile.name,
+      gender: profile.gender,
+      ...profile.appearance,
+      equipment: profile.equipment.map((item) => ({
+        slot: Math.abs(item.slot),
+        templateId: item.id,
+      })),
+    },
+  };
+}
+
+export function lifeEntity(entity, kind) {
+  return {
+    id: entity.id,
+    kind,
+    templateId: entity.templateId,
+    position: { x: entity.x, y: entity.y },
+    velocity: { x: 0, y: 0 },
+    foothold: entity.segment?.id ?? null,
+    facing: entity.facing ?? -1,
+    action: animationId(entity.action ?? "stand"),
+    actionStartTick: entity.actionStartTick ?? 0,
+    appearance: null,
+  };
+}
+
+export function dropEntity(drop) {
+  return {
+    id: drop.id,
+    kind: "drop",
+    templateId: drop.item?.id ?? 0,
+    position: { x: drop.position.x, y: drop.position.y },
+    velocity: { x: 0, y: 0 },
+    foothold: drop.foothold?.id ?? null,
+    facing: 1,
+    action: animationId(
+      drop.item
+        ? "stand"
+        : `currency${drop.mesos < 50 ? 0 : drop.mesos < 100 ? 1 : drop.mesos < 1000 ? 2 : 3}`,
+    ),
+    actionStartTick: 0,
+    appearance: null,
+  };
+}
+
+export function itemView(item, revision, equipped = false, items) {
+  let equipment = null;
+  if (inventoryType(item.id) === 1) {
+    const upgrade = equipmentUpgrade(item, items[item.id]);
+    equipment = {
+      upgradesRemaining: upgrade?.slots ?? 0,
+      upgradesUsed: upgrade?.level ?? 0,
+      stats: STATS.flatMap((key, index) =>
+        upgrade?.stats?.[UPGRADE_STATS[index]] === undefined
+          ? []
+          : [{ key, value: upgrade.stats[UPGRADE_STATS[index]] }],
+      ),
+    };
+  }
+  return {
+    id: item.uid,
+    templateId: item.id,
+    quantity: item.count,
+    location: equipped
+      ? { kind: "equipped", slot: Math.abs(item.slot) }
+      : {
+          kind: "inventory",
+          tab: TABS[inventoryType(item.id) - 1],
+          slot: item.slot,
+        },
+    revision,
+    equipment,
+  };
+}
+
+export function selfView(actor) {
+  const p = actor.profile;
+  return {
+    entity: actorEntity(actor),
+    hp: Math.max(0, p.hp - actor.pendingDamage),
+    mp: Math.max(0, p.mp - (actor.pendingMpDamage ?? 0)),
+    maxHp: p.maxHP,
+    maxMp: p.maxMP,
+    job: p.job,
+    level: p.level,
+    exp: p.exp,
+    ap: p.remainingAp,
+    sp: p.remainingSp.slice(),
+    stats: { str: p.str, dex: p.dex, int: p.int, luk: p.luk },
+    effects: (p.onlineState?.effects ?? []).map((effect) => ({
+      id: effect.id,
+      templateId: effect.templateId,
+      expiresAt: effect.expiresAt,
+      cancelable: effect.cancelable,
+    })),
+  };
+}
+
+function pages(parts, key, values, metadata) {
+  for (let start = 0; start < Math.max(1, values.length); start += 128) {
+    if (parts.length >= 64) throw protocolError("SERVER_BUSY");
+    parts.push({
+      kind: metadata.kind,
+      [key]: values.slice(start, start + 128),
+      ...metadata,
+    });
+  }
+}
+
+export function snapshotParts(world, actor) {
+  const p = actor.profile;
+  const parts = [
+    {
+      kind: "field",
+      field: fieldReference(actor),
+      characterRevision: actor.revision,
+      inventoryRevision: actor.inventoryRevision,
+      socialRevision: actor.socialRevision,
+      self: selfView(actor),
+    },
+  ];
+  pages(parts, "entities", world.entities(actor), { kind: "entities" });
+  const items = p.inventory.map((item) =>
+    itemView(item, actor.inventoryRevision, false, world.content.items),
+  );
+  for (const item of p.equipment) {
+    items.push(
+      itemView(item, actor.inventoryRevision, true, world.content.items),
+    );
+  }
+  const capacities = Object.fromEntries(
+    TABS.map((tab, i) => [tab, p.inventorySlots[i]]),
+  );
+  pages(parts, "items", items, {
+    kind: "inventory",
+    mesos: p.meso,
+    capacities,
+  });
+  const skills = Object.entries(p.skills).map(([id, skill]) => ({
+    id: Number(id),
+    rank: skill.level,
+    mastery: skill.masterLevel,
+    cooldownUntil: p.onlineState?.cooldowns?.[`skill:${id}`] ?? 0,
+  }));
+  const quests = progressQuestViews(actor, world);
+  pages(parts, "quests", quests, { kind: "progress", skills: [] });
+  if (skills.length) {
+    pages(parts, "skills", skills, { kind: "progress", quests: [] });
+  }
+  return parts;
+}

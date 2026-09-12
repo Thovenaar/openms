@@ -5,7 +5,7 @@ import {
   prepareItemSpec,
 } from "./item-effects.js";
 
-const USE_INTERVAL_MS = 200; // 004efd25, call004f0400 -> 00485bf7(200, 0).
+export const USE_INTERVAL_MS = 200; // 004efd25, call004f0400 -> 00485bf7(200, 0).
 const OK = Object.freeze({ ok: true });
 
 /** Prepared local authority: no transient effect or vital change before durable completion. */

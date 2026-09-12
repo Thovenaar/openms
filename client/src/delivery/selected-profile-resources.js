@@ -3,7 +3,7 @@ import { avatarResourceDescriptors } from "../character/avatar-visuals.js";
 import { PROFILE_LIMITS } from "../profile/profile-validation.js";
 import { canonicalKeyIndex } from "../input/keymap.js";
 import { bindingTemplate } from "../ui/ui-icons.js";
-import { profileSkillLevel } from "../skills/skill-system.js";
+import { profileSkillLevel } from "../skills/skill-allocation-rules.js";
 import { morphId } from "../skills/skill-forms.js";
 import {
   MORPH_SKILLS,

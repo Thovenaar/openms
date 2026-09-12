@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { Container, EventBoundary, Graphics, Point, Texture } from "pixi.js";
 import "pixi.js/events";
 import { EntityAnimation } from "../src/rendering/animation.js";
-import { npcRectangle } from "../src/world/life-geometry.js";
+import { npcRectangle } from "../src/world/life-geometry-numeric.js";
 import { LifeSystem } from "../src/world/life-system.js";
 import { MapleTVSystem } from "../src/social/mapletv-system.js";
 import { StreamScene } from "../src/rendering/stream-scene.js";

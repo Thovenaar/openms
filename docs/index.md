@@ -1,10 +1,10 @@
 # openms.dev documentation
 
-openms.dev reconstructs an original-asset browser client with JavaScript, JSDoc, Bun, and PixiJS. Documentation is organized by service: the implemented offline **Client** and the reserved **Server** workspace. Recovered behavior, local policy, measured results, and missing capabilities remain explicitly distinguished.
+openms.dev reconstructs an original-asset browser client with JavaScript, JSDoc, Bun, and PixiJS. Documentation is organized by service: the offline/online **Client** and the authoritative Bun **Server**. Recovered behavior, development/reference rules, measured results, and missing capabilities remain explicitly distinguished.
 
 ## Client
 
-[Open the client documentation](README.md) for setup and `bun run dev:client:offline`.
+[Open the client documentation](README.md) for independent offline setup (`bun run dev:client:offline`) and [online development](README.md#online-development) (`bun run client:dev:online`).
 
 - **Architecture:** [subsystem contracts](reconstruction-contract.md), [scene and inspection APIs](scene-contract.md), [agent experiments](agent-interface.md), and [offline integration](offline-integration-contract.md).
 - **Assets and streaming:** [decoding evidence](asset-evidence.md), [inventory](ingame-inventory.md), [delivery](asset-delivery.md), and [streaming](streaming.md).
@@ -19,10 +19,10 @@ openms.dev reconstructs an original-asset browser client with JavaScript, JSDoc,
 
 - **Workspace:** the private Bun server package and its current implementation status.
 - **Reference data:** the authorized Cosmic checkout and the client-side conversion tools that consume it.
-- **Authority boundaries:** why local peers, IndexedDB saves, and supported offline scripts are not a network backend.
-- **Proposal:** [authoritative web protocol](server/protocol.md), with intent-only commands, shared rules, server-owned transitions and transactional economy.
+- **Authority boundaries:** online observations and intent-only commands stay separate from local peers and IndexedDB saves.
+- **Protocol:** [authoritative web protocol](server/protocol.md), with server-owned transitions, transactional economy and a separately authenticated development endpoint.
 
-There is no implemented backend or server development command. Server-reference data does not imply an operating server.
+Run `bun run server:dev` for the loopback server and `bun run client:dev:online` for the original-asset online browser. PostgreSQL and extracted content are required. See [setup and production gates](server/index.md); development/reference policies are not original-server fidelity or measured security guarantees.
 
 ## Project guidance
 
@@ -37,4 +37,4 @@ bun install --frozen-lockfile
 bun run dev:docs
 ```
 
-Development commands follow `dev:<service>[:mode]`. For a production build and local inspection, use `bun run docs:build`, then `bun run docs:preview`. The site is rooted in `docs/`; generated output and cache stay under `docs/.vitepress/`.
+Offline and documentation development commands retain `dev:<service>[:mode]`; online entry points are `server:dev` and `client:dev:online`. For a documentation production build and local inspection, use `bun run docs:build`, then `bun run docs:preview`. The site is rooted in `docs/`; generated output and cache stay under `docs/.vitepress/`.

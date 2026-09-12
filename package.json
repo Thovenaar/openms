@@ -8,6 +8,9 @@
   ],
   "scripts": {
     "dev:client:offline": "bun client/tools/dev.js",
+    "server:dev": "bun server/tools/dev.js",
+    "client:dev:online": "bun client/tools/dev-online.js",
+    "client:build:online": "bun client/tools/build-online.js",
     "dev:docs": "bunx --bun vitepress dev docs",
     "docs:build": "bunx --bun vitepress build docs",
     "docs:preview": "bunx --bun vitepress preview docs",
@@ -24,7 +27,7 @@
     "test": "bun test",
     "validate": "bun client/tools/validate.js",
     "lint": "bunx --bun eslint . --max-warnings 0",
-    "format": "bunx --bun prettier --write 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' 'client/public/*.js' client/public/app.webmanifest client/index.html client/style.css eslint.config.js package.json client/package.json server/package.json"
+    "format": "bunx --bun prettier --write 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' 'client/public/*.js' 'server/src/**/*.js' 'server/tools/**/*.js' 'server/test/**/*.js' 'shared/**/*.js' client/public/app.webmanifest client/index.html client/online.html client/style.css client/online.css eslint.config.js package.json client/package.json server/package.json"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

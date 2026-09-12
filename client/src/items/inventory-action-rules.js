@@ -347,7 +347,7 @@ export function equipInventory(profile, items, request) {
   source.slot = slot;
   if (template.info.equipTradeBlock === 1) source.flags |= 8;
   profile.equipment.push(source);
-  recalculateVitals(profile, items);
+  recalculateVitals(profile, items, request.temporary);
   return true;
 }
 
@@ -366,7 +366,7 @@ export function unequipInventory(profile, items, request) {
     );
   }
   takeEquipment(profile, source, slot);
-  recalculateVitals(profile, items);
+  recalculateVitals(profile, items, request.temporary);
   return true;
 }
 
@@ -435,7 +435,7 @@ export function debitItemDrop(profile, items, request) {
   if (request.count < source.count) instance.uid = request.dropUid;
   if (source.slot < 0) {
     profile.equipment.splice(profile.equipment.indexOf(source), 1);
-    recalculateVitals(profile, items);
+    recalculateVitals(profile, items, request.temporary);
   } else consumeItem(profile, source.uid, request.count);
   return instance;
 }

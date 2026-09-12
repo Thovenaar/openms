@@ -131,7 +131,7 @@ function valueResponse(view, response) {
 }
 
 /** NPCMoreTalkHandler:38-56 closes text without invoking action; raw12 retains type12. */
-function decodeResponse(view, response) {
+export function decodeResponse(view, response) {
   responseShape(response, view);
   requireNpc(
     !["closed", "blocked"].includes(view.kind),

@@ -1,157 +1,130 @@
 import { test, expect } from "bun:test";
 import original from "../../docs/ghidra-physics-motion/wz-globals.json";
+import { createSimulation } from "../src/physics/simulation.js";
 import {
-  createSimulation,
-  advanceSimulation,
-} from "../src/physics/simulation.js";
+  createHeldInput,
+  assignHeldInput,
+  stepMotion,
+  captureMotion,
+  restoreMotion,
+} from "../../shared/motion.js";
 
-// Synthetic isolating geometry for the shared movement kernel; not original-game recordings.
-// This file asserts the authoritative-server sync contract: a client and a server that run the
-// same kernel stay identical per *tick index*, and it pins the documented ways that breaks.
-const QUANTUM_MS = 30;
-
-function floor(id, y) {
-  return {
-    id,
-    layer: 1,
-    group: 0,
-    x1: -4000,
-    y1: y,
-    x2: 4000,
-    y2: y,
-    prev: 0,
-    next: 0,
-    properties: {},
-  };
-}
-
+// Synthetic isolating geometry, not an original-game recording. Exercise the real
+// online continuation boundary rather than reconstructing state by replaying spawn.
 function world() {
   return {
     schemaVersion: 1,
     globals: original.globals,
-    footholds: [floor(1, 0)],
-    ladders: [],
     map: {},
+    ladders: [],
+    footholds: [
+      {
+        id: 1,
+        layer: 1,
+        group: 0,
+        x1: -1000,
+        y1: 0,
+        x2: 1000,
+        y2: 0,
+        prev: 0,
+        next: 0,
+        properties: {},
+      },
+      {
+        id: 2,
+        layer: 1,
+        group: 0,
+        x1: -1000,
+        y1: 300,
+        x2: 1000,
+        y2: 300,
+        prev: 0,
+        next: 0,
+        properties: {},
+      },
+    ],
   };
 }
-
-function heldInput(direction) {
+function sample(tick) {
   return {
-    left: direction < 0,
-    right: direction > 0,
-    up: false,
-    down: false,
+    horizontal: tick < 25 ? 1 : tick < 50 ? -1 : 0,
+    vertical: tick >= 55 && tick < 60 ? 1 : 0,
+    jump: tick === 12 || (tick >= 55 && tick < 59),
+    attack: false,
+  };
+}
+function run(simulation, input, first, last) {
+  for (let tick = first; tick <= last; tick++) {
+    assignHeldInput(input, sample(tick));
+    stepMotion(simulation, input);
+  }
+}
+
+test("mid-flight authoritative checkpoint restores future movement and held edges exactly", () => {
+  const source = createSimulation(world(), { x: 0, y: -10 });
+  const input = createHeldInput();
+  run(source, input, 0, 17);
+  const checkpoint = captureMotion(source);
+  expect(checkpoint.y).toBeLessThan(0);
+  const restored = createSimulation(world(), { x: -900, y: 290 });
+  restoreMotion(restored, structuredClone(checkpoint));
+  const replay = createHeldInput();
+  assignHeldInput(replay, checkpoint.held);
+  run(source, input, 18, 110);
+  run(restored, replay, 18, 110);
+  expect(captureMotion(restored)).toEqual(captureMotion(source));
+});
+
+test("down-jump ignored foothold survives a received checkpoint", () => {
+  const source = createSimulation(world(), { x: 0, y: -10 });
+  const input = createHeldInput();
+  assignHeldInput(input, {
+    horizontal: 0,
+    vertical: 0,
     jump: false,
     attack: false,
-    jumpPressed: false,
-  };
-}
-
-/** Coasting script: accelerate right, coast, then reverse. */
-function coasting(tick) {
-  if (tick < 20) return 1;
-  if (tick < 30) return 0;
-  return -1;
-}
-
-/** Direction changes almost every tick, so a held (starved) tick is visibly the wrong input. */
-function changing(tick) {
-  if (tick % 7 === 3) return 0;
-  if (tick % 11 === 5) return -1;
-  return 1;
-}
-
-function run(directions, quantaPerTick = 1) {
-  const sim = createSimulation(world(), { x: 0, y: 0 });
-  for (const direction of directions) {
-    advanceSimulation(sim, heldInput(direction), QUANTUM_MS * quantaPerTick);
+  });
+  for (let tick = 0; tick < 20; tick++) stepMotion(source, input);
+  assignHeldInput(input, {
+    horizontal: 0,
+    vertical: 1,
+    jump: true,
+    attack: false,
+  });
+  stepMotion(source, input);
+  const checkpoint = captureMotion(source);
+  expect(checkpoint.ignoredFootholdId).toBe(1);
+  const restored = createSimulation(world(), { x: 0, y: -10 });
+  restoreMotion(restored, checkpoint);
+  const replay = createHeldInput();
+  assignHeldInput(replay, checkpoint.held);
+  for (let tick = 0; tick < 30; tick++) {
+    assignHeldInput(input, {
+      horizontal: 0,
+      vertical: 0,
+      jump: false,
+      attack: false,
+    });
+    assignHeldInput(replay, {
+      horizontal: 0,
+      vertical: 0,
+      jump: false,
+      attack: false,
+    });
+    stepMotion(source, input);
+    stepMotion(restored, replay);
   }
-  return sim.x;
-}
-
-/**
- * Server-applied input per tick for a stamped client stream. A sample stamped for tick `t` is
- * applied there only if it arrives by `t + oneWayTicks + bufferTicks`; a starved tick holds the
- * last continuous input.
- */
-function serverApplied(stamped, { oneWayTicks, bufferTicks, arrivalOffset }) {
-  const applied = [];
-  let held = 0;
-  for (let tick = 0; tick < stamped.length; tick += 1) {
-    const arrival = tick + oneWayTicks + arrivalOffset(tick);
-    const deadline = tick + oneWayTicks + bufferTicks;
-    applied.push(arrival <= deadline ? stamped[tick] : held);
-    held = applied[tick];
-  }
-  return applied;
-}
-
-test("inputs stamped for their own tick keep client and server identical per tick index", () => {
-  const stamped = Array.from({ length: 60 }, (_, tick) => coasting(tick));
-  const applied = serverApplied(stamped, {
-    oneWayTicks: 2,
-    bufferTicks: 0,
-    arrivalOffset: () => 0,
-  });
-  expect(applied).toEqual(stamped);
-  expect(run(applied)).toBe(run(stamped));
-  // The script reverses, so net displacement is small; assert it moved at all.
-  expect(Math.abs(run(applied))).toBeGreaterThan(10);
+  expect(restored.footholdId).toBe(2);
+  expect(captureMotion(restored)).toEqual(captureMotion(source));
 });
 
-test("rewinding to the authoritative tick and replaying the suffix restores the server timeline", () => {
-  const stamped = Array.from({ length: 60 }, (_, tick) => coasting(tick));
-  const mispredicted = [...stamped];
-  mispredicted[5] = 0; // client moved when the server had no input for that tick
-  expect(run(mispredicted)).not.toBe(run(stamped));
-
-  // The client adopts the authoritative state for the divergence tick and replays only its
-  // unacknowledged suffix. Replaying the acknowledged prefix reconstructs that state exactly
-  // because the kernel is deterministic, which is what makes reconciliation sound.
-  const authoritative = run(stamped.slice(0, 6));
-  const reconciled = [...stamped.slice(0, 6), ...stamped.slice(6)];
-  expect(run(reconciled)).toBe(run(stamped));
-  expect(run(stamped.slice(0, 6))).toBe(authoritative);
-});
-
-test("jitter without a server input buffer starves ticks and leaves a standing gap", () => {
-  const stamped = Array.from({ length: 60 }, (_, tick) => changing(tick));
-  const applied = serverApplied(stamped, {
-    oneWayTicks: 2,
-    bufferTicks: 0,
-    arrivalOffset: (tick) => (tick % 2 ? 1 : -1),
-  });
-  const mismatched = applied.filter(
-    (value, tick) => value !== stamped[tick],
-  ).length;
-  expect(mismatched).toBeGreaterThan(0);
-  expect(run(applied)).not.toBe(run(stamped));
-});
-
-test("a one-tick input buffer accepts the same late arrival and removes the gap", () => {
-  const stamped = Array.from({ length: 60 }, (_, tick) => changing(tick));
-  const arrivalOffset = (tick) => (tick % 2 ? 1 : -1);
-  const refused = serverApplied(stamped, {
-    oneWayTicks: 2,
-    bufferTicks: 0,
-    arrivalOffset,
-  });
-  const accepted = serverApplied(stamped, {
-    oneWayTicks: 2,
-    bufferTicks: 1,
-    arrivalOffset,
-  });
-  expect(accepted).not.toEqual(refused);
-  expect(accepted).toEqual(stamped);
-  expect(run(accepted)).toBe(run(stamped));
-});
-
-test("client stepping twice per server tick diverges, and its gap grows with duration", () => {
-  const stamped = Array.from({ length: 60 }, (_, tick) => coasting(tick));
-  const longer = Array.from({ length: 120 }, (_, tick) => coasting(tick));
-  const gapAt60 = Math.abs(run(stamped, 2) - run(stamped, 1));
-  const gapAt120 = Math.abs(run(longer, 2) - run(longer, 1));
-  expect(gapAt60).toBeGreaterThan(0);
-  expect(gapAt120).toBeGreaterThan(gapAt60); // divergence accumulates, it does not settle
-  expect(run(stamped, 1)).toBe(run(stamped)); // coalescing to one quantum per tick is exact
+test("unknown checkpoint geometry fails before replacing the last complete state", () => {
+  const simulation = createSimulation(world(), { x: 0, y: -10 });
+  const before = captureMotion(simulation);
+  const malformed = structuredClone(before);
+  malformed.ignoredFootholdId = 99;
+  expect(() => restoreMotion(simulation, malformed)).toThrow(
+    "CONTENT_MISMATCH",
+  );
+  expect(captureMotion(simulation)).toEqual(before);
 });

@@ -1,4 +1,4 @@
-import { placeBody, sweepBody } from "../world/life-geometry.js";
+import { placeBody, sweepBody } from "../world/life-geometry-numeric.js";
 import { knockbackChance } from "./combat-knockback.js";
 import { mobMovementMetadata } from "./mob-movement-metadata.js";
 import {

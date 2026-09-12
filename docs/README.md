@@ -1,6 +1,6 @@
 # openms.dev client
 
-Plain JavaScript + JSDoc, Bun workspaces, PixiJS WebGL. Original v83 assets are decoded locally; no third-party client is an implementation source. `server/` contains only its reserved package manifest. No backend implementation.
+Plain JavaScript + JSDoc, Bun workspaces, PixiJS WebGL. Original v83 assets are decoded locally; no third-party client is an implementation source. Offline play remains independent; the [Bun server](server/index.md) provides a separate authoritative online runtime backed by PostgreSQL.
 
 ## Documentation conventions
 
@@ -31,6 +31,21 @@ The startup gate verifies the shell, catalog and saved character's current-map d
 `bun run extract` defaults to `/Users/k/Development/tensorfish/Maplestory-Client` and incrementally reuses only verified content-keyed conversion units. Its eight acceptance seeds plus source-backed beginner, historical training and jump-course inspection roots expand through supported named portals, supported on-map NPC dependencies and the explicit offline Free Market translation. The observed selection contains **728 packaged maps**; the earlier379-map release remains historical. New profiles start in **Mushroom Town (`000010000`)**; existing saves retain their current map. An explicit map-limited extraction that omits Mushroom Town uses its first selected map. Override inputs with `--assets <existing-directory>` or `MAPLE_ASSETS`; `--map <id>` or `--maps <comma-separated-ids>` explicitly limits selection. Packaging does not authorize blocked scripts, quest admission, course completion or rewards.
 
 Drop and reference-data extraction also requires the authorized Cosmic checkout at `/Users/k/Development/tensorfish/Cosmic`, or `MAPLE_SERVER_REFERENCE=<checkout>`. The converter reads the actual schema, companion data and script inventory without executing SQL or scripts. `catalog.serverData` links immutable domain datasets; existing drop authority consumes the converted per-mob rows. Cosmic is server-reference policy, not original Nexon source. See [data coverage and commands](offline-data.md), [drop motion](drop-motion.md), and [local combat policy](offline-combat.md).
+
+### Online development
+
+After extraction, start these in separate root terminals:
+
+```sh
+bun run server:dev
+bun run client:dev:online
+```
+
+Open **http://127.0.0.1:3102**, then log in using the development credentials printed by the server launcher. The server listens on loopback port3200; the online client proxies `/api/` on its own origin. PostgreSQL is required: supply `DATABASE_URL`, or install PostgreSQL tools for the launcher's owned development cluster. See [server setup and production configuration](server/index.md#online-development).
+
+This entry builds a separate original-asset browser shell, without offline release extraction/verification churn. It never opens local character saves or installs an offline service worker. Server snapshots own characters, inventory, field membership, mobs and drops. Shared motion predicts presentation only; errors/disconnection freeze admission rather than granting local authority or merging offline earnings.
+
+Online development controls send bounded authenticated server requests for map travel, presets/scalar edits, spawning and simulation controls. The server checks developer role, origin, CSRF and current actor; gameplay messages cannot carry these actions. Camera/geometry controls remain presentation-only. Production has no development endpoint. Read the [protocol](server/protocol.md), including the server-only motion checkpoint and the explicit development/reference rules limitations. [Validation results](validation.md) distinguish exercised behavior from required proof.
 
 ### Iteration commands
 
@@ -72,7 +87,7 @@ bun run docs:build
 bun run docs:preview --host 127.0.0.1
 ```
 
-Development defaults to port5173; the built preview uses port4173. The site is branded **openms.dev**, with separate **Client** (`/client/`) and **Server** (`/server/`) navigation and sidebars. Client subsections cover setup, architecture, assets/streaming, physics, UI, offline gameplay, evidence, and validation. Server subsections describe its reserved workspace, reference data, and authority boundaries. Local search indexes the published routes. Generated `.vitepress/cache` and `.vitepress/dist` are ignored.
+Development defaults to port5173; the built preview uses port4173. The site is branded **openms.dev**. Global sidebar **Client** and **Server** buttons expand in place, keeping both services available on every page; nested groups organize setup, architecture, assets, physics, UI, offline gameplay, evidence, validation and server operations/protocol. Top navigation uses dropdowns rather than immediate section navigation. Small SVG section icons are hidden from assistive technology beside readable labels. Local search indexes the published routes. Generated `.vitepress/cache` and `.vitepress/dist` are ignored.
 
 Keep implementation contracts and measured results synchronized on their existing authoritative pages. Markdown pages and embedded images remain local; checked source-file, archive and directory links resolve to their exact repository locations instead of copying the entire evidence archive into the site. Missing raw targets and dead page links fail the build. Run the build and inspect the actual browser surface before publishing documentation changes.
 
@@ -109,7 +124,9 @@ The [native acceptance site report](native-ui-validation/site/report.json) recor
 - `client/tools/validate.js`: independent Canvas2D pixel oracle, screenshots, state transitions, real rAF/loading/heap measurements.
 - `client/public/generated/`, `client/dist/`: generated, gitignored. Original artwork is not bundled into the source package.
 - `client/tools/dev.js` resolves domain-organized worker sources while retaining the public bundle basenames `main.js`, `atlas-worker.js`, `audio-capture-worklet.js` and `browser-oracle.js` under `/dist/`.
-- `server/package.json`: reserved Bun workspace; no backend, mock service, or pretend networking.
+- `client/src/online/`, `client/online.html`: separate transport, prediction, read models and original-asset presentation; no offline profile authority. World NPC artwork stays region-owned and its server reference only gates interaction, so `npc.open` is admitted by live field identity rather than an invented reach limit. Authored dialogue prose and choice labels are projected from the token stream for the accessible intent controls, and `mapleOnline.project(x,y)` exposes a read-only world-to-canvas projection for inspection and browser verification.
+- `shared/`: closed protocol and shared fixed-step motion/checkpoint contracts.
+- `server/src/`, `server/sql/`, `server/tools/`: authoritative Bun runtime, PostgreSQL migrations and development provisioning.
 
 Click empty map space for keyboard play. Arrows move/climb; **Alt jumps**, Down+bound Jump requests eligible drop-through, Up enters supported portals, and **Control attacks**. Recovered defaults are I/E/S/K for Item/Equip/Stat/Skill, **M MiniMap, Backslash Set Key, Q Quest, [ ShortCut and ] QuickSlot**. **Z picks up** eligible nearby local drops. Enter opens chat and accepted All-channel text produces a five-second local, not-sent speech bubble. Escape closes the top window or opens the menu. KeyConfig edits a live nonmodal draft; parent OK persists, while dirty close offers original Save/Discard and the nested quick-key popup owns a separate draft. See the [full UI/input contract](ingame-ui.md).
 
@@ -142,7 +159,7 @@ Agent control is off by default. The **Agent tab**, not the header, contains the
 
 ## Deliberate boundaries and unverified fidelity
 
-This is a client-first reconstruction with playable **local offline authority**, not the complete original game or a completed fidelity claim. Networking, accounts and backend implementation remain absent. Local mobs/combat/progression, supported declarative quests, durable state, portals/reactors, Cosmic-reference per-mob drops with original item assets, and current-map-scoped offline launch are implemented; full-release download is optional. Server AI, arbitrary scripts, unsupported skill/projectile/summon controllers and original progression/damage equations are not invented; local policies and unavailable dependencies remain explicit.
+This is a client-first reconstruction with playable **local offline authority** and a separate **authoritative online development runtime**, not the complete original game or a completed fidelity claim. Local mobs/combat/progression, supported declarative quests, durable state, portals/reactors, Cosmic-reference per-mob drops with original item assets, and current-map-scoped offline launch remain independent; full-release download is optional. The online runtime reuses versioned development/reference policies where original server rules are missing. Arbitrary scripts, unsupported skill/projectile/summon controllers and original progression/damage equations are not invented; unavailable dependencies and production gates remain explicit.
 
 The initial original appearance is body/head skin0, face20000 and hair30000. Catalog-backed owned equipment and detached Cash previews compose through recovered anchors, original `islot`/`vslot` arbitration, normal/cash slot selection, weapon action metadata and death substitution. Missing appearance/action resources refuse publication; this is not an archive-wide wardrobe or advanced-transformation claim. Entry uses the exact named portal at `(x,y-10)`; Family travel selects original portal0 by ID because names such as `sp` need not be unique. Ordinary depth follows recovered contact plane/group rules. See [inventory](ingame-inventory.md), [UI](ingame-ui.md) and [avatar evidence](avatar-actions.md).
 

@@ -10,7 +10,7 @@ import {
 } from "./skill-target-rules.js";
 import { hasMobStatus, MOB_STATUS } from "../combat/mob-skill-status.js";
 import { skillNumber } from "./skill-costs.js";
-import { placeBody } from "../world/life-geometry.js";
+import { placeBody } from "../world/life-geometry-numeric.js";
 import {
   rectangleState,
   overlaps,

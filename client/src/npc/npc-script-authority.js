@@ -8,7 +8,7 @@ import { validateProfile } from "../profile/profile-validation.js";
 import { equipmentUpgrade } from "../items/equipment-enhancement.js";
 import { SAVED_LOCATION_TYPES } from "../profile/profile-domains.js";
 import { recalculateVitals } from "../character/character-stats.js";
-import { skillPointPool } from "../skills/skill-system.js";
+import { skillPointPool } from "../skills/skill-allocation-rules.js";
 import {
   NPC_RUNTIME_LIMITS as LIMITS,
   npcInteger,
@@ -591,6 +591,7 @@ function readSavedLocation(turn, kind, type) {
   );
   turn.context.dependencies.mapIds.add(mapId);
   if (kind === "saved-location-take") {
+    turn.environment.recordEffect?.({ kind, type, mapId }, []);
     turn.profile.savedLocations[type] = null;
     turn.effects.push({ kind: "saved-location-take", type, mapId });
   }
@@ -767,19 +768,24 @@ function jobEffect(turn, args) {
   const hp =
     job === 200
       ? 0
-      : randomInclusive(job === 100 ? 200 : 100, job === 100 ? 250 : 150);
+      : randomInclusive(turn, job === 100 ? 200 : 100, job === 100 ? 250 : 150);
   const mp =
     job === 100
       ? 0
-      : randomInclusive(job === 200 ? 100 : 25, job === 200 ? 150 : 50);
+      : randomInclusive(turn, job === 200 ? 100 : 25, job === 200 ? 150 : 50);
   profile.baseMaxHP = Math.min(30000, profile.baseMaxHP + hp);
   profile.baseMaxMP = Math.min(30000, profile.baseMaxMP + mp);
   recalculateVitals(profile, turn.environment.items);
   turn.effects.push({ kind: "job", job, hp, mp });
 }
 
-function randomInclusive(minimum, maximum) {
-  return minimum + Math.floor(Math.random() * (maximum - minimum + 1));
+function randomInclusive(turn, minimum, maximum) {
+  const sample = (turn.environment.random ?? Math.random)();
+  requireNpc(
+    Number.isFinite(sample) && sample >= 0 && sample < 1,
+    "Invalid NPC random sample",
+  );
+  return minimum + Math.floor(sample * (maximum - minimum + 1));
 }
 
 /** Character.resetStats:7914–7964 conserves total AP and restores first-job SP entitlement. */
@@ -818,6 +824,7 @@ function resetStatsEffect(turn, enabled) {
 }
 
 export function applyNpcEffect(turn, node, args) {
+  turn.environment.recordEffect?.(node, args);
   if (node.kind === "item") itemEffect(turn, node, args);
   else if (node.kind === "job") jobEffect(turn, args);
   else if (node.kind === "reset-stats") resetStatsEffect(turn, args[0]);

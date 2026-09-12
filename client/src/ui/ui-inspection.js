@@ -11,7 +11,7 @@ import {
   experienceRequired,
   PROGRESSION_POLICY,
 } from "../character/offline-progression.js";
-import { skillPointPool } from "../skills/skill-system.js";
+import { skillPointPool } from "../skills/skill-allocation-rules.js";
 import { itemTooltip, skillTooltip } from "./ui-tooltip.js";
 import {
   minimapGeometry,

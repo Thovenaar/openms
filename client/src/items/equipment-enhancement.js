@@ -49,7 +49,7 @@ export function enhancementPlan(profile, items, request) {
   const upgrade = equipmentUpgrade(equipment, template);
   const kind = scrollKind(scroll.id);
   checkUpgradeSlots(upgrade, template, info, kind);
-  const white = whiteScroll(profile, request.whiteScroll, kind);
+  const white = whiteScroll(profile, request, kind);
   return {
     equipment,
     scroll,
@@ -98,10 +98,14 @@ function checkUpgradeSlots(upgrade, template, info, kind) {
   if (missing) throw new Error("The equipment has no eligible upgrade slot");
 }
 
-function whiteScroll(profile, enabled, kind) {
-  if (!enabled || kind === "clean") return null;
-  const item = firstItem(profile, WHITE_SCROLL);
-  if (!item) throw new Error("A White Scroll is required");
+function whiteScroll(profile, request, kind) {
+  if (!request.whiteScroll || kind === "clean") return null;
+  const item = request.whiteScrollUid
+    ? profile.inventory.find((entry) => entry.uid === request.whiteScrollUid)
+    : firstItem(profile, WHITE_SCROLL);
+  if (!item || item.id !== WHITE_SCROLL) {
+    throw new Error("A White Scroll is required");
+  }
   admitItem(profile, item);
   return item;
 }
@@ -135,12 +139,14 @@ export function applyEnhancement(
   if (cursed) {
     if (plan.equipment.slot < 0) {
       profile.equipment.splice(profile.equipment.indexOf(plan.equipment), 1);
-      recalculateVitals(profile, items);
+      recalculateVitals(profile, items, request.temporary);
     } else consumeItem(profile, plan.equipment.uid, 1);
     return "curse";
   }
   updateEquipment(plan, success, random);
-  if (plan.equipment.slot < 0) recalculateVitals(profile, items);
+  if (plan.equipment.slot < 0) {
+    recalculateVitals(profile, items, request.temporary);
+  }
   return success ? "success" : "failure";
 }
 

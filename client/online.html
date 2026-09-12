@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>OpenMS Online</title>
+    <link rel="stylesheet" href="/online.css" />
+  </head>
+  <body>
+    <header>
+      <h1>OpenMS <small>Online</small></h1>
+      <span id="connection" role="status">Loading assets</span>
+      <div id="session"></div>
+      <a href="http://localhost:3101">Offline client</a>
+    </header>
+    <main>
+      <section class="game">
+        <div id="viewport"><div id="native-ui"></div></div>
+        <p class="instructions">
+          Arrows: move / enter portal · Alt or Space: jump · Ctrl: attack · Z:
+          pick up · N or click NPC: talk. Click the field to focus.
+        </p>
+        <p id="notice" role="status" aria-live="polite">
+          Online characters are owned by the server. No offline saves are
+          uploaded.
+        </p>
+        <form id="login" aria-label="Account login"></form>
+      </section>
+      <aside id="controls" aria-label="Online gameplay controls"></aside>
+    </main>
+    <script type="module" src="/dist/online/main.js"></script>
+  </body>
+</html>

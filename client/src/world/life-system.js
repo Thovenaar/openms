@@ -3,13 +3,15 @@ import { MapleTVSystem } from "../social/mapletv-system.js";
 import { LifeControls } from "../development/life-controls.js";
 import {
   rectangleSlot,
+  showRectangle,
+  contactGraphic,
+} from "./life-geometry.js";
+import {
   placeBody,
   sweepBody,
-  showRectangle,
   npcRectangle,
-  contactGraphic,
   containsPoint,
-} from "./life-geometry.js";
+} from "./life-geometry-numeric.js";
 
 const MAX_PLACEMENTS = 4096;
 const MAX_ACTIONS = 128;
