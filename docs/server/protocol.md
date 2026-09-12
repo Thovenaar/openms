@@ -68,7 +68,7 @@ This is a proposed dependency boundary, not a claim that current controllers alr
 | UI/view models, animation/audio, native input mapping, asset delivery; the browser uses common movement kernels for prediction | DOM/Pixi/audio and service worker only in browser; no server dependence on rendering or asset Canvas objects |
 | Domain intents and observable outcomes for online and offline modes | Local IndexedDB authority and development grants stay offline; online observations are server-owned read models |
 
-Future extraction should move proven browser-independent rules into a shared Bun workspace with clean imports, not duplicate them under `server/`. Keep one implementation per rule. Local adapters inject local clock/RNG/storage; server adapters inject server-owned equivalents. Clients may run checks for responsive feedback, but the server independently reruns all admissions against its own current state. NPC scripts remain bounded, compiled content with explicit capabilities—not remote Java reflection, arbitrary evaluation or client-selected function names.
+Future extraction should move proven browser-independent rules into a shared Bun workspace with clean imports, not duplicate them under `server/`. Keep one implementation per rule. Local adapters inject local clock/RNG/storage; server adapters inject server-owned equivalents. Clients may run checks for responsive feedback, but the server independently reruns all admissions against its own current state. NPC scripts remain bounded, compiled content with explicit capabilities—not remote Java reflection, arbitrary evaluation or client-selected function names. Server-side execution additionally enforces a per-execution wall-clock budget with preemption on top of the compiled step and turn limits, so one conversation cannot pin a field actor; exhaustion aborts the step with a stable rejection and increments an observable counter.
 
 ## Transport and session lifecycle
 
@@ -105,8 +105,10 @@ The following closed-record definitions are normative **proposal schema**, indep
 | --- | --- |
 | `U32` | Integer 0…4,294,967,295; no fractional value or negative zero. |
 | `Seq` | Integer 1…9,007,199,254,740,991; no wrap. A connection must restart before exhaustion. |
-| `Tick` / `Revision` | Safe nonnegative integer; tick units are 30 ms, revision is a domain commit counter, not wall time. |
-| `Id` | Opaque server-issued string `[A-Za-z0-9_-]{1,64}`; never a user-chosen object path. |
+| `Tick` / `Revision` | Safe nonnegative integer; tick units are 30 ms inside one field generation, revision is a domain commit counter, not wall time. |
+| `ServerTime` | Safe nonnegative integer milliseconds since the server epoch. The only time base for anything that must survive a restart, a field handoff or a map transition. |
+| `Id` | Opaque server-issued string `[A-Za-z0-9_-]{1,64}`, minted from at least 128 random bits so it is not enumerable or guessable; never a user-chosen object path. |
+| `Ticket` | One-use base64url bearer credential, exactly 43 characters (256 bits). Deliberately not an `Id`: never logged, echoed in an observation, or stored in a receipt. |
 | `OperationId` | Client-generated lowercase UUIDv4; idempotency key, not authorization. |
 | `Hash` | Exactly 64 lowercase hexadecimal SHA-256 characters. |
 | `TemplateId` | `U32` additionally admitted against server rules; map IDs at most 999,999,998, sentinel excluded. |
@@ -117,17 +119,17 @@ The following closed-record definitions are normative **proposal schema**, indep
 | `Target` | `{kind:"entity",entityId:Id}` or `{kind:"aim",x:number,y:number}` where finite x/y are unit direction components in [-1,1], nonzero vector normalized by server. A target is a hint, never a confirmed hit or teleport destination. |
 | `Text` | Unicode text, at most 256 code points and 1,024 UTF-8 bytes; reject disallowed control characters. Render as text, not HTML or NPC markup. |
 
-No client date, delta-time, damage, reward, position or acting-character field is accepted. Timing hints are explicitly bounded below. All array bounds apply before allocating decoded domain state; transport byte bounds apply before JSON parsing.
+No client date, delta-time, damage, reward, position or acting-character field is accepted. Timing hints are explicitly bounded below. All array bounds apply before allocating decoded domain state; transport byte bounds apply before JSON parsing. Timers that must outlive a socket, a field generation or a process are `ServerTime`; field-local `Tick` values only order work inside one field generation and drive presentation, and may never express a cooldown, an effect expiry or a transition deadline.
 
 ### Client records
 
 Before welcome:
 
-`Hello = {v:1, type:"hello", ticket:Id, rulesHash:Hash, assetBuildId:Hash, resume?:{playSession:Id,lastEventSeq:Seq}}`
+`Hello = {v:1, type:"hello", ticket:Ticket, rulesHash:Hash, assetBuildId:Hash, resume?:{playSession:Id,lastEventSeq:Seq}}`
 
-Hashes negotiate compatibility, not trust. Resume requires a fresh ticket/session; the play-session ID alone is not a bearer credential.
+Hashes negotiate compatibility, not trust. Resume requires a fresh ticket/session; the play-session ID alone is not a bearer credential. A mismatched `v`, rules hash or asset build is refused before any field work with `UNSUPPORTED_VERSION` or `CONTENT_MISMATCH` plus `closing`, and the ticket is consumed either way; the server never silently downgrades or serves a partially compatible build.
 
-After welcome every client record contains `{v:1, type, connectionEpoch:Id, seq:Seq}`. `seq` is strictly increasing across this socket, including control messages. WSS is ordered; gaps or repeated sequence numbers cause explicit protocol rejection/resynchronization, not speculative replay. `connectionEpoch` is server minted for each socket and revokes its predecessor.
+After welcome every client record contains `{v:1, type, connectionEpoch:Id, seq:Seq}`. `seq` is strictly increasing across this socket, including control messages. WSS is ordered; a gap or repeat is a protocol fault: the server stops admitting gameplay for that socket, sends `closing` with `INVALID_MESSAGE`, and the client reconnects with a fresh ticket. It never speculatively replays or rewinds, and the fault alone does not end the account session or the character lease. `connectionEpoch` is server minted for each socket and revokes its predecessor.
 
 | `type` | Additional fields | Meaning |
 | --- | --- | --- |
@@ -192,11 +194,11 @@ Every server record after establishment contains `{v:1,type,connectionEpoch:Id,s
 | `state` | `snapshotId:Id,baseSnapshotId:Id,fieldEpoch:Id,eventSeq:Seq,ackInputSeq:Seq or null,changes:[EntityChange]` |
 | `result` | `eventSeq:Seq,operationId:OperationId,status:"committed" or "rejected",code:ResultCode,domainRevision:Revision,transactionId:Id or null` |
 | `event` | `eventSeq:Seq,fieldEpoch:Id,event:DomainEvent` |
-| `transition` | `eventSeq:Seq,transitionId:Id,phase:"prepare" or "committed" or "aborted",sourceEpoch:Id,destination:FieldRef or null,requiredContent:[Hash],deadlineTick:Tick,code:ResultCode` |
+| `transition` | `eventSeq:Seq,transitionId:Id,phase:"prepare" or "committed" or "aborted",sourceEpoch:Id,destination:FieldRef or null,requiredContent:[Hash],deadline:ServerTime,code:ResultCode` |
 | `ping` | `nonce:Id` |
 | `closing` | `code:ResultCode,retryAfterMs:U32` |
 
-`FieldRef={instanceId:Id,mapId:TemplateId,fieldEpoch:Id,spawn:Point}` is **server-only**. `ResultCode` is one of `OK`, `INVALID_MESSAGE`, `UNAUTHENTICATED`, `CHARACTER_BUSY`, `STALE_CONNECTION`, `STALE_FIELD`, `STALE_REVISION`, `OPERATION_CONFLICT`, `OPERATION_EXPIRED`, `NOT_ALLOWED`, `NOT_IN_RANGE`, `REQUIREMENTS_NOT_MET`, `NOT_FOUND`, `INSUFFICIENT_FUNDS`, `INVENTORY_FULL`, `COOLDOWN`, `RATE_LIMITED`, `CONTENT_MISMATCH`, `RESYNC_REQUIRED`, `TRANSITION_FAILED`, `SERVER_BUSY`, `SESSION_EXPIRED`. Rejections must not disclose unseen entities/private state. Client presentation maps codes to native feedback without exposing stacks/secrets.
+`FieldRef={instanceId:Id,mapId:TemplateId,fieldEpoch:Id,spawn:Point}` is **server-only**. `ResultCode` is one of `OK`, `INVALID_MESSAGE`, `UNAUTHENTICATED`, `CHARACTER_BUSY`, `STALE_CONNECTION`, `STALE_FIELD`, `STALE_REVISION`, `OPERATION_CONFLICT`, `OPERATION_EXPIRED`, `NOT_ALLOWED`, `NOT_IN_RANGE`, `REQUIREMENTS_NOT_MET`, `NOT_FOUND`, `INSUFFICIENT_FUNDS`, `INVENTORY_FULL`, `COOLDOWN`, `RATE_LIMITED`, `CONTENT_MISMATCH`, `PROTOCOL_MISMATCH`, `UNSUPPORTED_VERSION`, `RESYNC_REQUIRED`, `TRANSITION_FAILED`, `SERVER_BUSY`, `SESSION_EXPIRED`. Rejections must not disclose unseen entities/private state. Client presentation maps codes to native feedback without exposing stacks/secrets.
 
 `SnapshotPart` is one of these closed records; pages assemble under one snapshot identity/revision vector:
 
@@ -209,7 +211,7 @@ Every server record after establishment contains `{v:1,type,connectionEpoch:Id,s
 
 `ItemState={id:Id,templateId:TemplateId,quantity:Quantity,location:{kind:"inventory",tab:"equip" or "use" or "setup" or "etc" or "cash",slot:U32} or {kind:"equipped",slot:U32},revision:Revision,equipment:EquipmentState or null}`. `EquipmentState={upgradesRemaining:U32,upgradesUsed:U32,stats:[{key:"str" or "dex" or "int" or "luk" or "hp" or "mp" or "pad" or "mad" or "pdd" or "mdd" or "acc" or "eva" or "speed" or "jump",value:integer}]}`; at most 14 unique keys, safe integer values limited by rules.
 
-`QuestState={id:TemplateId,state:"active" or "claimed",ready:boolean,revision:Revision,objectives:[{kind:"item" or "kill",templateId:TemplateId,current:U32,required:U32}]}`; at most 128 objectives. `SkillState={id:TemplateId,rank:U32,mastery:U32,cooldownUntil:Tick}`. `EffectState={id:Id,templateId:TemplateId,expiresTick:Tick,cancelable:boolean}`.
+`QuestState={id:TemplateId,state:"active" or "claimed",ready:boolean,revision:Revision,objectives:[{kind:"item" or "kill",templateId:TemplateId,current:U32,required:U32}]}`; at most 128 objectives. `SkillState={id:TemplateId,rank:U32,mastery:U32,cooldownUntil:ServerTime}`. `EffectState={id:Id,templateId:TemplateId,expiresAt:ServerTime,cancelable:boolean}`. Cooldowns and effect expiries are absolute server time because both must survive a reconnect, a field handoff and a restart; a tick value restarts with the field generation. `EntityState.actionStartTick` and a combat event's `impactTick` stay field-local ticks: they order presentation inside one generation and are never used for admission or durability.
 
 `EntityChange` is `{kind:"upsert",entity:EntityState}` or `{kind:"remove",entityId:Id}`. No arbitrary JSON Patch or object-path mutation is accepted. Progress/economy changes publish replacement snapshot parts with a new snapshot identity/revision vector; do not misuse entity deltas for inventory writes.
 
@@ -243,9 +245,9 @@ There is deliberately no `targetMap`, `x`, `y`, `speed`, `job`, `mesos` result, 
 
 ## Time, prediction and combat
 
-Proposed initial values: simulate every **30 ms**, send changed-state snapshots every **90 ms**, retain 64 input samples/256 entity presentation samples, and permit up to four ticks of input lead. These are tuning policies, not throughput results. A server tick advances by server monotonic time, never by the number of client packets or their claimed duration.
+Proposed initial values: simulate every **30 ms**, publish the acting character's own state every tick (or on change) and coalesce changed remote-entity state every **90 ms**, retain 64 input samples/256 entity presentation samples, and permit up to four ticks of input lead. Self corrections therefore arrive at tick cadence, not at the remote publish cadence. These are tuning policies, not throughput results. A server tick advances by server monotonic time, never by the number of client packets or their claimed duration.
 
-- At most one input is applied per character per tick. A sample targets the server-advertised tick schedule, must increase `inputSeq`, and may not exceed `currentTick + inputLeadTicks`. Past-tick samples are retired without retroactive movement; do not run multiple movement steps to catch up a client burst.
+- At most one input is applied per character per tick. A sample targets the server-advertised tick schedule, must increase `inputSeq`, and may not exceed `currentTick + inputLeadTicks`. A late sample may still be admitted against a sliding-window distance budget (a token bucket over the last second, per character) and clamped per tick: the anti-cheat property is distance per unit time, not distance per tick. Never run unbounded catch-up steps, never synthesize movement for ticks already retired, and never let a burst buy more distance than the budget allows.
 - Complete held-state input is sampled each tick; jump/attack edge transitions are derived by the server with action locks/repeat rules. Resending a held key cannot create another jump or bypass attack timing.
 - Hold the last continuous input for at most three missing ticks, then neutralize it; never synthesize new rising edges. Browser blur/visibility sends neutral input when possible. Hidden tabs do not stop server time.
 - Predict only local movement/action presentation using shared kernels. On an authoritative self update, rewind to its state, discard acknowledged inputs and replay the remaining bounded inputs. Effects/one-shot audio are keyed by action identity to avoid replay duplication. Overflow requests a full snapshot, not unlimited replay.
@@ -486,6 +488,7 @@ All starting limits require load testing before deployment:
 | Input rate | 40 messages/s, burst 8; at most four future ticks stored per character and one input per tick. Extra rate cannot create simulation time. |
 | Discrete commands | 12/s, burst 12; chat 2/s burst 4; invitations 1/s burst 2; resync 1 per 5 s. Per-domain work budgets also apply. |
 | Outstanding work | 32 commands/socket, 1 economic mutation/character, bounded database pool; explicit busy/rate results. Never unbounded Promise fanout. |
+| NPC script execution | Compiled step/turn limits plus a per-execution wall-clock budget with preemption; exhaustion aborts the step with a stable rejection and increments an observable counter. |
 | Connections | One gameplay writer per character and initially one per account; cap pre-auth sockets per IP and globally, with shared-NAT-aware monitoring. |
 | Send backlog | 256 KiB soft / 1 MiB hard per socket. Coalesce only unsent replaceable entity state. Never drop committed receipts silently; close/resume slow clients at hard bound. |
 | Liveness | Server ping every 15 s, close after 30 s without valid response; application activity does not override session expiration. |
@@ -501,11 +504,13 @@ Metrics: tick duration/debt, queue bytes, admission rejects by stable code, snap
 
 This is the plan for future server work, **not performed server validation**:
 
-1. Extract proven pure shared kernels without behavioral forks. Keep offline adapters and native UI working; headless Bun must load rules without DOM/Pixi globals. Validate provenance and legal spawns for every server-enabled field.
-2. Implement the closed protocol decoder/session/lease boundary and an authoritative two-player field with input prediction/reconciliation. Unknown commands fail closed; no profile upload or dev commands.
-3. Add the class-3 append-only log, receipts and the per-tick commit loop, then inventory/quest/shop/advancement transactions, then two-participant trade and fenced transitions. Only then enable those online UI actions.
-4. Exercise a malicious custom client, not only the official UI: forged XY/target map, excessive future ticks, input floods, forged damage/HP, unknown entity, stolen UID, negative/overflow quantities, wrong quest step, stale field/connection/revision, replayed rewards, conflicting operation IDs and client-controlled clocks/RNG.
-5. Run the durability drills. Kill the process at each boundary, assert the post-conditions, then retry the **same** operation ID and assert the outcome cannot change. Each drill also runs the invariant queries below.
+1. Establish the reviewed ruleset for a first server-enabled field: mob stats, spawn tables and caps, drop normalization, shop sell/recharge and quest admission. Reference extraction supplies raw rows, not these rules, and no current extraction domain provides them; a field cannot be authoritative without them.
+2. Extract proven pure shared kernels without behavioral forks, starting with the DOM/Pixi-free physics, damage and drop-rule subgraph; the assembled field simulation is not headless today. Keep offline adapters and native UI working; headless Bun must load rules without DOM/Pixi globals. Validate provenance and legal spawns for every server-enabled field.
+3. Build the differential replay harness: replay recorded input through the browser engine and through Bun and assert an identical state hash. This gate, not more wire schema, is what makes the shared-kernel claim true.
+4. Implement the closed protocol decoder/session/lease boundary and an authoritative two-player field with input prediction/reconciliation. Unknown commands fail closed; no profile upload or dev commands.
+5. Add the class-3 append-only log, receipts and the per-tick commit loop, then inventory/quest/shop/advancement transactions, then two-participant trade and fenced transitions. Only then enable those online UI actions.
+6. Exercise a malicious custom client, not only the official UI: forged XY/target map, excessive future ticks, input floods, forged damage/HP, unknown entity, stolen UID, negative/overflow quantities, wrong quest step, stale field/connection/revision, replayed rewards, conflicting operation IDs and client-controlled clocks/RNG.
+7. Run the durability drills. Kill the process at each boundary, assert the post-conditions, then retry the **same** operation ID and assert the outcome cannot change. Each drill also runs the invariant queries below.
 
    1. **Before commit:** the pending delta is discarded; no `item_instance`, `character_op_log`, `ledger` or `operation_receipt` row exists; a retry executes exactly once.
    2. **After commit, before reply:** receipt and ledger entry exist; a retry returns the original outcome; exactly one grant.
@@ -533,7 +538,7 @@ This is the plan for future server work, **not performed server validation**:
    -- double entry: item and mesos deltas balance per transaction, including the world counterpart
    SELECT transaction_id FROM ledger GROUP BY transaction_id, kind HAVING sum(delta) <> 0;
    ```
-6. Test CSWSH, missing/expired tickets, logout on live sockets, another account's character, slow consumers, oversized/deep frames, shared-NAT rate limits and cross-instance/private subscription attempts.
-7. Measure realistic latency/jitter/loss, browser backgrounding, 800×600 desktop UI, incomplete content, node overload and bounded recovery. Use matched source/rules/content identities and report observed tick and correction distributions. Choose WebTransport or sharding only if those measurements justify them.
+8. Test CSWSH, missing/expired tickets, logout on live sockets, another account's character, slow consumers, oversized/deep frames, shared-NAT rate limits and cross-instance/private subscription attempts.
+9. Measure realistic latency/jitter/loss, browser backgrounding, 800×600 desktop UI, incomplete content, node overload and bounded recovery. Use matched source/rules/content identities and report observed tick and correction distributions. Choose WebTransport or sharding only if those measurements justify them.
 
 The current delivery publishes and renders this proposal only. No backend listener, packet handler, database migration, online authentication or anti-cheat guarantee is implied. The current offline client—including development presets/spawning—remains available independently of a server.
