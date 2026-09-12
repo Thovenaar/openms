@@ -209,7 +209,9 @@ function effectDependencies(analysis, node) {
     validateSavedType(analysis.context, node);
     return;
   }
-  if (node.kind === "meso" || node.kind === "crafting-scroll") return;
+  if (["meso", "crafting-scroll", "job", "reset-stats"].includes(node.kind)) {
+    return;
+  }
   if (node.kind === "warp") {
     ids(analysis, "mapIds", node.args[0]);
     return;

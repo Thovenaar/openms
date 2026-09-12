@@ -95,13 +95,40 @@ function observeTeleport(arrivalX) {
   });
 }
 
+/** Startup now uses legal spawns; native walking reaches the test portal. */
+async function approachDeparture(page, departure) {
+  await page.keyboard.down("ArrowLeft");
+  try {
+    await page.waitForFunction(
+      (x) => window.maple.snapshot().simulation.x <= x + 4,
+      { timeout: 30000 },
+      departure.x,
+    );
+  } finally {
+    await page.keyboard.up("ArrowLeft");
+  }
+  await page.waitForFunction(
+    (point) => {
+      const sim = window.maple.snapshot().simulation;
+      return (
+        sim.footholdId &&
+        Math.abs(sim.x - point.x) < 30 &&
+        Math.abs(sim.y - point.y) < 30
+      );
+    },
+    { timeout: 30000 },
+    departure,
+  );
+}
+
 async function run(context) {
   const { page, checkpoint, assert, inputs } = context;
   await settled(page, MAP);
   await focusCanvas(page);
-  await page.waitForFunction(
-    () => Boolean(window.maple.snapshot().simulation.footholdId),
+  await page.waitForFunction(() =>
+    Boolean(window.maple.snapshot().simulation.footholdId),
   );
+  await approachDeparture(page, inputs.fixture.departure);
   await checkpoint("before-hp01-native-up");
   const observation = page.evaluate(observeTeleport, inputs.fixture.arrival.x);
   await page.keyboard.press("ArrowUp", { delay: 120 });

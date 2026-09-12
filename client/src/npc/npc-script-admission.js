@@ -409,6 +409,8 @@ function validateEffect(node, context) {
       "meso",
       "crafting-scroll",
       "save-location",
+      "job",
+      "reset-stats",
       "item",
       "warp",
       "quest-start",
@@ -418,6 +420,7 @@ function validateEffect(node, context) {
   );
   list(node.args, maximum);
   requireNpc(node.args.length >= 1, "Missing NPC effect argument");
+  validateJobEffectPolicy(node, context);
   requirement(context, "atomic-local-turn");
   if (node.kind === "warp") requirement(context, "atomic-field-travel");
   if (node.kind === "save-location") {
@@ -449,6 +452,19 @@ function validateEffect(node, context) {
     context.forceQuests = true;
   }
   context.hasEffects = true;
+}
+
+function validateJobEffectPolicy(node, context) {
+  if (!["job", "reset-stats"].includes(node.kind)) return;
+  requireNpc(
+    node.args.length === (node.kind === "job" ? 2 : 1),
+    "Invalid NPC job policy arguments",
+  );
+  const flag = context.program.expressions[node.args.at(-1)];
+  requireNpc(
+    flag.op === "literal" && typeof flag.value === "boolean",
+    "NPC job policy must retain authored configuration",
+  );
 }
 
 function statementEdges(node) {

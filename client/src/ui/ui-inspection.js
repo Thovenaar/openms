@@ -1085,7 +1085,19 @@ export class ProfileControls {
       this.owner.store.profile,
       Number(this.preset.value.slice(4)),
     );
-    for (const key of ["job", "level", "exp", "str", "dex", "int", "luk", "hp", "mp", "baseMaxHP", "baseMaxMP"]) {
+    for (const key of [
+      "job",
+      "level",
+      "exp",
+      "str",
+      "dex",
+      "int",
+      "luk",
+      "hp",
+      "mp",
+      "baseMaxHP",
+      "baseMaxMP",
+    ]) {
       this.fields.get(key).value = String(preview.patch[key]);
     }
     this.stagedJobId = preview.patch.job;
@@ -1160,13 +1172,25 @@ export class ProfileControls {
     const list = inspectionElement("ul", "", this.presetPreview);
     list.className = "profile-preset-bindings";
     for (const item of loadout.equipment) {
-      inspectionElement("li", `${item.name} [${item.id}] · slot ${item.slot}`, list);
+      inspectionElement(
+        "li",
+        `${item.name} [${item.id}] · slot ${item.slot}`,
+        list,
+      );
     }
     if (loadout.ammunition) {
       const item = loadout.ammunition;
-      inspectionElement("li", `${item.name} [${item.id}] × ${item.count} ammunition (${item.granted} granted)`, list);
+      inspectionElement(
+        "li",
+        `${item.name} [${item.id}] × ${item.count} ammunition (${item.granted} granted)`,
+        list,
+      );
     }
-    inspectionElement("p", "Replaced gear and covering cash equipment move to inventory; no owned item is deleted. Apply prepares the original appearance before committing. Make space first if capacity is insufficient.", this.presetPreview);
+    inspectionElement(
+      "p",
+      "Replaced gear and covering cash equipment move to inventory; no owned item is deleted. Apply prepares the original appearance before committing. Make space first if capacity is insufficient.",
+      this.presetPreview,
+    );
   }
 
   renderPresetBindings(assignments) {

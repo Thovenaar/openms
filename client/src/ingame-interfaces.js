@@ -151,8 +151,13 @@ export class NativeInterfaces {
     this.development = new CharacterDevelopment(store, owner.catalog, {
       random: owner.hooks.random,
       isBusy: () => this.isBusy(this.development),
+      isCurrent: () => this.current(),
+      prepareAppearance: (draft) => owner.prepareAppearance(draft),
+      publishAppearance: (prepared) => owner.publishAppearance(prepared),
+      releaseAppearance: (prepared) => prepared.destroy(),
     });
     this.quests = new QuestSystem(owner.catalog.quests, store, {
+      random: owner.hooks.random,
       onChange: () => {
         this.trackerDirty = true;
         owner.profileChanged();
@@ -187,6 +192,7 @@ export class NativeInterfaces {
       onError: owner.hooks.onError,
     });
     this.controllers = [
+      this.development,
       this.npc,
       this.inventory,
       this.social,

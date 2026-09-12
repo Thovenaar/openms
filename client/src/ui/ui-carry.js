@@ -147,6 +147,11 @@ async function performItemDrop(owner, instance, target) {
   if (target.kind === "trade") {
     return target.panel.offerCarriedItem({ uid: instance.uid }, target.slot);
   }
+  return dropWorldItem(owner, instance, actions);
+}
+
+/** Ground quantity prompts belong to the world-drop intent, never slot placement. */
+async function dropWorldItem(owner, instance, actions) {
   let count = instance.count;
   const group = Math.floor(instance.id / 10000);
   if (count > 1 && group !== 207 && group !== 233) {

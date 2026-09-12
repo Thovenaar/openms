@@ -1,4 +1,9 @@
-import { npcRemoteService, npcRemoteLoop } from "./npc-script-services.js";
+import {
+  npcBooleanConfig,
+  npcMissingQuestService,
+  npcRemoteService,
+  npcRemoteLoop,
+} from "./npc-script-services.js";
 import {
   NPC_DIALOG_METHODS,
   NPC_SCRIPT_LIMITS,
@@ -289,6 +294,9 @@ function effectStatement(context, scope, node, spec) {
   const refs = args.map((argument) =>
     compileExpression(context, scope, argument),
   );
+  if (spec.kind === "job" || spec.kind === "reset-stats") {
+    compileJobPolicy(context, node, spec.kind, refs);
+  }
   context.requirements.add("atomic-local-turn");
   if (spec.kind === "warp") context.requirements.add("atomic-field-travel");
   if (spec.kind === "item") return itemEffect(context, node, refs);
@@ -312,6 +320,24 @@ function effectStatement(context, scope, node, spec) {
     );
   }
   return { op: "effect", kind: spec.kind, args: refs };
+}
+
+function compileJobPolicy(context, node, kind, refs) {
+  if (kind === "job" && npcBooleanConfig(context, "USE_ENFORCE_JOB_SP_RANGE")) {
+    throw new Error(
+      "Enforced job SP accounting requires unavailable server progression authority",
+    );
+  }
+  const name =
+    kind === "job" ? "USE_STARTING_AP_4" : "USE_AUTOASSIGN_STARTERS_AP";
+  const value = npcBooleanConfig(context, name);
+  refs.push(context.expressions.length);
+  context.expressions.push({
+    op: "literal",
+    value,
+    raw: String(value),
+    source: sourceSpan(node),
+  });
 }
 
 function continuationCall(context, scope, node) {
@@ -432,7 +458,8 @@ function defaultDialog(context, scope, node) {
 }
 
 function callStatement(context, scope, node) {
-  const remote = npcRemoteService(node);
+  const remote =
+    npcMissingQuestService(context, node) ?? npcRemoteService(node);
   if (remote) return { op: "unavailable", service: remote };
   const saved =
     savedLocationCall(context, scope, node) ??
@@ -447,6 +474,10 @@ function callStatement(context, scope, node) {
     addDependency(context, "shopIds", javaShop.shopId, node);
     return { op: "shop", ...javaShop };
   }
+  return localCallStatement(context, scope, node);
+}
+
+function localCallStatement(context, scope, node) {
   const method = cmMethod(node);
   if (Object.hasOwn(NPC_DIALOG_METHODS, method)) {
     return dialogStatement(context, scope, node, NPC_DIALOG_METHODS[method]);
@@ -704,9 +735,13 @@ export function compileNpcScript(input) {
   const context = compilerContext(text, { path, sha256 });
   context.defaultTalk = input.defaultTalk;
   context.staticConfig = input.staticConfig;
+  context.originalQuestIds = input.originalQuestIds;
   let program = null;
   try {
-    const root = lowerNpcHelpers(context, lowerNpcRecords(context, parseNpcSource(text)));
+    const root = lowerNpcHelpers(
+      context,
+      lowerNpcRecords(context, parseNpcSource(text)),
+    );
     inspectScopes(context, root);
     context.root = root;
     program = compiledProgram(context, root);

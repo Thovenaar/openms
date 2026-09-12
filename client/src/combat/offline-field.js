@@ -1228,6 +1228,23 @@ export class OfflineField {
     if (!this.destroyed) this.renderer.updateDemand();
   }
 
+  /** Explicit development publication uses the same combat and presentation owners. */
+  addDevelopmentMob(mob) {
+    if (this.destroyed || this.mobs.length >= 4096 || this.byId.has(mob.id)) {
+      throw new Error("Development monster publication is unavailable");
+    }
+    this.mobs.push(mob);
+    this.byId.set(mob.id, mob);
+    try {
+      this.renderer.instantiateDemand();
+    } catch (error) {
+      this.renderer.remove(mob);
+      this.mobs.pop();
+      this.byId.delete(mob.id);
+      throw error;
+    }
+  }
+
   snapshot() {
     return structuredClone({
       authority: COMBAT_POLICY.authority,

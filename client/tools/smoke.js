@@ -150,7 +150,9 @@ async function prepareRuntime(session, output, timings) {
       scanInputs(session.roots, inputs),
     );
     if (rechecked.changed.length) {
-      throw new Error("Inputs changed during extraction; refusing reuse receipt");
+      throw new Error(
+        "Inputs changed during extraction; refusing reuse receipt",
+      );
     }
     await rememberExtractedAssets(session.options, inputs, assets);
   }

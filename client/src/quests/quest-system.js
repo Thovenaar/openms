@@ -130,13 +130,47 @@ function eligibleItem(item, profile) {
   return family === 9 || (item.job & (1 << (family & 31))) !== 0;
 }
 
-function rewardItems(act, profile, selected) {
+/** Cosmic ItemAction96..125: one cumulative-weight choice among eligible original rows.
+ * This server-reference policy consumes the injected gameplay stream only inside commit. */
+function weightedReward(act, profile, random) {
+  const total = rewardWeightTotal(act, profile);
+  if (!total) return null;
+  const sample = random();
+  if (!Number.isFinite(sample) || sample < 0 || sample >= 1) {
+    throw new Error("Quest random source outside [0,1)");
+  }
+  let choice = Math.floor(sample * total);
+  for (const item of act.items) {
+    if (!eligibleItem(item, profile) || !(item.prop > 0)) continue;
+    if (choice < item.prop) return item;
+    choice -= item.prop;
+  }
+  throw new Error("Quest reward selection exceeded its cumulative weights");
+}
+
+/** Validate the eligible pool before consuming its single transaction-owned draw. */
+function rewardWeightTotal(act, profile) {
+  let total = 0;
+  for (const item of act.items) {
+    if (!eligibleItem(item, profile) || item.prop === undefined) continue;
+    if (!Number.isSafeInteger(item.prop) || item.prop < -1) {
+      throw new Error("Invalid original quest reward weight");
+    }
+    if (item.prop > 0) total += item.prop;
+  }
+  if (total > 0x7fffffff) {
+    throw new Error("Quest reward weight exceeds server integer range");
+  }
+  return total;
+}
+
+function rewardItems(act, profile, selected, random = null) {
   const result = [],
     choices = [];
   for (const item of act.items) {
     if (!eligibleItem(item, profile)) continue;
     if (item.prop === -1) choices.push(item);
-    else result.push(item);
+    else if (item.prop === undefined) result.push(item);
   }
   if (choices.length) {
     const chosen = choices.find((item) => item.index === selected);
@@ -146,6 +180,10 @@ function rewardItems(act, profile, selected) {
       });
     }
     result.push(chosen);
+  }
+  if (random) {
+    const weighted = weightedReward(act, profile, random);
+    if (weighted) result.push(weighted);
   }
   return { ok: true, items: result, choices };
 }
@@ -207,9 +245,14 @@ function transactQuestStates(draft, actions, completingId) {
   return { ok: true };
 }
 
-function transaction(profile, record, stage, { selected, growth, items }) {
+function transaction(
+  profile,
+  record,
+  stage,
+  { selected, growth, items, random },
+) {
   const act = record.stages[stage].act;
-  const rewards = rewardItems(act, profile, selected);
+  const rewards = rewardItems(act, profile, selected, random);
   if (!rewards.ok) return rewards;
   const draft = profile;
   const inventory = transactItems(draft, rewards.items, items);
@@ -274,7 +317,7 @@ export class QuestSystem {
   }
 
   /** Loaded progress is a silent baseline, not a newly received quest-status event.
-   * 00a20ef7 updates progress before 00721d2c/00523408; login replay is not proved.
+   * 00a20f4c updates progress before 00721d2c/00523408; login replay is not proved.
    */
   resetReadiness() {
     this.readyStates = new Map();
@@ -700,6 +743,7 @@ export class QuestSystem {
           selected: session?.rewardIndex,
           growth: this.hooks.growth?.(draft),
           items: this.hooks.items,
+          random: this.hooks.random ?? Math.random,
         });
         if (!result.ok) throw Object.assign(new Error(result.reason), result);
         if (stage === 1) {

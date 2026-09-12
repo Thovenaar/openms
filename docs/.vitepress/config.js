@@ -137,6 +137,10 @@ const serverSidebar = [
       { text: "Workspace", link: "/server/#workspace" },
       { text: "Reference data", link: "/server/#reference-data" },
       { text: "Authority boundaries", link: "/server/#authority-boundaries" },
+      {
+        text: "Authoritative protocol proposal",
+        link: "/server/protocol",
+      },
     ],
   },
 ];

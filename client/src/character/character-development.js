@@ -349,11 +349,22 @@ export class CharacterDevelopment {
 
   /** Preview and artwork must succeed before the isolated full-profile commit is admitted. */
   async editPreset(patch, job) {
-    if (!Number.isSafeInteger(job) || patch.job !== job || !this.jobs.has(job)) {
+    if (
+      !Number.isSafeInteger(job) ||
+      patch.job !== job ||
+      !this.jobs.has(job)
+    ) {
       invalid("preset job");
     }
-    for (const name of ["isCurrent", "prepareAppearance", "publishAppearance", "releaseAppearance"]) {
-      if (typeof this.hooks[name] !== "function") invalid(`preset ${name} hook`);
+    for (const name of [
+      "isCurrent",
+      "prepareAppearance",
+      "publishAppearance",
+      "releaseAppearance",
+    ]) {
+      if (typeof this.hooks[name] !== "function") {
+        invalid(`preset ${name} hook`);
+      }
     }
     const before = JSON.stringify(this.store.profile);
     const candidate = structuredClone(this.store.profile);
@@ -367,7 +378,12 @@ export class CharacterDevelopment {
     let committed = false;
     try {
       prepared = await this.hooks.prepareAppearance(candidate);
-      if (!prepared) throw profileError("appearance-unavailable", "Preset artwork preparation was cancelled.");
+      if (!prepared) {
+        throw profileError(
+          "appearance-unavailable",
+          "Preset artwork preparation was cancelled.",
+        );
+      }
       this.admitPresetCommit(before);
       await this.store.commitProfile((draft) => {
         this.admitPresetCommit(before);
@@ -383,10 +399,16 @@ export class CharacterDevelopment {
 
   admitPresetCommit(before) {
     if (!this.hooks.isCurrent() || this.isBusy()) {
-      throw profileError("field-cancelled", "The preset's field ownership changed.");
+      throw profileError(
+        "field-cancelled",
+        "The preset's field ownership changed.",
+      );
     }
     if (JSON.stringify(this.store.profile) !== before) {
-      throw profileError("profile-changed", "Your character changed while preparing the preset. Stage it again.");
+      throw profileError(
+        "profile-changed",
+        "Your character changed while preparing the preset. Stage it again.",
+      );
     }
   }
 

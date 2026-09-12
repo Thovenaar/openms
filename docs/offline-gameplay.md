@@ -26,6 +26,68 @@ Current source contracts are [UI](ingame-ui.md), [combat](offline-combat.md), [d
 | Offline delivery/performance | Immutable release closure, resumable staging, activation/pinning, separate saves and bounded resource owners. | Expanded18420-resource/356-map installation and server-stopped playback are historical measurements, not current release totals. Final measurements belong to [validation](validation.md). No universal60-FPS, all-browser or original Windows parity follows. |
 | Reactors/other entities | Original placements, state/event transitions, timeouts and accepted attack areas. Historical closure57 reactor maps/26 templates. | Retained native reactor cases prove only their selected hits/transitions. Script rewards, unsupported skill conditions, projectile/summon and special controller state are not fabricated from artwork. |
 
+## Offline first-job advancement correction
+
+The bounded NPC compiler now admits the complete authored Dark Lord script
+`scripts/npc/1052001.js`, including its literal dialogue-state record, lazy branches
+and numeric `parseInt` calls. Literal, nonescaping record fields become separate
+scalar VM bindings; this does not introduce object reflection or execute Java.
+An exact `Java.type('constants.game.GameConstants')` binding can supply the pure
+`getHallOfFameMapid`, `getSkillBook`, `isCygnus` and `isAran` operations locally.
+Character job access uses the saved scalar job identity. Unknown host methods
+remain unsupported.
+
+The authorized `MapleStory-Server` tree supplies the **server-reference** rules:
+`AbstractPlayerInteraction.java:1149–1191` owns first-job stat predicates and
+requirement labels; `NPCConversationManager.java:363–380` delegates job/reset
+mutations; `Character.java:1141–1259,7914–7964,9157–9191` owns first-job rewards,
+starter redistribution and inventory expansion. Conversion retains the source
+hashes and reads the actual `USE_AUTOASSIGN_STARTERS_AP`,
+`USE_STARTING_AP_4` and `USE_ENFORCE_JOB_SP_RANGE` settings. With the supplied
+autoassignment setting enabled, the authored predicate deliberately does not
+require preallocated DEX25: Dark Lord still requires level10, then redistribution
+requires sufficient total AP and sets DEX25/STR4/INT4/LUK4. With autoassignment
+disabled, DEX24 is refused and the ordinary DEX25 boundary is eligible.
+
+First explorer job changes100/200/300/400/500 run in the existing atomic profile
+transaction, not a development editor or remote service. The thief flow checks
+its authored use-item capacity and **both equipment grants together**, changes
+job0→400, grants500 stars2070015 and weapons1472061/1332063, adds one SP,
+redistributes starter AP without creating AP, and applies the reference
+inclusive HP100–150/MP25–50 gains through shared vital recomposition. Eligible
+inventory categories gain four slots only where the reference96-slot limit
+allows the entire row. Starter reset restores the reference first-job SP
+entitlement for delayed advancement. Already learned beginner skills are retained;
+catalog membership does not automatically learn thief skills. Equipment instance
+creation, original upgrade metadata, UID ownership and item uniqueness remain
+under the existing inventory authority. Failure in any reward, stat validation or
+durable commit publishes none of that turn's job/stat/item changes.
+
+Original `Skill.wz:400.img/skill/4000000` and the retained numeric book400 establish
+the thief skill-book identity; existing executable-backed skill allocation
+consumers remain authoritative for learning. They do **not** establish Nexon's
+advancement eligibility or reward formulas. The Windows runtime remains unavailable.
+Hall-of-Fame PlayerNPC and party-quest progress calls are explicit unavailable
+services. Source quests absent from the original Quest Check inventory, including
+Dark Lord's server-custom100009/100011, are explicit lazy `custom-quest-progress`
+traps: a reached call fails the whole turn, rather than fabricating quest records
+or blocking an unrelated beginner branch. Advanced-job mutations are refused
+without changing the draft's published state.
+
+Focused regression source is `client/test/npc-thief-advancement.test.js`, with
+the retained complete authored script and source hash in its JSON fixture.
+The focused Bun run passes **5 tests / 50 assertions**, including the actual
+authored first-job transaction and its eligibility/capacity/commit-failure refusals.
+The executed native `offline-thief-advancement` scenario seeds qualification
+explicitly, uses the real Dark Lord buttons, allocates the earned SP through the
+original Skill control, and compares job/stats/items/skills after reload.
+The separate [stopped-origin replay](native-ui-validation/gameplay-authority/stopped-origin/report.json)
+also completes the transaction, learns Nimble Body and cold-reloads after the
+actual delivery server is stopped. Its original destination and thief-artwork
+closure was warmed first; this is not a complete-release offline installation.
+Exact identities and qualification boundaries are retained in
+[integrated validation](validation.md#gameplay-corrections-and-authority-proposal).
+
 ## Operational clocks and ownership
 
 Do not conflate the player clocks: positive-hit protection is1500ms, its two-tick RGB phases are60ms each, the hit facial expression has its own1500-ms lifetime, and the alert/brace deadline is5000ms. Brace substitutes only grounded idle artwork and resets standing HP-recovery progress, without stopping movement or MP recovery. Ordinary HP/MP recovery uses independent10000-ms accumulators; supported learned modifiers enter their recovered consumers. The safe-ground native diagnostic observed MP recovery by10050ms and the first post-brace HP recovery at15120ms, not an invented fixed delay after every hit.

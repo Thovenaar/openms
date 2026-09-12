@@ -1,6 +1,6 @@
 # openms.dev server
 
-The server workspace is reserved; **no backend is implemented**. The playable application is the [offline client](../README.md). This section documents the actual workspace and reference-data boundaries, not a proposed server architecture.
+The server workspace is reserved; **no backend is implemented**. The playable application is the [offline client](../README.md). This section documents the actual workspace and the [proposed authoritative browser-game protocol](protocol.md). The proposal is design work, not an operating server.
 
 ## Workspace
 
@@ -13,6 +13,12 @@ bun install --frozen-lockfile
 ```
 
 There is no `dev:server` command or backend listener. `bun run dev:client:offline` serves the offline browser application; `bun run dev:docs` serves this documentation. Neither starts a gameplay server.
+
+## Protocol proposal
+
+[Read the authoritative protocol proposal](protocol.md) for research, threat model, shared offline/online boundaries, closed intent/observation schemas, server-simulated movement and combat, fenced map transitions, three durability classes with a per-tick commit loop for transactional inventory/quests/trading, reconnect/idempotency, resource limits and future adversarial acceptance.
+
+The design uses HTTPS/WSS and Bun, with server-owned state and PostgreSQL economic transactions. Cosmic informs the validation checklist only; it is not the protocol or security source of truth. Offline saves, development grants and arbitrary inspection travel cannot become online authority.
 
 ## Reference data
 

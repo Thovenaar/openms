@@ -1,6 +1,7 @@
 import { consumeItem, firstItem } from "./inventory-model.js";
 import { admitItem, selectedItem } from "./inventory-action-rules.js";
 import { recalculateVitals } from "../character/character-stats.js";
+import { LEGENDARY_SPIRIT_SKILLS } from "../skills/skill-utility-rules.js";
 
 import { UPGRADE_STATS } from "../profile/profile-item-state.js";
 const WHITE_SCROLL = 2340000;
@@ -168,21 +169,33 @@ export class EquipmentEnhancement {
     this.destroyed = false;
   }
 
-  /** Legendary Spirit gates bag equipment/window entry; normal worn-item scrolling needs no skill. */
-  admissionError(equipUid = null) {
-    if (this.destroyed || this.system.store.profile.hp <= 0) {
+  operationError() {
+    if (
+      this.destroyed ||
+      this.system.hooks?.isCurrent?.() === false ||
+      this.system.store.profile.hp <= 0
+    ) {
       return "Enhancement is unavailable";
     }
     if (this.pending || this.system.store.profileTransactionPending) {
       return "A profile operation is pending";
     }
+    return null;
+  }
+
+  /** Legendary Spirit gates bag equipment/window entry; normal worn-item scrolling needs no skill. */
+  admissionError(equipUid = null) {
+    const unavailable = this.operationError();
+    if (unavailable) return unavailable;
     if (
       equipUid !== null &&
-      this.system.store.profile.equipment.some((entry) => entry.uid === equipUid)
+      this.system.store.profile.equipment.some(
+        (entry) => entry.uid === equipUid,
+      )
     ) {
       return null;
     }
-    for (const id of [1003, 10001003, 20001003]) {
+    for (const id of LEGENDARY_SPIRIT_SKILLS) {
       if (this.system.level(id) > 0) return null;
     }
     return "Legendary Spirit has not been learned";
@@ -202,8 +215,14 @@ export class EquipmentEnhancement {
     try {
       const before = JSON.stringify(this.system.store.profile);
       const draft = structuredClone(this.system.store.profile);
-      const worn = draft.equipment.some((entry) => entry.uid === selected.equipUid);
-      const outcome = applyEnhancement(draft, this.system.fullCatalog.ui.items, selected);
+      const worn = draft.equipment.some(
+        (entry) => entry.uid === selected.equipUid,
+      );
+      const outcome = applyEnhancement(
+        draft,
+        this.system.fullCatalog.ui.items,
+        selected,
+      );
       if (worn && outcome === "curse") {
         prepared = await this.prepareAppearance(draft);
       }
@@ -235,10 +254,14 @@ export class EquipmentEnhancement {
       typeof hooks.publishAppearance !== "function" ||
       typeof hooks.releaseAppearance !== "function"
     ) {
-      throw new Error("Original character appearance preparation is unavailable");
+      throw new Error(
+        "Original character appearance preparation is unavailable",
+      );
     }
     const prepared = await hooks.prepareAppearance(draft);
-    if (!prepared) throw new Error("Equipment appearance preparation was cancelled");
+    if (!prepared) {
+      throw new Error("Equipment appearance preparation was cancelled");
+    }
     return prepared;
   }
 

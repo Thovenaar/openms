@@ -11,11 +11,49 @@ import {
   openWindow,
   retainWindow,
   settled,
+  TIMEOUT,
 } from "./native.js";
+
+/** Saved reload now uses sp; climb the two authored steps before keyboard Talk. */
+async function approachTalk(page) {
+  await focusCanvas(page);
+  await page.keyboard.down("ArrowRight");
+  try {
+    await page.waitForFunction(
+      () => window.maple.snapshot().simulation.x >= 975,
+      { timeout: TIMEOUT },
+    );
+  } finally {
+    await page.keyboard.up("ArrowRight");
+  }
+  for (let step = 0; step < 2; step++) {
+    await page.waitForFunction(
+      () => window.maple.snapshot().simulation.state === "ground",
+      { timeout: TIMEOUT },
+    );
+    await page.keyboard.down("Alt");
+    try {
+      await page.waitForFunction(
+        () => window.maple.snapshot().simulation.state === "air",
+        { timeout: TIMEOUT },
+      );
+    } finally {
+      await page.keyboard.up("Alt");
+    }
+  }
+  await page.waitForFunction(
+    () => {
+      const state = window.maple.snapshot().simulation;
+      return state.state === "ground" && state.y < 70;
+    },
+    { timeout: TIMEOUT },
+  );
+}
 
 async function run(context) {
   const { page, checkpoint, snapshot, assert, inputs } = context;
   await settled(page, ORIGIN);
+  await approachTalk(page);
   await checkpoint("before-native-window-setup");
   await openWindow(page, "i", "Item");
   const inventory = await retainWindow(page, "Item");

@@ -18,23 +18,64 @@ export class OfflineMobRenderer {
     this.pending = 0;
     this.error = null;
     for (const mob of mobs) {
-      if (this.templates.has(mob.record.template)) continue;
-      const descriptor = scene.manifest.life.renderables?.[mob.record.template];
-      if (!descriptor && !mob.defaultAction) continue;
-      if (!descriptor) {
-        throw new Error("Dynamic mob artwork missing from map package");
+      this.registerTemplate(mob, scene.manifest);
+    }
+  }
+
+  /** Foreign templates keep only their own validated texture metadata, not a map. */
+  registerTemplate(mob, manifest) {
+    const key = mob.record.template;
+    if (this.templates.has(key)) return this.templates.get(key);
+    const descriptor = manifest.life.renderables?.[key];
+    if (!descriptor && !mob.defaultAction) return null;
+    if (!descriptor) {
+      throw new Error("Dynamic mob artwork missing from package");
+    }
+    entities([descriptor.entity], manifest);
+    const textures = Object.create(null);
+    const atlases = Object.create(null);
+    for (const frames of Object.values(descriptor.entity.actions)) {
+      for (const frame of frames) {
+        for (const part of frame.parts) {
+          const texture = manifest.textures[part.texture];
+          textures[part.texture] = texture;
+          atlases[texture.atlas] = manifest.atlases[texture.atlas];
+        }
       }
-      entities([descriptor.entity], scene.manifest);
-      this.templates.set(mob.record.template, {
-        descriptor,
-        values: [descriptor.entity],
-        wanted: 0,
-        resources: null,
-        controller: null,
-        promise: null,
-        ready: false,
-        failed: false,
-      });
+    }
+    const slot = {
+      descriptor,
+      manifest: { textures, atlases },
+      values: [descriptor.entity],
+      wanted: 0,
+      reserved: 0,
+      resources: null,
+      controller: null,
+      promise: null,
+      ready: false,
+      failed: false,
+    };
+    this.templates.set(key, slot);
+    return slot;
+  }
+
+  /** Preparation holds demand until the caller publishes or rejects the new mob. */
+  async prepareSpawn(mob, manifest, signal) {
+    check(signal);
+    const slot = this.registerTemplate(mob, manifest);
+    if (!slot) throw new Error("Monster has no original artwork");
+    slot.reserved++;
+    try {
+      if (slot.promise) await slot.promise;
+      else if (!slot.ready) await this.load(slot);
+      check(signal);
+      if (this.destroyed || !slot.ready) {
+        throw new Error("Monster artwork preparation was cancelled");
+      }
+      return slot;
+    } catch (error) {
+      slot.reserved--;
+      throw error;
     }
   }
 
@@ -60,7 +101,7 @@ export class OfflineMobRenderer {
       else this.remove(mob);
     }
     for (const slot of this.templates.values()) {
-      if (!slot.wanted) this.release(slot);
+      if (!slot.wanted && !slot.reserved) this.release(slot);
     }
   }
 
@@ -110,10 +151,7 @@ export class OfflineMobRenderer {
   async load(slot) {
     if (this.destroyed) return;
     const controller = new AbortController();
-    const resources = new VisualTextures(
-      this.scene.manifest,
-      this.scene.atlases,
-    );
+    const resources = new VisualTextures(slot.manifest, this.scene.atlases);
     slot.controller = controller;
     slot.resources = resources;
     slot.promise = resources.load(

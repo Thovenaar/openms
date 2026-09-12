@@ -162,7 +162,12 @@ function scriptDefaultTalk(source, defaultTalkForNpc) {
   return defaultTalkForNpc(Number(id));
 }
 
-async function scriptInventory(root, defaultTalkForNpc, staticConfig) {
+async function scriptInventory(
+  root,
+  defaultTalkForNpc,
+  staticConfig,
+  originalQuestIds,
+) {
   const paths = await sourcePaths(root, "scripts", ".js");
   const files = [],
     compilations = [],
@@ -189,16 +194,11 @@ async function scriptInventory(root, defaultTalkForNpc, staticConfig) {
         sha256: file.sha256,
         defaultTalk: scriptDefaultTalk(source, defaultTalkForNpc),
         staticConfig,
+        originalQuestIds,
       });
       compilations.push(compilation);
       record.sourceText = file.text;
-      record.compilation = {
-        status: compilation.status,
-        blockers: compilation.blockers,
-        astNodes: compilation.astNodes,
-        requirements: compilation.requirements,
-        dependencies: compilation.dependencies,
-      };
+      record.compilation = compilationSummary(compilation);
     }
     if (category === "portal") {
       const script = source.slice("scripts/portal/".length, -3);
@@ -218,6 +218,16 @@ async function scriptInventory(root, defaultTalkForNpc, staticConfig) {
     files,
     compilations,
     portalPrograms,
+  };
+}
+
+function compilationSummary(compilation) {
+  return {
+    status: compilation.status,
+    blockers: compilation.blockers,
+    astNodes: compilation.astNodes,
+    requirements: compilation.requirements,
+    dependencies: compilation.dependencies,
   };
 }
 
@@ -317,12 +327,21 @@ async function npcRuntimePolicy(root) {
     "src/main/java/scripting/AbstractPlayerInteraction.java",
     "src/main/java/scripting/npc/NPCScriptManager.java",
     "src/main/java/constants/inventory/ItemConstants.java",
+    "src/main/java/scripting/npc/NPCConversationManager.java",
+    "src/main/java/constants/game/GameConstants.java",
+    "src/main/java/constants/id/MapId.java",
   ]) {
     const file = await sourceFile(root, source, MAX_SCRIPT_BYTES);
     if (source === "config.yaml") {
       const server = Bun.YAML.parse(file.text)?.server;
       enhancedCrafting = server?.USE_ENHANCED_CRAFTING;
-      for (const key of ["USE_CPQ", "USE_ENABLE_SOLO_EXPEDITIONS"]) {
+      for (const key of [
+        "USE_CPQ",
+        "USE_ENABLE_SOLO_EXPEDITIONS",
+        "USE_AUTOASSIGN_STARTERS_AP",
+        "USE_STARTING_AP_4",
+        "USE_ENFORCE_JOB_SP_RANGE",
+      ]) {
         if (server?.[key] === undefined) continue;
         if (typeof server[key] !== "boolean") {
           throw new Error(`NPC server setting must be boolean: ${key}`);
@@ -355,6 +374,7 @@ export async function convertServerData(options = {}) {
     root,
     options.defaultTalkForNpc,
     policy.staticConfig,
+    options.originalQuestIds,
   );
   const datasets = Object.create(null);
   for (const [name, names] of Object.entries(DOMAINS)) {

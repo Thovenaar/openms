@@ -7,9 +7,12 @@ import {
 import { validateProfile } from "../profile/profile-validation.js";
 import { equipmentUpgrade } from "../items/equipment-enhancement.js";
 import { SAVED_LOCATION_TYPES } from "../profile/profile-domains.js";
+import { recalculateVitals } from "../character/character-stats.js";
+import { skillPointPool } from "../skills/skill-system.js";
 import {
   NPC_RUNTIME_LIMITS as LIMITS,
   npcInteger,
+  npcPrimitive,
   requireNpc,
 } from "./npc-script-values.js";
 import {
@@ -371,6 +374,99 @@ function canHold(turn, id, count) {
   }
 }
 
+/** AbstractPlayerInteraction.java:253–277: probe all grants together, not one free slot twice. */
+function canHoldAll(turn, args) {
+  const ids = args[0],
+    quantities = args[1];
+  requireNpc(
+    Array.isArray(ids) && ids.length <= LIMITS.arrayLength,
+    "NPC canHoldAll requires a bounded item array",
+    "npc-value",
+  );
+  requireNpc(
+    quantities === undefined ||
+      (Array.isArray(quantities) && quantities.length <= LIMITS.arrayLength),
+    "NPC canHoldAll requires a bounded quantity array",
+    "npc-value",
+  );
+  const count = quantities
+    ? Math.min(ids.length, quantities.length)
+    : ids.length;
+  const draft = structuredClone(turn.profile);
+  try {
+    for (let index = 0; index < count; index++) {
+      grantItem(
+        draft,
+        itemTemplate(turn, ids[index]),
+        npcInteger(quantities ? quantities[index] : 1, 1, 32767),
+      );
+    }
+    return true;
+  } catch (error) {
+    if (["inventory-full", "unique-item"].includes(error.code)) return false;
+    throw error;
+  }
+}
+
+// SERVER reference AbstractPlayerInteraction.java:1149–1191. Not recovered Nexon rules.
+const FIRST_JOB_STATS = Object.freeze([
+  null,
+  ["str", 35],
+  ["int", 20],
+  ["dex", 25],
+  ["dex", 25],
+  ["dex", 20],
+]);
+const HALL_OF_FAME_MAPS = Object.freeze([
+  130000110, 102000004, 101000004, 100000204, 103000008, 120000105,
+]);
+
+function firstJobRead(turn, kind, args) {
+  const type = npcInteger(args[0]),
+    spec = FIRST_JOB_STATS[type];
+  if (kind === "first-job-stat-requirement") {
+    return spec ? `${spec[0].toUpperCase()} ${spec[1]}` : null;
+  }
+  requireNpc(
+    typeof args[1] === "boolean",
+    "NPC starter AP policy is not boolean",
+    "npc-value",
+  );
+  return args[1] || !spec || turn.profile[spec[0]] >= spec[1];
+}
+
+/** GameConstants.java:428–449,485–508 and MapId.java:255–264, explicit pure enum dispatch. */
+function gameConstantRead(kind, value) {
+  const job = npcInteger(value, 0, 32767);
+  const cygnus = Math.trunc(job / 1000) === 1;
+  const aran = job === 2000 || (job >= 2100 && job <= 2112);
+  switch (kind) {
+    case "skill-book":
+      return skillPointPool(job);
+    case "is-cygnus":
+      return cygnus;
+    case "is-aran":
+      return aran;
+    case "hall-of-fame-map":
+      if (cygnus) return 130000100;
+      if (aran) return 140010110;
+      return HALL_OF_FAME_MAPS[Math.trunc(job / 100)] ?? HALL_OF_FAME_MAPS[0];
+    default:
+      requireNpc(false, "Unknown pure NPC job read");
+  }
+}
+
+function parseInteger(args) {
+  const value = npcPrimitive(args[0]);
+  const radix = args.length === 2 ? npcInteger(args[1]) : 0;
+  requireNpc(
+    radix === 0 || (radix >= 2 && radix <= 36),
+    "Invalid NPC parseInt radix",
+    "npc-value",
+  );
+  return npcInteger(Number.parseInt(String(value), radix));
+}
+
 // Cosmic MapleMap.java4308-4337: explicit source sets, not guessed map-name ranges.
 const CPQ_WINNER_MAPS = new Set([
   980000103, 980000203, 980000303, 980000403, 980000503, 980000603, 980031300,
@@ -398,6 +494,25 @@ export function readNpcLocal(turn, kind, args) {
     case "saved-location-peek":
     case "saved-location-take":
       return readSavedLocation(turn, kind, args[0]);
+    default:
+      return readNpcPure(turn, kind, args);
+  }
+}
+
+function readNpcPure(turn, kind, args) {
+  switch (kind) {
+    case "parse-int":
+      return parseInteger(args);
+    case "hall-of-fame-map":
+    case "skill-book":
+    case "is-cygnus":
+    case "is-aran":
+      return gameConstantRead(kind, args[0]);
+    case "first-job-stat-requirement":
+    case "can-get-first-job":
+      return firstJobRead(turn, kind, args);
+    case "can-hold-all":
+      return canHoldAll(turn, args);
     default:
       return readPlayerState(turn, kind, args);
   }
@@ -618,8 +733,94 @@ function authoredPortal(portal) {
   return portal;
 }
 
+/** Character.java:1141–1259; first explorer advancement only, server-reference/offline authority. */
+function jobEffect(turn, args) {
+  const profile = turn.profile,
+    job = npcInteger(args[0], 0, 32767);
+  requireNpc(
+    [100, 200, 300, 400, 500].includes(job),
+    "This advancement requires unavailable advanced-job authority",
+    "npc-dependency",
+  );
+  requireNpc(
+    profile.job === 0 && profile.level >= (job === 200 ? 8 : 10),
+    "First job advancement requires an eligible beginner",
+    "npc-job",
+  );
+  requireNpc(
+    typeof args[1] === "boolean",
+    "Invalid starting AP policy",
+    "npc-value",
+  );
+  profile.job = job;
+  profile.remainingSp[skillPointPool(job)] = npcInteger(
+    profile.remainingSp[skillPointPool(job)] + 1,
+    0,
+  );
+  if (args[1]) profile.remainingAp = npcInteger(profile.remainingAp + 4, 0);
+  // Character.gainSlotsInternal:9157–9191 refuses an entire +4 above96; legacy saves are retained.
+  for (let category = 0; category < 4; category++) {
+    if (profile.inventorySlots[category] + 4 <= 96) {
+      profile.inventorySlots[category] += 4;
+    }
+  }
+  const hp =
+    job === 200
+      ? 0
+      : randomInclusive(job === 100 ? 200 : 100, job === 100 ? 250 : 150);
+  const mp =
+    job === 100
+      ? 0
+      : randomInclusive(job === 200 ? 100 : 25, job === 200 ? 150 : 50);
+  profile.baseMaxHP = Math.min(30000, profile.baseMaxHP + hp);
+  profile.baseMaxMP = Math.min(30000, profile.baseMaxMP + mp);
+  recalculateVitals(profile, turn.environment.items);
+  turn.effects.push({ kind: "job", job, hp, mp });
+}
+
+function randomInclusive(minimum, maximum) {
+  return minimum + Math.floor(Math.random() * (maximum - minimum + 1));
+}
+
+/** Character.resetStats:7914–7964 conserves total AP and restores first-job SP entitlement. */
+function resetStatsEffect(turn, enabled) {
+  requireNpc(
+    typeof enabled === "boolean",
+    "Invalid starter AP policy",
+    "npc-value",
+  );
+  if (!enabled) return; // The authored API explicitly disables this mutation with autoassign off.
+  const profile = turn.profile,
+    type = profile.job / 100;
+  requireNpc(
+    Number.isInteger(type) && type >= 1 && type <= 5,
+    "Stat reset requires supported first-job authority",
+    "npc-dependency",
+  );
+  const spec = FIRST_JOB_STATS[type];
+  const total =
+    profile.remainingAp + profile.str + profile.dex + profile.int + profile.luk;
+  const remaining = total - (12 + spec[1]);
+  requireNpc(
+    remaining >= 0,
+    "Starter AP total cannot cover first-job prerequisites",
+    "npc-job",
+  );
+  profile.str = profile.dex = profile.int = profile.luk = 4;
+  profile[spec[0]] = spec[1];
+  profile.remainingAp = npcInteger(remaining, 0);
+  profile.remainingSp[skillPointPool(profile.job)] = npcInteger(
+    1 + (profile.level - (type === 2 ? 8 : 10)) * 3,
+    0,
+  );
+  recalculateVitals(profile, turn.environment.items);
+  turn.effects.push({ kind: "reset-stats", job: profile.job });
+}
+
 export function applyNpcEffect(turn, node, args) {
   if (node.kind === "item") itemEffect(turn, node, args);
+  else if (node.kind === "job") jobEffect(turn, args);
+  else if (node.kind === "reset-stats") resetStatsEffect(turn, args[0]);
   else if (node.kind === "warp") warpEffect(turn, args);
   else if (node.kind === "save-location") saveLocation(turn, args[0]);
   else if (node.kind === "crafting-scroll") {

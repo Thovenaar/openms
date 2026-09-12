@@ -210,7 +210,7 @@ test("uncertain conditional output paths retain the atomic runtime multi-view re
   ).toBe("blocked");
 });
 
-function interactionMenu(profile, route) {
+function interactionMenu(profile, route, entries = [{ record: { id: 1009 } }]) {
   const surface = { current: null, errors: [] };
   const owner = {
     store: profile,
@@ -224,7 +224,7 @@ function interactionMenu(profile, route) {
       },
       mapNames: {},
     },
-    quests: { npcEntries: () => [{ record: { id: 1009 } }] },
+    quests: { npcEntries: () => entries },
     isOperationPending: () => false,
     profileChanged() {},
     hooks: {
@@ -331,6 +331,31 @@ test("a quest-menu talk choice enters the authored callback instead of hiding va
     );
     expect(result.ok).toBe(true);
     expect(result.view.text).toBe("The authored answer");
+  } finally {
+    interactions.destroy();
+    await profile.destroy();
+  }
+});
+
+test("an NPC without quest choices opens authored dialogue without a route-selector detour", async () => {
+  const profile = store();
+  const { interactions, surface } = interactionMenu(
+    profile,
+    compilation('function start() { cm.sendOk("Authored default dialogue"); }'),
+    [],
+  );
+  try {
+    expect(
+      await interactions.open({
+        id: "npc-1",
+        templateId: 11000,
+        name: "Test NPC",
+        canInteract: () => true,
+      }),
+    ).toBe(true);
+    expect(surface.current.view.kind).toBe("say");
+    expect(surface.current.view.text).toBe("Authored default dialogue");
+    expect(surface.errors).toEqual([]);
   } finally {
     interactions.destroy();
     await profile.destroy();

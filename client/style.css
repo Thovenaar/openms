@@ -559,16 +559,19 @@ aside.inspection-chrome {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
 }
-.inspection-chrome #map {
+.inspection-chrome :is(#map, #mob-template) {
   height: 196px;
   margin: 8px 0;
   padding: 3px;
 }
-.inspection-chrome #map option {
+.inspection-chrome :is(#map, #mob-template) option {
   padding: 4px 6px;
 }
-.inspection-chrome #map-go {
+.inspection-chrome :is(#map-go, #mob-spawn) {
   width: 100%;
+}
+.inspection-chrome #mob-template {
+  height: 150px;
 }
 .inspection-chrome #inspection-theme .theme-choice {
   display: grid;
@@ -688,7 +691,7 @@ aside.inspection-chrome {
 .inspection-chrome .profile-preset-skills li {
   margin: 10px 0;
 }
-.inspection-chrome .primary:not(:disabled) {
+.inspection-chrome button.primary:not(:disabled) {
   color: var(--console-on-accent);
   background: var(--console-accent);
   box-shadow: none;

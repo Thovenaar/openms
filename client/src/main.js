@@ -5,6 +5,7 @@ import { StreamScene } from "./rendering/stream-scene.js";
 import {
   catalog as validateCatalog,
   manifest as validateManifest,
+  finite,
   LIMITS,
 } from "./rendering/stream-validation.js";
 import { createPlayerInput } from "./input/player-input.js";
@@ -1761,6 +1762,10 @@ function snapshot() {
     lastError,
     sourceBuildId,
     agent: agentSurface?.controller.status() ?? null,
+    developmentSpawn: current?.fieldSystems.monsterSpawner.availability() ?? {
+      available: false,
+      reason: "No prepared current field.",
+    },
     ...sceneSnapshot(),
     input: input ? { ...input.state } : null,
     hitboxReference: hitboxInspector.selected,
@@ -1829,6 +1834,17 @@ const api = {
   ready: null,
   snapshot,
   destroy,
+  monsterCatalog() {
+    return catalog ? Object.values(catalog.monsters ?? {}) : [];
+  },
+  async spawnMonster(id) {
+    if (destroyed || loading || !current) {
+      return { ok: false, reason: "No prepared current field." };
+    }
+    const result = await current.fieldSystems.monsterSpawner.spawn(id);
+    render();
+    return result;
+  },
   switchMap(id) {
     const promise = loadMap(String(id), false, null);
     api.ready = promise;

@@ -64,13 +64,17 @@ function prose(text, tone = "normal") {
   };
 }
 
-function appendItemStats(lines, info) {
+function itemStat(info, upgrade, key) {
+  if (key === "tuc") return upgrade?.slots ?? info[key];
+  return upgrade?.stats[key] ?? info[key];
+}
+
+function appendItemStats(lines, info, upgrade) {
   for (const [key, label] of STATS) {
-    if (Number.isFinite(info[key]) && (info[key] !== 0 || key === "tuc")) {
+    const value = itemStat(info, upgrade, key);
+    if (Number.isFinite(value) && (value !== 0 || key === "tuc")) {
       lines.push(
-        line(
-          `${label}: ${info[key] > 0 && key !== "tuc" ? "+" : ""}${info[key]}`,
-        ),
+        line(`${label}: ${value > 0 && key !== "tuc" ? "+" : ""}${value}`),
       );
     }
   }
@@ -117,7 +121,7 @@ function itemTitle(template, id) {
   return `${name} ${rate}%`;
 }
 
-/** Template statistics are not rolled equipment-instance values. */
+/** Current-profile UID statistics override templates; unowned previews remain original. */
 export function itemTooltip(owner, template, id, options = {}) {
   if (!template) {
     return {
@@ -128,6 +132,10 @@ export function itemTooltip(owner, template, id, options = {}) {
   const profile = owner.store?.profile;
   const info = template.info || {};
   const equipment = Math.floor(id / 1000000) === 1;
+  const instance = options.uid
+    ? profile?.equipment.find((entry) => entry.uid === options.uid) ||
+      profile?.inventory.find((entry) => entry.uid === options.uid)
+    : null;
   const lines = [];
   const item = {
     id,
@@ -138,7 +146,7 @@ export function itemTooltip(owner, template, id, options = {}) {
     descriptor: template.descriptor,
   };
   appendItemPossession(lines, item, options);
-  appendItemStats(lines, info);
+  appendItemStats(lines, info, instance?.upgrade);
   if (template.description) lines.push(prose(template.description));
   return {
     title: itemTitle(template, id),

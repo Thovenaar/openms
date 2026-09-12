@@ -2,6 +2,8 @@ import { LIMITS } from "../rendering/stream-validation.js";
 
 const MAX_INSPECTED_ENTITIES = 16384;
 const MAX_ENTITY_OPTIONS = 200;
+const MAX_MONSTER_CATALOG = 16384;
+const MAX_MONSTER_OPTIONS = 200;
 
 /** DOM controls are inspection policy, not original game UI. */
 class Controls {
@@ -16,9 +18,12 @@ class Controls {
     );
     this.lastMap = null;
     this.lastEntities = [];
+    this.monsters = null;
+    this.spawnRequest = null;
     this.bindPlayer();
     this.bindEntity();
     this.bindCamera();
+    this.bindMonsters();
   }
   invoke(work) {
     try {
@@ -78,6 +83,144 @@ class Controls {
       api.setFollow(event.target.checked),
     );
     this.listen("#camera-reset", "click", () => api.setFollow(true));
+  }
+
+  bindMonsters() {
+    this.listen("#mob-search", "input", () =>
+      this.invoke(() => this.filterMonsters()),
+    );
+    this.listen("#mob-search-clear", "click", () =>
+      this.invoke(() => {
+        document.querySelector("#mob-search").value = "";
+        this.filterMonsters();
+        document.querySelector("#mob-search").focus();
+      }),
+    );
+    this.listen("#mob-template", "change", () =>
+      this.updateSpawnAvailability(this.api.snapshot()),
+    );
+    this.listen("#mob-spawn", "click", () =>
+      this.invoke(() => this.spawnMonster()),
+    );
+  }
+
+  /** One original catalog snapshot per build, with bounded search rows, not a scene clone. */
+  loadMonsters(snapshot) {
+    const entries = this.api.monsterCatalog();
+    if (!Array.isArray(entries) || entries.length > MAX_MONSTER_CATALOG) {
+      throw new Error("Original monster catalog exceeds the inspection bound.");
+    }
+    const seen = new Set();
+    this.monsters = [];
+    for (const entry of entries) {
+      if (
+        !Number.isSafeInteger(entry.id) ||
+        entry.id <= 0 ||
+        typeof entry.name !== "string" ||
+        seen.has(entry.id)
+      ) {
+        throw new Error("Invalid original monster catalog identity.");
+      }
+      seen.add(entry.id);
+      const label = `${entry.name || "Monster"} [${entry.id}]`;
+      this.monsters.push({ id: entry.id, label, search: label.toLowerCase() });
+    }
+    this.monsterBuild = snapshot.buildId;
+    this.filterMonsters();
+  }
+
+  filterMonsters() {
+    if (!this.monsters) return;
+    const search = document.querySelector("#mob-search");
+    const query = search.value.trim().toLowerCase();
+    const select = document.querySelector("#mob-template");
+    const previous = select.value;
+    select.replaceChildren();
+    let matched = 0;
+    for (const entry of this.monsters) {
+      if (!entry.search.includes(query)) continue;
+      matched++;
+      if (matched <= MAX_MONSTER_OPTIONS) {
+        select.add(new Option(entry.label, String(entry.id)));
+      }
+    }
+    for (const option of select.options) {
+      if (option.value === previous) select.value = previous;
+    }
+    select.disabled = matched === 0;
+    document.querySelector("#mob-search-clear").disabled = query.length === 0;
+    document.querySelector("#mob-search-status").textContent =
+      matched > MAX_MONSTER_OPTIONS
+        ? `${matched} matching original monsters; first ${MAX_MONSTER_OPTIONS} shown. Refine the name or ID.`
+        : `${matched} of ${this.monsters.length} packaged original monsters match.`;
+    this.updateSpawnAvailability(this.api.snapshot());
+  }
+
+  updateSpawnAvailability(snapshot) {
+    const blocked =
+      this.spawnRequest ||
+      snapshot.loading ||
+      snapshot.paused ||
+      !snapshot.currentMap ||
+      !snapshot.developmentSpawn?.available;
+    document.querySelector("#mob-spawn").disabled =
+      Boolean(blocked) || !document.querySelector("#mob-template").value;
+    document.querySelector("#mob-spawn").textContent = this.spawnRequest
+      ? "Preparing original monster…"
+      : "Spawn selected monster";
+    document.querySelector("#mob-admission-status").textContent =
+      this.spawnAdmissionMessage(snapshot);
+  }
+
+  spawnAdmissionMessage(snapshot) {
+    if (this.spawnRequest) {
+      return "Preparing original artwork and gameplay resources before admission.";
+    }
+    if (snapshot.paused) return "Resume gameplay before spawning.";
+    if (snapshot.loading) return "Wait for field loading to finish.";
+    return (
+      snapshot.developmentSpawn?.reason ||
+      "Development-only spawn; the monster uses ordinary combat, drops and quest credit."
+    );
+  }
+
+  ownsSpawnRequest(request) {
+    return (
+      !this.controller.signal.aborted &&
+      this.api.snapshot().currentMap === request.map
+    );
+  }
+
+  async spawnMonster() {
+    const snapshot = this.api.snapshot();
+    this.updateSpawnAvailability(snapshot);
+    if (document.querySelector("#mob-spawn").disabled) return;
+    const id = Number(document.querySelector("#mob-template").value);
+    if (!this.monsters.some((entry) => entry.id === id)) {
+      throw new Error("Choose a packaged original monster.");
+    }
+    const request = { map: snapshot.currentMap };
+    this.spawnRequest = request;
+    const status = document.querySelector("#mob-spawn-status");
+    status.textContent = "";
+    this.updateSpawnAvailability(snapshot);
+    try {
+      const result = await this.api.spawnMonster(id);
+      if (!this.ownsSpawnRequest(request)) return;
+      if (result?.ok !== true) {
+        throw new Error(result?.reason || "Monster spawn rejected.");
+      }
+      status.textContent = `Spawned original monster ${id}. Defeat it in the field for normal offline drops and quest credit.`;
+    } catch (error) {
+      if (this.ownsSpawnRequest(request)) {
+        status.textContent = `Spawn failed: ${error.message}`;
+      }
+    } finally {
+      if (this.spawnRequest === request) this.spawnRequest = null;
+      if (!this.controller.signal.aborted) {
+        this.updateSpawnAvailability(this.api.snapshot());
+      }
+    }
   }
   bindEntity() {
     this.listen("#entity", "change", () => this.entityChanged());
@@ -237,6 +380,10 @@ class Controls {
       : `All ${snapshot.maps.length} maps in this asset catalog. Search by name or ID, or browse the full list.`;
   }
   refresh(snapshot) {
+    if (!this.monsters || this.monsterBuild !== snapshot.buildId) {
+      this.loadMonsters(snapshot);
+    }
+    this.updateSpawnAvailability(snapshot);
     if (
       snapshot.currentMap !== this.lastMap ||
       snapshot.buildId !== this.lastBuild
@@ -249,7 +396,7 @@ class Controls {
       !document.querySelector("#map").value || snapshot.loading;
     let changed = snapshot.entities.length !== this.lastEntities.length;
     if (snapshot.entities.length > MAX_INSPECTED_ENTITIES) {
-      this.report(
+      this.api.onError(
         new Error(
           `Entity inspection exceeds ${MAX_INSPECTED_ENTITIES} records`,
         ),

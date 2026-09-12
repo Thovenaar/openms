@@ -35,6 +35,14 @@ export const SCENARIO_NAMES = Object.freeze([
   "npc-talk-menu",
   "social-invitations",
   "diagnostic-replay",
+  "reload-spawn",
+  "npc-default-dialogue",
+  "npc-shop-name",
+  "skill-book-equipped-scroll",
+  "tutorial-drops",
+  "quest-ready-notification",
+  "offline-thief-advancement",
+  "development-loadout-spawn",
 ]);
 const READY_TIMEOUT_MS = 120000;
 const SCENARIO_TIMEOUT_MS = 300000;

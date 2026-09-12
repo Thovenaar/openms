@@ -20,6 +20,7 @@ openms.dev reconstructs an original-asset browser client with JavaScript, JSDoc,
 - **Workspace:** the private Bun server package and its current implementation status.
 - **Reference data:** the authorized Cosmic checkout and the client-side conversion tools that consume it.
 - **Authority boundaries:** why local peers, IndexedDB saves, and supported offline scripts are not a network backend.
+- **Proposal:** [authoritative web protocol](server/protocol.md), with intent-only commands, shared rules, server-owned transitions and transactional economy.
 
 There is no implemented backend or server development command. Server-reference data does not imply an operating server.
 

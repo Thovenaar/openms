@@ -210,7 +210,15 @@ function inheritChildScopes(context, node, scope, ownership) {
 function inspectDeclarations(context, node, parent, scope) {
   for (const declaration of node.declarations) {
     const host = javaImport(declaration.init);
-    if (host && !["server.ShopFactory", "config.YamlConfig"].includes(host)) {
+    if (
+      host &&
+      ![
+        "server.ShopFactory",
+        "config.YamlConfig",
+        "constants.game.GameConstants",
+        "server.life.PlayerNPC",
+      ].includes(host)
+    ) {
       blockScript(
         context,
         declaration,
@@ -219,7 +227,7 @@ function inspectDeclarations(context, node, parent, scope) {
     }
     if (
       host &&
-      (host !== "config.YamlConfig" || node.kind === "var") &&
+      (host === "server.ShopFactory" || node.kind === "var") &&
       parent?.type !== "Program" &&
       context.parents.get(parent)?.type !== "FunctionDeclaration"
     ) {

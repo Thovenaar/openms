@@ -454,6 +454,7 @@ async function publishReport(catalog, reports) {
 /** Package each selected map once; neighbor membership uses an immutable selection. */
 async function extractMaps(character, combat) {
   const maps = Object.create(null),
+    monsters = Object.create(null),
     reports = [];
   const selectedMaps = new Set(mapIds);
   const prerequisites = {
@@ -478,8 +479,11 @@ async function extractMaps(character, combat) {
       neighbors: result.neighbors.filter((target) => selectedMaps.has(target)),
     };
     reports.push(result.report);
+    for (const monster of result.monsters) {
+      monsters[monster.id] ??= { ...monster, mapId: id };
+    }
   }
-  return { maps, reports };
+  return { maps, monsters, reports };
 }
 
 async function packagedMap(id, character, combat) {
@@ -498,6 +502,7 @@ async function packagedMap(id, character, combat) {
   return {
     descriptor: result.descriptor,
     neighbors,
+    monsters: mapMonsterEntries(result.manifest),
     report: {
       id,
       entities: scene.entities.length,
@@ -506,6 +511,22 @@ async function packagedMap(id, character, combat) {
       physics: scene.physics.map,
     },
   };
+}
+
+/** Development selection indexes existing packaged templates, not invented mobs. */
+function mapMonsterEntries(manifest) {
+  const entries = Object.entries(manifest.life.templates);
+  if (entries.length > 8192) throw new Error("Monster catalog exceeds bounds");
+  const result = [];
+  for (const [key, template] of entries) {
+    if (template.kind !== "mob" || !manifest.life.renderables[key]) continue;
+    result.push({
+      id: Number(template.originalId),
+      name: template.name ?? "",
+      template: key,
+    });
+  }
+  return result;
 }
 
 async function cached(name, prerequisites, build) {
@@ -566,13 +587,21 @@ async function sharedCatalog(converted) {
 /** Atomic catalog is the only mutable entry point. */
 async function run() {
   await prepareExtraction();
-  const converted = await convertServerData({ defaultTalkForNpc });
+  const originalQuestIds = new Set(
+    Object.keys(image("Quest", "Check.img").children)
+      .filter((key) => /^\d+$/.test(key))
+      .map(Number),
+  );
+  const converted = await convertServerData({
+    defaultTalkForNpc,
+    originalQuestIds,
+  });
   extractionContext.portalPrograms = converted.report.scripts.portalPrograms;
   const routes = selectMapClosure(converted.datasets.shops.npcRoutes);
   const character = await extractAvatar(extractionContext);
   const { quests, combat, drops, serverData, mapNames, ui, audiovisual } =
     await sharedCatalog(converted);
-  const { maps, reports } = await extractMaps(character, combat);
+  const { maps, monsters, reports } = await extractMaps(character, combat);
   const hitboxes = await cached("hitboxes", null, () =>
     reference(extractHitboxReferences(image)),
   );
@@ -589,6 +618,7 @@ async function run() {
     defaultMap: mapIds.includes("000010000") ? "000010000" : mapIds[0],
     maps,
     mapNames,
+    monsters,
     originalSources,
     loadingDecoration,
     hitboxes,

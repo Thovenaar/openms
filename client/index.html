@@ -151,6 +151,45 @@
               <p id="map-search-status" class="hint" role="status"></p>
             </fieldset>
           </details>
+          <details id="mob-spawn-section">
+            <summary>Spawn monster · development only</summary>
+            <p class="hint">
+              Choose an original packaged monster to fight in this field. Spawns
+              are temporary; earned offline drops and quest progress follow the
+              normal gameplay rules.
+            </p>
+            <label for="mob-search">Find monster by original name or ID</label>
+            <div class="map-search-row">
+              <input
+                id="mob-search"
+                type="search"
+                maxlength="120"
+                placeholder="Monster name or ID"
+                autocomplete="off"
+                aria-describedby="mob-search-status"
+              />
+              <button id="mob-search-clear" type="button" disabled>
+                Clear
+              </button>
+            </div>
+            <label class="sr-only" for="mob-template">Packaged monster</label>
+            <select
+              id="mob-template"
+              size="6"
+              aria-label="Packaged monster"
+            ></select>
+            <p id="mob-search-status" class="hint" role="status"></p>
+            <button id="mob-spawn" type="button" class="primary" disabled>
+              Spawn selected monster
+            </button>
+            <p id="mob-admission-status" class="hint" role="status"></p>
+            <p
+              id="mob-spawn-status"
+              class="hint"
+              role="status"
+              aria-live="polite"
+            ></p>
+          </details>
           <details id="sound-inspection">
             <summary>Sound</summary>
             <section id="audio-controls" aria-label="Audio"></section>

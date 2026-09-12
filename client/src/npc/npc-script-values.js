@@ -64,6 +64,7 @@ export const NPC_REMOTE_SERVICES = Object.freeze([
   "server-experience-reward",
   "hall-of-fame-player-npc",
   "party-quest-progress",
+  "custom-quest-progress",
 ]);
 
 export const NPC_READ_TYPES = Object.freeze({

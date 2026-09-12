@@ -1,4 +1,7 @@
-import { npcBooleanConfig, npcServiceExpression } from "./npc-script-services.js";
+import {
+  npcBooleanConfig,
+  npcServiceExpression,
+} from "./npc-script-services.js";
 import {
   NPC_SCRIPT_LIMITS,
   addDependency,
@@ -117,14 +120,8 @@ function literal(context, node) {
 }
 
 function localRead(context, node, refs) {
-  const native = nativeRead(context, node, refs);
+  const native = nativeRead(context, node, refs) ?? craftingRead(node);
   if (native) return native;
-  if (call(node, "getCS") && node.arguments.length === 0) {
-    const player = node.callee.object;
-    if (cmMethod(player) === "getPlayer" && player.arguments.length === 0) {
-      return { op: "read", kind: "crafting-scroll", args: [] };
-    }
-  }
   const method = cmMethod(node),
     spec = Object.hasOwn(READS, method) ? READS[method] : null;
   if (!spec || refs.length < spec[1] || refs.length > spec[2]) {
@@ -145,20 +142,30 @@ function localRead(context, node, refs) {
   if (method === "canGetFirstJob") {
     const value = npcBooleanConfig(context, "USE_AUTOASSIGN_STARTERS_AP");
     refs.push(context.expressions.length);
-    context.expressions.push({ op: "literal", value, raw: String(value), source: sourceSpan(node) });
+    context.expressions.push({
+      op: "literal",
+      value,
+      raw: String(value),
+      source: sourceSpan(node),
+    });
   }
   return { op: "read", kind: spec[0], args: refs };
 }
 
+function craftingRead(node) {
+  if (call(node, "getCS") && node.arguments.length === 0) {
+    const player = node.callee.object;
+    if (cmMethod(player) === "getPlayer" && player.arguments.length === 0) {
+      return { op: "read", kind: "crafting-scroll", args: [] };
+    }
+  }
+  return null;
+}
+
 function nativeRead(context, node, refs) {
   const method = playerMethod(node);
-  if (node.callee?.type === "Identifier" && node.callee.name === "parseInt" &&
-      refs.length >= 1 && refs.length <= 2) {
-    return { op: "read", kind: "parse-int", args: refs };
-  }
-  if (["getJobId", "getJob"].includes(method) && refs.length === 0) {
-    return { op: "read", kind: "job", args: [] };
-  }
+  const scalar = scalarRead(node, refs, method);
+  if (scalar) return scalar;
   if (
     (method === "getMapId" || cmMethod(node) === "getMapId") &&
     refs.length === 0
@@ -177,6 +184,21 @@ function nativeRead(context, node, refs) {
     return { op: "read", kind: "number-with-commas", args: refs };
   }
   return savedLocationRead(context, node, refs, method);
+}
+
+function scalarRead(node, refs, method) {
+  if (
+    node.callee?.type === "Identifier" &&
+    node.callee.name === "parseInt" &&
+    refs.length >= 1 &&
+    refs.length <= 2
+  ) {
+    return { op: "read", kind: "parse-int", args: refs };
+  }
+  if (["getJobId", "getJob"].includes(method) && refs.length === 0) {
+    return { op: "read", kind: "job", args: [] };
+  }
+  return null;
 }
 
 function savedLocationRead(context, node, refs, method) {
@@ -352,7 +374,7 @@ export function compileExpression(context, scope, root) {
     }
     if (context.expressionRefs.has(node)) continue;
     const service = npcServiceExpression(context, scope, node);
-    const children = service && service.op !== "read" ? [] : expressionChildren(node);
+    const children = serviceOperands(service, node);
     if (!leave) {
       pending.push({ node, leave: true });
       for (let index = children.length - 1; index >= 0; index--) {
@@ -366,9 +388,9 @@ export function compileExpression(context, scope, root) {
     const refs = children.map(
       (child) => context.expressionRefs.get(child) ?? null,
     );
-    const record = service
-      ? service.op === "read" ? { ...service, args: refs } : service
-      : expressionRecord(context, scope, node, refs);
+    const record =
+      serviceRecord(service, refs) ??
+      expressionRecord(context, scope, node, refs);
     const id = context.expressions.length;
     context.expressions.push({
       ...(record ?? { op: "unsupported" }),
@@ -377,6 +399,15 @@ export function compileExpression(context, scope, root) {
     context.expressionRefs.set(node, id);
   }
   return context.expressionRefs.get(root);
+}
+
+function serviceRecord(service, refs) {
+  if (!service) return null;
+  return service.op === "read" ? { ...service, args: refs } : service;
+}
+
+function serviceOperands(service, node) {
+  return service && service.op !== "read" ? [] : expressionChildren(node);
 }
 
 function dependencyIndex(context, expression) {

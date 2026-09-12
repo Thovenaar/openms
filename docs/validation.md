@@ -1,5 +1,62 @@
 # Validation results
 
+## Gameplay corrections and authority proposal
+
+This revision publishes **735 maps, 327 packaged monster templates and 71 original Skill book headers**. Strict lint passes with zero warnings; **444 tests / 2,494 assertions across 62 files** pass. The [spawn inventory](native-ui-validation/gameplay-authority/spawn-coverage.json) independently verifies every published map-manifest hash and finds 3,315 eligible spawn portals across all 735 maps, with none missing.
+
+All **16 native scenarios pass** in the [accepted serial replay](native-ui-validation/gameplay-authority/accepted-serial/report.json), including the strengthened visible-tooltip assertion. Reviewed captures retain the [book header](native-ui-validation/gameplay-authority/accepted-serial/skill-book-equipped-scroll/skill-book-header.png), [upgraded worn sword](native-ui-validation/gameplay-authority/accepted-serial/skill-book-equipped-scroll/equipped-scroll-result.png), [direct NPC topics](native-ui-validation/gameplay-authority/accepted-serial/npc-default-dialogue/npc-default-direct-topics.png), [shop portrait](native-ui-validation/gameplay-authority/accepted-serial/npc-shop-name/npc-shop-portrait-and-name.png), [quest-ready popup](native-ui-validation/gameplay-authority/accepted-serial/quest-ready-notification/quest-ready-notification.png), and [800×600 preset](native-ui-validation/gameplay-authority/accepted-serial/development-loadout-spawn/staged-job-preset-800x600.png) and [monster search](native-ui-validation/gameplay-authority/accepted-serial/development-loadout-spawn/monster-search-800x600.png).
+
+```text
+source  0d1312ff4637ab3f8d97d46216f0abae7024caa0bac309f6f3ba4de1338154e4
+assets  043b687e03c3a376795d6f0204300bc5bb5da5051b384c5cd8fb0fa80d93f524
+catalog a59bc8443ef953c4b90fb1ed0c9b23e44767346a2e6d8f21a9e3980dfe4d75a6
+```
+
+### Matched browser feedback loop
+
+The [consolidated report](native-ui-validation/gameplay-authority/report.json) checks all32 scenario reports against the same source, asset build and catalog hash. The [two-context replay](native-ui-validation/gameplay-authority/accepted-parallel/report.json) also passes all16 cases: **132.506 seconds serial →70.774 seconds at concurrency2**, a **1.87× speedup /46.6% wall-time reduction**. Each scenario has an isolated browser context, seeded profile, service worker and CacheStorage state; both batches borrow the same retained browser without a shared mutable game session.
+
+Catalog identity takes436 ms serial/426 ms parallel; browser acquisition is under5 ms in each. The scenario-stage wall durations are132.065/70.343 seconds, nested within their batch totals and not added to them. The dominant serial cases are quest readiness26.1 seconds (23.6 seconds actions), social invitations19.7 (17.2 actions) and tutorial drops18.9 (16.4 actions); their readiness is roughly2.2 seconds each. Prefer concurrency2 for these named browser scenarios on this host. This is measured browser verification throughput, **not extraction speedup**.
+
+### Exercised gameplay and development controls
+
+- **Skill book and equipped scrolling:** original Warrior book artwork is restored. Native Item-to-Equip carry consumes a real 100% sword scroll without Legendary Spirit, retaining the same UID and negative slot across reload. The visible tooltip must show attack **18** and **six** remaining slots; inspecting durable state alone was insufficient. [The retained pre-fix reproduction](native-ui-validation/gameplay-authority/tooltip-reproduction/report.json) catches the stale template display of 17/seven. Owned Item/Equip tooltip composition now reads committed instance statistics without mutating shared template data.
+- **Saved-map arrival:** startup and native Reload choose the nearest eligible original type 0/1 spawn to saved XY, not the saved coordinate itself. Native named portal travel, revival, World Tour return and same-map teleport remain separate. Original maps without eligible spawns are explicitly refused rather than assigned invented positions; the packaged inventory has no such map.
+- **Default-only NPC talk:** completing Robin's last available quest enters authored topics directly, and reopening does not add an `etc → Robin` detour. The mixed quest-plus-talk case retains its original selector. The shop replay opens Natasha in `104000001`: recovered shop drawing has no NPC-name overlay, so the stray browser label crossing the original portrait pane is removed. The clean original name remains accessible. Player TradingRoom names are unchanged.
+- **Quest readiness and tutorial drops:** the actual Todd 1035 route kills authored monster 9300018 and picks up its quest-gated shellpiece 4031802 with native Z. A pre-quest kill yields no eligible shellpiece. Unsupported positive-weight completion rewards had blocked this quest's admission; weighted selection is now resolved once at accepted commit, not during preview. The requirements-met transition produces one original bottom-right popup while the quest remains active, before Peter claims it. BGM-muted baseline and subsequent idle captures are silent; the pickup/readiness capture contains nonzero post-master PCM. It is mixed output, not an isolated Invite-source measurement. Exact Invite identity is grounded separately in original data and recovered dispatch.
+- **Offline thief advancement:** real Dark Lord dialogue changes beginner 0 → thief 400, grants the authored items and one earned SP, preserves learned beginner skills, permits native Nimble Body allocation and retains the full result on reload. Qualification is explicitly seeded, not earned. The [separate stopped-origin report](native-ui-validation/gameplay-authority/stopped-origin/report.json) completes advancement, learning and cold reload after the actual delivery server is stopped. Its source is `ef7242b13e59dc3fa0efa2ae259ab2bda8733d8fb60f0c41cc07c8b610ba59a5`, before the later hover-contrast and tooltip-only corrections. It warms the destination/Skill closure, including 53 original thief visual resources totaling 344,007 bytes. This is not a repeated full-release offline installation. An earlier unwarmed replay advanced successfully but could not load never-cached thief icons; that cache boundary is retained, not attributed to remote Java.
+- **Development presets and monster spawning:** real stage/discard/apply at 800×600 equips original job-compatible gear and ammunition, with STR/DEX/INT/LUK 32,767 and HP/MP 30,000. Staging does not mutate the character, and discarded gear is not granted. Ordinary strict wear eligibility now also filters preset candidates; malformed string-valued `1082192/reqLevel` cannot abort the whole preset. Native name/ID search selects Blue Snail 100101 from 327 templates, refuses spawning while paused, then creates a grounded normal combat participant. A real held attack defeats it. The hovered action remains readable against its primary background. These are explicit offline development privileges, not online authority.
+
+The native fixtures, inputs, state checkpoints and screenshots retain their seeded provenance. Movement scenarios now approach encounters from legitimate reload spawns; keyboard attacks are held until the actual simulation accepts them, rather than released between frames. Repeated field preparation is idempotent for the new notice owner. Initial failures remain in the evidence directory instead of being rewritten as passes.
+
+### Server proposal and source boundary
+
+The [authoritative browser-game protocol proposal](server/protocol.md) is research/design only: HTTPS authentication and immutable content, same-origin secure WebSocket gameplay, closed input/action schemas, server-owned movement/combat/rewards, transaction receipts, deduplication, reconnect/lease fencing, persistence and adversarial acceptance gates. It is linked from the Server navigation and was [rendered in the documentation website](native-ui-validation/gameplay-authority/server-proposal.png), with [no horizontal overflow](native-ui-validation/gameplay-authority/server-proposal.json). **No server implementation was added.**
+
+The supplied original client directory contains WZ archives and executables, not C++ source. Original data and retained instruction recovery ground presentation; authorized Cosmic code is labeled as an offline server reference, not Nexon truth or the authority for the proposed protocol. No original Windows runtime, complete skill/controller coverage, advanced-job service or full 4.54 GB offline-installation parity is claimed.
+
+### Extraction cost and safe parallelism
+
+The [completed extraction](native-ui-validation/gameplay-authority/extraction-stages.json) took **712.184 seconds**, rebuilding 739 units with three cache hits. Its asset build is `043b687e03c3a376795d6f0204300bc5bb5da5051b384c5cd8fb0fa80d93f524`; publication verified 49,369 resources totaling 4,536,439,054 bytes.
+
+| Measurement | Seconds | Boundary |
+| --- | ---: | --- |
+| Whole extraction | 712.184 | Parent duration, not added to its stages |
+| 735 map units | 502.285 | Dominant conversion/packaging work |
+| UI unit | 173.914 | Includes original book-header extraction |
+| Audiovisual unit | 13.815 | Separate conversion unit |
+| Preflight | 17.955 | Included in the parent duration, executed once |
+
+A bounded [three-second macOS sample](native-ui-validation/gameplay-authority/extraction-live.sample.txt) observed about 7.5 GiB footprint and 7.7 GiB peak on the 24 GiB M3 host. Heap-helper threads account for roughly 41% of on-CPU samples; stripped symbols do not justify finer JavaScript attribution. A momentary low CPU/RSS reading does not establish an I/O bottleneck.
+
+Two independent read-only reviews reached the same constraints:
+
+1. **Avoid unnecessary conversion first.** Separate map conversion into a transitively hashed module and give catalog/orchestration assembly its own tracked recipe. An orchestration-only change should rebuild the catalog without invalidating every map, while retaining smoke's detection of catalog-affecting edits. Do not remove recipe/source/output identity checks.
+2. **Do not apply `Promise.all` to the existing map loop.** It shares mutable WZ reader positions, scene/entity data, a single active extraction unit and atlas/frame state. Independent full-map packers also change atlas membership because prior sorted texture reuse affects later maps.
+3. **Benchmark at most two isolated decode/scene workers first**, with independent readers and bounded in-flight decoded data. Keep deterministic sorted packaging, shared texture identity, cache receipts and final catalog publication in one parent. Require byte-identical outputs and measured memory/throughput before increasing workers.
+
+No extraction-worker implementation or measured extraction speedup is claimed. Browser-only fixes after this extraction reused its output; conversion was not rerun. Historical 53.6-second warm integrity and 156-ms static reuse measurements below remain historical. Dev release integrity/compression still takes about 30 seconds and was not silently bypassed.
+
 ## Reported gameplay fixes and cached verification
 
 The [consolidated report](native-ui-validation/reported-fixes/report.json) records this 732-map revision. [Eight native scenarios](native-ui-validation/reported-fixes/native-report.json) passed both serially and in two isolated browser contexts; the [fresh-session smoke generation](native-ui-validation/reported-fixes/smoke-result.json) also passed all eight without running extraction. Strict lint passes with zero warnings; **419 tests / 2,318 assertions across 57 files** pass. Earlier release sections below retain their historical identities and counts.

@@ -214,10 +214,12 @@ class ShopView {
     this.positions = { buy: [0, 0], sell: [0, 0, 0, 0, 0] };
     this.highlights = [];
     panel.image("Shop/backgrnd", 0, 0);
-    this.header = panel.layer("Shop portraits and balance");
+    this.header = panel.layer(`Shop portraits and balance: ${shop.npc.name}`);
+    this.header.element.setAttribute("role", "group");
     this.portrait = new ShopPortrait(this.header, shop.npc);
-    this.name = text(this.header, shop.npc.name, 8, { y: 79, width: 98 });
-    this.name.style.textAlign = "center";
+    // 00754860 composes the NPC at56,76; 00754da0 draws rows and balance,
+    // not a name below it. A synthetic y79 label crossed the WZ pane's y84 edge.
+    // Retain the exact String/Npc.img name in the accessible portrait group only.
     this.balance = text(this.header, "", 361, { y: 64, width: 86 });
     this.balance.style.textAlign = "right";
     this.selfPortrait = panel.owner.hooks.userInfoPortrait?.(this.header, {

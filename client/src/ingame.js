@@ -32,6 +32,8 @@ import {
 import { NativeAvatarPortrait } from "./ui/ui-avatar-portrait.js";
 import { LocalTradeSession } from "./social/local-trade.js";
 import { PickupEffects } from "./world/pickup-effects.js";
+import { QuestReadyNotification } from "./ui/ui-quest-ready-notification.js";
+import { DevelopmentMonsterSpawner } from "./development/monster-spawner.js";
 
 const CHAT_BINDINGS = Object.freeze({
   ChatAll: 7,
@@ -74,11 +76,13 @@ class FieldSystems {
       });
       this.skills = this.createSkills(store);
       this.drops = this.createDrops(store);
+      this.monsterSpawner = new DevelopmentMonsterSpawner(this);
       this.operations = Object.freeze([
         this.drops,
         this.reactors,
         this.skills.utilityController.pets,
         this.skills.utilityController.enhancement,
+        this.monsterSpawner,
       ]);
       this.gameplay = this.createGameplay(store);
       this.life = new LifeSystem(scene, owner.fieldHooks);
@@ -135,6 +139,11 @@ class FieldSystems {
       drops: () => this.drops,
       travelDoor: owner.hooks.travelDoor,
       prepareEnhancement: () => owner.ui.preloadWindow("EnchantSkill"),
+      prepareAppearance: (draft) => owner.prepareAppearance(draft),
+      publishAppearance: (prepared) => owner.publishAppearance(prepared),
+      releaseAppearance: (prepared) => prepared.destroy(),
+      isCurrent: () =>
+        !this.destroyed && scene === owner.scene && owner.store === store,
       enhancementError: () => owner.ui.preloadedWindowError("EnchantSkill"),
       openEnhancement: () =>
         owner.ui.open("EnchantSkill").catch(owner.hooks.onError),
@@ -440,6 +449,7 @@ class FieldSystems {
   }
 
   destroyDrops() {
+    this.monsterSpawner?.destroy();
     this.pickupEffects?.destroy();
     this.dropRenderer?.destroy();
     this.drops?.destroy();
@@ -474,6 +484,9 @@ export class InGameSystems {
     this.playEffect = this.playEffect.bind(this);
     this.profileChanged = this.profileChanged.bind(this);
     this.ui = this.createUI();
+    this.questReadyNotification = new QuestReadyNotification(this.ui);
+    this.refreshQuestReady = this.refreshQuestReady.bind(this);
+    this.unsubscribeQuestReady = null;
     this.initializeFieldHooks();
   }
 
@@ -729,6 +742,10 @@ export class InGameSystems {
 
   profileChanged() {
     this.ui.refreshProfile();
+    this.refreshQuestReady();
+  }
+  refreshQuestReady() {
+    if (this.quests) this.questReadyNotification.refresh(this.quests);
   }
   npcBlocked(id) {
     const owned = id !== undefined && this.native?.npc.owns(id);
@@ -781,7 +798,7 @@ export class InGameSystems {
       );
     }
   }
-  async editProfile(patch) {
+  async editProfile(patch, options) {
     if (!this.scene || this.hooks.isBlocked()) {
       throw new Error(
         "Character edit is unavailable during a field/profile transition",
@@ -792,7 +809,7 @@ export class InGameSystems {
       scene = this.scene;
     this.hooks.onSave?.();
     this.hooks.clearInput();
-    await this.characterDevelopment.edit(patch);
+    await this.characterDevelopment.edit(patch, options);
     if (this.store !== store || this.scene !== scene) return;
     scene.fieldSystems.gameplay.synchronizeProfile();
     if (!this.showRevival()) this.ui.close("Revive", true);
@@ -977,6 +994,7 @@ export class InGameSystems {
     if (!this.avatars) this.avatars = new AvatarVisuals(this.services, catalog);
     await this.audio.prepare(catalog.audiovisual, signal);
     await this.ui.prepare(catalog.ui, signal);
+    await this.questReadyNotification.prepare(signal);
     await this.prepareNative(store);
     this.useProfile(store);
     this.restoreSettings();
@@ -992,6 +1010,9 @@ export class InGameSystems {
     }
     this.characterDevelopment = this.native.development;
     this.quests = this.native.quests;
+    this.unsubscribeQuestReady?.();
+    this.unsubscribeQuestReady = store.subscribe(this.refreshQuestReady);
+    this.refreshQuestReady();
     for (const native of this.nativeByStore.values()) {
       if (native.controls) native.controls.root.hidden = native !== this.native;
     }
@@ -1085,11 +1106,13 @@ export class InGameSystems {
   }
   updateInterface(ms) {
     this.ui.update(ms);
+    this.questReadyNotification.update(ms);
     this.audio.update(ms);
     this.native?.flushDeferred();
   }
   resize(width, height) {
     this.ui.resize(width, height);
+    this.questReadyNotification.resize();
     this.scene?.fieldSystems.name.step(this.app.renderer.resolution);
     this.scene?.fieldSystems.speech.syncDensity(this.app.renderer.resolution);
   }
@@ -1098,6 +1121,7 @@ export class InGameSystems {
       ui: this.ui.snapshot(),
       audiovisual: this.audio.snapshot(),
       quests: this.quests?.snapshot() ?? null,
+      questReadyNotification: this.questReadyNotification.snapshot(),
       accountStorage: this.store?.storageSnapshot() ?? null,
     };
   }
@@ -1109,6 +1133,8 @@ export class InGameSystems {
     await Promise.all(this.nativeRetirements);
     this.nativeByStore.clear();
     await this.tradeSession.destroy();
+    this.unsubscribeQuestReady?.();
+    this.questReadyNotification.destroy();
     this.ui.destroy();
     this.bindings?.destroy();
     this.audio.destroy();

@@ -655,6 +655,10 @@ function stepDeadMob(mob, ms) {
     mob.visible = false;
     mob.state = "dead";
   }
+  if (mob.developmentSpawn && mob.state === "dead") {
+    mob.active = false;
+    return;
+  }
   if (mob.respawnMs < Math.max(MOB_POLICY.respawnMs, duration)) return;
   mob.x = mob.spawnX;
   mob.y = mob.spawnY;

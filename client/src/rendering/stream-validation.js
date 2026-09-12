@@ -85,7 +85,25 @@ export function catalog(value) {
   }
   if (value.originalSources !== undefined) resource(value.originalSources);
   if (value.ui !== undefined) uiCatalog(value.ui);
+  if (value.monsters !== undefined) monsterCatalog(value.monsters, value.maps);
   return value;
+}
+
+/** Index only authored templates available in the selected immutable map closure. */
+function monsterCatalog(monsters, maps) {
+  for (const [id, monster] of entries(monsters, LIMITS.uiArtwork)) {
+    if (
+      !Number.isSafeInteger(monster.id) ||
+      monster.id <= 0 ||
+      String(monster.id) !== id ||
+      monster.template !== `mob:${String(monster.id).padStart(7, "0")}` ||
+      typeof monster.name !== "string" ||
+      monster.name.length > 4096 ||
+      !Object.hasOwn(maps, monster.mapId)
+    ) {
+      throw new Error("Invalid development monster catalog entry");
+    }
+  }
 }
 
 function mapNames(names) {

@@ -12,70 +12,123 @@ import { JOB_LABELS } from "../ui/ui-job-labels.js";
 import { requiresSkillMastery, skillBooks } from "../ui/ui-skill-books.js";
 import { AP_POLICY } from "../character/character-development.js";
 import { recalculateVitals } from "../character/character-stats.js";
-import { equipInventory, unequipInventory } from "../items/inventory-action-rules.js";
+import {
+  equipInventory,
+  unequipInventory,
+  wearRequirements,
+} from "../items/inventory-action-rules.js";
 import {
   effectiveItemStackLimit,
   grantItem,
-  itemCount,
 } from "../items/inventory-model.js";
-import { compatibleAmmunition, validateWeaponCombat } from "../combat/weapon-usage.js";
+import {
+  compatibleAmmunition,
+  validateWeaponCombat,
+} from "../combat/weapon-usage.js";
 
 const MAX_PRESET_ITEMS = 65536;
 const PRESET_ATTRIBUTES = ["str", "dex", "int", "luk"];
 const PRESET_ARMOR_SLOTS = [-1, -5, -6, -7, -8, -9];
+const PRESET_WEAPONS = new Map([
+  [10, 1402000],
+  [11, 1402000],
+  [12, 1402000],
+  [13, 1432000],
+  [20, 1372000],
+  [21, 1372000],
+  [22, 1372000],
+  [23, 1372000],
+  [30, 1452002],
+  [31, 1452002],
+  [32, 1462001],
+  [40, 1472000],
+  [41, 1472000],
+  [42, 1332000],
+  [50, 1482000],
+  [51, 1482000],
+  [52, 1492000],
+]);
+const PRESET_EXCLUDED_FLAGS = [
+  "cash",
+  "timeLimited",
+  "quest",
+  "only",
+  "tradeBlock",
+];
+const PRESET_WEAR_ERRORS = new Set([
+  "item-metadata",
+  "equipment-gender",
+  "equipment-job",
+  "equipment-level",
+  "equipment-fame",
+  "equipment-stat",
+]);
 // Deliberate development starter weapons, not a claim about original job grants.
 // IDs resolve Character.wz:Weapon/<eight-digit ID>.img; native families00460aa0.
 function presetWeapon(job) {
-  if (job === 2000 || Math.trunc(job / 100) === 21) return 1442000;
-  if (job === 2001 || Math.trunc(job / 100) === 22) return 1372000;
-  const branch = Math.trunc((job % 1000) / 10);
-  if (branch === 13) return 1432000;
-  if (branch >= 10 && branch <= 12) return 1402000;
-  if (branch >= 20 && branch <= 23) return 1372000;
-  if (branch === 32) return 1462001;
-  if (branch >= 30 && branch <= 31) return 1452002;
-  if (branch === 42) return 1332000;
-  if (branch >= 40 && branch <= 41) return 1472000;
-  if (branch === 52) return 1492000;
-  if (branch >= 50 && branch <= 51) return 1482000;
-  return 1302000;
+  if (job === 2000) return 1442012;
+  if (Math.trunc(job / 100) === 21) return 1442000;
+  if (job === 2001) return 1372005;
+  return PRESET_WEAPONS.get(Math.trunc((job % 1000) / 10)) ?? 1302000;
+}
+
+function presetEquipmentAvailable(template, avatar) {
+  if (!template.info || !avatar) return false;
+  if (!avatar.visual || !avatar.descriptor) return false;
+  return !PRESET_EXCLUDED_FLAGS.some((flag) => template.info[flag]);
 }
 
 /** Selection policy only; equipInventory remains the native/server-reference admission. */
-function presetWearable(profile, template, avatar) {
-  const info = template.info;
-  if (!info || !avatar?.visual || !avatar.descriptor || info.cash) return false;
-  if (info.timeLimited || info.quest || info.only || info.tradeBlock) return false;
-  const gender = Math.trunc(template.id / 1000) % 10;
-  if (gender < 2 && gender !== profile.gender) return false;
-  const family = Math.trunc((profile.job % 1000) / 100);
-  const mask = info.reqJob ?? 0;
-  if (mask === -1 && family !== 0) return false;
-  if (mask > 0 && !(mask & (1 << (family - 1)))) return false;
-  if ((info.reqLevel ?? 0) > profile.level || (info.reqPOP ?? 0) > profile.fame) return false;
-  for (const stat of PRESET_ATTRIBUTES) {
-    if ((info[`req${stat.toUpperCase()}`] ?? 0) > profile[stat]) return false;
+function presetWearable(profile, items, template) {
+  try {
+    wearRequirements(profile, items, template);
+    return true;
+  } catch (error) {
+    if (PRESET_WEAR_ERRORS.has(error.code)) return false;
+    throw error;
   }
-  return true;
+}
+
+function presetArmorSlot(index, profile, template) {
+  if (Math.trunc(template.id / 1000000) !== 1) return null;
+  const avatar = index.avatar?.entries[template.id];
+  if (!presetEquipmentAvailable(template, avatar)) return null;
+  const slot = avatar.equippedSlots?.[0];
+  if (
+    !PRESET_ARMOR_SLOTS.includes(slot) ||
+    !presetWearable(profile, index.items, template)
+  ) {
+    return null;
+  }
+  return slot;
+}
+
+function choosePresetArmor(selected, template, slot) {
+  const previous = selected.get(slot);
+  const score =
+    (template.info.reqJob > 0 ? 1000 : 0) + (template.info.reqLevel ?? 0);
+  if (
+    !previous ||
+    score > previous.score ||
+    (score === previous.score && template.id < previous.item.id)
+  ) {
+    selected.set(slot, { item: template, score });
+  }
 }
 
 function presetArmor(index, profile) {
   const templates = Object.values(index.items);
-  if (templates.length > MAX_PRESET_ITEMS) throw new Error("Preset item catalog exceeds its bound.");
+  if (templates.length > MAX_PRESET_ITEMS) {
+    throw new Error("Preset item catalog exceeds its bound.");
+  }
   const selected = new Map();
   for (const template of templates) {
-    if (Math.trunc(template.id / 1000000) !== 1) continue;
-    const avatar = index.avatar?.entries[template.id];
-    const slot = avatar?.equippedSlots?.[0];
-    if (!PRESET_ARMOR_SLOTS.includes(slot) || !presetWearable(profile, template, avatar)) continue;
-    const previous = selected.get(slot);
-    const score = (template.info.reqJob > 0 ? 1000 : 0) + (template.info.reqLevel ?? 0);
-    if (!previous || score > previous.score || (score === previous.score && template.id < previous.item.id)) {
-      selected.set(slot, { item: template, score });
-    }
+    const slot = presetArmorSlot(index, profile, template);
+    if (slot !== null) choosePresetArmor(selected, template, slot);
   }
   // An overall owns the pants region; never stage mutually exclusive outfits.
-  if (selected.get(-5)?.item.info.islot === "MaPn") selected.delete(-6);
+  const coat = selected.get(-5);
+  if (coat && Math.trunc(coat.item.id / 10000) === 105) selected.delete(-6);
   return selected;
 }
 
@@ -83,13 +136,21 @@ function equipPresetItem(profile, index, template, slot) {
   const cash = profile.equipment.find((item) => item.slot === slot - 100);
   if (cash) unequipInventory(profile, index.items, { uid: cash.uid });
   const worn = profile.equipment.find((item) => item.slot === slot);
-  if (worn?.id === template.id) return;
-  let item = profile.inventory.find((entry) => entry.id === template.id && entry.expiresAt === null);
+  if (worn?.id === template.id && worn.expiresAt === null) return;
+  let item = profile.inventory.find(
+    (entry) => entry.id === template.id && entry.expiresAt === null,
+  );
   if (!item) {
     grantItem(profile, template, 1);
-    item = profile.inventory.find((entry) => entry.id === template.id && entry.expiresAt === null);
+    item = profile.inventory.find(
+      (entry) => entry.id === template.id && entry.expiresAt === null,
+    );
   }
-  if (!item) throw new Error(`Original preset equipment ${template.id} could not be staged.`);
+  if (!item) {
+    throw new Error(
+      `Original preset equipment ${template.id} could not be staged.`,
+    );
+  }
   equipInventory(profile, index.items, { uid: item.uid, slot });
 }
 
@@ -98,7 +159,9 @@ function preservePresetAmmunition(profile, items) {
   const entries = profile.inventory.slice();
   for (const entry of entries) {
     const template = items[entry.id];
-    if (!template) throw new Error(`Original owned item ${entry.id} is unavailable.`);
+    if (!template) {
+      throw new Error(`Original owned item ${entry.id} is unavailable.`);
+    }
     const maximum = effectiveItemStackLimit(profile, template);
     if (entry.count <= maximum) continue;
     const excess = entry.count - maximum;
@@ -112,16 +175,28 @@ function preservePresetAmmunition(profile, items) {
 }
 
 function presetAmmunition(profile, index, weapon) {
-  const id = [2060000, 2061000, 2070000, 2330000].find((value) => compatibleAmmunition(weapon, value));
+  const id = [2060000, 2061000, 2070000, 2330000].find((value) =>
+    compatibleAmmunition(weapon, value),
+  );
   if (!id) return null;
   const template = index.items[id];
   if (!template || (template.info.reqLevel ?? 0) > profile.level) {
     throw new Error(`Original preset ammunition ${id} is unavailable.`);
   }
+  let available = 0;
+  for (const item of profile.inventory) {
+    if (item.id === id && item.expiresAt === null) available += item.count;
+  }
   const count = effectiveItemStackLimit(profile, template);
-  const granted = Math.max(0, count - itemCount(profile, id));
+  const granted = Math.max(0, count - available);
   if (granted) grantItem(profile, template, granted);
-  return { id, name: template.name, count: itemCount(profile, id), granted, source: template.source };
+  return {
+    id,
+    name: template.name,
+    count: available + granted,
+    granted,
+    source: template.source,
+  };
 }
 
 /** Mutates only the caller's detached/locked development draft; never the live profile. */
@@ -129,17 +204,24 @@ export function applyJobPresetLoadout(profile, index, job) {
   if (profile.job !== job || !catalogBooks(index).includes(job)) {
     throw new Error("The staged preset job no longer matches the character.");
   }
-  if (profile.inventory.length > PROFILE_LIMITS.inventory || profile.equipment.length > PROFILE_LIMITS.equipment) {
+  if (
+    profile.inventory.length > PROFILE_LIMITS.inventory ||
+    profile.equipment.length > PROFILE_LIMITS.equipment
+  ) {
     throw new Error("Preset inventory exceeds its bound.");
   }
   const weapon = presetWeapon(job);
   const template = index.items[weapon];
   const combat = index.avatar?.entries[weapon]?.combat;
-  if (!template || !combat) throw new Error(`Original preset weapon ${weapon} is unavailable.`);
+  if (!template || !combat) {
+    throw new Error(`Original preset weapon ${weapon} is unavailable.`);
+  }
   validateWeaponCombat(combat);
   preservePresetAmmunition(profile, index.items);
   equipPresetItem(profile, index, template, -11);
-  const equipment = [{ id: weapon, name: template.name, slot: -11, source: template.source }];
+  const equipment = [
+    { id: weapon, name: template.name, slot: -11, source: template.source },
+  ];
   for (const [slot, { item }] of presetArmor(index, profile)) {
     equipPresetItem(profile, index, item, slot);
     equipment.push({ id: item.id, name: item.name, slot, source: item.source });

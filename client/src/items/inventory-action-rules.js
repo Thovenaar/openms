@@ -225,7 +225,7 @@ function meetsJob(job, mask) {
 }
 
 /** Cosmic ItemInformationProvider1821..1888 supplies local server stat/fame authority. */
-function wearRequirements(profile, items, template) {
+export function wearRequirements(profile, items, template) {
   const family = Math.floor((profile.job % 1000) / 100);
   const info = template.info;
   const gender = Math.floor(template.id / 1000) % 10;

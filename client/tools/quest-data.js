@@ -113,7 +113,7 @@ function unsupportedReason(domain, path, node) {
 
 function unsupportedItemReason(field, node) {
   if (/item\/\d+\/prop/.test(field)) {
-    return `Weighted random item reward is not deterministic: prop=${node.value}`;
+    return `Invalid weighted item reward probability: prop=${node.value}`;
   }
   if (/item\/\d+\/gender/.test(field)) {
     return `Gender-conditioned reward requires character gender absent from the local profile: ${node.value}`;
@@ -161,7 +161,12 @@ function classifyAct(field, node) {
 
 function supportedItemAction(field, node) {
   if (/^item(?:\/\d+(?:\/(id|count|job))?)?$/.test(field)) return true;
-  if (/^item\/\d+\/prop$/.test(field) && [0, -1].includes(node.value)) {
+  if (
+    /^item\/\d+\/prop$/.test(field) &&
+    Number.isSafeInteger(node.value) &&
+    node.value >= -1 &&
+    node.value <= 0x7fffffff
+  ) {
     return true;
   }
   return /^item\/\d+\/gender$/.test(field) && node.value === 2;
@@ -307,6 +312,7 @@ function actions(raw, source, blockers) {
 }
 
 function validateItemActions(items, source, blockers) {
+  let totalWeight = 0;
   for (const entry of items) {
     if (entry.job !== undefined && !Number.isSafeInteger(entry.job)) {
       problem(
@@ -315,13 +321,21 @@ function validateItemActions(items, source, blockers) {
         "Invalid item job mask",
       );
     }
-    if (entry.prop === -1 && entry.count <= 0) {
+    if ((entry.prop === -1 || entry.prop > 0) && entry.count <= 0) {
       problem(
         blockers,
         `${source}/item/${entry.index}`,
-        "Choice reward must have positive quantity",
+        "Choice or weighted reward must have positive quantity",
       );
     }
+    if (entry.prop > 0) totalWeight += entry.prop;
+  }
+  if (totalWeight > 0x7fffffff) {
+    problem(
+      blockers,
+      `${source}/item`,
+      "Reward weights exceed server integer range",
+    );
   }
 }
 

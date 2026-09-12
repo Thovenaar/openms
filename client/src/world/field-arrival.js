@@ -67,7 +67,6 @@ export function nearestSavedArrival(manifest, saved) {
       throw new Error("Field arrival distance exceeds the finite range");
     }
     if (
-      selected === null ||
       distance < shortest ||
       (distance === shortest && portal.id < selected.id)
     ) {
