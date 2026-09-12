@@ -4,7 +4,7 @@ openms.dev reconstructs an original-asset browser client with JavaScript, JSDoc,
 
 ## Client
 
-[Open the client documentation](README.md) for independent offline setup (`bun run dev:client:offline`) and [online development](README.md#online-development) (`bun run client:dev:online`).
+[Open the client documentation](README.md) for independent offline setup (`bun run client:dev:offline`) and [online development](README.md#online-development) (`bun run client:dev:online`).
 
 - **Architecture:** [subsystem contracts](reconstruction-contract.md), [scene and inspection APIs](scene-contract.md), [agent experiments](agent-interface.md), and [offline integration](offline-integration-contract.md).
 - **Assets and streaming:** [decoding evidence](asset-evidence.md), [inventory](ingame-inventory.md), [delivery](asset-delivery.md), and [streaming](streaming.md).

@@ -1,5 +1,8 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { protocolError, closedRecord } from "../../shared/protocol.js";
+import { ProofOfWorkAuthority, POW_TTL_MS } from "./proof-of-work.js";
+import { createProfile } from "../../client/src/profile/profile-validation.js";
+import { nearestSavedArrival } from "../../client/src/world/field-arrival.js";
 
 const MAX_LOGIN_NONCES = 1024;
 const MAX_TICKETS = 2048;
@@ -57,15 +60,17 @@ export class RateLimit {
 
 /** Sessions/tickets are process-local: restart revokes authentication, never economy. */
 export class SessionAuthority {
-  constructor(config, database) {
+  constructor(config, database, content) {
     this.config = config;
     this.database = database;
+    this.content = content;
     this.sessions = new Map();
     this.logins = new Map();
     this.tickets = new Map();
     this.rates = new Map();
     this.authWork = 0;
     this.onRevoke = null;
+    this.proofs = new ProofOfWorkAuthority(config.powBits ?? 15);
   }
 
   origin(request) {
@@ -102,35 +107,43 @@ export class SessionAuthority {
 
   bootstrap(request) {
     const session = this.session(request, false);
-    if (session) {
-      return {
-        csrfToken: session.csrfToken,
-        role: session.role,
-        expiresAt: session.expiresAt,
-      };
-    }
     this.prune();
     const previous = this.logins.get(cookieValue(request, "openms_login"));
-    if (previous && previous.expiresAt > Date.now()) {
-      return { csrfToken: previous.csrfToken };
-    }
+    const nonce =
+      previous && previous.expiresAt > Date.now()
+        ? previous
+        : this.issueLoginNonce();
+    // The login nonce is independent of an existing session, so the sign-in form keeps working.
+    const login = {
+      loginToken: nonce.csrfToken,
+      ...(nonce.cookie ? { cookie: nonce.cookie } : {}),
+    };
+    if (!session) return { ...login, csrfToken: nonce.csrfToken };
+    return {
+      ...login,
+      csrfToken: session.csrfToken,
+      role: session.role,
+      expiresAt: session.expiresAt,
+    };
+  }
+
+  issueLoginNonce() {
     if (this.logins.size >= MAX_LOGIN_NONCES) {
       throw protocolError("SERVER_BUSY");
     }
     const nonce = {
       id: opaqueId(32),
       csrfToken: opaqueId(32),
-      expiresAt: Date.now() + LOGIN_WINDOW_MS,
+      expiresAt: Date.now() + POW_TTL_MS,
     };
     this.logins.set(nonce.id, nonce);
     return {
-      csrfToken: nonce.csrfToken,
-      cookie: this.cookie("openms_login", nonce.id, 60),
+      ...nonce,
+      cookie: this.cookie("openms_login", nonce.id, POW_TTL_MS / 1000),
     };
   }
 
   validateLoginBody(body) {
-    closedRecord(body, ["name", "password", "csrfToken"]);
     if (
       typeof body.name !== "string" ||
       !/^[A-Za-z0-9_-]{1,32}$/.test(body.name)
@@ -148,8 +161,9 @@ export class SessionAuthority {
 
   admitLogin(request, body, address) {
     this.origin(request);
-    this.validateLoginBody(body);
+    closedRecord(body, ["name", "password", "csrfToken", "challengeId", "nonce"]);
     const nonce = this.logins.get(cookieValue(request, "openms_login"));
+    this.proofs.consume(`${nonce?.id}\0${address}`, body);
     if (
       !nonce ||
       nonce.expiresAt <= Date.now() ||
@@ -157,6 +171,7 @@ export class SessionAuthority {
     ) {
       throw protocolError("NOT_ALLOWED");
     }
+    this.validateLoginBody(body);
     const rateKey = `${address}\0${body.name}`;
     let rate = this.rates.get(rateKey);
     if (!rate) {
@@ -183,13 +198,61 @@ export class SessionAuthority {
         account &&
         (await Bun.password.verify(body.password, account.passwordHash));
       if (!valid) throw protocolError("UNAUTHENTICATED");
-      this.logins.delete(nonce.id);
-      const previous = this.session(request, false);
-      if (previous) this.revoke(previous);
-      return this.issueSession(account);
+      return this.completeLogin(request, nonce, account);
     } finally {
       this.authWork--;
     }
+  }
+
+  completeLogin(request, nonce, account) {
+    this.logins.delete(nonce.id);
+    const previous = this.session(request, false);
+    if (previous) this.revoke(previous);
+    return this.issueSession(account);
+  }
+
+  async register(request, body, address) {
+    const nonce = this.admitLogin(request, body, address);
+    if (!/^[A-Za-z0-9_-]{3,16}$/.test(body.name)) throw protocolError("INVALID_MESSAGE");
+    this.authWork++;
+    try {
+      const passwordHash = await Bun.password.hash(body.password);
+      const profile = await this.registrationProfile(body.name);
+      const account = await this.database.registerPlayer(body.name, passwordHash, profile);
+      if (!account) throw protocolError("NAME_TAKEN");
+      return this.completeLogin(request, nonce, account);
+    } finally {
+      this.authWork--;
+    }
+  }
+
+  async registrationProfile(name) {
+    const manifest = await this.content.map(this.content.catalog.defaultMap);
+    const arrival = nearestSavedArrival(manifest, { x: 0, y: 0, facing: 1 });
+    const profile = createProfile({
+      mapId: manifest.id, x: arrival.x, y: arrival.y, facing: arrival.facing,
+    });
+    profile.name = name;
+    return profile;
+  }
+
+  challenge(request, address) {
+    // Same-origin browser GET omits Origin; nonce-cookie/address binding still gates issuance.
+    if (request.headers.has("origin")) this.origin(request);
+    this.prune();
+    const nonce = this.logins.get(cookieValue(request, "openms_login"));
+    if (!nonce || nonce.expiresAt <= Date.now()) throw protocolError("NOT_ALLOWED");
+    const key = `challenge\0${address}`;
+    let rate = this.rates.get(key);
+    if (!rate) {
+      if (this.rates.size >= MAX_RATE_KEYS) throw protocolError("SERVER_BUSY");
+      rate = new RateLimit(10 / 60, 10);
+      this.rates.set(key, rate);
+    }
+    if (!rate.take()) throw protocolError("RATE_LIMITED");
+    const challenge = this.proofs.issue(`${nonce.id}\0${address}`);
+    nonce.expiresAt = challenge.expiresAt;
+    return { ...challenge, cookie: this.cookie("openms_login", nonce.id, POW_TTL_MS / 1000) };
   }
 
   issueSession(account) {

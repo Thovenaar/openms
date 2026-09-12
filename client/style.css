@@ -746,3 +746,19 @@ aside.inspection-chrome {
     scroll-behavior: auto;
   }
 }
+.inspection-chrome .state-testing > section {
+  border-top: 1px solid var(--console-accent);
+  margin-top: 12px;
+  padding-top: 8px;
+}
+.inspection-chrome .state-testing pre {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.inspection-chrome .state-testing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

@@ -30,6 +30,7 @@ function togglePetEquipment(panel) {
       {},
       {
         tooltip:
+          panel.owner.hooks.petEquipmentUnavailable?.() ??
           "Pet equipment requires an active owned pet and its original pet-instance lifecycle. No pet is active in this local character.",
       },
     );

@@ -3,7 +3,7 @@ import { PROFILE_DOMAIN_LIMITS } from "../profile/profile-domains.js";
 import { CASH_CURRENCIES, CASH_POLICY } from "../items/cash-commerce.js";
 import { TRADE_SLOTS, tradeRechargeable } from "../social/local-trade-rules.js";
 import { CHAT_CHANNELS } from "../ui/ui-chat.js";
-import { CHAT_LIMIT } from "../social/local-chat.js";
+import { CHAT_LIMIT } from "../social/chat-rules.js";
 import { ItemCatalogControls } from "../ui/ui-inspection.js";
 
 const MAX_PARTICIPANTS = 32;

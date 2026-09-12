@@ -214,7 +214,7 @@ function prepareSkillCast(actor, action, plan) {
   }
   plan.destination = { x: 0, y: 0, foothold: null };
   if (plan.teleport) prepareTeleport(actor, info, plan.destination);
-  plan.attack = physical ? preparePhysical(actor, skill, info) : null;
+  plan.attack = physical ? preparePhysical(actor, skill, info, plan.rank) : null;
   plan.cast = prepareCastAction(actor, skill, info);
   plan.field = actor.field;
 }
@@ -271,13 +271,14 @@ function installBuff(state, id, buff, now) {
     templateId: id,
     cancelable: true,
     expiresAt: now + buff.duration,
+    duration: buff.duration,
     spec: buff.values,
   };
   if (index >= 0) state.effects.splice(index, 1);
   state.effects.push(effect);
 }
 
-function preparePhysical(actor, skill, info) {
+function preparePhysical(actor, skill, info, rank) {
   if (
     !actor.combat ||
     ![30, 31, 32, 33, 40, 41, 42, 43, 44].includes(actor.stats.weaponType)
@@ -295,6 +296,7 @@ function preparePhysical(actor, skill, info) {
   const rectangle = physicalRectangle(actor, action, info);
   return {
     id: skill.id,
+    rank,
     action,
     info: damageInfo,
     rectangle,

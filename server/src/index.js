@@ -21,7 +21,7 @@ export async function startServer(options = {}) {
   const database =
     options.database ??
     (await openDatabase({ url: config.databaseUrl, items: content.items }));
-  const auth = new SessionAuthority(config, database);
+  const auth = new SessionAuthority(config, database, content);
   const world = new OnlineWorld({
     content,
     database,

@@ -85,7 +85,12 @@ export default [
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
-      globals: { ...globals.browser, ...globals.node, Bun: "readonly" },
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        Bun: "readonly",
+        HTMLRewriter: "readonly",
+      },
     },
     plugins: { maple: { rules: { "no-recursion": noRecursion } } },
     rules: {

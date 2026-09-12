@@ -197,7 +197,7 @@ class ShopPortrait {
 export function layoutShop(panel, shop) {
   panel.nativeClose = true;
   panel.canClose = () => !shop.pending;
-  panel.requestClose = () => shop.close().ok;
+  panel.requestClose = async () => (await shop.close()).ok;
   const view = new ShopView(panel, shop);
   panel.shopView = view;
   panel.localRefresh = () => view.refresh();

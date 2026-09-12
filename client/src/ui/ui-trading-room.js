@@ -1,4 +1,4 @@
-import { TRADE_SLOTS, tradeFee } from "../social/local-trade.js";
+import { TRADE_SLOTS, tradeFee } from "../social/local-trade-rules.js";
 import { replaceIcons, drawItemCount } from "./ui-icons.js";
 import { itemTooltip } from "./ui-tooltip.js";
 import { NativeScrollbar } from "./ui-scrollbar.js";
@@ -225,7 +225,7 @@ function refreshChat(panel, snapshot) {
     chat.scroll.setRange(count, pinned ? count - 1 : chat.scroll.position);
     chat.log.scrollTop = chat.scroll.position;
   }
-  chat.input.disabled = snapshot.state !== "open";
+  chat.input.disabled = snapshot.state !== "open" || snapshot.chatSupported === false;
   panel.tradeSend.setDisabled(chat.input.disabled);
   if (chat.input.disabled && document.activeElement === chat.input) {
     chat.input.blur();
@@ -342,7 +342,7 @@ function offerTooltip(panel, layer, entry) {
     });
   }
   if (entry.owner) tooltip.lines.push({ text: entry.owner, tone: "normal" });
-  if (entry.expiresAt !== null) {
+  if (entry.expiresAt !== null && entry.expiresAt !== undefined) {
     tooltip.lines.push({
       text: `Expires: ${new Date(entry.expiresAt).toLocaleString()}`,
       tone: "warning",

@@ -4,6 +4,8 @@ import {
   validateProfile,
 } from "../../client/src/profile/profile-validation.js";
 import { isRechargeable } from "../../client/src/items/inventory-model.js";
+import { admitCharacterSlot, MAX_ACCOUNT_CHARACTERS } from "./character-creation.js";
+import { characterSummary } from "./character-summary.js";
 
 const MAX_ATTEMPTS = 3;
 const MAX_EVENTS = 256;
@@ -124,6 +126,14 @@ function stampQuestCycles(before, after, transactionId) {
   }
   after.onlineState ??= { effects: [], cooldowns: {} };
   after.onlineState.questCycles = cycles;
+  pruneQuestNotices(after.onlineState, cycles);
+}
+
+function pruneQuestNotices(state, cycles) {
+  if (!state.questNotices) return;
+  for (const id of Object.keys(state.questNotices)) {
+    if (state.questNotices[id] !== cycles[id]) delete state.questNotices[id];
+  }
 }
 
 function mutationDraft(durable, live) {
@@ -281,6 +291,18 @@ export class Database {
       .sql`INSERT INTO account(id,name,password_hash,role) VALUES(${id()},${name},${passwordHash},${role}) RETURNING id,name,password_hash,role`;
     return { id: rows[0].id, name, passwordHash, role };
   }
+  async registerPlayer(name, passwordHash, profile) {
+    if (!/^[A-Za-z0-9_-]{3,16}$/.test(name) || typeof passwordHash !== "string" || passwordHash.length > 1024) throw failure("NOT_ALLOWED");
+    this.validate(profile);
+    const accountId = id();
+    const characterId = id();
+    return this.transaction(async (tx) => {
+      const rows = await tx`INSERT INTO account(id,name,password_hash,role) VALUES(${accountId},${name},${passwordHash},'player') ON CONFLICT(name) DO NOTHING RETURNING id`;
+      if (!rows[0]) return null;
+      await this.insertCharacter(tx, accountId, profile, characterId);
+      return { id: accountId, name, passwordHash, role: "player" };
+    });
+  }
   async accountByName(name) {
     const rows = await this
       .sql`SELECT id,name,password_hash,role FROM account WHERE name=${name}`;
@@ -296,31 +318,36 @@ export class Database {
   }
   async listCharacters(accountId) {
     const rows = await this
-      .sql`SELECT id,profile FROM character WHERE account_id=${accountId} ORDER BY id LIMIT 65`;
+      .sql`SELECT c.id,c.profile,(SELECT COALESCE(jsonb_agg(worn.data),'[]'::jsonb) FROM (SELECT data FROM item_instance WHERE owner_id=c.id AND location='equipped' ORDER BY id LIMIT 33) worn) AS equipment FROM character c WHERE c.account_id=${accountId} ORDER BY c.id LIMIT 65`;
     if (rows.length > 64) throw failure("SERVER_BUSY");
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.profile.name,
-      level: row.profile.level,
-      job: row.profile.job,
-    }));
+    return rows.map((row) => characterSummary(row.id, row.profile, row.equipment, this.items));
+  }
+  async createAccountCharacter(accountId, profile, admit) {
+    this.validate(profile);
+    const characterId = id();
+    return this.transaction(async (tx) => {
+      const accounts = await tx`SELECT id FROM account WHERE id=${accountId} FOR UPDATE`;
+      if (!accounts[0]) throw failure("UNAUTHENTICATED");
+      const rows = await tx`SELECT profile->>'name' AS name FROM character WHERE account_id=${accountId} ORDER BY id LIMIT ${MAX_ACCOUNT_CHARACTERS + 1}`;
+      admitCharacterSlot(rows.map((row) => row.name), profile.name);
+      admit();
+      await this.insertCharacter(tx, accountId, profile, characterId);
+      return characterSummary(characterId, profile, profile.equipment, this.items);
+    });
   }
   async createCharacter(accountId, profile) {
     this.validate(profile);
     const characterId = id();
-    await this.transaction(async (tx) => {
-      await tx`INSERT INTO character(id,account_id,profile,meso,map_id) VALUES(${characterId},${accountId},${cacheProfile(profile)},${profile.meso},${Number(profile.location.mapId)})`;
-      const empty = { inventory: [], equipment: [], meso: 0 };
-      const entry = {
-        characterId,
-        transactionId: characterId,
-        reason: "bootstrap",
-      };
-      await this.materializeItems(tx, entry, empty, profile);
-      await this.currencyLedger(tx, { ...entry, delta: profile.meso });
-      await tx`INSERT INTO character_op_log(character_id,operation_id,transaction_id,kind,effect) VALUES(${characterId},${characterId},${characterId},'bootstrap',${{ kind: "bootstrap", profile: cacheProfile(profile) }})`;
-    });
+    await this.transaction((tx) => this.insertCharacter(tx, accountId, profile, characterId));
     return this.loadCharacter(accountId, characterId);
+  }
+  async insertCharacter(tx, accountId, profile, characterId) {
+    await tx`INSERT INTO character(id,account_id,profile,meso,map_id) VALUES(${characterId},${accountId},${cacheProfile(profile)},${profile.meso},${Number(profile.location.mapId)})`;
+    const empty = { inventory: [], equipment: [], meso: 0 };
+    const entry = { characterId, transactionId: characterId, reason: "bootstrap" };
+    await this.materializeItems(tx, entry, empty, profile);
+    await this.currencyLedger(tx, { ...entry, delta: profile.meso });
+    await tx`INSERT INTO character_op_log(character_id,operation_id,transaction_id,kind,effect) VALUES(${characterId},${characterId},${characterId},'bootstrap',${{ kind: "bootstrap", profile: cacheProfile(profile) }})`;
   }
   async hydrate(tx, row) {
     const rows =
@@ -381,7 +408,7 @@ export class Database {
           return work(tx);
         });
       } catch (error) {
-        const code = error.code ?? error.errno;
+        const code = error.errno ?? error.code;
         if (!["40001", "40P01"].includes(code)) throw error;
         if (attempt === MAX_ATTEMPTS - 1) throw failure("SERVER_BUSY");
         await Bun.sleep(10 * (attempt + 1));

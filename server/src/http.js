@@ -4,6 +4,7 @@ import {
   protocolError,
 } from "../../shared/protocol.js";
 import { getInteractionContent } from "./interactions.js";
+import { prepareCreatedCharacter } from "./character-creation.js";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_BODY_CHUNKS = 64;
@@ -13,6 +14,8 @@ const ERROR_STATUS = new Map([
   ["NOT_ALLOWED", 403],
   ["NOT_FOUND", 404],
   ["CHARACTER_BUSY", 409],
+  ["NAME_TAKEN", 409],
+  ["CHARACTER_LIMIT", 409],
   ["STALE_CONNECTION", 409],
   ["STALE_FIELD", 409],
   ["STALE_REVISION", 409],
@@ -105,7 +108,11 @@ export class OnlineHttp {
   }
 
   route(request, path, server) {
-    if (request.method === "GET") return this.readRoute(request, path);
+    if (request.method === "GET" && path !== "/api/v1/challenge") return this.readRoute(request, path);
+    if (request.method === "GET" && path === "/api/v1/challenge") {
+      const { cookie, ...challenge } = this.auth.challenge(request, server.requestIP(request)?.address ?? "unknown");
+      return response(challenge, 200, cookie);
+    }
     if (request.method === "POST") {
       return this.writeRoute(request, path, server);
     }
@@ -130,15 +137,10 @@ export class OnlineHttp {
   }
 
   async writeRoute(request, path, server) {
-    if (path === "/api/v1/session") {
-      const result = await this.auth.login(
-        request,
-        await requestBody(request),
-        server.requestIP(request)?.address ?? "unknown",
-      );
-      const { csrfToken, expiresAt, role } = result.session;
-      return response({ csrfToken, expiresAt, role }, 200, result.cookie);
+    if (path === "/api/v1/session" || path === "/api/v1/accounts") {
+      return this.authenticate(request, path, server);
     }
+    if (path === "/api/v1/characters") return this.createCharacter(request);
     if (path === "/api/v1/play-ticket") {
       return response(
         await this.auth.ticket(request, await requestBody(request)),
@@ -148,6 +150,30 @@ export class OnlineHttp {
       return this.develop(request);
     }
     return response({ code: "NOT_FOUND" }, 404);
+  }
+
+  async authenticate(request, path, server) {
+    const body = await requestBody(request);
+    const address = server.requestIP(request)?.address ?? "unknown";
+    const result = path === "/api/v1/accounts"
+      ? await this.auth.register(request, body, address)
+      : await this.auth.login(request, body, address);
+    const { csrfToken, expiresAt, role } = result.session;
+    return response({ csrfToken, expiresAt, role }, 200, result.cookie);
+  }
+
+  async createCharacter(request) {
+    this.auth.origin(request);
+    const body = await requestBody(request);
+    const session = this.auth.session(request);
+    this.auth.csrf(session, body.csrfToken);
+    const profile = await prepareCreatedCharacter(this.content, body);
+    const character = await this.database.createAccountCharacter(
+      session.accountId,
+      profile,
+      () => this.auth.csrf(session, body.csrfToken),
+    );
+    return response({ character });
   }
 
   configuration(request) {

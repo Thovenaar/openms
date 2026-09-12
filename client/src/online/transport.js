@@ -37,14 +37,34 @@ function failure(code) {
   return error;
 }
 
-async function request(path, method = "GET", body) {
+/** The bootstrap document is closed: hashes, both CSRF tokens and the development flag. */
+function validConfig(config) {
+  return (
+    config.v === 1 &&
+    HASH.test(config.assetBuildId) &&
+    HASH.test(config.rulesHash) &&
+    HASH.test(config.catalogHash) &&
+    typeof config.csrfToken === "string" &&
+    (config.loginToken === undefined ||
+      typeof config.loginToken === "string") &&
+    typeof config.development === "boolean"
+  );
+}
+
+function requestHeaders(body, headers) {
+  const merged = headers ?? {};
+  if (body) merged["Content-Type"] = "application/json";
+  return merged;
+}
+
+async function request(path, method = "GET", body, headers = null) {
   const response = await fetch(path, {
     method,
     credentials: "same-origin",
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers: requestHeaders(body, headers),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (Number(response.headers.get("content-length")) > HTTP_BYTES) {
@@ -96,6 +116,8 @@ export class OnlineTransport {
     this.callbacks = callbacks;
     this.config = null;
     this.status = "disconnected";
+    this.closingCode = null;
+    this.retryAfterMs = null;
     this.model = null;
     this.field = null;
     this.self = null;
@@ -147,16 +169,7 @@ export class OnlineTransport {
   async initialize() {
     const config = await request("/api/v1/config");
     this.verifyCompiledIdentity(config);
-    if (
-      config.v !== 1 ||
-      !HASH.test(config.assetBuildId) ||
-      !HASH.test(config.rulesHash) ||
-      !HASH.test(config.catalogHash) ||
-      typeof config.csrfToken !== "string" ||
-      typeof config.development !== "boolean"
-    ) {
-      throw failure("INVALID_CONFIG");
-    }
+    if (!validConfig(config)) throw failure("INVALID_CONFIG");
     if (
       this.config &&
       (this.config.assetBuildId !== config.assetBuildId ||
@@ -179,9 +192,48 @@ export class OnlineTransport {
     }
   }
 
-  async login({ name, password }) {
+  /** A login nonce is single-slot per browser, so one refresh retry covers a second tab. */
+  async admitSession(path, { name, password, proof }) {
+    const credentials = () => ({
+      name,
+      password,
+      csrfToken: this.config.loginToken ?? this.config.csrfToken,
+      challengeId: proof.challengeId,
+      nonce: proof.nonce,
+    });
+    try {
+      return await request(path, "POST", credentials());
+    } catch (error) {
+      if (error.code !== "NOT_ALLOWED") throw error;
+      await this.initialize();
+      return request(path, "POST", credentials());
+    }
+  }
+
+  async login({ name, password, proof }) {
     await this.initialize();
-    const session = await this.authenticate(name, password);
+    const session = await this.admitSession("/api/v1/session", {
+      name,
+      password,
+      proof,
+    });
+    this.adoptSession(session);
+    return this.listCharacters();
+  }
+
+  /** Registration is proof-of-work gated like sign in; success signs the browser in. */
+  async register({ name, password, proof }) {
+    await this.initialize();
+    const session = await this.admitSession("/api/v1/accounts", {
+      name,
+      password,
+      proof,
+    });
+    this.adoptSession(session);
+    return this.listCharacters();
+  }
+
+  adoptSession(session) {
     if (
       typeof session.csrfToken !== "string" ||
       !["player", "developer"].includes(session.role) ||
@@ -190,26 +242,50 @@ export class OnlineTransport {
       throw failure("INVALID_SESSION");
     }
     this.config = freezeView({ ...this.config, ...session });
-    return this.listCharacters();
   }
 
-  /** The login nonce cookie is single-slot per browser, so a second tab can invalidate it once. */
-  async authenticate(name, password) {
-    try {
-      return await request("/api/v1/session", "POST", {
-        name,
-        password,
-        csrfToken: this.config.csrfToken,
-      });
-    } catch (error) {
-      if (error.code !== "NOT_ALLOWED") throw error;
-      await this.initialize();
-      return request("/api/v1/session", "POST", {
-        name,
-        password,
-        csrfToken: this.config.csrfToken,
-      });
+  /** One bounded hashcash challenge per credential attempt. */
+  async challenge() {
+    const result = await request("/api/v1/challenge");
+    if (
+      typeof result.challengeId !== "string" ||
+      !Number.isSafeInteger(result.bits) ||
+      !Number.isSafeInteger(result.expiresAt)
+    ) {
+      throw failure("INVALID_CHALLENGE");
     }
+    return freezeView(result);
+  }
+
+  /** Register one account-owned character with rolled stats, packaged look and starter gear. */
+  async createCharacter(payload) {
+    const result = await request("/api/v1/characters", "POST", {
+      csrfToken: this.config.csrfToken,
+      ...payload,
+    });
+    const character = result?.character;
+    if (
+      !character ||
+      !ID.test(character.id) ||
+      typeof character.name !== "string" ||
+      !Number.isSafeInteger(character.level) ||
+      !Number.isSafeInteger(character.job)
+    ) {
+      throw failure("INVALID_CHARACTER");
+    }
+    await this.listCharacters();
+    return character;
+  }
+
+  /** Sign out the browser session; the account form owns the returned state. */
+  async revoke() {
+    if (!this.config || typeof this.config.csrfToken !== "string") return;
+    await request("/api/v1/session", "DELETE", null, {
+      "x-csrf-token": this.config.csrfToken,
+    });
+    this.disconnect();
+    this.config = null;
+    this.characters = null;
   }
 
   async listCharacters() {
@@ -234,17 +310,14 @@ export class OnlineTransport {
     return this.characters;
   }
 
-  async connect({ name, password, characterId } = {}) {
+  /** Credentials are proof-of-work gated in login()/register(); entry needs only a character. */
+  async connect({ characterId } = {}) {
     if (this.closed) throw failure("TRANSPORT_CLOSED");
     if (this.socket || this.status === "connecting") {
       throw failure("ALREADY_CONNECTED");
     }
-    if (name !== undefined || password !== undefined) {
-      await this.login({ name, password });
-    } else {
-      await this.initialize();
-      await this.listCharacters();
-    }
+    await this.initialize();
+    await this.listCharacters();
     this.selectCharacter(characterId);
     try {
       return await this.open();
@@ -383,6 +456,11 @@ export class OnlineTransport {
       const message = decodeServer(event.data);
       this.lastMessageAt = performance.now();
       const receivedAt = this.lastMessageAt;
+      // A refused connection closes before any welcome; keep the server's code and hint.
+      if (message.type === "closing") {
+        this.closingCode = message.code;
+        this.retryAfterMs = message.retryAfterMs;
+      }
       if (message.type === "ping") {
         if (message.connectionEpoch !== this.connectionEpoch) {
           throw failure("STALE_CONNECTION");
@@ -430,15 +508,16 @@ export class OnlineTransport {
 
   async accept(message, bytes, generation, receivedAt) {
     if (message.type === "welcome") return this.welcome(message, receivedAt);
+    // A refused connection closes before any welcome; keep the server's own code and hint.
+    if (message.type === "closing") {
+      this.retryAfterMs = message.retryAfterMs;
+      throw failure(message.code);
+    }
     if (
       !this.connectionEpoch ||
       message.connectionEpoch !== this.connectionEpoch
     ) {
       throw failure("STALE_CONNECTION");
-    }
-    if (message.type === "closing") {
-      this.retryAfterMs = message.retryAfterMs;
-      throw failure(message.code);
     }
     if (message.type === "snapshot") {
       return this.installPart(message, bytes, generation);
@@ -550,6 +629,7 @@ export class OnlineTransport {
     await this.callbacks.onSnapshot?.(frozen);
     if (generation !== this.generation) return;
     this.publishModel(frozen);
+    this.restoreInteractionRevisions(frozen);
     this.baselineId = model.snapshotId;
     this.lastEventSeq = model.eventSeq;
     this.serverTick = model.serverTick;
@@ -577,12 +657,25 @@ export class OnlineTransport {
     this.self = model.self;
     this.inventory = model.inventory;
     this.progress = model.progress;
+    this.presentation = model.presentation;
     for (const domain of ["character", "inventory", "social"]) {
       this.revisions[domain] = Math.max(
         this.revisions[domain],
         model.revisions[domain],
       );
     }
+  }
+
+  /** Full snapshots restore live leases without rerunning their scripts or mutating state. */
+  restoreInteractionRevisions(model) {
+    for (const domain of ["conversation", "trade", "invitation"]) {
+      this.revisions[domain] = model.revisions[domain];
+    }
+    const conversation = model.presentation.interactions.find(
+      (event) => event.kind === "dialogue" || event.kind === "shop",
+    );
+    this.conversationId =
+      conversation?.conversationId ?? conversation?.shopSession ?? null;
   }
 
   state(message) {
@@ -763,6 +856,7 @@ export class OnlineTransport {
       });
     });
     promise.operationId = operationId;
+    this.callbacks.onCommand?.(freezeView(fields));
     this.sendPending(this.pending.get(operationId));
     return promise;
   }
@@ -831,6 +925,9 @@ export class OnlineTransport {
       });
     });
     promise.operationId = operationId;
+    this.callbacks.onCommand?.(
+      freezeView(this.pending.get(operationId).fields),
+    );
     this.sendPending(this.pending.get(operationId));
     return promise;
   }
@@ -966,16 +1063,19 @@ export class OnlineTransport {
   }
 
   disconnected(code) {
+    // A closing frame is authoritative for why this connection ended.
+    const reason = this.closingCode ?? code;
+    this.closingCode = null;
     const socket = this.socket;
     this.socket = null;
     this.generation++;
     if (socket && socket.readyState < WebSocket.CLOSING) {
       socket.close(1000, "resynchronize");
     }
-    this.openWaiter?.reject(failure(code));
+    this.openWaiter?.reject(failure(reason));
     this.openWaiter = null;
     this.resetConnection();
-    this.setStatus("disconnected", code);
+    this.setStatus("disconnected", reason);
   }
 
   disconnect() {

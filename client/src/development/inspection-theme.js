@@ -1,7 +1,7 @@
 const THEME_KEY = "maple-inspection-theme-v1";
 const CONSOLE_KEY = "maple-inspection-sidebar-v1";
 const THEMES = new Set(["win95", "xp"]);
-const PANELS = ["play", "character", "inspect", "settings", "agent"];
+const PANELS = ["play", "character", "inspect", "settings", "agent", "state"];
 
 /** Select one external task without rebuilding controls or losing draft values. */
 export function showInspectionPanel(id) {

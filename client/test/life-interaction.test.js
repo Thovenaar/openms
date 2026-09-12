@@ -75,6 +75,9 @@ function fixture(info = {}) {
       manifest: { life: { templates: { [record.template]: template } } },
     }),
     hooks: {
+      authority: "offline-local-policy",
+      canTalk: () => life.scene.offlineField.prepared && !life.scene.offlineField.dead,
+      mobState: (id) => life.scene.offlineField.byId.get(id),
       onInteract: (npc) => delivered.push(npc),
       onError: (error) => {
         throw error;

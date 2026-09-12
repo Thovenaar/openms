@@ -4,14 +4,38 @@ import { renderQuestText } from "./quest-ui.js";
 import { renderDialogArtwork } from "./ui-dialog-art.js";
 import { tabParts, showTabPart, tabLabel } from "./ui-layout.js";
 import {
-  questGroups,
-  questDetailContent,
-  questJournalSelection,
+  questGroups as localQuestGroups,
+  questDetailContent as localQuestDetailContent,
+  questJournalSelection as localQuestJournalSelection,
   questEndpointNpc,
-  questListIcon,
+  questListIcon as localQuestListIcon,
 } from "../quests/quest-journal-model.js";
 
 const TAB_NAMES = ["Available", "In progress", "Completed"];
+
+function questGroups(quests, partition) {
+  return quests.journal
+    ? quests.journal.groups(partition)
+    : localQuestGroups(quests, partition);
+}
+
+function questDetailContent(quests, record, partition) {
+  return quests.journal
+    ? quests.journal.detail(record, partition)
+    : localQuestDetailContent(quests, record, partition);
+}
+
+function questJournalSelection(quests, selected, partition) {
+  return quests.journal
+    ? quests.journal.selection(selected, partition)
+    : localQuestJournalSelection(quests, selected, partition);
+}
+
+function questListIcon(quests, record, partition) {
+  return quests.journal
+    ? quests.journal.icon(record, partition)
+    : localQuestListIcon(quests, record, partition);
+}
 
 function text(layer, value, x, geometry) {
   const node = layer.text(value, x, geometry.y, { width: geometry.width });

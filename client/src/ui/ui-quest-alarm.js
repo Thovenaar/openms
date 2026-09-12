@@ -1,4 +1,10 @@
-import { questObjectives } from "../quests/quest-journal-model.js";
+import { questObjectives as localQuestObjectives } from "../quests/quest-journal-model.js";
+
+function questObjectives(quests, record) {
+  return quests.journal
+    ? quests.journal.objectives(record)
+    : localQuestObjectives(quests, record);
+}
 
 /** Original 0088811a: 18px objective rows, title and inter-quest spacer; no fixed cap. */
 export function questAlarmHeight(quests) {

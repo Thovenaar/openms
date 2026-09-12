@@ -71,6 +71,14 @@ export function publishQuestDialogue(actor, world, lease) {
     conversationId: lease.id,
     step: lease.step,
     npcId: lease.npcId,
+    npcTemplateId: lease.npcTemplateId,
+    native: {
+      kind: view.choices.length ? "choice" : "say",
+      speaker: 0,
+      prev: view.canPrevious,
+      next: view.mode !== "confirm",
+      defaultValue: null,
+    },
     contentId,
     choices: view.choices,
     input: view.choices.length ? "choice" : "next",
@@ -82,6 +90,7 @@ export function publishQuestDialogue(actor, world, lease) {
     conversationId: lease.id,
     step: lease.step,
     npcId: lease.npcId,
+    npcTemplateId: lease.npcTemplateId,
     quests: lease.offers,
   });
 }

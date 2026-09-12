@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import original from "../../docs/ghidra-physics-motion/wz-globals.json";
 import { createSimulation } from "../src/physics/simulation.js";
+import { OnlinePrediction } from "../src/online/prediction.js";
 import {
   createHeldInput,
   assignHeldInput,
@@ -126,5 +127,70 @@ test("unknown checkpoint geometry fails before replacing the last complete state
   expect(() => restoreMotion(simulation, malformed)).toThrow(
     "CONTENT_MISMATCH",
   );
+  expect(captureMotion(simulation)).toEqual(before);
+});
+
+/** Drive the real predictor through one authenticated checkpoint and its bounded catch-up steps. */
+function presentable() {
+  const simulation = createSimulation(world(), { x: 0, y: -10 });
+  const input = createHeldInput();
+  run(simulation, input, 0, 5);
+  const prediction = new OnlinePrediction({ onInput: () => 1 });
+  prediction.install(simulation, 6);
+  prediction.observe({
+    connectionEpoch: "epoch",
+    fieldEpoch: "field",
+    serverTick: 6,
+    ackInputSeq: 1,
+    paused: false,
+    motion: captureMotion(simulation),
+  });
+  const clock = performance.now();
+  prediction.timing({
+    ready: true,
+    connectionEpoch: "epoch",
+    fieldEpoch: "field",
+    serverTick: 6,
+    roundTripMs: 0,
+    oneWayMs: 0,
+    offsetMs: 0,
+    tickOffsetMs: 0,
+    receivedAt: clock,
+    paused: false,
+  });
+  assignHeldInput(input, {
+    horizontal: 1,
+    vertical: 0,
+    jump: false,
+    attack: false,
+  });
+  prediction.advance(clock, input);
+  return { prediction, simulation, clock };
+}
+
+test("presented pose stays inside the newest two kernel states", () => {
+  const { prediction, simulation, clock } = presentable();
+  const target = { x: 0, y: 0 };
+  const { previousX, x } = simulation;
+  expect(x).toBeGreaterThan(previousX);
+  expect(prediction.interpolate(clock, target).x).toBe(previousX);
+  const middle = prediction.interpolate(clock + 15, target).x;
+  expect(middle).toBeGreaterThan(previousX);
+  expect(middle).toBeLessThan(x);
+  expect(prediction.interpolate(clock + 30, target).x).toBe(x);
+  // Local clock reads outside the step's quantum neither extrapolate nor rewind.
+  expect(prediction.interpolate(clock + 60, target).x).toBe(x);
+  expect(prediction.interpolate(clock - 10, target).x).toBe(previousX);
+});
+
+test("presentation never writes the interpolated pose back into the kernel", () => {
+  const { prediction, simulation, clock } = presentable();
+  const before = captureMotion(simulation);
+  const target = { x: 0, y: 0 };
+  for (let step = 0; step <= 30; step += 5) {
+    prediction.interpolate(clock + step, target);
+    expect(target.x).toBeGreaterThanOrEqual(before.previousX);
+    expect(target.x).toBeLessThanOrEqual(before.x);
+  }
   expect(captureMotion(simulation)).toEqual(before);
 });

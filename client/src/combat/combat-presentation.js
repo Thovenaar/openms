@@ -248,14 +248,7 @@ export class CombatPresentation {
 
   projectile(shot, delay, spreadY) {
     if (!this.scene) return;
-    let slot = null;
-    for (const candidate of this.projectileSlots) {
-      if (!candidate.active) {
-        slot = candidate;
-        break;
-      }
-    }
-    if (!slot) throw new Error("Projectile presentation pool exhausted");
+    const slot = this.acquireProjectile();
     const action = this.projectileActions.get(shot.projectileId);
     if (!action) {
       throw new Error("Original ammunition projectile artwork unavailable");
@@ -279,6 +272,36 @@ export class CombatPresentation {
     this.scene.addWorldContainer(slot.animation.container, 500000);
   }
 
+  acquireProjectile() {
+    for (const slot of this.projectileSlots) {
+      if (!slot.active) return slot;
+    }
+    throw new Error("Projectile presentation pool exhausted");
+  }
+
+  /** A confirmed impact may arrive independently of its field projectile flight. */
+  onProjectileImpact(projectileId, position, facing) {
+    if (!this.scene) return;
+    const hitAction = this.projectileHits.get(projectileId);
+    if (!hitAction) return;
+    const slot = this.acquireProjectile();
+    slot.hitAction = hitAction;
+    slot.active = true;
+    slot.delay = 0;
+    slot.animation.container.scale.x = facing;
+    slot.animation.container.visible = true;
+    slot.animation.setPosition(position.x, position.y);
+    this.activateProjectileImpact(slot);
+    this.scene.addWorldContainer(slot.animation.container, 500000);
+  }
+
+  activateProjectileImpact(slot) {
+    slot.flying = false;
+    slot.animation.setAction(slot.hitAction, "once");
+    slot.age = 0;
+    slot.duration = slot.animation.current.duration;
+  }
+
   updateProjectiles(ms) {
     for (const slot of this.projectileSlots) {
       if (!slot.active) continue;
@@ -299,10 +322,7 @@ export class CombatPresentation {
       slot.animation.advance(ms);
       if (slot.age < slot.duration) continue;
       if (slot.flying && slot.hitAction) {
-        slot.flying = false;
-        slot.animation.setAction(slot.hitAction, "once");
-        slot.age = 0;
-        slot.duration = slot.animation.current.duration;
+        this.activateProjectileImpact(slot);
         continue;
       }
       slot.active = false;

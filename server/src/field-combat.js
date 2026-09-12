@@ -97,6 +97,7 @@ export function prepareActorCombat(world, actor) {
     endsAt: 0,
     hit: false,
     skillId: null,
+    rank: null,
     percent: 100,
     limit: 1,
     rectangle: null,
@@ -148,6 +149,7 @@ function createProjectile() {
     impactAt: 0,
     facing: 1,
     actionId: null,
+    rank: null,
     reaction: {
       skillId: 0,
       skillLine: false,
@@ -256,6 +258,7 @@ export function beginAttack(world, actor, skill = null) {
   selectActorWeaponUse(world, actor, skill);
   scheduleAttack(world, actor);
   configureAttackTargets(actor, skill);
+  actor.attackState.rank = skill === null ? null : skill.rank;
   actor.actionStartTick = actor.field.tick;
   actor.simulation.movementLocked = true;
   return { code: "OK" };
@@ -489,6 +492,7 @@ function applyAttackImpact(world, actor) {
       actionId: state.id,
       actorId: actor.id,
       skillId: state.skillId,
+      rank: state.rank,
       hits,
       impactTick: actor.field.tick,
     },
@@ -510,7 +514,16 @@ function launchProjectile(world, actor, mob, amount) {
     world.now + Math.max(1, Math.trunc(Math.sqrt(dx * dx + dy * dy) * 1.5));
   shot.facing = actor.simulation.facing;
   shot.actionId = actor.attackState.id;
+  shot.rank = actor.attackState.rank;
   Object.assign(shot.reaction, actor.reaction);
+  world.broadcast(actor.field, { type: "event", fieldEpoch: actor.field.epoch, event: {
+    kind: "projectile", actionId: shot.actionId, actorId: actor.id, targetId: mob.id,
+    templateId: actor.stats.projectileId, skillId: actor.attackState.skillId,
+    rank: shot.rank,
+    facing: shot.facing,
+    source: { x, y }, destination: { x: x + dx, y: y + dy },
+    durationMs: shot.impactAt - world.now, launchTick: actor.field.tick,
+  } });
 }
 
 function advanceProjectiles(world, actor) {
@@ -533,6 +546,7 @@ function advanceProjectiles(world, actor) {
         actionId: shot.actionId,
         actorId: actor.id,
         skillId: shot.reaction.skillId || null,
+        rank: shot.rank,
         hits: [
           {
             targetId: mob.id,
@@ -668,6 +682,7 @@ function publishDamage(world, actor, amount, mob) {
       actionId: randomUUID(),
       actorId: mob?.id ?? actor.id,
       skillId: null,
+      rank: null,
       hits: [{ targetId: actor.id, damage: amount, outcome: "hit" }],
       impactTick: actor.field.tick,
     },

@@ -1,4 +1,4 @@
-import { Text, Graphics } from "pixi.js";
+import { Graphics } from "pixi.js";
 import { StreamScene } from "../rendering/stream-scene.js";
 import { EntityAnimation } from "../rendering/animation.js";
 import {
@@ -8,7 +8,7 @@ import {
 import { AvatarVisuals } from "../character/avatar-visuals.js";
 import { prepareFieldAvatar } from "../character/field-avatar.js";
 import { makeAppearanceProfile } from "./read-model.js";
-import { animationName } from "../../../shared/protocol.js";
+import { animationName, PROTOCOL } from "../../../shared/protocol.js";
 import { manifest as validateManifest } from "../rendering/stream-validation.js";
 import {
   createCameraFilter,
@@ -16,17 +16,39 @@ import {
   followCamera,
 } from "../rendering/camera.js";
 
+import { PlayerName } from "../character/player-name.js";
+import { currencyEntity, itemEntity } from "../world/drop-artwork.js";
+import { SceneEvents } from "./scene-events.js";
+import { SceneDrops } from "./scene-drops.js";
+import { SceneLife } from "./scene-life.js";
 const MAX_ENTITIES = 4096;
+/** Server entity publications land every third field tick (server/src/world.js); peers,
+ * mobs and drops are chases over that interval, not per-tick motion. */
+const ENTITY_PUBLISH_MS = PROTOCOL.TICK_MS * 3;
+const MOVEMENT_ACTIONS = new Set([
+  "stand1",
+  "walk1",
+  "jump",
+  "fly",
+  "prone",
+  "ladder",
+  "rope",
+  "sit",
+]);
 /** Owns display resources only. Entity membership and actions are observations. */
 export class OnlineScene {
-  constructor({ manifest, services, catalog, viewport, intent }) {
+  constructor({ manifest, services, catalog, viewport, intent, app }) {
     this.scene = new StreamScene(manifest, services, viewport);
     this.services = services;
     this.catalog = catalog;
+    this.app = app;
     this.visuals = new AvatarVisuals(services, catalog);
     this.views = new Map();
     this.npcs = new Map();
-    this.npcHandlers = new Map();
+    this.npcByPlacement = new Map();
+    this.lifeEntities = new Map();
+    this.native = null;
+    this.lifePromise = null;
     this.footholds = new Map(
       manifest.physics.footholds.map((entry) => [entry.id, entry]),
     );
@@ -41,6 +63,24 @@ export class OnlineScene {
     this.geometry.visible = false;
     this.queue = Promise.resolve();
     this.scene.onEntitiesChanged = () => this.refreshNpcs();
+    this.events = new SceneEvents(this, app);
+    this.drops = new SceneDrops(this);
+    this.observedSimulation = Object.create(null);
+    this.simulationSource = null;
+    this.selfPose = { x: 0, y: 0 };
+    this.presentation = { x: 0, y: 0, facing: 0, action: "stand1" };
+    const presentationView = Object.create(null);
+    for (const key of Object.keys(this.presentation)) {
+      Object.defineProperty(presentationView, key, {
+        enumerable: true,
+        get: () => this.presentation[key],
+      });
+    }
+    Object.freeze(presentationView);
+    Object.defineProperties(this.scene, {
+      simulation: { get: () => this.observedSimulation },
+      presentation: { get: () => presentationView },
+    });
   }
   async prepare(snapshot) {
     this.selfId = snapshot.self.entity.id;
@@ -51,6 +91,7 @@ export class OnlineScene {
       snapshot.self.entity.position,
     );
     await this.replace(snapshot);
+    await this.events.prepare(this.controller.signal);
     return this;
   }
   async replace(snapshot) {
@@ -103,42 +144,59 @@ export class OnlineScene {
         identity,
         fromX: entity.position.x,
         fromY: entity.position.y,
+        drawX: entity.position.x,
+        drawY: entity.position.y,
         received: performance.now(),
       };
       this.views.set(entity.id, view);
       this.scene.addDynamicEntity(owner.animation);
       this.bindEntity(view);
     }
-    view.fromX = view.animation.baseX;
-    view.fromY = view.animation.baseY;
+    this.updateView(view, entity);
+  }
+  updateView(view, entity) {
+    if (entity.placementId) {
+      this.lifeEntities.set(entity.placementId, view);
+      view.animation.gameplayOwned = true;
+    }
+    view.fromX = view.drawX;
+    view.fromY = view.drawY;
     view.received = performance.now();
     view.entity = entity;
     const foothold = this.footholds.get(entity.foothold);
     if (foothold) {
       this.scene.setEntityDepth(
         view.animation,
-        29997 + (foothold.layer * 3000 - foothold.group) * 10,
+        (entity.kind === "drop" ? 29999 : 29997) +
+          (foothold.layer * 3000 - foothold.group) * 10,
       );
     }
+    if (entity.id === this.selfId) {
+      this.scene.actor = view.animation;
+      this.presentation.x = entity.position.x;
+      this.presentation.y = entity.position.y;
+      this.presentation.facing = entity.facing;
+      this.presentation.action = animationName(entity.action);
+    }
     this.pose(view, entity.position.x, entity.position.y);
-    view.animation.seek(Math.max(0, this.tick - entity.actionStartTick) * 30);
+    view.animation.seek(
+      entity.dropMotion?.age ??
+        Math.max(0, this.tick - entity.actionStartTick) * 30,
+    );
+    this.native?.life.refresh();
   }
   bindEntity(view) {
     const { entity, animation } = view;
     if (entity.appearance) {
-      const name = new Text({
-        text: entity.appearance.name,
-        style: {
-          fontFamily: "Arial",
-          fontSize: 12,
-          fill: 0xffffff,
-          stroke: { color: 0x222222, width: 3 },
-        },
-      });
-      name.anchor.set(0.5, 0);
-      name.position.set(0, 5);
-      animation.container.addChild(name);
-      view.name = name;
+      const scene = {
+        actor: animation,
+        registerPresentationContainer:
+          this.scene.registerPresentationContainer.bind(this.scene),
+        unregisterPresentationContainer:
+          this.scene.unregisterPresentationContainer.bind(this.scene),
+      };
+      view.name = new PlayerName(scene, { profile: entity.appearance });
+      view.name.step(this.app.renderer.resolution);
     }
     if (entity.kind === "npc" || entity.kind === "drop") {
       animation.container.eventMode = "static";
@@ -154,22 +212,35 @@ export class OnlineScene {
   }
   /** Authored NPC artwork is region-owned and matched by placement, not wire identity. */
   upsertNpc(entity) {
-    this.npcs.set(entity.id, { entity, regionId: this.npcArtwork(entity) });
+    const placement = this.npcArtwork(entity);
+    const previous = this.npcs.get(entity.id);
+    if (previous) this.releaseNpc(entity.id);
+    const reference = {
+      entity,
+      regionId: placement?.id ?? null,
+      placement,
+      animation: null,
+    };
+    this.npcs.set(entity.id, reference);
+    if (placement) this.npcByPlacement.set(placement.id, reference);
     this.bindNpc(entity.id);
+    this.native?.life.refresh();
   }
   npcArtwork(entity) {
     const { placements, templates } = this.scene.manifest.life;
     const templateId = Number(entity.templateId);
     for (const placement of placements) {
       if (placement.kind !== "npc") continue;
-      if (Number(templates[placement.template]?.originalId) !== templateId) continue;
+      if (Number(templates[placement.template]?.originalId) !== templateId) {
+        continue;
+      }
       if (
         placement.authored.x !== entity.position.x ||
         placement.authored.y !== entity.position.y
       ) {
         continue;
       }
-      return placement.id;
+      return placement;
     }
     return null;
   }
@@ -178,34 +249,26 @@ export class OnlineScene {
     const animation = reference?.regionId
       ? this.scene.byId.get(reference.regionId)
       : null;
+    if (!reference?.regionId) return;
+    reference.animation = animation;
+    this.lifeEntities.set(reference.regionId, reference);
     if (!animation) return;
-    const bound = this.npcHandlers.get(id);
-    if (bound?.animation === animation) return;
-    this.releaseNpc(id);
-    const handler = () => this.intent({ kind: "npc.open", npcId: id });
-    animation.container.eventMode = "static";
-    animation.container.cursor = "pointer";
-    animation.container.on("pointertap", handler);
-    this.npcHandlers.set(id, { animation, handler });
+    animation.gameplayOwned = true;
+    animation.setAction(animationName(reference.entity.action));
+    animation.seek(
+      Math.max(0, this.tick - reference.entity.actionStartTick) * 30,
+    );
   }
   /** Region teardown replaces owned display objects, so references re-bind by identity. */
   refreshNpcs() {
-    for (const [id, bound] of this.npcHandlers) {
-      const reference = this.npcs.get(id);
-      if (!reference?.regionId) continue;
-      if (this.scene.byId.get(reference.regionId) !== bound.animation) {
-        this.releaseNpc(id);
-      }
-    }
     for (const id of this.npcs.keys()) this.bindNpc(id);
+    this.native?.life.refresh();
   }
   releaseNpc(id) {
-    const bound = this.npcHandlers.get(id);
-    if (!bound) return;
-    this.npcHandlers.delete(id);
-    if (!bound.animation.container.destroyed) {
-      bound.animation.container.off("pointertap", bound.handler);
-    }
+    const reference = this.npcs.get(id);
+    if (!reference?.regionId) return;
+    this.npcByPlacement.delete(reference.regionId);
+    this.lifeEntities.delete(reference.regionId);
   }
   async prepareEntity(entity) {
     const signal = this.controller.signal;
@@ -273,14 +336,16 @@ export class OnlineScene {
       this.services,
       this.controller.signal,
     );
-    const original = resources.manifest.entities.find(
-      (entry) => entry.id === (item.iconRawPath ?? item.iconPath),
-    );
-    if (!original) {
+    try {
+      return this.animationOwner(
+        entity,
+        itemEntity(resources, item),
+        resources,
+      );
+    } catch (error) {
       resources.destroy();
-      throw new Error("Missing dropped-item icon");
+      throw error;
     }
-    return this.animationOwner(entity, original, resources);
   }
   async prepareCurrency(entity) {
     const artwork = this.catalog.ui.dropArtwork;
@@ -299,29 +364,16 @@ export class OnlineScene {
       this.services,
       this.controller.signal,
     );
-    const frames = [];
-    for (const record of artwork.variants[variant]) {
-      const source = resources.manifest.entities.find(
-        (entry) => entry.id === record.path,
+    try {
+      return this.animationOwner(
+        entity,
+        currencyEntity(resources, artwork, variant),
+        resources,
       );
-      if (!source) {
-        resources.destroy();
-        throw new Error("Missing native currency frame");
-      }
-      frames.push({
-        delay: record.delay,
-        parts: source.actions.default[0].parts,
-      });
+    } catch (error) {
+      resources.destroy();
+      throw error;
     }
-    return this.animationOwner(
-      entity,
-      {
-        ...resources.manifest.entities[0],
-        actions: { default: frames },
-        action: "default",
-      },
-      resources,
-    );
   }
   animationOwner(entity, original, resources) {
     const animation = new EntityAnimation(
@@ -345,8 +397,9 @@ export class OnlineScene {
   pose(view, x, y) {
     const { entity, animation } = view;
     animation.setPosition(x, y);
-    animation.container.scale.x = entity.facing > 0 ? -1 : 1;
-    if (view.name) view.name.scale.x = animation.container.scale.x;
+    animation.container.scale.x =
+      entity.kind !== "drop" && entity.facing > 0 ? -1 : 1;
+    if (view.name) view.name.step(this.app.renderer.resolution);
     const action = animationName(entity.action);
     animation.setAction(
       entity.kind === "drop"
@@ -358,23 +411,150 @@ export class OnlineScene {
             : action,
     );
   }
-  draw(now, elapsed, prediction, active) {
-    for (const view of this.views.values()) {
-      const predicted =
-        view.entity.id === this.selfId && prediction?.ready && active;
-      const fraction = Math.min(1, (now - view.received) / 90);
-      const x = predicted
-        ? prediction.simulation.x
-        : view.fromX + (view.entity.position.x - view.fromX) * fraction;
-      const y = predicted
-        ? prediction.simulation.y
-        : view.fromY + (view.entity.position.y - view.fromY) * fraction;
-      this.pose(view, x, y);
-      if (active) view.animation.advance(elapsed);
+  /** Borrow predictor state through getter-only fields; never step a field here. */
+  syncPrediction(prediction, active) {
+    if (!prediction?.simulation) return;
+    if (!this.simulationSource) {
+      for (const key of Object.keys(prediction.simulation)) {
+        Object.defineProperty(this.observedSimulation, key, {
+          enumerable: true,
+          get: () => this.simulationSource[key],
+        });
+      }
+      Object.freeze(this.observedSimulation);
     }
+    // Disconnects retain the last complete predictor state for native inspection.
+    if (active || !this.simulationSource) {
+      this.simulationSource = prediction.simulation;
+    }
+  }
+  get life() {
+    return this.native?.life ?? null;
+  }
+  /** Quest markers, nameplates and portal artwork observe the server presentation only. */
+  setNativePresentation(quests) {
+    this.lifePromise ??= this.createLife(quests);
+    return this.lifePromise;
+  }
+  async createLife(quests) {
+    const native = new SceneLife(this, quests);
+    try {
+      await native.prepare();
+    } catch (error) {
+      native.destroy();
+      if (this.controller.signal.aborted) return null;
+      throw error;
+    }
+    if (this.controller.signal.aborted) {
+      native.destroy();
+      return null;
+    }
+    this.native = native;
+    native.life.refresh();
+    return native;
+  }
+  isInteractive(x, y) {
+    return this.native?.isInteractive(x, y) ?? false;
+  }
+  event(message) {
+    if (message.fieldEpoch !== this.fieldEpoch) return Promise.resolve();
+    this.queue = this.queue.then(() => this.events.event(message));
+    return this.queue;
+  }
+  resize(width, height) {
+    this.scene.viewport.width = width;
+    this.scene.viewport.height = height;
+    this.updateCamera(performance.now());
+    this.scene.updateDemand();
+  }
+  setFollow(value) {
+    this.follow = Boolean(value);
+    if (this.follow) this.filter = createCameraFilter();
+    this.updateCamera(performance.now());
+  }
+  setCamera(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error("Invalid online camera coordinates");
+    }
+    this.follow = false;
+    this.scene.camera.x = x;
+    this.scene.camera.y = y;
+    this.updateCamera(performance.now());
+    this.scene.updateDemand();
+  }
+  inspectionSnapshot() {
+    return {
+      selfId: this.selfId,
+      fieldEpoch: this.fieldEpoch,
+      serverTick: this.tick,
+      follow: this.follow,
+      camera: { ...this.scene.camera },
+      presentation: { ...this.presentation },
+      entityCount: this.views.size,
+      npcs: this.npcs.size,
+      combat: this.events.combat.snapshot(),
+    };
+  }
+  draw(now, elapsed, prediction, active) {
+    this.syncPrediction(prediction, active);
+    this.drawPrediction = prediction?.ready && active ? prediction : null;
+    for (const view of this.views.values()) {
+      this.drawView(view, now, elapsed, active);
+    }
+    this.drawNpcs(elapsed, active);
     this.updateCamera(now);
+    this.native?.update(elapsed);
+    this.events.draw(elapsed);
+    this.drops.draw(elapsed);
+    if (this.geometry.visible) this.showGeometry(true);
+    this.drawScenery(elapsed, active);
+  }
+  drawView(view, now, elapsed, active) {
+    const self = view.entity.id === this.selfId;
+    const prediction = self ? this.drawPrediction : null;
+    const simulation = prediction?.simulation ?? null;
+    const fraction = Math.min(1, (now - view.received) / ENTITY_PUBLISH_MS);
+    let x;
+    let y;
+    if (simulation) {
+      prediction.interpolate(now, this.selfPose);
+      x = this.selfPose.x;
+      y = this.selfPose.y;
+    } else {
+      x = view.fromX + (view.entity.position.x - view.fromX) * fraction;
+      y = view.fromY + (view.entity.position.y - view.fromY) * fraction;
+      this.pose(view, x, y);
+    }
+    view.drawX = x;
+    view.drawY = y;
+    if (self) this.drawSelfPose(view, simulation);
+    if (active) view.animation.advance(elapsed);
+    if (view.entity.kind === "drop") this.drops.observe(view, x, y);
+  }
+  drawSelfPose(view, simulation) {
+    this.presentation.x = view.drawX;
+    this.presentation.y = view.drawY;
+    this.presentation.facing = simulation
+      ? simulation.facing
+      : view.entity.facing;
+    const action = animationName(view.entity.action);
+    this.presentation.action =
+      simulation && MOVEMENT_ACTIONS.has(action) ? simulation.action : action;
+    if (simulation) {
+      this.scene.updateActor(this.presentation);
+      view.name?.step(this.app.renderer.resolution);
+    }
+  }
+  drawNpcs(elapsed, active) {
+    for (const reference of this.npcs.values()) {
+      if (reference.animation && active) reference.animation.advance(elapsed);
+    }
+  }
+  drawScenery(elapsed, active) {
     for (const entity of this.scene.entities) {
-      if (!this.views.has(entity.id) && active) entity.advance(elapsed);
+      if (!this.views.has(entity.id) && !entity.gameplayOwned && active) {
+        entity.advance(elapsed);
+      }
     }
     for (const background of this.scene.backgrounds) {
       background.updateBackground(this.scene.camera, this.scene.viewport);
@@ -426,19 +606,29 @@ export class OnlineScene {
   }
   remove(id) {
     if (this.npcs.has(id)) {
-      this.npcs.delete(id);
       this.releaseNpc(id);
+      this.npcs.delete(id);
+      this.native?.life.refresh();
       return;
     }
     const view = this.views.get(id);
     if (!view) return;
+    if (this.lifeEntities.get(view.entity.placementId) === view) {
+      this.lifeEntities.delete(view.entity.placementId);
+    }
     this.scene.removeDynamicEntity(id);
+    view.name?.destroy();
+    if (this.scene.actor === view.animation) this.scene.actor = null;
     view.owner.destroy();
     this.views.delete(id);
   }
   destroy() {
     this.controller.abort();
     this.scene.onEntitiesChanged = null;
+    this.events.destroy();
+    this.drops.destroy();
+    this.native?.destroy();
+    this.native = null;
     for (const id of this.views.keys()) this.remove(id);
     for (const id of this.npcs.keys()) this.remove(id);
     this.scene.destroy();

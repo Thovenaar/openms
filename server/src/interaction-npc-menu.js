@@ -30,6 +30,8 @@ export function publishNpcMenu(actor, world, lease) {
     conversationId: lease.id,
     step: lease.step,
     npcId: lease.npcId,
+    npcTemplateId: lease.npcTemplateId,
+    native: { kind: "choice", speaker: 0, prev: false, next: false, defaultValue: null },
     contentId,
     choices,
     input: "choice",

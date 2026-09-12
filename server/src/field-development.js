@@ -9,6 +9,10 @@ import { createMobs } from "../../client/src/combat/offline-mobs.js";
 import { createSimulation } from "../../client/src/physics/simulation.js";
 import { captureMotion, restoreMotion } from "../../shared/motion.js";
 import { refreshActorCombat } from "./field-combat.js";
+import {
+  validateKeyBindings,
+  validateProfile,
+} from "../../client/src/profile/profile-validation.js";
 
 const PROFILE_FIELDS = [
   "name",
@@ -26,6 +30,9 @@ const PROFILE_FIELDS = [
   "meso",
   "fame",
   "remainingAp",
+  "remainingSp",
+  "skills",
+  "keyBindings",
 ];
 const GLOBALS = [
   "walkForce",
@@ -60,19 +67,64 @@ function integer(value, low, high) {
   }
 }
 
-function admitProfileAction(action) {
-  closedRecord(action, ["kind", "patch"]);
-  closedRecord(action.patch, [], PROFILE_FIELDS);
-  if (!Object.keys(action.patch).length) {
+/** One closed field set bounds explicit developer edits, alone or in a staged preset draft. */
+function admitProfilePatch(patch) {
+  closedRecord(patch, [], PROFILE_FIELDS);
+  if (!Object.keys(patch).length) {
     throw protocolError("INVALID_MESSAGE");
   }
-  for (const [key, value] of Object.entries(action.patch)) {
+  for (const [key, value] of Object.entries(patch)) {
     if (key === "name") {
       if (typeof value !== "string" || !value.length || value.length > 32) {
         throw protocolError("INVALID_MESSAGE");
       }
+    } else if (
+      key === "remainingSp" ||
+      key === "skills" ||
+      key === "keyBindings"
+    ) {
+      admitProfileDomain(key, value);
     } else {
       integer(value, key === "fame" ? -30000 : 0, 2147483647);
+    }
+  }
+}
+
+function admitProfileAction(action) {
+  closedRecord(action, ["kind", "patch"]);
+  admitProfilePatch(action.patch);
+}
+
+function admitProfileDomain(key, value) {
+  if (key === "keyBindings") {
+    validateKeyBindings(value);
+    return;
+  }
+  if (key === "remainingSp") {
+    if (!Array.isArray(value) || value.length !== 10) {
+      throw protocolError("INVALID_MESSAGE");
+    }
+    for (const amount of value) integer(amount, 0, 2147483647);
+    return;
+  }
+  admitSkillDictionary(value);
+}
+
+/** Learned-skill dictionaries stay bounded before traversal; ids are canonical decimals. */
+function admitSkillDictionary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw protocolError("INVALID_MESSAGE");
+  }
+  const entries = Object.entries(value);
+  if (entries.length > 4096) throw protocolError("INVALID_MESSAGE");
+  for (const [id, skill] of entries) {
+    if (!/^(0|[1-9][0-9]*)$/.test(id)) throw protocolError("INVALID_MESSAGE");
+    integer(Number(id), 0, 4294967295);
+    closedRecord(skill, ["level", "masterLevel", "expiresAt"]);
+    integer(skill.level, 0, 2147483647);
+    integer(skill.masterLevel, 0, 2147483647);
+    if (skill.expiresAt !== null) {
+      integer(skill.expiresAt, 0, Number.MAX_SAFE_INTEGER);
     }
   }
 }
@@ -104,8 +156,10 @@ export function developmentAction(action) {
       integer(action.mapId, 0, 999999998);
       break;
     case "preset":
-      closedRecord(action, ["kind", "job"]);
+      // A staged preset may carry the developer's explicit edits into one atomic draft.
+      closedRecord(action, ["kind", "job"], ["patch"]);
       integer(action.job, 0, 9999);
+      if (action.patch !== undefined) admitProfilePatch(action.patch);
       break;
     case "profile":
       admitProfileAction(action);
@@ -218,6 +272,14 @@ async function presetEdit(world, actor, action, operation) {
   const profile = { ...actor.profile };
   delete profile.onlineState;
   const staged = stageJobPreset(world.content.catalog.ui, profile, action.job);
+  // Staged preset values are the base; the developer's explicit edits win, matching the
+  // offline draft the developer reviewed, and both commit inside one transaction.
+  const patch = action.patch
+    ? { ...staged.patch, ...action.patch }
+    : staged.patch;
+  if (patch.job !== action.job) {
+    throw protocolError("INVALID_MESSAGE");
+  }
   let receipt;
   const store = {
     profile,
@@ -228,6 +290,7 @@ async function presetEdit(world, actor, action, operation) {
         delete draft.onlineState;
         await mutator(draft);
         applyJobPresetLoadout(draft, world.content.catalog.ui, action.job);
+        validateProfile(draft, world.content.catalog.ui.items);
         draft.onlineState = onlineState;
       });
     },
@@ -235,7 +298,7 @@ async function presetEdit(world, actor, action, operation) {
   const editor = new CharacterDevelopment(store, world.content.catalog, {
     random: world.random,
   });
-  await editor.edit(staged.patch);
+  await editor.edit(patch);
   return receipt;
 }
 

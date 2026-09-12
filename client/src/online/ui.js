@@ -1,713 +1,489 @@
-import { Container } from "pixi.js";
-import { UISurface } from "../ui/ui-surface.js";
-import { loadVisualBundle } from "../rendering/visual-resources.js";
-import { NPC_MARKUP_TOKENS } from "../npc/npc-script-markup.js";
+import { GameUI } from "../ui/game-ui.js";
+import { ProfileControls } from "../ui/ui-inspection.js";
+import { KeyBindings } from "../input/key-bindings.js";
+import { skillPointPool } from "../skills/skill-allocation-rules.js";
+import { mountQuestJournal } from "../ui/ui-quest-window.js";
+import { QuestReadyNotification } from "../ui/ui-quest-ready-notification.js";
+import { NativeAvatarPortrait } from "../ui/ui-avatar-portrait.js";
+import { AvatarVisuals } from "../character/avatar-visuals.js";
+import { AudiovisualSystem } from "../audio/audiovisual-system.js";
+import { NativeProfileSource, nativeOutcome, unsupported } from "./native-source.js";
+import { NativeInventory } from "./native-inventory.js";
+import { NativeQuests } from "./native-quests.js";
+import { NativeMacros } from "./native-macros.js";
+import { NativeDialogue } from "./native-dialogue.js";
+import { NativeShop } from "./native-shop.js";
+import { NativeTrade } from "./native-trade.js";
+import { NativeEffects } from "./native-effects.js";
+import { NativeSkillPresentation } from "./native-skill-presentation.js";
+import { animationName } from "../../../shared/motion-schema.js";
 
-const MAX_DIALOGUE_TEXT = 65536;
-const MAX_DIALOGUE_CHOICES = 128;
-const DIALOGUE_CHOICE = /#L(\d+)#([\s\S]*?)(?:#l|(?=#L\d+#)|$)/g;
+const CHAT_BINDINGS = { ChatAll: 7, ChatWhisper: 6, ChatParty: 2, ChatBuddy: 0, ChatGuild: 3, ChatSpouse: 5, ChatAlliance: 4 };
+const EMPTY_ENTITIES = Object.freeze([]);
+function conversationIdentity(event) { return event.conversationId ?? event.shopSession ?? event.tradeId; }
+function interactionKey(event) { return `${conversationIdentity(event)}:${event.part ?? ""}`; }
+const CHANNELS = ["buddy", null, "party", "guild", "alliance", "spouse", "whisper", "map"];
+const UNSUPPORTED_WINDOWS = { CashShop: "cash shop", Trunk: "storage", MonsterBook: "monster book", UserList: "social management", Messenger: "messenger", Family: "family", FamilyTree: "family tree", Title: "medals", PartySearch: "party search", PartyHP: "party HP", EnchantSkill: "enhancement skills", SocialInvitation: "social invitations" };
 
-/** Authored prose keeps its words and choice labels; presentation markers are not text. */
-function dialogueProse(value) {
-  const source =
-    typeof value === "string" ? value.slice(0, MAX_DIALOGUE_TEXT) : "";
-  const labels = new Map();
-  const linked = source.replace(DIALOGUE_CHOICE, (match, id, label) => {
-    if (labels.size < MAX_DIALOGUE_CHOICES) labels.set(Number(id), label.trim());
-    return label;
-  });
-  return { text: linked.replace(NPC_MARKUP_TOKENS, ""), labels };
-}
-
-function element(tag, text, parent) {
-  const node = document.createElement(tag);
-  if (text !== null) node.textContent = text;
-  parent?.append(node);
-  return node;
-}
-function input(parent, label, type = "text", value = "") {
-  const wrapper = element("label", label, parent);
-  const node = element("input", null, wrapper);
-  node.type = type;
-  node.value = value;
-  return node;
-}
-function button(parent, label, callback) {
-  const node = element("button", label, parent);
-  node.type = "button";
-  node.addEventListener("click", callback);
-  return node;
-}
-function group(parent, label) {
-  const details = element("details", null, parent);
-  element("summary", label, details);
-  return element("div", null, details);
-}
-function select(parent, label, options) {
-  const wrapper = element("label", label, parent);
-  const node = element("select", null, wrapper);
-  for (const [value, text] of options) {
-    const option = element("option", text, node);
-    option.value = value;
-  }
-  return node;
-}
-/** Accessible intent controls and native raster HUD; never owns writable character state. */
+/** Shared native presentation with read-only publication ports and closed server intents. */
 export class OnlineUI {
   constructor(app, services, transport, hooks) {
     this.app = app;
     this.services = services;
     this.transport = transport;
     this.hooks = hooks;
-    this.root = new Container();
-    app.stage.addChild(this.root);
-    this.host = document.querySelector("#native-ui");
-    this.sidebar = document.querySelector("#controls");
-    this.notice = document.querySelector("#notice");
-    this.statusNode = document.querySelector("#connection");
     this.state = null;
+    this.connection = null;
     this.catalog = null;
-    this.panel = null;
-    this.development = null;
-    this.conversationId = null;
-    this.dialogueGeneration = 0;
-    this.inventoryNode = group(this.sidebar, "Inventory and equipment");
-    this.progressNode = group(this.sidebar, "Skills, quests and attributes");
-    this.dialogNode = group(this.sidebar, "NPC conversation and shop");
-    this.chatNode = group(this.sidebar, "Chat and trade");
-    this.buildLogin();
-    this.buildChat();
+    this.pending = 0;
+    this.destroyed = false;
+    this.store = new NativeProfileSource(this);
+    this.audio = new AudiovisualSystem(app, services, { onError: (error) => this.report(error), onEnabled: () => this.skillVisuals.enableAudio() });
+    services.audio = this.audio.audio;
+    this.ui = new GameUI(app, services, this.nativeHooks());
+    this.ui.setVisible(false);
+    this.dialogue = new NativeDialogue(this);
+    this.effects = new NativeEffects(this);
+    this.skillVisuals = new NativeSkillPresentation(this);
+    this.questReady = new QuestReadyNotification(this.ui);
+    this.shop = null;
+    this.trade = null;
+    this.shopPages = new Map();
+    this.interactionSignatures = new Map();
+  }
+  get scene() { return this.hooks.scene()?.scene ?? null; }
+  get entities() { return this.transport.model?.entities ?? this.state?.entities ?? EMPTY_ENTITIES; }
+  nativeHooks() {
+    return {
+      ...this.profileHooks(), ...this.interactionHooks(), ...this.audioHooks(),
+      readOnlyProfile: true,
+      clearInput: this.hooks.clearInput, keyDown: this.hooks.keyDown,
+      inputGeneration: this.hooks.inputGeneration, focusGame: this.hooks.focusGame,
+      now: () => performance.now(), onError: (error) => this.report(error),
+      onStatus: (text) => this.hooks.onStatus?.(text),
+      onAction: (name) => this.activateBinding(name),
+      isOperationPending: () => !this.destroyed && this.pending > 0,
+      isFieldBlocked: () => this.blocked(), windowCapability: (name) => this.windowCapability(name),
+      isWorldInteractive: (x, y) => this.hooks.scene()?.isInteractive?.(x, y) ?? false,
+      mapName: (id) => this.catalog?.mapNames[id] ?? null,
+    };
+  }
+  profileHooks() {
+    return {
+      createProfileControls: (owner) => this.developer() ? new ProfileControls(owner) : null,
+      onProfileEdit: (patch, options) => this.editProfile(patch, options),
+      profileEditSuccess: "Profile edits committed by the server.",
+      onLearnSkill: (skillId) => this.request({ kind: "skills.allocate", skillId, amount: 1 }),
+      skillAllocationError: (id) => this.skillAllocationError(id),
+      skillAllocationPoints: (id) => this.skillPoints(id),
+      apAdmission: () => ({ ok: this.store.profile?.remainingAp > 0 && !this.blocked(), reason: "No available AP or active server field." }),
+      spendAp: (stat) => this.request({ kind: "stats.allocate", stat, amount: 1 }),
+      confirmAp: () => this.ui.prompt({ kind: "confirm", text: "If you invest your AP in HP or MP, your character may have\\r\\ninsufficient stats to become as strong as it could be.\\r\\nDo you still wish to raise this skill?" }),
+      characterStats: () => this.state?.presentation.stats,
+      userInfoProfile: () => this.store.profile,
+      userInfoPortrait: (surface, point) => this.portrait(surface, point),
+      userInfoFamily: () => unsupported("family management"),
+      userInfoParty: () => unsupported("party invitations"),
+      userInfoGift: () => unsupported("cash gifts"),
+      monsterBook: () => ({ data: this.catalog.ui.monsterBook }),
+      petEquipmentUnavailable: () => unsupported("pet equipment").reason,
+      onRecover: () => { this.ui.showRevival(this.scene).catch((error) => this.report(error)); return true; },
+      onRevive: () => this.persist({ kind: "revive.request", method: "return" }),
+    };
+  }
+  interactionHooks() {
+    return {
+      openLocalTrade: () => this.inviteTrade(),
+      inventoryActions: () => this.inventory,
+      skillUtilities: () => ({ enhancement: this.inventory }),
+      shop: () => this.shop, trade: () => this.trade, macros: () => this.macros,
+      onNpcDialogue: (panel) => this.dialogue.mount(panel),
+      onQuestJournal: (panel) => mountQuestJournal(panel, this.quests),
+      tradePortrait: (surface, point) => this.portrait(surface, point),
+      confirmQuestGiveUp: (id, name) => this.ui.prompt({ kind: "confirm", text: `Do you want to forfeit ${name}?` }),
+      markQuestNpc: (id) => this.markQuestNpc(id),
+      tradeOutcome: (result) => this.ui.prompt({ kind: "notice", text: result.text ?? result.reason ?? result.code }),
+      onDropMesos: (amount) => this.request({ kind: "mesos.drop", amount }),
+      onChatSubmit: (text, channel) => this.submitChat(text, channel),
+      onChatSettings: (settings) => this.stageChatSettings(settings),
+    };
+  }
+  audioHooks() {
+    return {
+      playSound: (category, name) => this.audio.playSound(category, name).catch((error) => this.report(error)),
+      onErrorNotification: () => this.audio.notifyError(),
+      getAudioSettings: () => structuredClone(this.audio.audio.settings),
+      applyAudioSettings: (settings) => this.applyAudioSettings(settings),
+      saveSettings: (settings) => this.persist({ kind: "settings.save", settings }),
+    };
   }
   async prepare(catalog, signal) {
     this.catalog = catalog;
-    const resource = await loadVisualBundle(
-      catalog.ui.bundles.StatusBar,
-      this.services,
-      signal,
-    );
-    this.panel = new UISurface(this, "StatusBar", resource, [800, 600]);
-    this.panel.image("base/backgrnd", 0, 529);
-    this.panel.image("base/backgrnd2", 2, 529);
-    this.panel.image("gauge/bar", 218, 567);
-    this.panel.element.style.pointerEvents = "none";
-    this.hud = element(
-      "div",
-      "Choose a character to enter the world",
-      this.host,
-    );
-    this.hud.className = "online-hud";
-    if (import.meta.OPENMS_DEVELOPMENT) this.buildDevelopment();
+    this.avatars = new AvatarVisuals(this.services, catalog);
+    await this.audio.prepare(catalog.audiovisual, signal);
+    await this.ui.prepare(catalog.ui, signal);
+    await this.questReady.prepare(signal);
   }
-  buildLogin() {
-    const form = document.querySelector("#login");
-    const name = input(form, "Account", "text");
-    name.autocomplete = "username";
-    const password = input(form, "Password", "password");
-    password.autocomplete = "current-password";
-    const submit = element("button", "Sign in", form);
-    submit.type = "submit";
-    this.characters = select(form, "Character", []);
-    this.characters.hidden = true;
-    this.play = button(form, "Enter world", () =>
-      this.run(this.transport.connect({ characterId: this.characters.value })),
-    );
-    this.play.hidden = true;
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      submit.disabled = true;
-      try {
-        const characters = await this.transport.login({
-          name: name.value,
-          password: password.value,
-        });
-        password.value = "";
-        this.characters.replaceChildren();
-        for (const character of characters) {
-          const option = element(
-            "option",
-            `${character.name} · Lv.${character.level} · Job ${character.job}`,
-            this.characters,
-          );
-          option.value = character.id;
-        }
-        this.characters.hidden = false;
-        this.play.hidden = false;
-        if (!characters.length) {
-          this.report(
-            "No owned characters. Ask the server operator to provision one.",
-          );
-        }
-      } catch (error) {
-        this.report(error);
-      } finally {
-        submit.disabled = false;
-      }
+  prepareProfile() {
+    this.inventory = new NativeInventory(this);
+    this.quests = new NativeQuests(this);
+    this.macros = new NativeMacros(this);
+    this.bindings = new KeyBindings(this.store, this.catalog, {
+      onAction: (name) => this.activateBinding(name),
+      onSkill: (skillId) => this.cast(skillId),
+      onSkillRelease: () => this.hooks.clearInput(),
+      onSkillCancel: () => this.hooks.clearInput(),
+      isBlocked: () => this.blocked() || this.ui.blocksGameplay(),
+      now: () => performance.now(), report: (text) => this.report(text),
+      macros: () => this.macros, itemUse: this.inventory,
+      saveBindings: (keyBindings) => this.persist({ kind: "key-bindings.save", keyBindings }),
+      onSound: (category, name) => this.audio.playSound(category, name).catch((error) => this.report(error)),
     });
-    button(document.querySelector("#session"), "Reconnect", () =>
-      this.run(this.transport.reconnect()),
-    );
-    button(document.querySelector("#session"), "Disconnect", () =>
-      this.transport.disconnect(),
-    );
+    this.ui.setProfile(this.store, this.quests);
+    this.ui.setBindings(this.bindings);
   }
-  buildChat() {
-    this.messages = element("ol", null, this.chatNode);
-    this.messages.className = "messages";
-    const channel = select(
-      this.chatNode,
-      "Channel",
-      ["map", "whisper", "party", "buddy", "guild", "alliance", "spouse"].map(
-        (entry) => [entry, entry],
-      ),
-    );
-    const recipient = input(this.chatNode, "Recipient ID (whisper)");
-    const text = input(this.chatNode, "Message");
-    text.maxLength = 512;
-    button(this.chatNode, "Send", () => {
-      const action = {
-        kind: "chat.send",
-        channel: channel.value,
-        text: text.value,
-      };
-      if (channel.value === "whisper") action.recipientId = recipient.value;
-      this.command(action);
-      text.value = "";
-    });
-    const target = input(this.chatNode, "Player ID");
-    button(this.chatNode, "Invite to trade", () =>
-      this.command({ kind: "trade.invite", targetId: target.value }),
-    );
-    this.tradeNode = element("div", null, this.chatNode);
-  }
-  command(action) {
-    this.run(this.transport.command(action));
-  }
-  async run(promise) {
-    try {
-      const result = await promise;
-      if (result?.status || result?.code) {
-        this.report(
-          `${result.status ?? "Server"}: ${result.code ?? "Outcome unknown; reconnect to recover the original operation"}`,
-        );
-      }
-    } catch (error) {
-      this.report(error);
-    }
-  }
-  report(error) {
-    this.notice.textContent =
-      error instanceof Error
-        ? `${error.code ?? "Error"}: ${error.message}`
-        : String(error);
-  }
-  status(value) {
-    this.statusNode.textContent = `${value.status}${value.code ? ` · ${value.code}` : ""}`;
-    document.querySelector("#login").hidden = value.status === "active";
-    if (this.development) {
-      this.development.hidden = !(
-        this.transport.config?.development &&
-        this.transport.config?.role === "developer"
-      );
-    }
-  }
-  update(snapshot) {
+  async update(snapshot) {
+    if (this.destroyed) return;
+    if (!snapshot.presentation?.profile) throw new Error("The server did not publish native presentation state.");
+    const previous = this.state;
+    if (previous && previous.self.entity.id !== snapshot.self.entity.id) this.releaseCharacter();
     this.state = snapshot;
-    const self = snapshot.self;
-    this.hud.textContent = `${self.entity.appearance.name}   Lv.${self.level}   Job ${self.job}     HP ${self.hp}/${self.maxHp}    MP ${self.mp}/${self.maxMp}    EXP ${self.exp}    Mesos ${snapshot.inventory.mesos}`;
-    this.inventoryNode.replaceChildren();
-    this.progressNode.replaceChildren();
-    this.buildInventory(snapshot.inventory.items);
-    this.buildProgress(snapshot);
+    if (!this.bindings) this.prepareProfile();
+    const scene = this.scene;
+    if (this.ui.scene !== scene) {
+      this.ui.setScene(scene);
+      this.audio.setScene(scene);
+    }
+    this.store.publish();
+    this.applySavedPresentation(previous);
+    await this.effects.publish(snapshot.self.effects);
+    await this.skillVisuals.publish(previous);
+    this.questReady.refresh(this.quests);
+    await this.reconcileInteractions(snapshot.presentation.interactions);
+    this.publishProgressEffects(previous, snapshot);
+    await this.openInitialWindows(previous, scene);
   }
-  buildInventory(items) {
-    const amount = input(this.inventoryNode, "Quantity / mesos", "number", "1");
-    amount.min = "1";
-    const slot = input(
-      this.inventoryNode,
-      "Destination / equipment slot",
-      "number",
-      "1",
-    );
-    slot.min = "0";
-    const tab = select(
-      this.inventoryNode,
-      "Destination tab",
-      ["equip", "use", "setup", "etc", "cash"].map((value) => [value, value]),
-    );
-    button(this.inventoryNode, "Drop mesos", () =>
-      this.command({ kind: "mesos.drop", amount: Number(amount.value) }),
-    );
-    this.itemSelection = select(
-      this.inventoryNode,
-      "Item",
-      items.map((item) => [
-        item.id,
-        `${this.catalog.ui.items[item.templateId]?.name ?? item.templateId} ×${item.quantity} [${item.location.kind}:${item.location.slot}]`,
-      ]),
-    );
-    this.buildItemActions(items, { amount, slot, tab });
+  async openInitialWindows(previous, scene) {
+    if (this.state.self.hp === 0 && scene) await this.ui.showRevival(scene);
+    if (!previous && scene) await this.ui.open("MiniMap");
+    if (!previous && this.store.profile.settings.questTracker.open) await this.ui.open("QuestAlarm");
+    const visible = this.transport.status === "active";
+    if (this.ui.visible !== visible) this.ui.setVisible(visible);
   }
-  buildItemActions(items, { amount, slot, tab }) {
-    const id = () => this.itemSelection.value;
-    button(this.inventoryNode, "Use", () =>
-      this.command({ kind: "item.use", itemId: id() }),
-    );
-    button(this.inventoryNode, "Equip", () =>
-      this.command({
-        kind: "equipment.equip",
-        itemId: id(),
-        slot: Number(slot.value),
-      }),
-    );
-    button(this.inventoryNode, "Unequip", () =>
-      this.command({
-        kind: "equipment.unequip",
-        itemId: id(),
-        toSlot: Number(slot.value),
-      }),
-    );
-    button(this.inventoryNode, "Move", () =>
-      this.command({
-        kind: "inventory.move",
-        itemId: id(),
-        quantity: Number(amount.value),
-        to: { tab: tab.value, slot: Number(slot.value) },
-      }),
-    );
-    button(this.inventoryNode, "Drop", () =>
-      this.command({
-        kind: "item.drop",
-        itemId: id(),
-        quantity: Number(amount.value),
-      }),
-    );
-    const equipment = select(
-      this.inventoryNode,
-      "Scroll target",
-      items
-        .filter((item) => item.equipment)
-        .map((item) => [item.id, String(item.templateId)]),
-    );
-    button(this.inventoryNode, "Apply selected scroll", () =>
-      this.command({
-        kind: "equipment.scroll",
-        scrollId: id(),
-        equipmentId: equipment.value,
-      }),
-    );
+  applySavedPresentation(previous) {
+    const settings = this.store.profile.settings;
+    if (!this.ui.windows.has("SysOpt")) this.applyAudioSettings(settings);
+    const before = previous?.presentation.profile.settings.chat;
+    if (!before || before.state !== settings.chat.state || before.height !== settings.chat.height) this.ui.chat.applySettings(settings.chat);
   }
-  buildProgress(snapshot) {
-    const stat = select(
-      this.progressNode,
-      `AP ${snapshot.self.ap} · Attributes`,
-      ["str", "dex", "int", "luk", "hp", "mp"].map((value) => [
-        value,
-        `${value}: ${snapshot.self.stats[value] ?? snapshot.self[value]}`,
-      ]),
-    );
-    button(this.progressNode, "Allocate 1 AP", () =>
-      this.command({ kind: "stats.allocate", stat: stat.value, amount: 1 }),
-    );
-    const skill = select(
-      this.progressNode,
-      `SP ${snapshot.self.sp.join(" / ")} · Skills`,
-      snapshot.progress.skills.map((value) => [
-        value.id,
-        `${value.id} · Rank ${value.rank}`,
-      ]),
-    );
-    const learn = input(this.progressNode, "Skill ID to learn", "number");
-    button(this.progressNode, "Allocate 1 SP", () =>
-      this.command({
-        kind: "skills.allocate",
-        skillId: Number(learn.value || skill.value),
-        amount: 1,
-      }),
-    );
-    button(this.progressNode, "Cast", () =>
-      this.command({ kind: "skill.cast", skillId: Number(skill.value) }),
-    );
-    for (const effect of snapshot.self.effects) {
-      if (effect.cancelable) {
-        button(this.progressNode, `Cancel buff ${effect.templateId}`, () =>
-          this.command({ kind: "buff.cancel", effectId: effect.id }),
-        );
+  releaseCharacter() {
+    clearTimeout(this.chatTimer);
+    this.chatDraft = null;
+    if (this.dialogue.event) this.dialogue.close(this.dialogue.event.conversationId);
+    this.closeShop();
+    this.closeTrade();
+    this.ui.retireAllWindows();
+    this.bindings?.destroy();
+    this.macros?.destroy();
+    this.bindings = null;
+    this.whisperId = null;
+    this.interactionSignatures.clear();
+  }
+  stageChatSettings(settings) {
+    if (!this.store.profile || this.destroyed) return;
+    this.chatDraft = settings;
+    clearTimeout(this.chatTimer);
+    this.chatTimer = setTimeout(() => this.flushChatSettings(), 250);
+  }
+  flushChatSettings() {
+    if (!this.chatDraft || this.pending || this.blocked()) return;
+    const settings = structuredClone(this.store.profile.settings);
+    settings.chat = this.chatDraft;
+    this.chatDraft = null;
+    this.persist({ kind: "settings.save", settings }).catch((error) => this.report(error));
+  }
+  publishProgressEffects(previous, current) {
+    if (!previous || previous.self.entity.id !== current.self.entity.id) return;
+    if (current.self.level > previous.self.level) this.audio.playGameplayEffect("LevelUp").catch((error) => this.report(error));
+    if (previous.self.hp > 0 && current.self.hp === 0) this.audio.onPlayerDeath();
+    for (const quest of current.presentation.quests) {
+      if (quest.state === 2 && previous.presentation.quests.some((entry) => entry.id === quest.id && entry.state !== 2)) {
+        this.audio.playGameplayEffect("QuestClear").catch((error) => this.report(error));
+        break;
       }
     }
-    this.buildQuests(snapshot.progress.quests);
-    button(this.progressNode, "Return after death", () =>
-      this.command({ kind: "revive.request", method: "return" }),
-    );
-    button(this.progressNode, "Revive with consumable", () =>
-      this.command({ kind: "revive.request", method: "consumable" }),
-    );
   }
-  buildQuests(quests) {
-    for (const quest of quests) {
-      element(
-        "p",
-        `Quest ${quest.id} · ${quest.state}${quest.ready ? " · Ready" : ""}`,
-        this.progressNode,
-      );
-      for (const objective of quest.objectives) {
-        element(
-          "span",
-          `${objective.kind} ${objective.templateId}: ${objective.current}/${objective.required} `,
-          this.progressNode,
-        );
-      }
-      if (quest.state === "active") {
-        button(this.progressNode, "Abandon", () =>
-          this.command({ kind: "quest.abandon", questId: quest.id }),
-        );
-      }
+  async reconcileInteractions(events) {
+    const ids = new Set(), keys = new Set();
+    for (const event of events) {
+      const id = conversationIdentity(event);
+      ids.add(id);
+      const key = interactionKey(event);
+      keys.add(key);
+      const signature = JSON.stringify(event);
+      if (this.interactionSignatures.get(key) === signature) continue;
+      this.interactionSignatures.set(key, signature);
+      await this.event({ event });
     }
+    this.retireInteractions(ids);
+    for (const key of this.interactionSignatures.keys()) {
+      if (!keys.has(key)) this.interactionSignatures.delete(key);
+    }
+  }
+  retireInteractions(ids) {
+    if (this.dialogue.event && !ids.has(this.dialogue.event.conversationId)) this.dialogue.close(this.dialogue.event.conversationId);
+    if (this.shop && !ids.has(this.shop.event.shopSession)) this.closeShop();
+    if (this.trade && !ids.has(this.trade.event.tradeId)) this.closeTrade();
+  }
+  async command(action, revision) {
+    if (this.destroyed) throw new Error("Native online UI was destroyed.");
+    this.pending++;
+    try {
+      const receipt = await this.transport.command(action, revision);
+      if (receipt.status !== "committed") this.report(receipt.code ?? "Operation outcome unknown; reconnect to recover it.");
+      return receipt;
+    } finally {
+      this.pending--;
+      if (!this.pending && this.chatDraft) queueMicrotask(() => this.flushChatSettings());
+    }
+  }
+  async request(action, revision) { return nativeOutcome(await this.command(action, revision)); }
+  async persist(action) {
+    const result = await this.request(action);
+    if (!result.ok) throw Object.assign(new Error(result.reason), { code: result.code });
+    return result;
+  }
+  blocked() { return this.destroyed || !this.state || this.transport.status !== "active" || Boolean(this.hooks.isBlocked?.()); }
+  developer() { return Boolean(this.transport.config?.development && this.transport.config?.role === "developer"); }
+  async editProfile(patch, { jobPreset = null } = {}) {
+    if (!this.developer()) throw new Error("Developer profile editing is not authorized.");
+    const action = jobPreset === null ? { kind: "profile", patch } : { kind: "preset", job: jobPreset, ...(patch && Object.keys(patch).length ? { patch } : {}) };
+    const result = await this.transport.develop(action);
+    if (result?.status !== "committed") throw new Error(result?.code ?? "Developer operation outcome is unknown.");
+    return { ok: true, receipt: result };
+  }
+  portrait(surface, point) {
+    const portrait = new NativeAvatarPortrait(surface, this.avatars, point);
+    portrait.refresh(point.profile ?? this.store.profile).catch((error) => { if (error.name !== "AbortError") this.report(error); });
+    return portrait;
+  }
+  skillPoints(id) {
+    const pool = skillPointPool(this.catalog.ui.skills[id]?.bookId);
+    return this.store.profile?.remainingSp[pool] ?? 0;
+  }
+  skillAllocationError(id) { return this.skillPoints(id) > 0 && !this.blocked() ? null : "No available SP or active server field."; }
+  cast(skillId) {
+    if (this.blocked()) return false;
+    this.command({ kind: "skill.cast", skillId }).catch((error) => this.report(error));
+    return true;
+  }
+  interact(id) {
+    if (this.blocked()) return false;
+    this.command({ kind: "npc.open", npcId: String(id) }).catch((error) => this.report(error));
+    return true;
+  }
+  nearest(kind) {
+    if (!this.state) return null;
+    const position = this.scene?.presentation ?? this.state.self.entity.position;
+    let nearest = null, distance = Infinity;
+    for (const entity of this.entities) {
+      if (entity.kind !== kind) continue;
+      const next = Math.hypot(entity.position.x - position.x, entity.position.y - position.y);
+      if (next < distance) { distance = next; nearest = entity; }
+    }
+    return nearest;
+  }
+  pickup() {
+    const drop = this.nearest("drop");
+    if (!drop || this.blocked()) return false;
+    this.command({ kind: "drop.pickup", dropId: drop.id }).catch((error) => this.report(error));
+    return true;
+  }
+  activateBinding(name) {
+    if (!this.store.profile) return false;
+    const input = this.activateInputBinding(name);
+    if (input !== null) return input;
+    if (name === "MiniMap") return this.ui.advanceMinimap();
+    if (name === "Quit") { this.quit().catch((error) => this.report(error)); return true; }
+    if (name === "QuestAlarm") { this.toggleTracker().catch((error) => this.report(error)); return true; }
+    const unavailable = this.windowCapability(name);
+    if (unavailable) { this.report(unavailable); return false; }
+    const opened = this.ui.toggleWindow(name);
+    if (!opened) this.report(unsupported(name).reason);
+    return opened;
+  }
+  activateInputBinding(name) {
+    if (Object.hasOwn(CHAT_BINDINGS, name)) { this.ui.chat.selector.selectedIndex = CHAT_BINDINGS[name]; this.ui.chat.open(); return true; }
+    if (name === "ExpandChat") { this.ui.chat.setState(this.ui.chat.state === 3 ? 1 : 3); return true; }
+    if (name === "Talk") return this.talk();
+    if (name === "Pickup") return this.pickup();
+    if (name !== "Attack" && name !== "Jump") return null;
+    this.hooks.tap?.(name === "Attack" ? "attack" : "jump");
+    return Boolean(this.hooks.tap);
+  }
+  talk() { return this.hooks.scene()?.life?.talkNearest() ?? false; }
+  async quit() {
+    if (await this.ui.prompt({ kind: "confirm", text: "Are you sure you want to quit?", owner: this.ui.modal() })) this.transport.disconnect();
+  }
+  async toggleTracker() {
+    const open = !this.ui.windows.has("QuestAlarm");
+    const result = await this.quests.changeTracker(open ? "open" : "close");
+    if (!result.ok) throw new Error(result.reason);
+    if (open) await this.ui.open("QuestAlarm");
+    else this.ui.close("QuestAlarm", true);
+  }
+  windowCapability(name) {
+    if (UNSUPPORTED_WINDOWS[name]) return unsupported(UNSUPPORTED_WINDOWS[name]).reason;
+    if (["Friends", "Guild", "Party", "Channel", "NPT", "Sit"].includes(name) || name.startsWith("Expression:")) return unsupported(name).reason;
+    if (name === "Shop" && !this.shop) return "No server shop conversation is active.";
+    if ((name === "TradingRoom" || name === "TradeInvitation") && !this.trade) return "No server trade session is active.";
+    return null;
+  }
+  async submitChat(text, index) {
+    const channel = CHANNELS[index];
+    if (!channel) return { accepted: false, reason: "The server does not provide group chat." };
+    const action = { kind: "chat.send", channel, text };
+    if (channel === "whisper") {
+      if (!this.whisperId) this.whisperId = await this.selectPlayer("Whisper to which player?");
+      if (!this.whisperId) return { accepted: false, reason: "No whisper recipient selected." };
+      action.recipientId = this.whisperId;
+    }
+    const result = await this.request(action);
+    return { accepted: result.ok, reason: result.reason, delivery: "server" };
+  }
+  async selectPlayer(text) {
+    const name = await this.ui.prompt({ kind: "text", text, value: "", maxLength: 128 });
+    if (name === null) return null;
+    const entity = this.entities.find((entry) => entry.kind === "player" && (entry.id === name || entry.appearance.name === name));
+    if (!entity || entity.id === this.store.id) throw new Error("Choose another server-published player in this field.");
+    return entity.id;
+  }
+  async inviteTrade() {
+    const targetId = await this.selectPlayer("Trade with which player?");
+    if (!targetId) return { ok: false, code: "cancelled" };
+    return this.request({ kind: "trade.invite", targetId });
+  }
+  async markQuestNpc(id) {
+    const record = this.catalog.quests.records[id];
+    const stage = record.stages[Math.min(this.quests.view(id)?.partition ?? 0, 1)];
+    const npcId = stage.check.npc || stage.actionCheck.npc;
+    const panel = await this.ui.open("WorldMap");
+    const result = panel.markNpc(npcId);
+    if (!result.ok) throw new Error("The original world map has no location for this quest NPC.");
+    return result;
+  }
+  applyAudioSettings(settings) {
+    for (const category of ["BGM", "SE"]) {
+      const value = settings[category];
+      this.audio.audio.setVolume(category, value.volume, value.mute);
+      this.audio.controls.root.querySelector(`[data-audio-volume="${category}"]`).value = value.volume;
+      this.audio.controls.root.querySelector(`[data-audio-mute="${category}"]`).checked = value.mute;
+    }
+    this.audio.refreshVolumeControls();
   }
   async event(message) {
-    if (message.operationId) {
-      this.report(
-        `${message.status}: ${message.code ?? "Outcome unknown"} · ${message.operationId}`,
-      );
-      return;
-    }
+    if (this.destroyed || !message.event) return;
     const event = message.event;
-    if (event.kind === "chat") {
-      element("li", `${event.senderId}: ${event.text}`, this.messages);
-      if (this.messages.children.length > 100) {
-        this.messages.firstChild.remove();
-      }
-    } else if (event.kind === "dialogue") await this.dialogue(event);
-    else if (event.kind === "dialogue.closed") {
-      this.closeDialogue(event.conversationId);
-    } else if (event.kind === "quest.offer") this.questOffer(event);
-    else if (event.kind === "shop") this.shop(event);
-    else if (event.kind === "trade") this.trade(event);
-    else this.report(`Server: ${event.kind}`);
-  }
-  observeConversation(id) {
-    if (this.conversationId === id) return;
-    this.conversationId = id;
-    this.dialogNode.parentElement.open = true;
-    this.dialogueGeneration++;
-    this.dialogNode.replaceChildren();
-  }
-  closeDialogue(id) {
-    if (this.conversationId !== id) return;
-    this.conversationId = null;
-    this.dialogueGeneration++;
-    this.dialogNode.replaceChildren();
-    this.dialogNode.parentElement.open = false;
-  }
-  async dialogue(event) {
-    this.observeConversation(event.conversationId);
-    const generation = ++this.dialogueGeneration;
-    this.dialogNode.replaceChildren();
-    const response = await fetch(`/api/v1/content/${event.contentId}`, {
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      throw new Error(`Dialogue content HTTP ${response.status}`);
-    }
-    const content = await response.json();
-    if (
-      generation !== this.dialogueGeneration ||
-      this.conversationId !== event.conversationId
-    ) {
-      return;
-    }
-    const prose = dialogueProse(content.text);
-    element("p", prose.text, this.dialogNode);
-    const answer = (value) =>
-      this.command({
-        kind: "npc.answer",
-        conversationId: event.conversationId,
-        step: event.step,
-        answer: value,
-      });
-    button(this.dialogNode, "Cancel", () => answer({ kind: "cancel" }));
-    const kind = event.input;
-    if (kind === "next") {
-      button(this.dialogNode, "Next", () => answer({ kind }));
-    } else if (kind === "yesno") {
-      for (const value of [true, false]) {
-        button(this.dialogNode, value ? "Yes" : "No", () =>
-          answer({ kind, value }),
-        );
-      }
-    } else if (kind === "choice") {
-      for (const choice of event.choices) {
-        button(this.dialogNode, prose.labels.get(choice) ?? `Choice ${choice}`, () =>
-          answer({ kind, choiceId: choice }),
-        );
-      }
-    } else {
-      const value = input(this.dialogNode, kind, kind);
-      if (kind === "number") {
-        value.min = String(event.minimum);
-        value.max = String(event.maximum);
-      } else value.maxLength = event.maximum;
-      button(this.dialogNode, "Answer", () =>
-        answer({
-          kind,
-          value: kind === "number" ? Number(value.value) : value.value,
-        }),
-      );
+    if (conversationIdentity(event)) this.interactionSignatures.set(interactionKey(event), JSON.stringify(event));
+    if (await this.interactionEvent(event)) return;
+    switch (event.kind) {
+      case "chat":
+        this.ui.chat.receive({ source: "session", text: `${event.senderName}: ${event.text}`, time: performance.now() });
+        break;
+      case "combat":
+        await this.skillVisuals.combat(event);
+        this.combatAudio(event);
+        break;
+      case "projectile": await this.skillVisuals.projectile(event); break;
+      case "quest.ready": if (this.quests) this.questReady.refresh(this.quests); break;
+      case "drop.pickup": if (event.actorId === this.store.id) await this.audio.playSound("Game", "PickUpItem"); break;
     }
   }
-  questOffer(event) {
-    this.observeConversation(event.conversationId);
-    for (const quest of event.quests) {
-      const name = this.catalog.quests.records[quest.questId]?.name;
-      button(
-        this.dialogNode,
-        `${quest.action === "accept" ? "Accept" : "Claim"} ${name ?? `quest ${quest.questId}`}`,
-        () =>
-          this.command({
-            kind: `quest.${quest.action}`,
-            questId: quest.questId,
-            conversationId: event.conversationId,
-            step: event.step,
-          }),
-      );
+  async interactionEvent(event) {
+    switch (event.kind) {
+      case "dialogue":
+      case "quest.offer": await this.dialogue.publish(event); return true;
+      case "dialogue.closed":
+        this.dialogue.close(event.conversationId);
+        if (this.shop?.event.shopSession === event.conversationId) this.closeShop();
+        return true;
+      case "shop": await this.publishShop(event); return true;
+      case "trade": await this.publishTrade(event); return true;
+      default: return false;
     }
   }
-  shop(event) {
-    this.observeConversation(event.shopSession);
-    const quantity = input(this.dialogNode, "Shop quantity", "number", "1");
-    for (const row of event.rows) {
-      button(this.dialogNode, `Buy ${row.templateId} · ${row.unitPrice}`, () =>
-        this.command({
-          kind: "shop.buy",
-          shopSession: event.shopSession,
-          rowId: row.rowId,
-          quantity: Number(quantity.value),
-        }),
-      );
-    }
-    button(this.dialogNode, "Sell selected inventory item", () =>
-      this.command({
-        kind: "shop.sell",
-        shopSession: event.shopSession,
-        itemId: this.itemSelection.value,
-        quantity: Number(quantity.value),
-      }),
-    );
-    button(this.dialogNode, "Recharge selected item", () =>
-      this.command({
-        kind: "shop.recharge",
-        shopSession: event.shopSession,
-        itemId: this.itemSelection.value,
-      }),
-    );
-    button(this.dialogNode, "Close shop", () =>
-      this.run(
-        this.transport.command(
-          {
-            kind: "npc.answer",
-            conversationId: event.shopSession,
-            step: event.revision,
-            answer: { kind: "cancel" },
-          },
-          event.revision,
-        ),
-      ),
-    );
+  async publishShop(event) {
+    if (this.shop?.event.shopSession === event.shopSession && this.shop.event.revision === event.revision) return;
+    if (!this.shopPages.has(event.shopSession)) this.shopPages.clear();
+    if (!this.shopPages.has(event.shopSession)) this.shopPages.set(event.shopSession, new Map());
+    const pages = this.shopPages.get(event.shopSession);
+    pages.set(event.part, event);
+    if (pages.size !== event.parts) return;
+    const rows = [];
+    for (let part = 0; part < event.parts; part++) { const page = pages.get(part); if (!page) return; rows.push(...page.rows); }
+    this.shopPages.delete(event.shopSession);
+    this.closeShop();
+    this.shop = new NativeShop(this, event, rows);
+    this.dialogue.close(event.shopSession);
+    await this.ui.open("Shop");
   }
-  trade(event) {
-    this.tradeNode.replaceChildren();
-    element("p", JSON.stringify(event), this.tradeNode);
-    if (event.state === "invited") {
-      for (const accept of [true, false]) {
-        button(this.tradeNode, accept ? "Accept" : "Decline", () =>
-          this.command({
-            kind: "trade.answer",
-            invitationId: event.tradeId,
-            accept,
-          }),
-        );
-      }
-    } else if (event.state === "open" || event.state === "confirmed") {
-      const mesos = input(this.tradeNode, "Offered mesos", "number", "0");
-      const quantity = input(
-        this.tradeNode,
-        "Selected item quantity (0 = none)",
-        "number",
-        "0",
-      );
-      button(this.tradeNode, "Replace offer", () =>
-        this.command({
-          kind: "trade.offer",
-          tradeId: event.tradeId,
-          mesos: Number(mesos.value),
-          items: Number(quantity.value)
-            ? [
-                {
-                  itemId: this.itemSelection.value,
-                  quantity: Number(quantity.value),
-                },
-              ]
-            : [],
-        }),
-      );
-      button(this.tradeNode, "Confirm observed offer", () =>
-        this.command({ kind: "trade.confirm", tradeId: event.tradeId }),
-      );
-      button(this.tradeNode, "Cancel trade", () =>
-        this.command({ kind: "trade.cancel", tradeId: event.tradeId }),
-      );
+  closeShop() {
+    this.ui.close("Shop", true);
+    this.shop?.destroy();
+    this.shop = null;
+  }
+  async publishTrade(event) {
+    if (this.trade?.event.tradeId === event.tradeId) this.trade.update(event);
+    else {
+      this.closeTrade();
+      this.trade = new NativeTrade(this, event);
+    }
+    if (event.state === "invited" && event.participants[1] === this.store.id) await this.ui.open("TradeInvitation");
+    else if ((event.state === "open" || event.state === "confirmed") && !this.ui.windows.has("TradeInvitation")) await this.ui.open("TradingRoom");
+  }
+  closeTrade() {
+    const previous = this.trade;
+    this.trade = null;
+    this.ui.close("TradeInvitation", true);
+    this.ui.close("TradingRoom", true);
+    previous?.destroy().catch((error) => this.report(error));
+  }
+  combatAudio(event) {
+    const actor = this.entities.find((entry) => entry.id === event.actorId);
+    if (!actor) return;
+    if (actor.kind === "mob") this.audio.onMobAttack({ ...actor.position, templateId: actor.templateId, action: animationName(actor.action) }, this.scene.presentation);
+    else if (!event.skillId) this.weaponAudio(actor);
+    for (const hit of event.hits) {
+      const target = this.entities.find((entry) => entry.id === hit.targetId);
+      if (target?.kind === "mob" && hit.damage > 0) this.audio.combatSound("Mob", target.templateId, "Damage");
     }
   }
-  buildDevelopment() {
-    this.development = group(this.sidebar, "Server development authority");
-    this.development.hidden = true;
-    const send = (action) => this.run(this.transport.develop(action));
-    this.buildMapDevelopment(send);
-    this.buildCharacterDevelopment(send);
-    this.buildMonsterDevelopment(send);
-    this.buildFieldDevelopment(send);
-    this.buildInspection();
+  weaponAudio(actor) {
+    const weapon = actor.appearance.equipment.find((entry) => entry.slot === 11);
+    const sound = this.catalog.ui.avatar.entries[weapon?.templateId]?.combat?.sfx;
+    if (sound) this.audio.onPlayerAttack(sound);
   }
-  buildMapDevelopment(send) {
-    const query = input(this.development, "Map search");
-    const maps = select(this.development, "Packaged map", []);
-    const refresh = () => {
-      maps.replaceChildren();
-      let count = 0;
-      for (const id of Object.keys(this.catalog.maps)) {
-        const label = `${id} ${this.catalog.mapNames[Number(id)] ?? ""}`;
-        if (!label.toLowerCase().includes(query.value.toLowerCase())) continue;
-        if (++count > 100) break;
-        const option = element("option", label, maps);
-        option.value = id;
-      }
-    };
-    query.addEventListener("input", refresh);
-    refresh();
-    button(this.development, "Go", () =>
-      send({ kind: "map", mapId: Number(maps.value) }),
-    );
+  status(value) {
+    this.connection = value;
+    const visible = value.status === "active" && Boolean(this.store.profile);
+    if (this.ui.visible !== visible) this.ui.setVisible(visible);
+    if (value.status === "active") this.flushChatSettings();
+    if (value.status !== "active") { this.bindings?.releaseAllSkills(); this.hooks.clearInput(); }
   }
-  buildCharacterDevelopment(send) {
-    const job = input(this.development, "Preset job ID", "number", "0");
-    button(this.development, "Apply server preset", () =>
-      send({ kind: "preset", job: Number(job.value) }),
-    );
-    const field = select(
-      this.development,
-      "Character value",
-      [
-        "level",
-        "job",
-        "hp",
-        "mp",
-        "str",
-        "dex",
-        "int",
-        "luk",
-        "remainingAp",
-        "meso",
-      ].map((value) => [value, value]),
-    );
-    const value = input(this.development, "Value", "number", "1");
-    button(this.development, "Request value", () =>
-      send({ kind: "profile", patch: { [field.value]: Number(value.value) } }),
-    );
+  report(error) {
+    const text = error instanceof Error ? `${error.code ?? "Error"}: ${error.message}` : String(error);
+    this.ui?.status(text);
+    this.hooks.report?.(error);
   }
-  buildMonsterDevelopment(send) {
-    const monsters = select(
-      this.development,
-      "Monster",
-      Object.entries(this.catalog.monsters).map(([id, entry]) => [
-        id,
-        `${id} ${entry.name ?? ""}`,
-      ]),
-    );
-    const count = input(this.development, "Spawn count", "number", "1");
-    count.min = "1";
-    count.max = "10";
-    button(this.development, "Spawn", () =>
-      send({
-        kind: "spawn",
-        templateId: Number(monsters.value),
-        count: Number(count.value),
-      }),
-    );
-  }
-  buildFieldDevelopment(send) {
-    button(this.development, "Pause server field", () =>
-      send({ kind: "pause", paused: true }),
-    );
-    button(this.development, "Resume server field", () =>
-      send({ kind: "pause", paused: false }),
-    );
-    button(this.development, "Step server tick", () =>
-      send({ kind: "step", ticks: 1 }),
-    );
-    const globals = input(
-      this.development,
-      "Physics globals (JSON)",
-      "text",
-      "{}",
-    );
-    const map = input(this.development, "Map physics (JSON)", "text", "{}");
-    button(this.development, "Request physics", () => {
-      try {
-        send({
-          kind: "physics",
-          globals: JSON.parse(globals.value),
-          map: JSON.parse(map.value),
-        });
-      } catch (error) {
-        this.report(error);
-      }
-    });
-  }
-  buildInspection() {
-    const local = group(this.sidebar, "Local camera and inspection");
-    const follow = input(local, "Follow camera", "checkbox");
-    follow.checked = true;
-    follow.addEventListener("change", () => {
-      if (this.hooks.scene()) this.hooks.scene().follow = follow.checked;
-    });
-    const geometry = input(
-      local,
-      "Footholds / artwork bounds (inspection snapshot)",
-      "checkbox",
-    );
-    geometry.addEventListener("change", () =>
-      this.hooks.scene()?.showGeometry(geometry.checked),
-    );
-    const x = input(local, "Camera X", "number", "0");
-    const y = input(local, "Camera Y", "number", "0");
-    button(local, "Pan camera", () => {
-      const scene = this.hooks.scene();
-      if (
-        scene &&
-        Number.isFinite(Number(x.value)) &&
-        Number.isFinite(Number(y.value))
-      ) {
-        scene.follow = false;
-        follow.checked = false;
-        scene.scene.camera.x = Number(x.value);
-        scene.scene.camera.y = Number(y.value);
-      }
-    });
-    const output = element("pre", "", local);
-    button(local, "Inspect observations", () => {
-      output.textContent = JSON.stringify(
-        {
-          transport: this.transport.snapshot(),
-          prediction: this.hooks.prediction.snapshot(),
-          self: this.state?.self,
-        },
-        null,
-        2,
-      );
-    });
-  }
+  resize(width, height) { this.ui.resize(width, height); this.questReady.resize(); }
+  draw(elapsedMs) { this.effects.update(); this.skillVisuals.update(elapsedMs); this.audio.update(elapsedMs); this.ui.update(elapsedMs); this.questReady.update(elapsedMs); }
   destroy() {
-    this.panel?.destroy();
-    this.root.destroy({ children: true });
+    this.destroyed = true;
+    clearTimeout(this.chatTimer);
+    this.chatDraft = null;
+    this.dialogue.destroy(); this.effects.destroy(); this.questReady.destroy();
+    this.skillVisuals.destroy();
+    this.closeShop(); this.closeTrade(); this.bindings?.destroy(); this.macros?.destroy();
+    this.store.destroy(); this.ui.destroy(); this.audio.destroy();
   }
 }

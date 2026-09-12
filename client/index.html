@@ -107,6 +107,17 @@
             >
               Agent
             </button>
+            <button
+              id="console-tab-state"
+              role="tab"
+              type="button"
+              aria-selected="false"
+              aria-controls="console-state"
+              tabindex="-1"
+              data-console-panel="state"
+            >
+              State &amp; Testing
+            </button>
           </div>
         </div>
         <p id="ui-status" class="hint" role="status"></p>
@@ -412,6 +423,16 @@
             id="agent-controls"
             aria-label="Agent and experiment controls"
           ></section>
+        </section>
+        <section
+          id="console-state"
+          role="tabpanel"
+          aria-labelledby="console-tab-state"
+          tabindex="0"
+          hidden
+        >
+          <h2>State &amp; Testing</h2>
+          <div id="state-testing-controls"></div>
         </section>
       </aside>
       <section id="viewport" aria-label="Scene viewport"></section>

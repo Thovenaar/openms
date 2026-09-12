@@ -2,11 +2,7 @@ import { Container } from "pixi.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { UISurface } from "./ui-surface.js";
 import { layoutHud, layoutWindow } from "./ui-layout.js";
-import {
-  replaceMinimap,
-  updateProfilePanel,
-  ProfileControls,
-} from "./ui-inspection.js";
+import { replaceMinimap, updateProfilePanel } from "./ui-inspection.js";
 import { updateProfileHud, finishGaugeWarnings } from "./ui-hud.js";
 import { updateMinimap, cycleMinimap } from "./ui-minimap.js";
 import { UICursor } from "./ui-cursor.js";
@@ -492,12 +488,8 @@ export class GameUI {
 
   /** Subscribe to durable authority; profile root may be null after an explicit load failure. */
   setProfile(store, quests) {
-    if (
-      !store ||
-      typeof store.subscribe !== "function" ||
-      typeof store.flush !== "function"
-    ) {
-      throw new Error("UI requires a subscribable ProfileStore");
+    if (!store || typeof store.subscribe !== "function") {
+      throw new Error("UI requires a subscribable profile source");
     }
     this.unsubscribeProfile?.();
     this.endBindingDrag();
@@ -516,7 +508,7 @@ export class GameUI {
     }
     this.knownJobs = jobs.slice();
     this.profileControls?.destroy();
-    this.profileControls = new ProfileControls(this);
+    this.profileControls = this.hooks.createProfileControls?.(this) ?? null;
     this.hooks.inventoryItemPointerDown = (event, entry) => {
       const source = this.windows.get("Equip")?.iconLayer;
       return this.beginItemCarry(event, entry, {
@@ -646,6 +638,9 @@ export class GameUI {
   /** Async persistence belongs to the profile epoch that requested it. */
   async saveProfile() {
     if (!this.store?.profile || this.saving || this.resetting) return;
+    if (typeof this.store.flush !== "function") {
+      throw new Error("This profile source has no checkpoint capability.");
+    }
     const store = this.store;
     const epoch = this.epoch;
     this.saving = true;
@@ -759,6 +754,8 @@ export class GameUI {
     if (!WINDOWS.has(name) || !this.index) {
       throw new Error(`Unsupported UI window ${name}`);
     }
+    const unavailable = this.hooks.windowCapability?.(name);
+    if (unavailable) throw new Error(unavailable);
     const existing = this.windows.get(name);
     if (existing) {
       this.front(existing);
@@ -2640,7 +2637,7 @@ export class GameUI {
       layoutGeneration: this.layoutGeneration,
       offsetX: this.offsetX,
       offsetY: this.offsetY,
-      localProfile: this.store?.snapshot() || null,
+      localProfile: this.storeSnapshot(),
       windowBounds: Array.from(this.windows.values(), (panel) => ({
         name: panel.name,
         x: panel.x,
@@ -2651,6 +2648,15 @@ export class GameUI {
       originalTiming:
         "Only explicitly authored frame delays advance; missing timing is static/unsupported.",
     };
+  }
+
+  /** Offline stores checkpoint through snapshot(); online sources publish a frozen profile view. */
+  storeSnapshot() {
+    if (typeof this.store?.snapshot === "function") {
+      return this.store.snapshot();
+    }
+    const profile = this.store?.profile;
+    return profile ? structuredClone(profile) : null;
   }
 
   inputSnapshot() {
@@ -2674,7 +2680,10 @@ export class GameUI {
 
   destroy() {
     if (this.disposed) return;
-    if (!this.closeAll()) {
+    if (this.hooks.readOnlyProfile) {
+      settlePrompt(this, this.promptRequest, null);
+      this.retireAllWindows();
+    } else if (!this.closeAll()) {
       throw new Error("Close native sessions before destroying GameUI");
     }
     this.disposeOwnedSurfaces();

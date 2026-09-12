@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { GameUI } from "../src/ui/game-ui.js";
 import { KeyBindings } from "../src/input/key-bindings.js";
+import { ItemUse } from "../src/items/item-use.js";
 import { createProfile } from "../src/profile/profile-validation.js";
 import { retireBindingLayer } from "../src/ui/ui-icons.js";
 import { ProfileStore } from "../src/profile/profile-store.js";
@@ -64,16 +65,18 @@ function fixture() {
     expiresAt: null,
   });
   const store = ProfileStore.memory(initial, { items: { 2000000: item } });
-  const bindings = new KeyBindings(
-    store,
-    { ui: { items: { 2000000: item } } },
-    {
-      isBlocked: () => false,
-      now: () => 0,
-      report() {},
-      onAction: () => true,
-    },
-  );
+  const catalog = { ui: { items: { 2000000: item } } };
+  const hooks = {
+    isBlocked: () => false,
+    now: () => 0,
+    report() {},
+    onAction: () => true,
+  };
+  const bindings = new KeyBindings(store, catalog, {
+    ...hooks,
+    itemUse: new ItemUse(store, catalog, hooks),
+    saveBindings: (value) => store.commitKeyBindings(value),
+  });
   const keys = {
     ...surface(),
     name: "KeyConfig",

@@ -21,7 +21,7 @@ From the workspace root:
 ```sh
 bun install --frozen-lockfile
 bun run extract
-bun run dev:client:offline
+bun run client:dev:offline
 ```
 
 Open **http://127.0.0.1:3100**. The development server binds loopback and builds the browser bundle with Bun at startup; restart it after source changes. It serves only the client surface and generated assets, not the original input directory.
@@ -44,6 +44,8 @@ bun run client:dev:online
 Open **http://127.0.0.1:3102**, then log in using the development credentials printed by the server launcher. The server listens on loopback port3200; the online client proxies `/api/` on its own origin. PostgreSQL is required: supply `DATABASE_URL`, or install PostgreSQL tools for the launcher's owned development cluster. See [server setup and production configuration](server/index.md#online-development).
 
 This entry builds a separate original-asset browser shell, without offline release extraction/verification churn. It never opens local character saves or installs an offline service worker. Server snapshots own characters, inventory, field membership, mobs and drops. Shared motion predicts presentation only; errors/disconnection freeze admission rather than granting local authority or merging offline earnings.
+
+Browser presentation is policy, not authority: the online client draws the local player from the newest two authenticated 30 ms kernel states interpolated between fixed-scheduler steps (`OnlinePrediction.interpolate`), the same presentation model the offline client applies to its accumulator, so timer jitter stretches one quantum instead of stalling the pose. Checkpoint restores and replays reproduce states that were already presented and never move the interpolation anchor, and the drawn pose never feeds back into prediction, input pacing or server state. Peers, mobs and drops keep the server's 90 ms publication cadence (`ENTITY_PUBLISH_MS`) and are chased over that interval; they are not per-tick sampled.
 
 Online development controls send bounded authenticated server requests for map travel, presets/scalar edits, spawning and simulation controls. The server checks developer role, origin, CSRF and current actor; gameplay messages cannot carry these actions. Camera/geometry controls remain presentation-only. Production has no development endpoint. Read the [protocol](server/protocol.md), including the server-only motion checkpoint and the explicit development/reference rules limitations. [Validation results](validation.md) distinguish exercised behavior from required proof.
 
@@ -71,6 +73,16 @@ bun run lint       # strict JavaScript checks; zero warnings
 bun run validate   # explicit broad world/physics oracle and loading/performance gate
 bun run format
 ```
+
+`bun run smoothness` samples the presented local-player pose per animation frame while a real key is held and reports kernel-gated stall and jerk ratios plus a raw-kernel control from the same trace:
+
+```sh
+bun run smoothness --mode offline --output docs/validation/online-movement/offline
+bun run smoothness --mode online --url http://127.0.0.1:3102 \
+  --account dev_player --password <launcher password> --output docs/validation/online-movement/online
+```
+
+The offline run needs the offline dev server; the online run needs `server:dev` and `client:dev:online` (the server pins its accepted client origin, so log in from the origin it was started with). Both modes sample only the real render loop; the tool never steps the simulation itself. [Presented movement smoothness](validation.md#presented-movement-smoothness) records the retained measurements.
 
 `validate` uses installed Chrome at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`; `--chrome`, `--url`, `--duration`, `--maps`, `--output` and `--headed` override its settings. The server must already be running. Missing original assets fail explicitly; the browser never substitutes fabricated demo artwork. Use a distinct evidence output directory and the [validation procedure](validation-method.md), including its labeled noncombat fixture.
 
@@ -122,6 +134,7 @@ The [native acceptance site report](native-ui-validation/site/report.json) recor
 - [Inspection console and port tools](inspection-tools.md): five task-based Play/Character/Inspect/Settings/Agent tabs below the persistent toolbar, preserved drafts, scoped XP/Windows95/Y2K themes, validated presets, bounded entity search and offline tools. Native in-game artwork remains unthemed. [Binding actions](offline-binding-actions.md) records exact native IDs and remote dependencies.
 - `client/public/service-worker.js`, `offline-manifest.js`, `client/tools/release-manifest.js`: verified current-map startup, destination gates and optional full-release installation with pinned offline launch, separate from character saves.
 - `client/tools/validate.js`: independent Canvas2D pixel oracle, screenshots, state transitions, real rAF/loading/heap measurements.
+- `client/tools/movement-smoothness.js`: per-frame presented-pose sampling for offline and online movement, with kernel-gated stall/jerk ratios and a raw-kernel control computed from the same trace.
 - `client/public/generated/`, `client/dist/`: generated, gitignored. Original artwork is not bundled into the source package.
 - `client/tools/dev.js` resolves domain-organized worker sources while retaining the public bundle basenames `main.js`, `atlas-worker.js`, `audio-capture-worklet.js` and `browser-oracle.js` under `/dist/`.
 - `client/src/online/`, `client/online.html`: separate transport, prediction, read models and original-asset presentation; no offline profile authority. World NPC artwork stays region-owned and its server reference only gates interaction, so `npc.open` is admitted by live field identity rather than an invented reach limit. Authored dialogue prose and choice labels are projected from the token stream for the accessible intent controls, and `mapleOnline.project(x,y)` exposes a read-only world-to-canvas projection for inspection and browser verification.

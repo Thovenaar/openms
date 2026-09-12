@@ -2,13 +2,7 @@ import { PROFILE_LIMITS } from "../profile/profile-validation.js";
 import { SOCIAL_LIMITS } from "../profile/profile-social.js";
 import { memberIds, socialRequire } from "./local-social-context.js";
 
-// Original008d379c/008d549f; ordinary input is70 printable ASCII characters.
-export const CHAT_LIMIT = 70;
-export const CHAT_RATE_LIMITS = Object.freeze({
-  repeat: 30000,
-  flood: 2000,
-  cooldown: 2800,
-});
+import { CHAT_LIMIT, sanitizeChat, admitChat } from "./chat-rules.js";
 const MAILBOX_LIMIT = 128; // Browser session retention, not durable message storage.
 const PAGE_LIMIT = 32;
 const CHANNEL_NAMES = [
@@ -38,35 +32,6 @@ const COMMAND_CHANNELS = Object.freeze({
   "/all": 7,
 });
 
-export function sanitizeChat(text) {
-  return text.replace(/[^\x20-\x7e]/g, " ").trim();
-}
-
-/** 004904be: shared original four-message gates; UI owns its history and counters. */
-export function admitChat(state, text, now) {
-  if (now < state.blockedUntil) return false;
-  if (now - state.recentStarted > CHAT_RATE_LIMITS.repeat) {
-    state.recent.length = 0;
-    state.recentStarted = now;
-  }
-  if (state.recent.length === 4) state.recent.shift();
-  state.recent.push(text);
-  const repeated =
-    state.recent.length === 4 &&
-    state.recent.every((previous) => previous === text);
-  if (!repeated) {
-    state.submitTimes[state.submitIndex] = now;
-    state.submitIndex = (state.submitIndex + 1) % state.submitTimes.length;
-  }
-  if (
-    repeated ||
-    now - state.submitTimes[state.submitIndex] < CHAT_RATE_LIMITS.flood
-  ) {
-    state.blockedUntil = now + CHAT_RATE_LIMITS.cooldown;
-    return false;
-  }
-  return true;
-}
 
 function sessionState() {
   return {

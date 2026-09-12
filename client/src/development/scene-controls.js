@@ -40,14 +40,16 @@ class Controls {
   }
   bindPlayer() {
     const api = this.api;
-    this.listen("#pause", "click", () => api.pause(!api.snapshot().paused));
+    this.listen("#pause", "click", () =>
+      this.invoke(() => api.pause(!api.snapshot().paused)),
+    );
     this.listen("#input-config", "click", () =>
       this.invoke(() => api.onKeyConfig()),
     );
     this.listen("#step", "click", () =>
-      this.invoke(() => {
-        api.pause(true);
-        api.step(Number(document.querySelector("#step-ms").value));
+      this.invoke(async () => {
+        await api.pause(true);
+        await api.step(Number(document.querySelector("#step-ms").value));
       }),
     );
     this.listen("#reload", "click", () => this.invoke(() => api.reload()));
@@ -210,7 +212,7 @@ class Controls {
       if (result?.ok !== true) {
         throw new Error(result?.reason || "Monster spawn rejected.");
       }
-      status.textContent = `Spawned original monster ${id}. Defeat it in the field for normal offline drops and quest credit.`;
+      status.textContent = `Spawned original monster ${id}. Combat, drops and quest credit follow the current authority's normal rules.`;
     } catch (error) {
       if (this.ownsSpawnRequest(request)) {
         status.textContent = `Spawn failed: ${error.message}`;
@@ -425,12 +427,16 @@ export function createControls(api) {
 }
 
 function updateReadouts(snapshot) {
-  document.querySelector("#scene-controls").disabled = !snapshot.currentMap;
+  const denied = snapshot.developmentControls?.available === false;
+  document.querySelector("#scene-controls").disabled =
+    !snapshot.currentMap || denied;
+  document.querySelector("#pause").disabled = denied || snapshot.loading;
+  document.querySelector("#reload").disabled = denied || snapshot.loading;
   document.querySelector("#scene-preview-controls").disabled =
     !snapshot.currentMap;
   document.querySelector("#input-config").disabled = !snapshot.currentMap;
   document.querySelector("#step").disabled =
-    !snapshot.currentMap || snapshot.loading;
+    !snapshot.currentMap || snapshot.loading || denied;
   for (const id of ["entity", "action", "visible"]) {
     document.querySelector(`#${id}`).disabled = !snapshot.currentMap;
   }

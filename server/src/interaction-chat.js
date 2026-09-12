@@ -177,6 +177,7 @@ export function executeChat(actor, message, world) {
     kind: "chat",
     messageId: crypto.randomUUID(),
     senderId: actor.id,
+    senderName: actor.profile.name,
     channel: message.action.channel,
     text: message.action.text,
   };

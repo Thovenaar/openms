@@ -14,7 +14,6 @@ import {
   applyTradeMesos,
 } from "./local-trade-rules.js";
 
-export { TRADE_SLOTS, tradeFee } from "./local-trade-rules.js";
 const MAX_LISTENERS = 32;
 const MAX_CHAT_LINES = 256; // Bounded browser transcript retention, not a native protocol limit.
 const CHAT_LENGTH = 256; // Original edit control construction sets +0x50 to 0x100.

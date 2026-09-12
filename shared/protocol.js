@@ -1,6 +1,7 @@
 import {
   array,
   boolean,
+  coordinate,
   canonical,
   closedRecord,
   enumeration,
@@ -23,6 +24,7 @@ import {
 } from "./schema.js";
 import { decodeJson } from "./json.js";
 import { animation, motionSchema } from "./motion-schema.js";
+import { settingsSchema, keyBindingsSchema, skillMacrosSchema } from "./native-presentation.js";
 export { closedRecord, decodeJson, protocolError };
 export {
   ANIMATION_ACTIONS,
@@ -117,6 +119,11 @@ const answer = union("kind", {
 const itemQuantity = record({ itemId: id, quantity });
 const itemIdentity = (value) => value?.itemId;
 const ACTION_ROWS = [
+  ["settings.save", "character", { settings: settingsSchema }],
+  ["key-bindings.save", "character", { keyBindings: keyBindingsSchema }],
+  ["skill-macros.save", "character", { skillMacros: skillMacrosSchema }],
+  ["quest.track", "character", { questId: template, tracked: boolean }],
+  ["quest.notice", "character", { questId: template }],
   ["portal.enter", "character", { portalId: u32 }],
   [
     "revive.request",
@@ -134,6 +141,7 @@ const ACTION_ROWS = [
   ["equipment.equip", "inventory", { itemId: id, slot: u32 }],
   ["equipment.unequip", "inventory", { itemId: id, toSlot: u32 }],
   ["item.use", "inventory", { itemId: id, target: optional(target) }],
+  ["inventory.gather", "inventory", { tab }],
   [
     "equipment.scroll",
     "inventory",
@@ -251,6 +259,7 @@ const entity = record(
     id,
     kind: enumeration("player", "mob", "npc", "drop"),
     templateId: template,
+    placementId: optional(string(/^life:[0-9]{1,5}$/u, 16)),
     position: point,
     velocity: point,
     foothold: nullable(u32),
@@ -258,8 +267,18 @@ const entity = record(
     action: animation,
     actionStartTick: revision,
     appearance: nullable(appearance),
+    dropMotion: optional(record({
+      state: enumeration("waiting", "launching", "falling", "grounded"),
+      age: u32, phaseAge: u32,
+      sourceX: coordinate, sourceY: coordinate, groundX: coordinate, groundY: coordinate,
+      durationMs: u32, launchSpeed: number(0, 10000, false),
+      rotation: number(-1000000, 1000000, false), alpha: number(0, 1, false),
+    })),
   },
-  (value) => (value.kind === "player") === (value.appearance !== null),
+  (value) =>
+    (value.kind === "player") === (value.appearance !== null) &&
+    (value.kind === "drop") === (value.dropMotion !== undefined) &&
+    (value.placementId === undefined || value.kind === "mob"),
 );
 const statKey = enumeration(
   "str",
@@ -296,6 +315,9 @@ const location = union("kind", {
 const item = record({
   id,
   templateId: template,
+  owner: string(/^[\s\S]*$/u, 32),
+  flags: number(0, 65535),
+  expiresAt: nullable(revision),
   quantity: number(0, 2147483647),
   location,
   revision,
@@ -310,6 +332,8 @@ const skill = record({
 const effect = record({
   id,
   templateId: template,
+  kind: enumeration("skill", "item"),
+  duration: nullable(number(1, Number.MAX_SAFE_INTEGER)),
   expiresAt: revision,
   cancelable: boolean,
 });
@@ -363,6 +387,12 @@ const capacities = record({
 });
 const identity = (value) => value?.id;
 export const snapshotPartSchema = union("kind", {
+  "native-presentation": record({
+    kind: enumeration("native-presentation"),
+    index: number(0, 63),
+    total: number(1, 64),
+    data: string(/^[\s\S]*$/u, 12000),
+  }, (value) => value.index < value.total),
   field: record({
     kind: enumeration("field"),
     field: fieldRef,
@@ -444,12 +474,27 @@ function validTrade(value) {
   }
   return true;
 }
+
+function validSkillRank(value) {
+  return (value.skillId === null) === (value.rank === null);
+}
 export const domainEventSchema = union("kind", {
+  projectile: record({
+    kind: enumeration("projectile"), actionId: id, actorId: id, targetId: id,
+    templateId: template, skillId: nullable(template), source: point, destination: point,
+    rank: nullable(number(1, 32767)),
+    facing,
+    durationMs: u32, launchTick: revision,
+  }, validSkillRank),
+  "drop.pickup": record({
+    kind: enumeration("drop.pickup"), dropId: id, actorId: id, position: point, impactTick: revision,
+  }),
   combat: record({
     kind: enumeration("combat"),
     actionId: id,
     actorId: id,
     skillId: nullable(template),
+    rank: nullable(number(1, 32767)),
     hits: array(
       record({
         targetId: id,
@@ -459,7 +504,7 @@ export const domainEventSchema = union("kind", {
       32,
     ),
     impactTick: revision,
-  }),
+  }, validSkillRank),
   "quest.ready": record({
     kind: enumeration("quest.ready"),
     questId: template,
@@ -470,6 +515,7 @@ export const domainEventSchema = union("kind", {
     conversationId: id,
     step: u32,
     npcId: id,
+    npcTemplateId: template,
     quests: array(
       record({ questId: template, action: enumeration("accept", "claim") }),
       128,
@@ -483,6 +529,14 @@ export const domainEventSchema = union("kind", {
       conversationId: id,
       step: u32,
       npcId: id,
+      npcTemplateId: template,
+      native: record({
+        kind: enumeration("say", "yes-no", "accept-decline", "choice", "number", "text"),
+        speaker: u32,
+        prev: boolean,
+        next: boolean,
+        defaultValue: nullable(string(/^[\s\S]*$/u, 256)),
+      }),
       contentId: hash,
       choices: array(u32, 128, 0, true),
       input: enumeration("next", "yesno", "choice", "number", "text"),
@@ -500,6 +554,7 @@ export const domainEventSchema = union("kind", {
       kind: enumeration("shop"),
       shopSession: id,
       npcId: id,
+      npcTemplateId: template,
       revision,
       part,
       parts,
@@ -511,6 +566,7 @@ export const domainEventSchema = union("kind", {
     kind: enumeration("chat"),
     messageId: id,
     senderId: id,
+    senderName: string(/^[\s\S]*$/u, 32),
     channel,
     text,
   }),
@@ -527,6 +583,7 @@ export const domainEventSchema = union("kind", {
         "cancelled",
       ),
       participants: array(id, 2, 2, true),
+      members: array(record({ id, appearance }), 2, 2, (value) => value?.id),
       offers: array(tradeOffer, 2, 0, (value) => value?.ownerId),
     },
     validTrade,
@@ -624,11 +681,11 @@ export const serverSchema = union("type", {
 });
 
 export function decodeClient(source) {
-  const value = decodeJson(source);
+  const value = decodeJson(source, { maxBytes: PROTOCOL.MAX_MESSAGE_BYTES, maxDepth: 8, maxNodes: 2048 });
   if (value && Object.hasOwn(value, "v") && value.v !== 1) {
     throw protocolError("UNSUPPORTED_VERSION");
   }
-  return validate(value, clientSchema, 256);
+  return validate(value, clientSchema, 2048);
 }
 export function decodeServer(source) {
   const value = decodeJson(source, {

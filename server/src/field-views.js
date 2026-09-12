@@ -3,6 +3,7 @@ import { inventoryType } from "../../client/src/items/inventory-model.js";
 import { progressQuestViews } from "./interaction-quest.js";
 import { UPGRADE_STATS } from "../../client/src/profile/profile-item-state.js";
 import { equipmentUpgrade } from "../../client/src/items/equipment-enhancement.js";
+import { nativePresentationParts } from "./native-presentation.js";
 
 const TABS = ["equip", "use", "setup", "etc", "cash"];
 const STATS = [
@@ -67,6 +68,9 @@ export function lifeEntity(entity, kind) {
     id: entity.id,
     kind,
     templateId: entity.templateId,
+    ...(kind === "mob" && entity.placementId !== undefined
+      ? { placementId: entity.placementId }
+      : {}),
     position: { x: entity.x, y: entity.y },
     velocity: { x: 0, y: 0 },
     foothold: entity.segment?.id ?? null,
@@ -93,6 +97,11 @@ export function dropEntity(drop) {
     ),
     actionStartTick: 0,
     appearance: null,
+    dropMotion: {
+      state: drop.state, age: drop.age, phaseAge: drop.phaseAge,
+      sourceX: drop.sourceX, sourceY: drop.sourceY, groundX: drop.groundX, groundY: drop.groundY,
+      durationMs: drop.durationMs, launchSpeed: drop.launchSpeed, rotation: drop.rotation, alpha: drop.alpha,
+    },
   };
 }
 
@@ -114,6 +123,9 @@ export function itemView(item, revision, equipped = false, items) {
     id: item.uid,
     templateId: item.id,
     quantity: item.count,
+    owner: item.owner,
+    flags: item.flags,
+    expiresAt: item.expiresAt,
     location: equipped
       ? { kind: "equipped", slot: Math.abs(item.slot) }
       : {
@@ -143,6 +155,8 @@ export function selfView(actor) {
     effects: (p.onlineState?.effects ?? []).map((effect) => ({
       id: effect.id,
       templateId: effect.templateId,
+      kind: effect.kind,
+      duration: effect.duration ?? (effect.kind === "item" ? effect.spec.time : null),
       expiresAt: effect.expiresAt,
       cancelable: effect.cancelable,
     })),
@@ -200,5 +214,6 @@ export function snapshotParts(world, actor) {
   if (skills.length) {
     pages(parts, "skills", skills, { kind: "progress", quests: [] });
   }
+  parts.push(...nativePresentationParts(actor, world));
   return parts;
 }

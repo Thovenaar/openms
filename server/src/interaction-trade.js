@@ -3,7 +3,7 @@ import {
   applyTradeItems,
   applyTradeMesos,
 } from "../../client/src/social/local-trade-rules.js";
-import { itemView } from "./field-views.js";
+import { itemView, actorEntity } from "./field-views.js";
 import { operationFor, admitActor } from "./action-rules.js";
 import {
   interactionState,
@@ -80,6 +80,10 @@ export function publishTrade(world, room, state = room.state) {
     revision: room.revision,
     state,
     participants: room.participants,
+    members: room.participants.map((id) => {
+      const member = world.actors.get(id);
+      return { id, appearance: member ? actorEntity(member).appearance : room.members.find((entry) => entry.id === id).appearance };
+    }),
     offers,
   };
   for (const id of room.participants) {
@@ -135,6 +139,7 @@ function invite(actor, message, world) {
     ],
   };
   actor.tradeId = peer.tradeId = room.id;
+  room.members = [actor, peer].map((member) => ({ id: member.id, appearance: actorEntity(member).appearance }));
   actor.lastTradeInvite = now;
   state.trades.set(room.id, room);
   publishTrade(world, room);

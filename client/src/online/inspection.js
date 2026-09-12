@@ -1,0 +1,267 @@
+import { createControls } from "../development/scene-controls.js";
+import { initializeInspectionTheme } from "../development/inspection-theme.js";
+import { AgentControl } from "../development/agent-control.js";
+import { mountStateTesting, inspectionText } from "../development/state-testing.js";
+import { PROTOCOL } from "../../../shared/protocol.js";
+import { createOnlineDevelopment, mountOnlineExperiments } from "./inspection-development.js";
+
+const MAX_RECORDS = 80;
+
+/** Shared chrome adapter. Theme/listener ownership begins at prepare and ends at destroy. */
+export class OnlineInspection {
+  constructor({ transport, prediction, hooks }) {
+    this.transport = transport;
+    this.prediction = prediction;
+    this.hooks = hooks;
+    this.controller = new AbortController();
+    this.records = [];
+    this.model = null;
+    this.offer = null;
+    this.prepared = false;
+    this.dev = createOnlineDevelopment(this);
+  }
+
+  prepare() {
+    if (this.prepared) return;
+    this.prepared = true;
+    initializeInspectionTheme(this.controller.signal);
+    document.querySelector(".console-badge").textContent = "SERVER";
+    const step = document.querySelector("#step-ms");
+    step.min = String(PROTOCOL.TICK_MS);
+    step.max = String(PROTOCOL.TICK_MS * 4);
+    step.step = String(PROTOCOL.TICK_MS);
+    step.value = String(PROTOCOL.TICK_MS);
+    const offline = document.querySelector("#offline-inspection");
+    if (offline) offline.hidden = true;
+    this.controls = createControls(this.controlAPI());
+    this.state = mountStateTesting({
+      root: document.querySelector("#state-testing-controls"),
+      mode: "online",
+      read: () => this.read(),
+      command: (action) => this.command(action),
+      signal: this.controller.signal,
+    });
+    this.agent = new AgentControl({
+      input: this.hooks.input,
+      canvas: this.hooks.canvas,
+      root: document.querySelector("#agent-controls"),
+      hooks: {
+        dispatch: (command, lease) => this.dispatch(command, lease),
+        observe: () => this.read(),
+        capture: () => this.hooks.canvas.toDataURL("image/png"),
+        ready: () => this.transport.status === "active",
+      },
+    });
+    this.experiments = mountOnlineExperiments(this, document.querySelector("#agent-controls"));
+    const observe = (event) => this.observeInput(event);
+    for (const type of ["keydown", "keyup", "pointerdown", "pointerup"]) {
+      this.hooks.canvas.addEventListener(type, observe, {
+        signal: this.controller.signal,
+      });
+    }
+  }
+
+  authorized() {
+    return this.transport.config?.development === true &&
+      this.transport.config?.role === "developer";
+  }
+
+  /** Canvas input only: never record login fields, chat text or inspection drafts. */
+  observeInput(event) {
+    if (!event.isTrusted || event.repeat) return;
+    this.record("native input", {
+      type: event.type,
+      code: event.code,
+      button: event.button,
+      defaultPrevented: event.defaultPrevented,
+    });
+  }
+
+  controlSnapshot() {
+    const snapshot = this.hooks.snapshot();
+    const available = this.authorized() && this.transport.status === "active";
+    const reason = available
+      ? "Audited development HTTP request; server validates field ownership."
+      : "Server authority: developer session required; player/production mutations refused.";
+    return { ...snapshot, developmentControls: { available, reason },
+      developmentSpawn: { available, reason } };
+  }
+
+  controlAPI() {
+    return {
+      ...this.hooks.api,
+      snapshot: () => this.controlSnapshot(),
+      onError: (error) => this.report(error),
+      pause: (paused) => this.develop({ kind: "pause", paused }),
+      step: (ms) => this.step(ms),
+      switchMap: (mapId) => this.develop({ kind: "map", mapId: Number(mapId) }),
+      reload: () => this.develop({ kind: "map", mapId: Number(this.model.field.mapId) }),
+      spawnMonster: async (templateId) => {
+        const result = await this.develop({ kind: "spawn", templateId, count: 1 });
+        return { ok: result.status === "committed", reason: result.code };
+      },
+    };
+  }
+
+  step(ms) {
+    const ticks = ms / PROTOCOL.TICK_MS;
+    if (!Number.isSafeInteger(ticks) || ticks < 1 || ticks > 4) {
+      throw new Error(`Server step requires 1–4 ticks of ${PROTOCOL.TICK_MS} ms.`);
+    }
+    return this.develop({ kind: "step", ticks });
+  }
+
+  async develop(action) {
+    if (!this.authorized()) throw new Error("Developer session required; no local mutation performed.");
+    this.record("development request", action);
+    const result = await this.transport.develop(action);
+    this.record("development result", result);
+    if (result.status !== "committed") throw new Error(result.code || result.status);
+    return result;
+  }
+
+  async dispatch(command, lease) {
+    lease.assertActive();
+    this.record("normal input command", command);
+    try {
+      const result = await this.hooks.dispatch(command, lease);
+      this.record("normal input result", result);
+      return result;
+    } catch (error) {
+      this.report(error);
+      throw error;
+    }
+  }
+
+  async command(action) {
+    this.record("inspection request", action);
+    if (action.kind === "inspection.resync") {
+      this.transport.resync("gap");
+      return { status: this.transport.status, requested: "authoritative resync" };
+    }
+    if (action.kind === "inspection.reconnect") return this.transport.reconnect();
+    return this.questCommand(action);
+  }
+
+  async questCommand(action) {
+    const systems = this.hooks.systems();
+    if (action.kind === "inspection.quest-journal") {
+      await systems.ui.open("Quest");
+      return { status: "opened", window: "Quest" };
+    }
+    if (action.kind === "inspection.quest-abandon") {
+      const quest = systems.quests;
+      if (!quest.giveUpAdmission(action.questId).ok) throw new Error("Quest cannot be abandoned.");
+      const confirmed = await systems.ui.hooks.confirmQuestGiveUp(
+        action.questId, quest.catalog.records[action.questId].name,
+      );
+      if (!confirmed) return { status: "cancelled" };
+      return quest.giveUp(action.questId, true);
+    }
+    const result = await systems.command(this.offeredQuestAction(action));
+    this.record("quest result", result);
+    return result;
+  }
+
+  offeredQuestAction(action) {
+    const kind = action.kind === "inspection.quest-accept" ? "accept"
+      : action.kind === "inspection.quest-claim" ? "claim" : null;
+    const offer = this.offer;
+    if (!kind || !offer || offer.conversationId !== action.conversationId ||
+      offer.step !== action.step || !offer.quests.some((entry) =>
+        entry.questId === action.questId && entry.action === kind)) {
+      throw new Error("A current server NPC quest offer is required.");
+    }
+    return { kind: `quest.${kind}`, questId: action.questId,
+      conversationId: offer.conversationId, step: offer.step };
+  }
+
+  questEntries() {
+    const entries = this.model?.presentation?.quests ?? [];
+    const catalog = this.hooks.catalog()?.quests;
+    return entries.map((entry) => ({
+      ...entry, name: catalog?.records?.[entry.id]?.name,
+    }));
+  }
+
+  read() {
+    const model = this.model;
+    return {
+      quests: this.questSnapshot(),
+      connection: this.transport.snapshot(),
+      content: {
+        assetBuildId: this.transport.config?.assetBuildId,
+        rulesHash: this.transport.config?.rulesHash,
+        catalogHash: this.transport.config?.catalogHash,
+        field: model?.field,
+      },
+      prediction: this.prediction.snapshot(),
+      operations: this.records,
+      peers: {
+        self: model?.self,
+        entities: model?.entities,
+        characterId: this.transport.characterId,
+        connectionEpoch: this.transport.connectionEpoch,
+      },
+    };
+  }
+  questSnapshot() {
+    const model = this.model;
+    return {
+      entries: this.questEntries(), progress: model?.progress?.quests,
+      presentation: model?.presentation?.quests, offer: this.offer,
+      interactions: model?.presentation?.interactions,
+    };
+  }
+
+  update(snapshot) {
+    if (!snapshot) {
+      this.model = null;
+      this.offer = null;
+      this.state?.refresh();
+      return;
+    }
+    if (snapshot.presentation !== this.model?.presentation) {
+      this.offer = snapshot.presentation?.interactions?.find(
+        (event) => event.kind === "quest.offer",
+      ) ?? null;
+    }
+    this.model = snapshot;
+    if (!this.prepared) return;
+    this.controls.refresh(this.controlSnapshot());
+    this.state.refresh();
+    this.experiments.refresh();
+  }
+
+  event(message) {
+    const event = message.event ?? message;
+    if (event.kind === "quest.offer") this.offer = event;
+    if (["dialogue", "dialogue.closed"].includes(event.kind)) this.offer = null;
+    this.record("server event", message);
+  }
+
+  status(value) {
+    if (value.status !== "active") this.offer = null;
+    this.record("connection", value);
+    this.experiments?.refresh();
+  }
+
+  record(kind, value) {
+    if (this.records.length === MAX_RECORDS) this.records.shift();
+    this.records.push({ kind, value: inspectionText(value) });
+    this.state?.refresh();
+  }
+
+  report(error) {
+    this.hooks.report(error);
+  }
+
+  destroy() {
+    this.controller.abort();
+    this.controls?.destroy();
+    this.agent?.destroy();
+    this.state?.destroy();
+    this.experiments?.destroy();
+    this.records.length = 0;
+  }
+}

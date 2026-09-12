@@ -1447,14 +1447,17 @@ export class ProfileControls {
     this.status.textContent =
       store.error?.message || store.error || store.status;
     const busy = this.isBusy();
-    this.save.disabled = !profile || busy;
-    this.reset.disabled = busy;
-    this.recover.disabled = !profile || profile.hp !== 0 || busy;
-    this.editor.disabled = !profile || busy;
+    this.refreshPersistenceControls(store, profile, busy);
     this.form.setAttribute("aria-busy", String(Boolean(this.request)));
     this.updateEditActions();
     if (!this.dirty && !this.request) this.refreshEditor(profile);
     this.refreshItems(profile);
+  }
+  refreshPersistenceControls(store, profile, busy) {
+    this.save.disabled = !profile || busy || typeof store.flush !== "function";
+    this.reset.disabled = busy || typeof this.owner.hooks.onReset !== "function";
+    this.recover.disabled = !profile || profile.hp !== 0 || busy;
+    this.editor.disabled = !profile || busy;
   }
 
   updateEditActions() {
@@ -1586,7 +1589,7 @@ export class ProfileControls {
       }
       this.dirty = false;
       this.skillEditSignature = null;
-      this.editStatus.textContent = "Profile edits saved locally.";
+      this.editStatus.textContent = this.owner.hooks.profileEditSuccess ?? "Profile edits saved locally.";
     } catch (error) {
       if (!this.ownsEditRequest(request)) return;
       this.editStatus.textContent = `Profile edits failed: ${error.message}`;

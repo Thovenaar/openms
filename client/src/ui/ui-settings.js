@@ -251,21 +251,23 @@ function gameOptions(panel) {
   }
 }
 
+function selectedSettings(panel) {
+  const settings = structuredClone(panel.owner.store.profile.settings);
+  const fields = panel.name === "GameOpt" ? ["gameOptions"] : ["BGM", "SE", "alerts"];
+  for (const field of fields) settings[field] = structuredClone(panel.settingsDraft[field]);
+  return settings;
+}
+
 async function saveSettings(panel) {
   if (panel.settingsPending || panel.owner.hooks.isOperationPending?.()) return;
   panel.settingsPending = true;
   panel.settingsSave.setDisabled(true);
   try {
     const draft = panel.settingsDraft;
-    await panel.owner.store.commitProfile((profile) => {
-      if (panel.name === "GameOpt") {
-        profile.settings.gameOptions = { ...draft.gameOptions };
-      } else {
-        profile.settings.BGM = { ...draft.BGM };
-        profile.settings.SE = { ...draft.SE };
-        profile.settings.alerts = { ...draft.alerts };
-      }
-    });
+    if (typeof panel.owner.hooks.saveSettings !== "function") {
+      throw new Error("Settings persistence is unavailable.");
+    }
+    await panel.owner.hooks.saveSettings(selectedSettings(panel));
     panel.settingsCommitted = true;
     if (panel.name === "SysOpt") {
       panel.settingsOriginal = structuredClone({

@@ -9,6 +9,7 @@ import {
   originalItem,
   disappearingDrop,
   debitItemDrop,
+  gatherInventory,
 } from "../../client/src/items/inventory-action-rules.js";
 import {
   applyEnhancement,
@@ -53,6 +54,14 @@ function move(profile, action, context) {
   ) {
     reject("NOT_ALLOWED", "The destination cannot accept this move.");
   }
+}
+
+function gather(profile, action, context) {
+  const type = TABS.indexOf(action.tab) + 1;
+  for (const item of profile.inventory) {
+    if (inventoryType(item.id) === type) ownedItem(profile, context.actor, item.uid, context.now);
+  }
+  gatherInventory(profile, context.items, { type });
 }
 
 function equipment(profile, action, context) {
@@ -126,6 +135,9 @@ function mutateInventory(profile, action, context) {
   switch (action.kind) {
     case "inventory.move":
       move(profile, action, context);
+      break;
+    case "inventory.gather":
+      gather(profile, action, context);
       break;
     case "equipment.equip":
     case "equipment.unequip":
@@ -329,7 +341,13 @@ export async function executePickup(actor, message, world, operation) {
         throw ruleError(error);
       }
     });
-    if (receipt.status === "committed") field.drops.delete(drop.id);
+    if (receipt.status === "committed") {
+      world.broadcast(field, { type: "event", fieldEpoch: field.epoch, event: {
+        kind: "drop.pickup", dropId: drop.id, actorId: actor.id,
+        position: { ...drop.position }, impactTick: field.tick,
+      } });
+      field.drops.delete(drop.id);
+    }
     return receipt;
   } finally {
     drop.reservation = null;

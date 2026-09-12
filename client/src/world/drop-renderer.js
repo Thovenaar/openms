@@ -2,39 +2,13 @@ import { EntityAnimation } from "../rendering/animation.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { DROP_POLICY } from "./drop-system.js";
 import { dropDrawY } from "./drop-motion.js";
+import {
+  currencyVariant, currencyEntity, itemEntity, centerDrop,
+} from "./drop-artwork.js";
 
 const MAX_PENDING = 2;
 const PREFETCH_MARGIN = 128;
 
-/** Original 00506bfe: <50, <100, <1000, then meso bag. */
-export function currencyVariant(quantity) {
-  if (quantity < 50) return 0;
-  if (quantity < 100) return 1;
-  return quantity < 1000 ? 2 : 3;
-}
-
-function currencyEntity(resource, artwork, quantity) {
-  const variant = currencyVariant(quantity);
-  const frames = [];
-  for (const record of artwork.variants[variant]) {
-    const entity = resource.manifest.entities.find(
-      (entry) => entry.id === record.path,
-    );
-    if (!entity) throw new Error("Missing immutable currency frame");
-    frames.push({
-      delay: record.delay,
-      parts: entity.actions.default[0].parts,
-    });
-  }
-  return { ...resource.manifest.entities[0], actions: { default: frames } };
-}
-
-function itemEntity(resource, template) {
-  const path = template.iconRawPath ?? template.iconPath;
-  const entity = resource.manifest.entities.find((entry) => entry.id === path);
-  if (!entity) throw new Error("Missing immutable dropped-item icon");
-  return entity;
-}
 
 /** Bounded demand owner. All decoding/instantiation runs outside fixed-step and draw. */
 export class DropRenderer {
@@ -225,7 +199,7 @@ export class DropRenderer {
   instantiate(view, slot, resource) {
     const original = slot.itemId
       ? itemEntity(resource, this.system.items[slot.itemId])
-      : currencyEntity(resource, this.artwork, slot.quantity);
+      : currencyEntity(resource, this.artwork, currencyVariant(slot.quantity));
     const source = {
       ...original,
       id: view.id,
@@ -299,12 +273,7 @@ export class DropRenderer {
       entity.container.visible = slot.active && slot.state !== "waiting";
       if (!entity.container.visible) continue;
       entity.seek(slot.age);
-      const geometry = entity.current.geometry[entity.frame];
-      const halfHeight = Math.trunc(geometry.height / 2);
-      entity.container.pivot.set(
-        geometry.x + Math.trunc(geometry.width / 2),
-        geometry.y + halfHeight,
-      );
+      const halfHeight = centerDrop(entity);
       entity.setPosition(slot.x, dropDrawY(slot, halfHeight));
       entity.container.rotation = slot.rotation;
       entity.container.alpha = slot.alpha;

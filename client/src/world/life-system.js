@@ -166,6 +166,10 @@ export class LifeSystem {
     this.refresh();
   }
 
+  entityFor(id) {
+    return this.hooks.entity ? this.hooks.entity(id) : this.scene.byId.get(id);
+  }
+
   createSlot(record) {
     const template = this.scene.manifest.life.templates[record.template];
     const segment = this.scene.simulation.geometry.byId.get(record.authored.fh);
@@ -262,7 +266,7 @@ export class LifeSystem {
   refresh() {
     if (this.destroyed) return;
     for (const slot of this.slots) {
-      const entity = this.scene.byId.get(slot.record.id);
+      const entity = this.entityFor(slot.record.id);
       if (slot.entity !== (entity ?? null)) this.bind(slot, entity);
     }
     this.mapleTV.refresh();
@@ -331,7 +335,7 @@ export class LifeSystem {
     const frame = action?.frames[entity.frame];
     const rectangle = slot.record.kind === "mob" ? frame?.body : null;
     placeBody(slot.body, rectangle, position, mirrored);
-    const mob = this.scene.offlineField?.byId.get(slot.record.id);
+    const mob = this.hooks.mobState?.(slot.record.id);
     slot.delta.x = (mob ? mob.previousX : slot.previousX) - position.x;
     slot.delta.y = (mob ? mob.previousY : slot.previousY) - position.y;
     sweepBody(slot.sweep, slot.body, slot.delta);
@@ -380,15 +384,15 @@ export class LifeSystem {
       templateId: slot.template.originalId,
       name: slot.template.name,
       functionName: slot.template.function,
-      authority: "offline-local-policy",
+      authority: this.hooks.authority,
       kind: slot.record.kind,
       authored: slot.record.authored,
       info: slot.template.info,
       interactionGeometryKnown: !!slot.interactionLocal,
-      mode: "npc-local-interaction",
+      mode: "npc-interaction",
       canInteract: slot.canInteract,
       admissionPolicy:
-        "native dc target/defaults and left-button release; local live-pool/alive/modal admission, no invented proximity",
+        "native dc target/defaults and left-button release; authority admission hook",
     };
     try {
       if (!this.hooks.onInteract) return false;
@@ -454,7 +458,7 @@ export class LifeSystem {
       return false;
     }
     if (!this.canTalk(slot, opening ? undefined : id)) return false;
-    if (this.scene.byId.get(id) !== slot.entity) return false;
+    if (this.entityFor(id) !== slot.entity) return false;
     return this.pickableNpc(slot);
   }
 
@@ -475,10 +479,9 @@ export class LifeSystem {
   }
 
   canTalk(slot, id) {
-    const field = this.scene.offlineField;
+    const admitted = this.hooks.canTalk(slot.record.id);
     return (
-      !!field?.prepared &&
-      !field.dead &&
+      admitted &&
       (slot.record.authored.hide === undefined ||
         slot.record.authored.hide === 0) &&
       !this.hooks.isBlocked?.(id)

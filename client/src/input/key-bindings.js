@@ -10,7 +10,6 @@ import {
   KEY_COUNT,
 } from "./keymap.js";
 import { validateKeyBindings } from "../profile/profile-validation.js";
-import { ItemUse } from "../items/item-use.js";
 import { itemCount } from "../items/inventory-model.js";
 
 const MAX_LISTENERS = 64;
@@ -56,7 +55,10 @@ export class KeyBindings {
     this.saving = false;
     this.destroyed = false;
     this.listeners = new Set();
-    this.items = new ItemUse(store, catalog, hooks);
+    if (!hooks.itemUse || typeof hooks.saveBindings !== "function") {
+      throw new TypeError("Bindings require item activation and persistence ports.");
+    }
+    this.items = hooks.itemUse;
     this.lastSkillUse = null;
     this.heldSkills = new Int32Array(KEY_COUNT);
     this.lastItemUse = null;
@@ -298,7 +300,7 @@ export class KeyBindings {
     }
     this.saving = true;
     try {
-      await this.store.commitKeyBindings(this.active);
+      await this.hooks.saveBindings(this.active);
       return true;
     } catch (error) {
       this.active = structuredClone(this.store.profile.keyBindings);
@@ -394,7 +396,7 @@ export class KeyBindings {
     this.saving = true;
     this._notify();
     try {
-      await this.store.commitKeyBindings(this.active);
+      await this.hooks.saveBindings(this.active);
       this.editing = false;
     } finally {
       this.saving = false;

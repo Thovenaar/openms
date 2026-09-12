@@ -58,6 +58,7 @@ export class OnlinePrediction {
     this.timingState = null;
     this.filledTicks = 0;
     this.arrivalTick = 0;
+    this.lastStepAt = 0;
   }
 
   /** Simulation must be built only from the authoritative field's immutable physics. */
@@ -212,8 +213,29 @@ export class OnlinePrediction {
       }
       if (!this.predict(held, this.predictedTick + 1 === desired)) break;
     }
+    if (steps) this.lastStepAt = now;
     this.catchUpDebt = Math.max(0, desired - this.predictedTick);
     return steps;
+  }
+
+  /** Browser presentation of the newest two authenticated 30 ms kernel states.
+   * The scheduler's actual step time is the interpolation anchor, so timer jitter
+   * stretches one quantum instead of stalling the drawn pose; replay and correction
+   * never move the anchor because they reproduce states that were already presented.
+   * @param {number} now Local scheduler time in milliseconds.
+   * @param {{x:number,y:number}} target Reused pose scratch; never allocated per frame.
+   */
+  interpolate(now, target) {
+    const sim = this.simulation;
+    if (!sim) return target;
+    let alpha = 1;
+    if (this.ready && this.lastStepAt > 0 && Number.isFinite(now)) {
+      alpha = (now - this.lastStepAt) / sim.effectiveSettings.quantumMs;
+      alpha = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+    }
+    target.x = sim.previousX + (sim.x - sim.previousX) * alpha;
+    target.y = sim.previousY + (sim.y - sim.previousY) * alpha;
+    return target;
   }
 
   predict(held, transmit) {
@@ -277,6 +299,7 @@ export class OnlinePrediction {
     this.fieldEpoch = null;
     this.ackInputSeq = 0;
     this.catchUpDebt = 0;
+    this.lastStepAt = 0;
   }
 
   snapshot() {

@@ -1,7 +1,9 @@
 import { protocolError, validUnicode } from "./schema.js";
 
 const HARD_MAX_BYTES = 1048576;
-const HARD_MAX_NODES = 65536;
+// The byte cap already bounds work; the node ceiling must admit the largest legal schema payload
+// (the 4096-record native quest projection is about 100k nodes).
+const HARD_MAX_NODES = 262144;
 const HARD_MAX_DEPTH = 32;
 const NUMBER_TOKEN = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
 

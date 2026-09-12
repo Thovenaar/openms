@@ -3,12 +3,11 @@ import {
   resolveTutorialPortal,
   tutorialPortalKind,
 } from "../npc/npc-script-portals.js";
+import {
+  portalEntryContains, portalRectangleContains, portalRevealContains, updatePortalGraphics,
+} from "./portal-presentation.js";
 
 const MAX_PORTALS = 4096;
-// 0094df9b -> 00712ab1 and 00950555 -> 00712c57, respectively.
-const ENTRY_HALF_WIDTH = 20;
-const REVEAL_HALF_WIDTH = 100;
-const HALF_HEIGHT = 50;
 const REQUEST_INTERVAL_MS = 500; // 0053035d: elapsed > 499, cross-map request only.
 const SAME_MAP_ADMISSION_MS = 120; // 00957b74: provisional +0x2b2c guard.
 const SAME_MAP_RECOVERY_MS = 600; // 0094e5e5: movement commits next update, then guard=now+600.
@@ -122,15 +121,8 @@ export class PortalTravelGate {
 }
 
 /** Original Win32 PtInRect uses exclusive right/bottom boundaries and integer feet. */
-function contains(portal, sim, halfWidth, halfHeight = HALF_HEIGHT) {
-  const x = Math.trunc(sim.x),
-    y = Math.trunc(sim.y);
-  return (
-    x >= portal.x - halfWidth &&
-    x < portal.x + halfWidth &&
-    y >= portal.y - halfHeight &&
-    y < portal.y + halfHeight
-  );
+function contains(portal, sim, halfWidth, halfHeight) {
+  return portalRectangleContains(portal, sim, halfWidth, halfHeight);
 }
 
 function containsAutomatic(record, sim) {
@@ -435,13 +427,13 @@ export class PortalSystem {
       if (!this.automatic && containsAutomatic(record, sim)) {
         this.automatic = record;
       }
-      if (!this.candidate && contains(portal, sim, ENTRY_HALF_WIDTH)) {
+      if (!this.candidate && portalEntryContains(portal, sim)) {
         this.candidate = record;
       }
       if (
         !this.reveal &&
         (portal.type === 10 || portal.type === 11) &&
-        contains(portal, sim, REVEAL_HALF_WIDTH)
+        portalRevealContains(portal, sim)
       ) {
         this.reveal = record;
       }
@@ -470,44 +462,7 @@ export class PortalSystem {
 
   /** Region replacement is detected by identity: do not hold sprites/leases after eviction. */
   updateGraphics(record) {
-    if (
-      !record.entityId ||
-      (record.portal.type !== 10 && record.portal.type !== 11)
-    ) {
-      return;
-    }
-    const animation = this.scene.byId.get(record.entityId);
-    if (!animation) {
-      record.animation = null;
-      record.phase = "hidden";
-      return;
-    }
-    if (record.animation !== animation) {
-      record.animation = animation;
-      record.phase = "hidden";
-      record.desired = false;
-      animation.container.visible = false;
-    }
-    const desired = this.reveal === record;
-    if (desired !== record.desired) {
-      record.desired = desired;
-      record.phase = desired ? "portalStart" : "portalExit";
-      animation.container.visible = true;
-      animation.setAction(record.phase, "once");
-    }
-    if (
-      record.phase === "portalStart" &&
-      animation.elapsedMs >= animation.current.duration
-    ) {
-      record.phase = "portalContinue";
-      animation.setAction(record.phase);
-    } else if (
-      record.phase === "portalExit" &&
-      animation.elapsedMs >= animation.current.duration
-    ) {
-      record.phase = "hidden";
-      animation.container.visible = false;
-    }
+    updatePortalGraphics(this.scene, record, this.reveal === record);
   }
 
   /** Named route errors stay visible and retain the current scene; no rejection is swallowed. */

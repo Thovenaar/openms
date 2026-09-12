@@ -23,6 +23,7 @@ const MAX_EPHEMERAL_RECEIPTS = 4096;
 // These handlers mutate durable domains but do not publish their own replacement views.
 const LOCAL_SNAPSHOT_ACTIONS = new Set([
   "inventory.move",
+  "inventory.gather",
   "equipment.equip",
   "equipment.unequip",
   "item.use",
@@ -33,6 +34,11 @@ const LOCAL_SNAPSHOT_ACTIONS = new Set([
   "stats.allocate",
   "skills.allocate",
   "buff.cancel",
+  "settings.save",
+  "key-bindings.save",
+  "skill-macros.save",
+  "quest.track",
+  "quest.notice",
 ]);
 
 /** A replay returns its original receipt but always reconciles against current authority. */
@@ -80,16 +86,28 @@ function dispatchCharacter(actor, message, world, operation) {
       );
     case "skill.cast":
       return world.cast(actor, message.action, operation);
-    case "buff.cancel":
-    case "stats.allocate":
-    case "skills.allocate":
-      return executeCharacter(actor, message, world, operation);
     case "npc.open":
     case "quest.accept":
     case "quest.claim":
     case "quest.abandon":
     case "trade.invite":
       return executeInteraction(actor, message, world);
+    default:
+      return dispatchCharacterMutation(actor, message, world, operation);
+  }
+}
+
+function dispatchCharacterMutation(actor, message, world, operation) {
+  switch (message.action.kind) {
+    case "buff.cancel":
+    case "stats.allocate":
+    case "skills.allocate":
+    case "settings.save":
+    case "key-bindings.save":
+    case "skill-macros.save":
+    case "quest.track":
+    case "quest.notice":
+      return executeCharacter(actor, message, world, operation);
     default:
       reject("INVALID_MESSAGE", "The action has no character handler.");
   }
@@ -102,16 +120,24 @@ function dispatchInventory(actor, message, world, operation) {
     case "item.drop":
     case "mesos.drop":
       return executeDrop(actor, message, world, operation);
+    case "shop.buy":
+    case "shop.sell":
+    case "shop.recharge":
+      return executeInteraction(actor, message, world);
+    default:
+      return dispatchInventoryMutation(actor, message, world, operation);
+  }
+}
+
+function dispatchInventoryMutation(actor, message, world, operation) {
+  switch (message.action.kind) {
     case "inventory.move":
+    case "inventory.gather":
     case "equipment.equip":
     case "equipment.unequip":
     case "item.use":
     case "equipment.scroll":
       return executeInventory(actor, message, world, operation);
-    case "shop.buy":
-    case "shop.sell":
-    case "shop.recharge":
-      return executeInteraction(actor, message, world);
     default:
       reject("INVALID_MESSAGE", "The action has no inventory handler.");
   }

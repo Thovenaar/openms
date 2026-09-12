@@ -27,7 +27,9 @@ export function layoutTradeInvitation(panel, trade) {
   panel.invitationUpdate = () => updateInvitation(panel);
   panel.cleanups.push(trade.subscribe(() => settleInvitation(panel)));
   panel.cleanups.push(() => {
-    if (!panel.invitationHandoff) trade.cancel(1);
+    if (!panel.invitationHandoff) {
+      Promise.resolve(trade.cancel(1)).catch((error) => panel.owner.report(error));
+    }
   });
   updateInvitation(panel);
 }
@@ -128,10 +130,18 @@ function socialInvitationPresentation(kind) {
   }
 }
 
-function answerInvitation(panel, accepted) {
+async function answerInvitation(panel, accepted) {
   if (panel.disposed || panel.invitationSettling) return;
-  const result = accepted ? panel.trade.accept(1) : panel.trade.decline(1);
-  if (!result.ok) panel.owner.status(result.reason);
+  panel.invitationSettling = true;
+  try {
+    const result = await (accepted ? panel.trade.accept(1) : panel.trade.decline(1));
+    if (!result.ok) panel.owner.status(result.reason);
+  } catch (error) {
+    panel.owner.report(error);
+  } finally {
+    panel.invitationSettling = false;
+    settleInvitation(panel);
+  }
 }
 
 /** Queue retirement outside LocalTrade's synchronous observer traversal. */

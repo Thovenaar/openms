@@ -1,4 +1,6 @@
 import { GameUI } from "./ui/game-ui.js";
+import { ProfileControls } from "./ui/ui-inspection.js";
+import { ItemUse } from "./items/item-use.js";
 import { PortalSystem, PortalTravelGate } from "./world/portal-system.js";
 import { LifeSystem } from "./world/life-system.js";
 import { NpcWorldPresentation } from "./npc/npc-world-presentation.js";
@@ -85,7 +87,7 @@ class FieldSystems {
         this.monsterSpawner,
       ]);
       this.gameplay = this.createGameplay(store);
-      this.life = new LifeSystem(scene, owner.fieldHooks);
+      this.life = this.createLife();
       this.npcWorld = this.createNpcWorld();
       this.character = new CharacterBindings(scene, store, this.gameplay, {
         now: owner.hooks.now,
@@ -118,6 +120,14 @@ class FieldSystems {
       openTutorialNpc: this.profileServices.npc.openPortal.bind(
         this.profileServices.npc,
       ),
+    });
+  }
+  createLife() {
+    return new LifeSystem(this.scene, {
+      ...this.owner.fieldHooks,
+      authority: "offline-local-policy",
+      canTalk: () => this.gameplay.prepared && !this.gameplay.dead,
+      mobState: (id) => this.scene.offlineField.byId.get(id),
     });
   }
   createNpcWorld() {
@@ -494,6 +504,11 @@ export class InGameSystems {
     const hooks = this.hooks;
     return new GameUI(this.app, this.services, {
       ...nativeInterfaceHooks(this),
+      createProfileControls: (owner) => new ProfileControls(owner),
+      saveSettings: (settings) =>
+        this.store.commitProfile((profile) => {
+          profile.settings = structuredClone(settings);
+        }),
       now: hooks.now,
       clearInput: hooks.clearInput,
       keyDown: hooks.keyDown,
@@ -958,6 +973,11 @@ export class InGameSystems {
       this.scene.simulation,
     );
   }
+  /** Route normal NPC requests through the current field authority. */
+  interact(id) {
+    return this.scene?.fieldSystems.life.interactWorld(id) ?? false;
+  }
+
   pickup() {
     if (!this.scene || this.hooks.isBlocked() || this.ui.blocksGameplay()) {
       return false;
@@ -1018,7 +1038,7 @@ export class InGameSystems {
     }
     this.ui.setProfile(store, this.quests);
     this.native.activate();
-    const bindings = new KeyBindings(store, this.catalog, {
+    const bindingHooks = {
       onAction: (name) => this.activateBinding(name),
       onSkill: this.activateSkill.bind(this),
       onSkillRelease: (id) => this.scene?.fieldSystems.skills.release(id),
@@ -1038,6 +1058,11 @@ export class InGameSystems {
       prepareTemporaryStat: (kind, id) =>
         this.ui.temporaryStats.prepareSource(kind, id),
       report: (message) => this.ui.status(message),
+    };
+    const bindings = new KeyBindings(store, this.catalog, {
+      ...bindingHooks,
+      itemUse: new ItemUse(store, this.catalog, bindingHooks),
+      saveBindings: (value) => store.commitKeyBindings(value),
     });
     this.bindings?.destroy();
     this.bindings = bindings;

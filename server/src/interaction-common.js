@@ -45,7 +45,35 @@ export function interactionReceipt(revision, value) {
 }
 
 export function publishInteraction(world, actor, event) {
+  retainInteraction(actor, event);
   world.publish(actor, { type: "event", fieldEpoch: actor.field.epoch, event });
+}
+
+/** Retain only active lease views, never replay scripts or their effects on resync. */
+function retainInteraction(actor, event) {
+  actor.nativeInteractions ??= new Map();
+  const views = actor.nativeInteractions;
+  if (event.kind === "dialogue.closed") {
+    views.delete("dialogue");
+    views.delete("quest.offer");
+    views.delete("shop");
+  } else if (event.kind === "trade") {
+    if (["committed", "cancelled"].includes(event.state)) views.delete("trade");
+    else views.set("trade", [event]);
+  } else if (event.kind === "shop") {
+    if (event.part === 0) {
+      views.set("shop", []);
+      views.delete("dialogue");
+      views.delete("quest.offer");
+    }
+    views.get("shop").push(event);
+  } else if (event.kind === "dialogue" || event.kind === "quest.offer") {
+    views.set(event.kind, [event]);
+    if (event.kind === "dialogue") {
+      views.delete("quest.offer");
+      views.delete("shop");
+    }
+  }
 }
 
 export function closeConversation(actor, world) {

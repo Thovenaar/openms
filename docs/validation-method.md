@@ -6,7 +6,7 @@ For an explicit world/physics release gate, extract original inputs and start th
 
 ```sh
 bun run extract
-bun run dev:client:offline
+bun run client:dev:offline
 # In another terminal:
 bun run validate --duration 10 --maps 100000000,100000001,104040001,106010000,230030100,211040000 --output artifacts/world-current
 ```
@@ -59,7 +59,7 @@ Failure reports also retain the development error journal as `errorLog.text` wit
 
 Aggregate `report.timings` separates `catalogIdentityMs`, `browserAcquireMs`, `scenariosMs` and `teardownMs`. Each case separates fixture preparation/seeding, context creation, navigation, readiness, actions, final readiness/identity/catalog checks and teardown; failed stages also retain elapsed time. Compare identical named cases serially and with `--concurrency 2`, using distinct output directories and the same source/catalog identities. These are wall-clock observations, not inferred savings. Parent and child timings overlap: do not sum `scenariosMs` with each case's elapsed time.
 
-`bun run dev:client:offline` writes plain stdout lines with elapsed seconds and **0/25/50/75/100% completed stages**: browser build, verified release, HTTP encoding, listener readiness. Intermediate integrity counts preserve the last completed-stage percentage. This is a stage count, not a byte-weighted estimate or ETA;100% is emitted only after readiness. The programmatic server identity retains source hashing/compilation, catalog validation, asset integrity, release publication, HTTP encoding and listener timings.
+`bun run client:dev:offline` writes plain stdout lines with elapsed seconds and **0/25/50/75/100% completed stages**: browser build, verified release, HTTP encoding, listener readiness. Intermediate integrity counts preserve the last completed-stage percentage. This is a stage count, not a byte-weighted estimate or ETA;100% is emitted only after readiness. The programmatic server identity retains source hashing/compilation, catalog validation, asset integrity, release publication, HTTP encoding and listener timings.
 
 ## Persistent smoke loop
 
@@ -85,6 +85,8 @@ Evidence lives under `<output>/<timestamp>-<pid>/generation-N/`, retaining `chan
 Each subprocess also retains `<job>.timing.json`; generation `result.timings` separates `assetProbeMs`, the recorded `assetReuse` decision, optional asset refresh, server startup and browser acquisition/reuse. `result.identity.timings` holds the server stages, `result.nativeTimings` the runner totals, and session `teardown.json` the final owned-resource shutdown. Use these artifacts to identify the dominant stage before changing workflow.
 
 The loop **never** invokes `extract:full`/`--full`, broad `validate`, full-release download, stopped-origin cold reload, project-wide tests, lint or formatting. Those remain explicit release gates. Incremental extraction itself still performs selected-world preflight and verifies output closure; “fast loop” does not mean file-exists shortcuts or hidden skipped identity guards. Do not infer elapsed-time improvements from this procedure: retained reports in [current validation](validation.md) are the measurement authority.
+
+Movement presentation is measured separately from frame rate. `bun run smoothness` samples the presented local-player pose on every animation frame while a real key is held, gates stalled and jerk frames on authoritative kernel movement within a trailing window, and computes a raw-kernel control from the same trace, so a presentation regression stays distinguishable from terrain blocking or deceleration. It runs against the offline or the online client with the same metric and never steps the simulation itself. Stall and jerk ratios are browser presentation policy, not original-client thresholds.
 
 ## Evidence boundaries
 

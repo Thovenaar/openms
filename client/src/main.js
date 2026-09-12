@@ -1,4 +1,8 @@
 import { Application } from "pixi.js";
+import {
+  initializeBrowserSurface,
+  resizeBrowserSurface,
+} from "./rendering/browser-surface.js";
 import { Network, check, aborted } from "./rendering/stream-network.js";
 import { AtlasStore } from "./rendering/stream-atlas.js";
 import { StreamScene } from "./rendering/stream-scene.js";
@@ -11,6 +15,11 @@ import {
 import { createPlayerInput } from "./input/player-input.js";
 import { createControls } from "./development/scene-controls.js";
 import { initializeInspectionTheme } from "./development/inspection-theme.js";
+import { mountStateTesting } from "./development/state-testing.js";
+import {
+  questObjectives,
+  questPartition,
+} from "./quests/quest-journal-model.js";
 import { createDebugOverlay } from "./development/debug-overlay.js";
 import {
   advanceSimulation,
@@ -55,6 +64,10 @@ const sourceBuildId = import.meta.MAPLE_SOURCE_ID ?? null;
 let agentSurface = null;
 let development = null;
 let diagnostics = null;
+let stateTesting = null;
+let testingProfile = null;
+let testingQuestOwner = null;
+let testingQuests = [];
 
 const app = new Application();
 const viewport = document.querySelector("#viewport");
@@ -70,7 +83,6 @@ const network = new Network();
 const consoleEvents = new AbortController();
 const hitboxInspector = new HitboxInspector(network);
 const services = { network, atlases: null };
-const MAX_DISPLAY_DENSITY = 4;
 const metrics = {
   frames: 0,
   loadAttempts: 0,
@@ -331,27 +343,10 @@ function advanceLiveFrame(elapsed) {
   if (!paused && !loading) updatePlayer(elapsed);
   if (!paused) advanceCamera(elapsed);
 }
-/** Output density changes backing pixels, never logical gameplay/UI coordinates. */
-function displayDensity() {
-  const density = window.devicePixelRatio;
-  if (
-    !Number.isFinite(density) ||
-    density <= 0 ||
-    density > MAX_DISPLAY_DENSITY
-  ) {
-    throw new RangeError("Display density must be positive and at most 4.");
-  }
-  return density;
-}
 
 function resize() {
   if (destroyed) return;
-  // A bounded drawable surface also bounds background repetition pools.
-  app.renderer.resize(
-    Math.max(1, Math.min(2560, viewport.clientWidth)),
-    Math.max(1, Math.min(1440, viewport.clientHeight)),
-    displayDensity(),
-  );
+  resizeBrowserSurface(app, viewport);
   diagnostics?.viewportChanged(app.screen.width, app.screen.height);
   if (current) {
     for (const entity of current.backgrounds) {
@@ -418,6 +413,77 @@ function inspect() {
   checkpointProfile();
   if (profileStore?.error) showError(new Error(profileStore.error));
   controls.refresh(snapshot());
+  stateTesting?.refresh();
+}
+
+/** Offline inspection reads the retained local authority; it never opens a server session. */
+function offlineTestingState() {
+  return {
+    quests: { entries: offlineTestingQuests(), offer: null },
+    ...offlineConnectionState(),
+    content: { sourceBuildId, assetBuildId: catalog?.buildId ?? null },
+    prediction: offlinePredictionState(),
+    operations: offlineOperationState(),
+    peers: profileStore?.profile?.social ?? null,
+  };
+}
+
+function offlineConnectionState() {
+  return {
+    connection: {
+      authority: "offline",
+      characterId: profileStore?.id ?? null,
+    },
+  };
+}
+
+function offlinePredictionState() {
+  return {
+    authority: "local fixed-step simulation",
+    quantumMs: current?.simulation.effectiveSettings.quantumMs ?? null,
+    diagnostics: current?.simulation.diagnostics ?? null,
+  };
+}
+
+function offlineOperationState() {
+  return {
+    profileTransactionPending: profileStore?.profileTransactionPending ?? false,
+    fieldLoading: loading,
+    paused,
+    lastError,
+  };
+}
+
+function offlineTestingQuests() {
+  const quests = inGame?.quests;
+  const profile = profileStore?.profile;
+  if (profile === testingProfile && quests === testingQuestOwner) {
+    return testingQuests;
+  }
+  testingProfile = profile;
+  testingQuestOwner = quests;
+  testingQuests = [];
+  if (!quests || !profile) return testingQuests;
+  for (const record of quests.records) {
+    const partition = questPartition(quests, record);
+    if (partition < 0) continue;
+    testingQuests.push({
+      id: record.id,
+      name: record.name,
+      state: ["available", "active", "claimed"][partition],
+      ready: quests.isReady(record),
+      objectives: partition === 1 ? questObjectives(quests, record) : [],
+    });
+  }
+  return testingQuests;
+}
+
+function offlineTestingCommand(action) {
+  if (action.kind !== "inspection.quest-journal") {
+    throw new Error("Unknown offline inspection request");
+  }
+  if (!inGame?.scene) throw new Error("No field is ready");
+  return { accepted: inGame.activateBinding("Quest") };
 }
 async function resetSaveAndReload() {
   if (inGame?.native && profileStore.profile) {
@@ -475,37 +541,24 @@ async function reloadAfterReset(store = profileStore) {
 }
 async function initialize() {
   initializeInspectionTheme(consoleEvents.signal);
+  stateTesting = mountStateTesting({
+    root: document.querySelector("#state-testing-controls"),
+    mode: "offline",
+    read: offlineTestingState,
+    command: offlineTestingCommand,
+    signal: consoleEvents.signal,
+  });
   offlineDelivery = await initializeOfflineDelivery(
     document.querySelector("#offline-controls"),
     prepareInitialMap,
   );
   await offlineDelivery.ready;
-  await app.init({
-    preference: "webgl",
-    preferWebGLVersion: 2,
-    width: 1,
-    height: 1,
-    resolution: displayDensity(),
-    autoDensity: true,
-    antialias: false,
-    background: "#101820",
-    autoStart: false,
-    sharedTicker: false,
-    preserveDrawingBuffer: true,
-  });
+  await initializeBrowserSurface(app, viewport);
   if (destroyed) {
     app.destroy(true);
     throw aborted();
   }
   initialized = true;
-  app.stage.sortableChildren = true;
-  app.canvas.id = "scene-canvas";
-  app.canvas.tabIndex = 0;
-  app.canvas.setAttribute(
-    "aria-label",
-    "Playable original asset map. Arrows move and climb. Other actions follow your KeyConfig. Enter opens chat.",
-  );
-  viewport.prepend(app.canvas);
   initializeInterface();
   observer = new ResizeObserver(resize);
   observer.observe(viewport);
@@ -1810,6 +1863,7 @@ async function destroy() {
   document.removeEventListener("visibilitychange", visibilityChanged);
   window.removeEventListener("pagehide", pageLeaving);
   consoleEvents.abort();
+  stateTesting?.destroy();
   await api.ready?.catch((error) => {
     if (error.name !== "AbortError") showError(error);
   });

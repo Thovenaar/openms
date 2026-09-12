@@ -130,6 +130,8 @@ export class QuestReadyNotification {
     const active = this.active;
     if (!active) return;
     await this.owner.open("Quest");
+    const acknowledgement = await this.quests.acknowledgeReady?.(active.record.id);
+    if (acknowledgement && !acknowledgement.ok) throw new Error(acknowledgement.reason);
     if (this.active === active) this.retire();
   }
 

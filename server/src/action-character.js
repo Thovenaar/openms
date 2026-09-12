@@ -32,6 +32,7 @@ import {
   createServerRandom,
 } from "./action-rules.js";
 
+import { executeNativePreference } from "./action-native.js";
 // Online command engineering bound; each point still uses the shared reference-policy rule.
 export const MAX_ALLOCATION_BATCH = 256;
 
@@ -121,6 +122,13 @@ export async function executeCharacter(actor, message, world, operation) {
         case "buff.cancel":
           cancelBuff(profile, message.action, context);
           break;
+        case "settings.save":
+        case "key-bindings.save":
+        case "skill-macros.save":
+        case "quest.track":
+        case "quest.notice":
+          executeNativePreference(profile, message.action, context);
+          break;
         default:
           reject("INVALID_MESSAGE", "Not a character mutation.");
       }
@@ -188,6 +196,7 @@ function installItemEffect(state, templateId, effect, now) {
     kind: "item",
     cancelable: true,
     expiresAt: now + effect.values.time,
+    duration: effect.values.time,
     spec: { ...effect.values },
   };
   if (index >= 0) state.effects.splice(index, 1);

@@ -7,7 +7,7 @@ import {
   CHAT_RATE_LIMITS,
   sanitizeChat,
   admitChat,
-} from "../social/local-chat.js";
+} from "../social/chat-rules.js";
 
 // 00490701 bounds history to eight; 008d379a selects 70 for ordinary users.
 const HISTORY_LIMIT = 8;
@@ -155,7 +155,8 @@ export class UIChat {
     );
   }
 
-  setState(state) {
+  setState(state, publish = true) {
+    const changed = state !== this.state;
     // Minimize only the history. The channel selector and draft remain usable.
     if (state === 1 && this.layer.element.contains(document.activeElement)) {
       document.activeElement.blur();
@@ -186,6 +187,10 @@ export class UIChat {
     this.grip.style.top = `${HUD_CLIENT_Y + 504 - expanded}px`;
     this.selector.show(false);
     this.owner.hooks.clearInput();
+    this.publishStateChange(publish, changed);
+  }
+  publishStateChange(publish, changed) {
+    if (publish && changed && !this.resizeStart) this.publishSettings();
   }
 
   open() {
@@ -339,17 +344,20 @@ export class UIChat {
     }
     if (
       result.delivery !== "local-only" &&
-      result.delivery !== "local-session"
+      result.delivery !== "local-session" &&
+      result.delivery !== "server"
     ) {
       throw new TypeError(
-        "Chat authority did not identify a supported local delivery",
+        "Chat authority did not identify a supported delivery",
       );
     }
     this.remember(text);
     this.owner.status(
-      result.delivery === "local-only"
-        ? "Local speech displayed; not sent to a server."
-        : "Delivered to the permitted loaded local participants; no server was contacted.",
+      result.delivery === "server"
+        ? "Message delivered by the server."
+        : result.delivery === "local-only"
+          ? "Local speech displayed; not sent to a server."
+          : "Delivered to the permitted loaded local participants; no server was contacted.",
     );
   }
 
@@ -404,7 +412,7 @@ export class UIChat {
       throw new TypeError("Invalid chat configuration");
     }
     this.height = settings.height;
-    this.setState(settings.state);
+    this.setState(settings.state, false);
   }
 
   /** Only an actual session/system producer may append; send() never fabricates an All echo. */
@@ -479,7 +487,7 @@ export class UIChat {
     this.height = checkpoint.height;
     this.composing = false;
     this.endResize();
-    this.setState(checkpoint.state);
+    this.setState(checkpoint.state, false);
     this.messages.restore(checkpoint.log);
     this.selector.show(checkpoint.channelMenuOpen);
   }
@@ -562,7 +570,11 @@ export class UIChat {
     this.setState(3);
   }
 
+  publishSettings() {
+    this.owner.hooks.onChatSettings?.({ state: this.state, height: this.height });
+  }
   endResize() {
+    if (this.resizeStart) this.publishSettings();
     this.resizeStart = null;
     this.resizeHighlight.container.visible = false;
   }

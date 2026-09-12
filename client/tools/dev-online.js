@@ -1,8 +1,8 @@
-import { resolve, dirname, sep } from "node:path";
-import { realpath } from "node:fs/promises";
+import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildOnlineBrowser } from "./browser-build.js";
 import { PROTOCOL } from "../../shared/protocol.js";
+import { createStaticResources } from "./static-resources.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_BACKLOG = 1024 * 1024;
@@ -38,86 +38,11 @@ function upstreamOrigin(value) {
   return upstream.origin;
 }
 
-function resource(path) {
-  const shells = new Map([
-    ["/", "online.html"],
-    ["/index.html", "online.html"],
-    ["/online.html", "online.html"],
-    ["/online.css", "online.css"],
-    ["/style.css", "style.css"],
-  ]);
-  if (shells.has(path)) {
-    return { root: ROOT, name: shells.get(path), immutable: false };
-  }
-  if (path === "/generated/catalog.json") {
-    return {
-      root: resolve(ROOT, "public/generated"),
-      name: "catalog.json",
-      immutable: false,
-    };
-  }
-  if (path === "/dist/atlas-worker.js") {
-    return {
-      root: resolve(ROOT, "dist/online"),
-      name: "atlas-worker.js",
-      immutable: false,
-    };
-  }
-  if (/^\/dist\/online\/[A-Za-z0-9_.-]+\.(js|map)$/.test(path)) {
-    return {
-      root: resolve(ROOT, "dist/online"),
-      name: path.slice("/dist/online/".length),
-      immutable: false,
-    };
-  }
-  if (
-    /^\/generated\/(maps|regions|references|bundles|atlases|textures|audio)\/[a-f0-9]{64}\.(json|png|wav|mp3|bin)$/.test(
-      path,
-    )
-  ) {
-    return {
-      root: resolve(ROOT, "public/generated"),
-      name: path.slice("/generated/".length),
-      immutable: true,
-    };
-  }
-  return null;
-}
-
-async function serveResource(request, path) {
-  if (!["GET", "HEAD"].includes(request.method)) {
-    return new Response("Method not allowed", { status: 405 });
-  }
-  const target = resource(path);
-  if (!target) return new Response("Not found", { status: 404 });
-  let filename;
-  try {
-    filename = await realpath(resolve(target.root, target.name));
-  } catch (error) {
-    if (!["ENOENT", "ENOTDIR"].includes(error.code)) throw error;
-    return new Response("Content unavailable; use existing extraction setup", {
-      status: 404,
-    });
-  }
-  if (!filename.startsWith(target.root + sep)) {
-    return new Response("Forbidden", { status: 403 });
-  }
-  const file = Bun.file(filename);
-  return new Response(request.method === "HEAD" ? null : file, {
-    headers: {
-      "Content-Type": file.type,
-      "Cache-Control": target.immutable
-        ? "public, max-age=31536000, immutable"
-        : "no-store",
-      "X-Content-Type-Options": "nosniff",
-      "Referrer-Policy": "no-referrer",
-    },
-  });
-}
 
 /** Development proxy changes transport routing only; the upstream remains sole authority. */
 class OnlineProxy {
-  constructor(config) {
+  constructor(config, resources) {
+    this.resources = resources;
     this.config = config;
     this.relays = new Set();
     this.handlers = {
@@ -153,7 +78,7 @@ class OnlineProxy {
           signal: AbortSignal.timeout(15_000),
         });
       }
-      return await serveResource(request, decodeURIComponent(url.pathname));
+      return await this.resources.fetch(request);
     } catch (error) {
       console.error("Online development request failed:", error.message);
       return Response.json(
@@ -276,9 +201,10 @@ export async function startOnlineDevServer(options = {}) {
   const started = performance.now();
   const identity = await buildOnlineBrowser({
     development: true,
-    progress: console.log,
+    progress: options.progress ?? console.log,
   });
-  const proxy = new OnlineProxy(config);
+  const resources = createStaticResources({ root: ROOT, online: true, html: identity.html });
+  const proxy = new OnlineProxy(config, resources);
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: config.port,

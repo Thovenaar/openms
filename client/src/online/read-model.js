@@ -39,104 +39,14 @@ export function makeAppearanceProfile(appearance) {
   });
 }
 
-function itemView(item) {
-  return {
-    uid: item.id,
-    id: item.templateId,
-    count: item.quantity,
-    slot:
-      item.location.kind === "equipped"
-        ? -item.location.slot
-        : item.location.slot,
-    tab: item.location.kind === "inventory" ? item.location.tab : "equip",
-    revision: item.revision,
-    upgrade: item.equipment
-      ? {
-          slots: item.equipment.upgradesRemaining,
-          successes: item.equipment.upgradesUsed,
-          stats: Object.fromEntries(
-            item.equipment.stats.map((stat) => [stat.key, stat.value]),
-          ),
-        }
-      : null,
-  };
-}
 
-function skillViews(progress) {
-  const skills = Object.create(null);
-  for (const skill of progress.skills) {
-    skills[skill.id] = {
-      level: skill.rank,
-      masterLevel: skill.mastery,
-      cooldownUntil: skill.cooldownUntil,
-    };
-  }
-  return skills;
-}
-
-function questViews(progress) {
-  const quests = Object.create(null);
-  for (const quest of progress.quests) {
-    quests[quest.id] = {
-      state: quest.state === "active" ? 1 : 2,
-      ready: quest.ready,
-      revision: quest.revision,
-      objectives: quest.objectives,
-    };
-  }
-  return quests;
-}
-
-/** Convert only server observations. Catalog is immutable presentation metadata, not authority. */
+/** Native profile data is validated at assembly and remains exclusively server owned. */
 export function makeViewProfile(snapshot, catalog) {
-  if (!snapshot?.self || !snapshot.inventory || !snapshot.progress) {
-    throw new Error("Complete online snapshot required");
+  if (!snapshot?.presentation?.profile || !snapshot.self || !snapshot.inventory || !snapshot.progress) {
+    throw new Error("Complete online native presentation required");
   }
-  if (catalog && catalog.schemaVersion !== 2) {
-    throw new Error("Unsupported presentation catalog");
-  }
-  const self = snapshot.self;
-  const appearance = makeAppearanceProfile(self.entity.appearance);
-  const inventory = [],
-    equipment = [];
-  for (const item of snapshot.inventory.items) {
-    (item.location.kind === "equipped" ? equipment : inventory).push(
-      itemView(item),
-    );
-  }
-  const skills = skillViews(snapshot.progress);
-  const quests = questViews(snapshot.progress);
-  return freezeView({
-    ...appearance,
-    hp: self.hp,
-    mp: self.mp,
-    maxHP: self.maxHp,
-    maxMP: self.maxMp,
-    job: self.job,
-    level: self.level,
-    exp: self.exp,
-    remainingAp: self.ap,
-    remainingSp: [...self.sp],
-    str: self.stats.str,
-    dex: self.stats.dex,
-    int: self.stats.int,
-    luk: self.stats.luk,
-    meso: snapshot.inventory.mesos,
-    inventory,
-    equipment,
-    inventorySlots: ["equip", "use", "setup", "etc", "cash"].map(
-      (tab) => snapshot.inventory.capacities[tab],
-    ),
-    skills,
-    quests,
-    effects: self.effects,
-    location: {
-      mapId: snapshot.field.mapId,
-      x: self.entity.position.x,
-      y: self.entity.position.y,
-    },
-    revisions: snapshot.revisions,
-  });
+  if (catalog && catalog.schemaVersion !== 2) throw new Error("Unsupported presentation catalog");
+  return freezeView(snapshot.presentation.profile);
 }
 
 /** Explicitly separate, nonpersistent browser presentation preferences. */

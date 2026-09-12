@@ -53,6 +53,7 @@ export async function openShop(actor, world, lease, shopId) {
       kind: "shop",
       shopSession: session.id,
       npcId: session.npcId,
+      npcTemplateId: session.npcTemplateId,
       revision: session.revision,
       part,
       parts,

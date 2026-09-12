@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { KeyBindings } from "../src/input/key-bindings.js";
+import { ItemUse } from "../src/items/item-use.js";
 import {
   createProfile,
   migrateProfile,
@@ -30,17 +31,13 @@ function bindingCatalog() {
   };
 }
 
+function potionStack() {
+  return { uid: "potion-stack", id: 2000000, count: 2, slot: 1, owner: "", flags: 0, expiresAt: null };
+}
+
 function fixture() {
   const profile = createProfile(LOCATION);
-  profile.inventory.push({
-    uid: "potion-stack",
-    id: 2000000,
-    count: 2,
-    slot: 1,
-    owner: "",
-    flags: 0,
-    expiresAt: null,
-  });
+  profile.inventory.push(potionStack());
   const listeners = new Set();
   const store = {
     profile,
@@ -70,7 +67,7 @@ function fixture() {
   };
   const catalog = bindingCatalog();
   const controls = { blocked: false, now: 0, actions: [], messages: [] };
-  const service = new KeyBindings(store, catalog, {
+  const hooks = {
     isBlocked: (excluded) =>
       controls.blocked ||
       store.profileTransactionPending ||
@@ -83,7 +80,10 @@ function fixture() {
     report(message) {
       controls.messages.push(message);
     },
-  });
+  };
+  hooks.itemUse = new ItemUse(store, catalog, hooks);
+  hooks.saveBindings = (value) => store.commitKeyBindings(value);
+  const service = new KeyBindings(store, catalog, hooks);
   return { service, store, catalog, controls, profile };
 }
 

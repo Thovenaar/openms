@@ -18,7 +18,7 @@ import {
   refreshQuickSlotConfig,
 } from "../ui/ui-quickslot-config.js";
 import { CHAT_CHANNELS } from "../ui/ui-chat.js";
-import { CHAT_LIMIT } from "../social/local-chat.js";
+import { CHAT_LIMIT } from "../social/chat-rules.js";
 
 const PHASES = ["press", "hold", "release"];
 const ACTIONS = ["left", "right", "up", "down", "jump", "attack"];
@@ -628,7 +628,7 @@ async function dispatchGameplay(systems, command, target) {
       { status: ui.lastStatus ?? null },
     );
   }
-  const accepted = systems.scene.fieldSystems.life.interactWorld(command.id);
+  const accepted = systems.interact(command.id);
   return outcome(
     accepted,
     accepted
@@ -732,10 +732,10 @@ function describeActions(systems) {
       key: { code: PHYSICAL_CODES.slice(), phase: PHASES.slice() },
       action: { action: ACTIONS.slice(), phase: PHASES.slice() },
       interact: {
-        id: "resident life:N NPC; visible, alive and within existing local reach",
+        id: "resident NPC identity; admitted by the current field authority",
       },
       chat: systems?.ui?.chat?.describe() ?? { maximum: CHAT_LIMIT },
-      inventory: { id: "owned numeric item id; ItemUse gates/effects only" },
+      inventory: { id: "owned numeric item id; current authority admission" },
       ui: {
         name: NORMAL_UI_NAMES.slice(),
         semantics:
