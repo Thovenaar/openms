@@ -127,7 +127,9 @@ async function proveDeletion(database, content) {
   });
   profile.name = "Deleted1";
   const created = await database.createCharacter(account.id, profile);
-  expect((await database.listCharacters(account.id)).map((row) => row.id)).toEqual([created.id]);
+  expect(
+    (await database.listCharacters(account.id)).map((row) => row.id),
+  ).toEqual([created.id]);
 
   // A live lease is refused rather than stolen from its owner.
   const actor = await database.acquireLease(account.id, created.id);
@@ -146,7 +148,11 @@ async function proveDeletion(database, content) {
     facing: 1,
   });
   replacement.name = "Deleted1";
-  const recreated = await database.createAccountCharacter(account.id, replacement, () => {});
+  const recreated = await database.createAccountCharacter(
+    account.id,
+    replacement,
+    () => {},
+  );
   expect(recreated.name).toBe("Deleted1");
   await expect(
     database.acquireLease(account.id, created.id),

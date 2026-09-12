@@ -48,12 +48,14 @@ export async function emitOnlineDeployment(root, build) {
       mount: "/generated/",
       source: "client/public/generated/",
       catalog: build.catalog,
-      dependencyPolicy: "Serve the existing generated tree, including every transitive hash-addressed dependency of the catalog. Do not run offline extraction or install a service worker.",
+      dependencyPolicy:
+        "Serve the existing generated tree, including every transitive hash-addressed dependency of the catalog. Do not run offline extraction or install a service worker.",
     },
     api: {
       mount: "/api/",
       websocket: "/api/v1/play",
-      policy: "Route to the matching authoritative server on the same origin; preserve cookies, Origin, CSRF and WebSocket subprotocol checks.",
+      policy:
+        "Route to the matching authoritative server on the same origin; preserve cookies, Origin, CSRF and WebSocket subprotocol checks.",
     },
     http: {
       methods: ["GET", "HEAD"],
@@ -62,9 +64,16 @@ export async function emitOnlineDeployment(root, build) {
       mutableCacheControl: "no-store",
       vary: "Accept-Encoding",
       gzip: { minimumBytes: 65536, maximumBytes: 67108864, level: 6 },
-      headers: { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" },
+      headers: {
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+      },
     },
   };
-  await emit(site, "/deployment.json", new TextEncoder().encode(JSON.stringify(manifest, null, 2)));
+  await emit(
+    site,
+    "/deployment.json",
+    new TextEncoder().encode(JSON.stringify(manifest, null, 2)),
+  );
   return { directory: site, manifest };
 }

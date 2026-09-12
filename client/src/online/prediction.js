@@ -177,7 +177,15 @@ export class OnlinePrediction {
   /** Admit scheduler work only while the installed simulation has fresh authenticated timing. */
   canAdvance(now) {
     const timing = this.timingState;
-    if (!this.ready || !this.simulation || this.paused || !timing?.ready) {
+    if (
+      !this.ready ||
+      !this.simulation ||
+      this.paused ||
+      !timing?.ready ||
+      timing.paused ||
+      timing.connectionEpoch !== this.connectionEpoch ||
+      timing.fieldEpoch !== this.fieldEpoch
+    ) {
       return false;
     }
     if (!Number.isFinite(now) || now < this.lastObservedAt) {
@@ -200,7 +208,12 @@ export class OnlinePrediction {
         (now + timing.oneWayMs + timing.tickOffsetMs) / PROTOCOL.TICK_MS,
       ),
     );
-    const desired = this.arrivalTick + PROTOCOL.INPUT_BUFFER_TICKS;
+    // RTT and timer drift are estimates; only received field ticks grant lead.
+    // At high latency the server may retire late hints rather than accept excess lead.
+    const desired = Math.min(
+      this.arrivalTick + PROTOCOL.INPUT_BUFFER_TICKS,
+      timing.serverTick + PROTOCOL.INPUT_LEAD_TICKS,
+    );
     let steps = 0;
     for (
       ;

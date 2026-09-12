@@ -7,28 +7,17 @@
     "server"
   ],
   "scripts": {
-    "client:dev:offline": "bun client/tools/dev.js",
     "server:dev": "bun server/tools/dev.js",
+    "server:start": "bun server/src/index.js",
+    "client:dev:offline": "bun client/tools/dev.js",
     "client:dev:online": "bun client/tools/dev-online.js",
     "client:build:online": "bun client/tools/build-online.js",
     "dev:docs": "bunx --bun vitepress dev docs",
     "docs:build": "bunx --bun vitepress build docs",
     "docs:preview": "bunx --bun vitepress preview docs",
-    "extract": "bun client/tools/extract.js",
-    "extract:full": "bun client/tools/extract.js --full",
-    "preflight": "bun client/tools/preflight.js",
-    "scenario": "bun client/tools/native-scenarios.js",
-    "smoothness": "bun client/tools/movement-smoothness.js",
-    "smoke": "bun client/tools/smoke.js",
-    "scan": "bun client/tools/scan.js",
-    "data:server": "bun client/tools/server-data.js",
-    "skills:audit": "bun client/tools/skill-report.js",
-    "origins:audit": "bun client/tools/inspect-origins.js",
-    "worldmap:audit": "bun client/tools/worldmap-data.js",
     "test": "bun test",
-    "validate": "bun client/tools/validate.js",
     "lint": "bunx --bun eslint . --max-warnings 0",
-    "format": "bunx --bun prettier --write 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' 'client/public/*.js' 'server/src/**/*.js' 'server/tools/**/*.js' 'server/test/**/*.js' 'shared/**/*.js' client/public/app.webmanifest client/index.html client/style.css client/online.css eslint.config.js package.json client/package.json server/package.json"
+    "format": "bunx --bun prettier --write 'tools/**/*.js' 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' 'client/public/*.js' 'server/src/**/*.js' 'server/tools/**/*.js' 'server/test/**/*.js' 'shared/**/*.js' client/public/app.webmanifest client/index.html client/style.css client/online.css eslint.config.js package.json client/package.json server/package.json"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

@@ -56,7 +56,9 @@ export class KeyBindings {
     this.destroyed = false;
     this.listeners = new Set();
     if (!hooks.itemUse || typeof hooks.saveBindings !== "function") {
-      throw new TypeError("Bindings require item activation and persistence ports.");
+      throw new TypeError(
+        "Bindings require item activation and persistence ports.",
+      );
     }
     this.items = hooks.itemUse;
     this.lastSkillUse = null;

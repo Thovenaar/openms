@@ -1,9 +1,9 @@
 # Deterministic original-asset delivery
 
-`bun run extract` packages the original WZ inputs into schema v2. A smaller explicit selection is:
+`bun tools/openms.js extract` packages the original WZ inputs into schema v2. A smaller explicit selection is:
 
 ```sh
-bun run extract --maps 100000000,100000001,230000000
+bun tools/openms.js extract --maps 100000000,100000001,230000000
 ```
 
 `--map 100000000` selects a single map. `--assets /path/to/original/files` overrides `MAPLE_ASSETS`. The offline integration bounds packaged selections/portal closure at 1024 unique nine-digit map IDs. IDs are sorted before conversion, so argument order cannot change the build. No third-party client assets or implementation are used.
@@ -11,11 +11,11 @@ bun run extract --maps 100000000,100000001,230000000
 ## Incremental extraction and preflight
 
 ```sh
-bun run preflight --report /tmp/maple-preflight.json
-bun run preflight --maps 100000000,100000001 --assets /path/to/original/files --server-reference /path/to/Cosmic --report /tmp/maple-selected-preflight.json
-bun run extract
-bun run extract --maps 100000000,100000001 --cache-dir /path/outside/public-output
-bun run extract:full                     # explicit forced conversion, same default selection
+bun tools/openms.js preflight --report /tmp/maple-preflight.json
+bun tools/openms.js preflight --maps 100000000,100000001 --assets /path/to/original/files --server-reference /path/to/Cosmic --report /tmp/maple-selected-preflight.json
+bun tools/openms.js extract
+bun tools/openms.js extract --maps 100000000,100000001 --cache-dir /path/outside/public-output
+bun tools/openms.js extract --full                     # explicit forced conversion, same default selection
 ```
 
 Preflight accepts `--assets`, `--map`/`--maps`, `--server-reference` and `--report`. It traverses the selected world dependency closure without publishing generated release resources. Its schema-v1 JSON report records `status`, `elapsedMs`, selection IDs/seeds/blocked routes, source provenance, dependencies, failures, normalizations and coverage. Findings retain their original-source ownership; pass means this selected closure is admissible, not that full inventory, Cash Shop, all-skill UI or catalog publication passed. A failing command exits nonzero.
@@ -115,6 +115,8 @@ await delivery.ready; // Verified shell/catalog and initial-map closure; rendere
 Initialization returns the delivery owner after service-worker registration. Main awaits `delivery.ready`: the owner verifies shell/catalog bytes, invokes the saved-map resolver, then verifies that map's transitive dependency closure before creating the renderer. A new profile uses the default map; existing profiles do not download it merely to discover their saved destination. The viewport reports scoped progress and retry errors. Online startup selects the latest release and reloads changed source when necessary. Manifest discovery allows120 seconds for transport and reading its bounded body, not merely receiving response headers. Interrupted transport, including body-read failure or timeout, permits only intact verified installed content; HTTP, hash and JSON failures never masquerade as offline success. `snapshot()`, `refresh()`, `prepareMap(mapId,signal)`, `download()`, `cancel()`, `activate()` and `destroy()` are the integration operations.
 
 Every field preparation calls `prepareMap(mapId,signal)` before loading/publishing its replacement. The worker traverses only the requested map and required shared descriptors, verifies cached bytes and downloads missing resources into the pinned release. Neighbor-map descriptors do not recursively become required startup maps. A map-ready marker is distinct from complete-release readiness. Cancellation/stale callers cannot publish a replacement; an unavailable offline destination leaves the current field and saved location intact.
+
+The separate online shell uses the same original mushroom loading decoration during startup and field download/preparation, without installing the offline service worker or claiming a complete-release download. Its loading owners track real asynchronous preparation of content, avatar and native UI resources; the decoration cannot admit gameplay or fabricate progress. The destination becomes interactive only after native preparation and the matching server readiness handshake, including same-field transfers. Modal input blocking remains distinct from field/network readiness so the native death dialog can submit its own revive confirmation.
 
 The explicit **Download** action still stages the entire selected release, streams bounded resources and checks encoded length/SHA-256. It independently traverses the complete cached catalog closure before writing the completion marker and staged-ready pointer. **Use installed release and reload** re-verifies the full release before atomic activation. This optional action is not invoked by ordinary startup or map travel.
 

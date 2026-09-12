@@ -4,6 +4,7 @@ import { prepareRelease } from "./release-manifest.js";
 import { buildBrowser } from "./browser-build.js";
 import { measureStage } from "./native-evidence.js";
 import { createStaticResources } from "./static-resources.js";
+import { clientEnvironment } from "./environment.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -78,7 +79,7 @@ async function rebuildDevelopment(state) {
 
 /** One owned server; optional synchronous progress keeps programmatic callers quiet. */
 export async function startDevServer(options = {}) {
-  const port = Number(options.port ?? Bun.env.PORT ?? 3100);
+  const port = Number(options.port ?? clientEnvironment.PORT ?? 3100);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PORT must be an integer from 1 to 65535");
   }

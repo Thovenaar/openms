@@ -1,6 +1,12 @@
 import { join } from "node:path";
 import { validateProfile } from "../../src/profile/profile-validation.js";
-import { clickLabel, mapManifest, openConsoleSection, seededProfile, TIMEOUT } from "./native.js";
+import {
+  clickLabel,
+  mapManifest,
+  openConsoleSection,
+  seededProfile,
+  TIMEOUT,
+} from "./native.js";
 
 const MAP_ID = "000010000";
 const PRODUCER = "[data-local-simulation]:not([hidden])";

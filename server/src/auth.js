@@ -161,7 +161,13 @@ export class SessionAuthority {
 
   admitLogin(request, body, address) {
     this.origin(request);
-    closedRecord(body, ["name", "password", "csrfToken", "challengeId", "nonce"]);
+    closedRecord(body, [
+      "name",
+      "password",
+      "csrfToken",
+      "challengeId",
+      "nonce",
+    ]);
     const nonce = this.logins.get(cookieValue(request, "openms_login"));
     this.proofs.consume(`${nonce?.id}\0${address}`, body);
     if (
@@ -213,12 +219,18 @@ export class SessionAuthority {
 
   async register(request, body, address) {
     const nonce = this.admitLogin(request, body, address);
-    if (!/^[A-Za-z0-9_-]{3,16}$/.test(body.name)) throw protocolError("INVALID_MESSAGE");
+    if (!/^[A-Za-z0-9_-]{3,16}$/.test(body.name)) {
+      throw protocolError("INVALID_MESSAGE");
+    }
     this.authWork++;
     try {
       const passwordHash = await Bun.password.hash(body.password);
       const profile = await this.registrationProfile(body.name);
-      const account = await this.database.registerPlayer(body.name, passwordHash, profile);
+      const account = await this.database.registerPlayer(
+        body.name,
+        passwordHash,
+        profile,
+      );
       if (!account) throw protocolError("NAME_TAKEN");
       return this.completeLogin(request, nonce, account);
     } finally {
@@ -230,7 +242,10 @@ export class SessionAuthority {
     const manifest = await this.content.map(this.content.catalog.defaultMap);
     const arrival = nearestSavedArrival(manifest, { x: 0, y: 0, facing: 1 });
     const profile = createProfile({
-      mapId: manifest.id, x: arrival.x, y: arrival.y, facing: arrival.facing,
+      mapId: manifest.id,
+      x: arrival.x,
+      y: arrival.y,
+      facing: arrival.facing,
     });
     profile.name = name;
     return profile;
@@ -241,7 +256,9 @@ export class SessionAuthority {
     if (request.headers.has("origin")) this.origin(request);
     this.prune();
     const nonce = this.logins.get(cookieValue(request, "openms_login"));
-    if (!nonce || nonce.expiresAt <= Date.now()) throw protocolError("NOT_ALLOWED");
+    if (!nonce || nonce.expiresAt <= Date.now()) {
+      throw protocolError("NOT_ALLOWED");
+    }
     const key = `challenge\0${address}`;
     let rate = this.rates.get(key);
     if (!rate) {
@@ -252,7 +269,10 @@ export class SessionAuthority {
     if (!rate.take()) throw protocolError("RATE_LIMITED");
     const challenge = this.proofs.issue(`${nonce.id}\0${address}`);
     nonce.expiresAt = challenge.expiresAt;
-    return { ...challenge, cookie: this.cookie("openms_login", nonce.id, POW_TTL_MS / 1000) };
+    return {
+      ...challenge,
+      cookie: this.cookie("openms_login", nonce.id, POW_TTL_MS / 1000),
+    };
   }
 
   issueSession(account) {

@@ -1,6 +1,9 @@
 import { LifeSystem } from "../world/life-system.js";
 import { NpcWorldPresentation } from "../npc/npc-world-presentation.js";
-import { portalRevealContains, updatePortalGraphics } from "../world/portal-presentation.js";
+import {
+  portalRevealContains,
+  updatePortalGraphics,
+} from "../world/portal-presentation.js";
 
 /** Native life inspection/labels/markers and portal artwork consume observed state only. */
 export class SceneLife {
@@ -10,11 +13,15 @@ export class SceneLife {
     this.life = new LifeSystem(owner.scene, {
       authority: "server-observation",
       entity: (id) => owner.lifeEntities.get(id)?.animation,
-      canTalk: (id) => quests.store.profile.hp > 0 && owner.npcByPlacement.has(id),
-      isBlocked: () => quests.owner.blocked() || quests.owner.ui.blocksGameplay(),
-      onInteract: (record) => owner.intent({
-        kind: "npc.open", npcId: owner.npcByPlacement.get(record.id).entity.id,
-      }),
+      canTalk: (id) =>
+        quests.store.profile.hp > 0 && owner.npcByPlacement.has(id),
+      isBlocked: () =>
+        quests.owner.blocked() || quests.owner.ui.blocksGameplay(),
+      onInteract: (record) =>
+        owner.intent({
+          kind: "npc.open",
+          npcId: owner.npcByPlacement.get(record.id).entity.id,
+        }),
       onError: (error) => quests.owner.report(error),
     });
     this.world = new NpcWorldPresentation(this.life, quests, {
@@ -22,14 +29,18 @@ export class SceneLife {
       services: owner.services,
       ambient: false,
     });
-    const portals = new Map(owner.scene.manifest.physics.portals.map((portal) => [portal.id, portal]));
-    this.portals = owner.scene.manifest.portalPresentation.records.map((record) => ({
-      portal: portals.get(record.portalId),
-      entityId: record.entityId,
-      animation: null,
-      phase: record.status === "looping-graphics" ? "looping" : "hidden",
-      desired: false,
-    }));
+    const portals = new Map(
+      owner.scene.manifest.physics.portals.map((portal) => [portal.id, portal]),
+    );
+    this.portals = owner.scene.manifest.portalPresentation.records.map(
+      (record) => ({
+        portal: portals.get(record.portalId),
+        entityId: record.entityId,
+        animation: null,
+        phase: record.status === "looping-graphics" ? "looping" : "hidden",
+        desired: false,
+      }),
+    );
   }
 
   async prepare() {
@@ -41,8 +52,10 @@ export class SceneLife {
     let reveal = null;
     for (let index = this.portals.length - 1; index >= 0; index--) {
       const record = this.portals[index];
-      if ((record.portal.type === 10 || record.portal.type === 11) &&
-          portalRevealContains(record.portal, this.owner.presentation)) {
+      if (
+        (record.portal.type === 10 || record.portal.type === 11) &&
+        portalRevealContains(record.portal, this.owner.presentation)
+      ) {
         reveal = record;
         break;
       }
@@ -55,7 +68,10 @@ export class SceneLife {
   isInteractive(x, y) {
     const camera = this.owner.scene.camera;
     for (const slot of this.life.slots) {
-      if (slot.target && this.life.containsNpcPoint(slot, x + camera.x, y + camera.y)) {
+      if (
+        slot.target &&
+        this.life.containsNpcPoint(slot, x + camera.x, y + camera.y)
+      ) {
         return true;
       }
     }

@@ -5,7 +5,11 @@ const MAX_HEIGHT = 1440;
 /** Backing density changes pixels, never logical field or native-window coordinates. */
 function displayDensity() {
   const density = window.devicePixelRatio;
-  if (!Number.isFinite(density) || density <= 0 || density > MAX_DISPLAY_DENSITY) {
+  if (
+    !Number.isFinite(density) ||
+    density <= 0 ||
+    density > MAX_DISPLAY_DENSITY
+  ) {
     throw new RangeError("Display density must be positive and at most 4.");
   }
   return density;

@@ -28,7 +28,11 @@ import {
   snapshotParts,
 } from "./field-views.js";
 import { advanceDrops, createFieldDrop } from "./field-drops.js";
-import { transitionActor, portalContact } from "./field-transition.js";
+import {
+  transitionActor,
+  portalContact,
+  prepareLogout,
+} from "./field-transition.js";
 import { developActor, prepareMonsterSpawns } from "./field-development.js";
 import { castSkill } from "./field-skills.js";
 import { sweepInteractions, releaseInteractions } from "./interactions.js";
@@ -204,6 +208,12 @@ export class OnlineWorld {
     return field;
   }
 
+  assertJoiningSession(actor) {
+    if (actor.session?.revoked || actor.retiring) {
+      throw protocolError("SESSION_EXPIRED");
+    }
+  }
+
   async join(actor) {
     if (this.closed || this.overloaded || this.actors.size >= MAX_ACTORS) {
       throw protocolError("SERVER_BUSY");
@@ -217,6 +227,7 @@ export class OnlineWorld {
       actor.profile.location.mapId,
       actor.realm,
     );
+    this.assertJoiningSession(actor);
     if (field.characters.size >= MAX_ACTORS) throw protocolError("SERVER_BUSY");
     actor.arrival = nearestSavedArrival(field.manifest, actor.profile.location);
     actor.simulation = createSimulation(field.physics, actor.arrival);
@@ -243,6 +254,7 @@ export class OnlineWorld {
       fieldEpoch: field.epoch,
       mapId: field.mapId,
     });
+    this.assertJoiningSession(actor);
     this.actors.set(actor.id, actor);
     field.characters.set(actor.id, actor);
     this.invalidateField(field);
@@ -250,6 +262,7 @@ export class OnlineWorld {
   }
 
   leave(actor) {
+    actor.state = "retired";
     releaseInteractions(actor, this);
     actor.field?.characters.delete(actor.id);
     this.actors.delete(actor.id);
@@ -502,6 +515,9 @@ export class OnlineWorld {
   }
   snapshot(actor) {
     return snapshotParts(this, actor);
+  }
+  prepareLogout(actor) {
+    return prepareLogout(this, actor);
   }
   attack(actor) {
     return beginAttack(this, actor);

@@ -543,7 +543,7 @@ function checkDeveloperSession(
   );
   check(
     report,
-    "Console exposes six sections with one panel visible and a GM badge",
+    "Console exposes its task sections with one panel visible and a GM badge",
     consoleState.sections.length === CONSOLE_SECTIONS.length &&
       consoleState.sections.every(
         (section) => section.heading && section.visiblePanels.length === 1,

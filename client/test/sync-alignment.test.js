@@ -2,6 +2,8 @@ import { test, expect } from "bun:test";
 import original from "../../docs/ghidra-physics-motion/wz-globals.json";
 import { createSimulation } from "../src/physics/simulation.js";
 import { OnlinePrediction } from "../src/online/prediction.js";
+import { ServerClock } from "../src/online/transport-clock.js";
+import { PROTOCOL } from "../../shared/protocol.js";
 import {
   createHeldInput,
   assignHeldInput,
@@ -192,5 +194,87 @@ test("presentation never writes the interpolated pose back into the kernel", () 
     expect(target.x).toBeGreaterThanOrEqual(before.previousX);
     expect(target.x).toBeLessThanOrEqual(before.x);
   }
+  expect(captureMotion(simulation)).toEqual(before);
+});
+
+test("prediction sends usable input within authenticated lead despite inflated arrival timing", () => {
+  const sent = [];
+  const simulation = createSimulation(world(), { x: 0, y: -10 });
+  const prediction = new OnlinePrediction({
+    onInput(sample) {
+      sent.push({ ...sample });
+      return sent.length;
+    },
+  });
+  const observation = {
+    connectionEpoch: "epoch",
+    fieldEpoch: "destination",
+    serverTick: 13,
+    ackInputSeq: null,
+    paused: false,
+    motion: captureMotion(simulation),
+  };
+  prediction.install(simulation, observation.serverTick);
+  prediction.observe(observation);
+  const now = performance.now();
+  const clock = new ServerClock();
+  prediction.timing(
+    clock.observe({ ...observation, receivedAt: now, roundTripMs: 300 }),
+  );
+  const held = createHeldInput();
+  held.right = true;
+  // Explicit scheduler times, independent of test-runner stalls and RAF cadence.
+  for (let step = 0; step < 10; step++) {
+    prediction.advance(now + step * PROTOCOL.TICK_MS, held);
+  }
+  expect(sent).toEqual([
+    {
+      targetTick: observation.serverTick + PROTOCOL.INPUT_LEAD_TICKS,
+      horizontal: 1,
+      vertical: 0,
+      jump: false,
+      attack: false,
+    },
+  ]);
+  expect(simulation.x).toBeGreaterThan(observation.motion.x);
+});
+
+test("a freshly installed predictor waits for matching field timing", () => {
+  const sent = [];
+  const simulation = createSimulation(world(), { x: 0, y: -10 });
+  const prediction = new OnlinePrediction({
+    onInput(sample) {
+      sent.push({ ...sample });
+      return sent.length;
+    },
+  });
+  const clock = new ServerClock();
+  prediction.timing(
+    clock.observe({
+      connectionEpoch: "epoch",
+      fieldEpoch: "source",
+      serverTick: 100000,
+      paused: false,
+      receivedAt: performance.now(),
+      roundTripMs: 30,
+    }),
+  );
+  prediction.install(simulation, 13);
+  const before = captureMotion(simulation);
+  prediction.observe({
+    connectionEpoch: "epoch",
+    fieldEpoch: "destination",
+    serverTick: 13,
+    ackInputSeq: null,
+    paused: false,
+    motion: before,
+  });
+  const now = performance.now();
+  const held = createHeldInput();
+  held.right = true;
+  for (let step = 0; step < PROTOCOL.INPUT_HISTORY; step++) {
+    prediction.advance(now + step, held);
+  }
+  expect(sent).toEqual([]);
   expect(captureMotion(simulation)).toEqual(before);
 });

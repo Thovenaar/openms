@@ -39,13 +39,19 @@ export function makeAppearanceProfile(appearance) {
   });
 }
 
-
 /** Native profile data is validated at assembly and remains exclusively server owned. */
 export function makeViewProfile(snapshot, catalog) {
-  if (!snapshot?.presentation?.profile || !snapshot.self || !snapshot.inventory || !snapshot.progress) {
+  if (
+    !snapshot?.presentation?.profile ||
+    !snapshot.self ||
+    !snapshot.inventory ||
+    !snapshot.progress
+  ) {
     throw new Error("Complete online native presentation required");
   }
-  if (catalog && catalog.schemaVersion !== 2) throw new Error("Unsupported presentation catalog");
+  if (catalog && catalog.schemaVersion !== 2) {
+    throw new Error("Unsupported presentation catalog");
+  }
   return freezeView(snapshot.presentation.profile);
 }
 

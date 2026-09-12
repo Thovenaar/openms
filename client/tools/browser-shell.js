@@ -38,7 +38,9 @@ export async function onlineShell(root) {
     .transform(new Response(Bun.file(resolve(root, "index.html"))));
   const html = await response.text();
   if (Object.values(counts).some((count) => count !== 1)) {
-    throw new Error("Authored browser shell changed; online derivation is incomplete");
+    throw new Error(
+      "Authored browser shell changed; online derivation is incomplete",
+    );
   }
   return html;
 }

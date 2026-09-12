@@ -516,14 +516,24 @@ function launchProjectile(world, actor, mob, amount) {
   shot.actionId = actor.attackState.id;
   shot.rank = actor.attackState.rank;
   Object.assign(shot.reaction, actor.reaction);
-  world.broadcast(actor.field, { type: "event", fieldEpoch: actor.field.epoch, event: {
-    kind: "projectile", actionId: shot.actionId, actorId: actor.id, targetId: mob.id,
-    templateId: actor.stats.projectileId, skillId: actor.attackState.skillId,
-    rank: shot.rank,
-    facing: shot.facing,
-    source: { x, y }, destination: { x: x + dx, y: y + dy },
-    durationMs: shot.impactAt - world.now, launchTick: actor.field.tick,
-  } });
+  world.broadcast(actor.field, {
+    type: "event",
+    fieldEpoch: actor.field.epoch,
+    event: {
+      kind: "projectile",
+      actionId: shot.actionId,
+      actorId: actor.id,
+      targetId: mob.id,
+      templateId: actor.stats.projectileId,
+      skillId: actor.attackState.skillId,
+      rank: shot.rank,
+      facing: shot.facing,
+      source: { x, y },
+      destination: { x: x + dx, y: y + dy },
+      durationMs: shot.impactAt - world.now,
+      launchTick: actor.field.tick,
+    },
+  });
 }
 
 function advanceProjectiles(world, actor) {

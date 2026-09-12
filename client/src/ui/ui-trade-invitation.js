@@ -28,7 +28,9 @@ export function layoutTradeInvitation(panel, trade) {
   panel.cleanups.push(trade.subscribe(() => settleInvitation(panel)));
   panel.cleanups.push(() => {
     if (!panel.invitationHandoff) {
-      Promise.resolve(trade.cancel(1)).catch((error) => panel.owner.report(error));
+      Promise.resolve(trade.cancel(1)).catch((error) =>
+        panel.owner.report(error),
+      );
     }
   });
   updateInvitation(panel);
@@ -134,7 +136,9 @@ async function answerInvitation(panel, accepted) {
   if (panel.disposed || panel.invitationSettling) return;
   panel.invitationSettling = true;
   try {
-    const result = await (accepted ? panel.trade.accept(1) : panel.trade.decline(1));
+    const result = await (accepted
+      ? panel.trade.accept(1)
+      : panel.trade.decline(1));
     if (!result.ok) panel.owner.status(result.reason);
   } catch (error) {
     panel.owner.report(error);

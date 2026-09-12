@@ -11,7 +11,11 @@ import {
 import { decodePNG, comparePixels } from "./validation-png.js";
 import { compareRefreshRates } from "./physics-reference.js";
 import { waitForNativeReady } from "./native-scenario-runner.js";
-import { focusCanvas, openConsoleSection, seededProfile } from "./scenarios/native.js";
+import {
+  focusCanvas,
+  openConsoleSection,
+  seededProfile,
+} from "./scenarios/native.js";
 import { prepareFixture, seedFixture } from "./native-fixtures.js";
 
 const { values } = parseArgs({
@@ -246,7 +250,7 @@ async function livePerformance() {
 }
 /** Refine the bounded map list, then operate its actual native select. */
 async function chooseMap(id) {
-  await openConsoleSection(page, "field");
+  await openConsoleSection(page, "world");
   await page.click("#map-search", { clickCount: 3 });
   await page.keyboard.press("Backspace");
   await page.type("#map-search", id);
@@ -345,7 +349,7 @@ async function geometryPreviews() {
   await capture("original-geometry-overlay");
   await page.select("#hitbox-reference", "");
   await page.click("#debug");
-  await openConsoleSection(page, "field");
+  await openConsoleSection(page, "world");
 }
 /** Preserve URL/status diagnostics rather than parsing HTTP errors as evidence. */
 async function fetchJSON(url) {

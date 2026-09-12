@@ -32,7 +32,15 @@ function bindingCatalog() {
 }
 
 function potionStack() {
-  return { uid: "potion-stack", id: 2000000, count: 2, slot: 1, owner: "", flags: 0, expiresAt: null };
+  return {
+    uid: "potion-stack",
+    id: 2000000,
+    count: 2,
+    slot: 1,
+    owner: "",
+    flags: 0,
+    expiresAt: null,
+  };
 }
 
 function fixture() {

@@ -571,7 +571,10 @@ export class UIChat {
   }
 
   publishSettings() {
-    this.owner.hooks.onChatSettings?.({ state: this.state, height: this.height });
+    this.owner.hooks.onChatSettings?.({
+      state: this.state,
+      height: this.height,
+    });
   }
   endResize() {
     if (this.resizeStart) this.publishSettings();

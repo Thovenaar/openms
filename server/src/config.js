@@ -1,6 +1,7 @@
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { POW_MIN_BITS, POW_MAX_BITS } from "../../shared/proof-of-work.js";
+import { loadEnvironment } from "../../shared/environment.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -41,12 +42,14 @@ function configuredOrigin(environment, development) {
 
 function proofBits(value) {
   const bits = value === undefined ? 15 : Number(value);
-  if (!Number.isSafeInteger(bits)) throw new Error("OPENMS_POW_BITS must be an integer");
+  if (!Number.isSafeInteger(bits)) {
+    throw new Error("OPENMS_POW_BITS must be an integer");
+  }
   return Math.max(POW_MIN_BITS, Math.min(POW_MAX_BITS, bits));
 }
 
 /** HTTP is allowed only for explicit loopback development; production needs TLS origin. */
-export function serverConfig(environment = Bun.env) {
+export function serverConfig(environment = loadEnvironment("server")) {
   const development = environment.OPENMS_MODE === "development";
   const origin = configuredOrigin(environment, development);
   if (!environment.DATABASE_URL) {

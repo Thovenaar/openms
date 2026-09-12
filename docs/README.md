@@ -20,7 +20,7 @@ From the workspace root:
 
 ```sh
 bun install --frozen-lockfile
-bun run extract
+bun tools/openms.js extract
 bun run client:dev:offline
 ```
 
@@ -28,7 +28,7 @@ Open **http://127.0.0.1:3100**. The development server binds loopback and builds
 
 The startup gate verifies the shell, catalog and saved character's current-map dependency closure before creating the renderer; a new character uses the default map. Other maps verify on entry, not during startup. Historical measurements recorded a48.9MiB Henesys closure versus2,450.1MiB for an optional complete379-map release; they do not measure the expanded inspection-root selection. An intact scoped cache starts without the origin; an uncached offline destination is refused without losing the field. Updates reuse verified bytes and decoded artwork/GPU residency remain demand-bounded. See [delivery lifecycle](asset-delivery.md#native-initialization-and-lifecycle).
 
-`bun run extract` defaults to `/Users/k/Development/tensorfish/Maplestory-Client` and incrementally reuses only verified content-keyed conversion units. Its eight acceptance seeds plus source-backed beginner, historical training and jump-course inspection roots expand through supported named portals, supported on-map NPC dependencies and the explicit offline Free Market translation. The observed selection contains **728 packaged maps**; the earlier379-map release remains historical. New profiles start in **Mushroom Town (`000010000`)**; existing saves retain their current map. An explicit map-limited extraction that omits Mushroom Town uses its first selected map. Override inputs with `--assets <existing-directory>` or `MAPLE_ASSETS`; `--map <id>` or `--maps <comma-separated-ids>` explicitly limits selection. Packaging does not authorize blocked scripts, quest admission, course completion or rewards.
+`bun tools/openms.js extract` defaults to `/Users/k/Development/tensorfish/Maplestory-Client` and incrementally reuses only verified content-keyed conversion units. Its eight acceptance seeds plus source-backed beginner, historical training and jump-course inspection roots expand through supported named portals, supported on-map NPC dependencies and the explicit offline Free Market translation. The observed selection contains **728 packaged maps**; the earlier379-map release remains historical. New profiles start in **Mushroom Town (`000010000`)**; existing saves retain their current map. An explicit map-limited extraction that omits Mushroom Town uses its first selected map. Override inputs with `--assets <existing-directory>` or `MAPLE_ASSETS`; `--map <id>` or `--maps <comma-separated-ids>` explicitly limits selection. Packaging does not authorize blocked scripts, quest admission, course completion or rewards.
 
 Drop and reference-data extraction also requires the authorized Cosmic checkout at `/Users/k/Development/tensorfish/Cosmic`, or `MAPLE_SERVER_REFERENCE=<checkout>`. The converter reads the actual schema, companion data and script inventory without executing SQL or scripts. `catalog.serverData` links immutable domain datasets; existing drop authority consumes the converted per-mob rows. Cosmic is server-reference policy, not original Nexon source. See [data coverage and commands](offline-data.md), [drop motion](drop-motion.md), and [local combat policy](offline-combat.md).
 
@@ -41,11 +41,13 @@ bun run server:dev
 bun run client:dev:online
 ```
 
-Open **http://127.0.0.1:3102**, then log in using the development credentials printed by the server launcher. The server listens on loopback port3200; the online client proxies `/api/` on its own origin. PostgreSQL is required: supply `DATABASE_URL`, or install PostgreSQL tools for the launcher's owned development cluster. See [server setup and production configuration](server/index.md#online-development).
+Open **http://127.0.0.1:3102**, then log in using the development credentials printed by the server launcher. The server listens on loopback port3200; the online client proxies `/api/` on its own origin. Start the dedicated externally managed Podman PostgreSQL container first; JavaScript does not create or manage a database cluster. See [container setup, scoped environment defaults and production configuration](server/index.md#online-development).
 
 This entry builds a separate original-asset browser shell, without offline release extraction/verification churn. It never opens local character saves or installs an offline service worker. Server snapshots own characters, inventory, field membership, mobs and drops. Shared motion predicts presentation only; errors/disconnection freeze admission rather than granting local authority or merging offline earnings.
 
 Browser presentation is policy, not authority: the online client draws the local player from the newest two authenticated 30 ms kernel states interpolated between fixed-scheduler steps (`OnlinePrediction.interpolate`), the same presentation model the offline client applies to its accumulator, so timer jitter stretches one quantum instead of stalling the pose. Checkpoint restores and replays reproduce states that were already presented and never move the interpolation anchor, and the drawn pose never feeds back into prediction, input pacing or server state. Peers, mobs and drops keep the server's 90 ms publication cadence (`ENTITY_PUBLISH_MS`) and are chased over that interval; they are not per-tick sampled.
+
+Input timing stays inside the authenticated field horizon: both outgoing input and local prediction are capped at the latest authoritative field tick plus the protocol's four-tick lead. The arrival clock and heartbeat RTT choose only within that bound; elapsed browser time cannot expand server permission. Hello duration includes lease/content work and is not an RTT sample. Committed travel invalidates field timing while preserving measured network latency; epoch-less heartbeat data cannot advance field ticks. High-latency hints can therefore arrive late and be retired under server policy rather than widening the accepted lead.
 
 The sign-in surface is a Win95 account window over cycling original map scenery, and its character work is reconstructed rather than invented: the carousel portrait composes the selected character's own authoritative appearance and equipment (a summary without them is refused, never defaulted), and the create screen offers **only** the recovered original starting choices from `Etc.wz:MakeCharInfo.img/Info` — face, hair base, hair colour, skin tone, top, bottom, shoes and weapon — with the original `Name` labels ("Buzz Hair", "Brown", "Light") where the game authored them. Every one of those appearances is packaged so no offered choice is unrenderable, and the server admits creation against the same table. **Delete character** asks in a modal first, cancels harmlessly, and then soft-deletes on the server; the account's remaining characters refresh in place. There is no bottom message box: progress and notices appear as a line inside the active stage, and anything the player must acknowledge — a rejected name, a refused request, a confirmation — opens a Windows 95 style modal dialog with an OK/Cancel pair. Login plays the extracted `Sound.wz:BgmUI.img/Title` through the shared audio owner (queued while the browser still requires a gesture) and answers buttons with the original `UI` cues; a committed field replaces the title track through the ordinary scene audio owner. `client/tools/scenarios/online-login-console.js` reproduces these checks plus the console sections in both authority modes.
 
@@ -53,34 +55,36 @@ Online development controls send bounded authenticated server requests for map t
 
 ### Iteration commands
 
+Operational tools use `bun tools/openms.js <command>`, not package-script aliases. Commands are `extract [--full]`, `preflight`, `scenario`, `smoothness`, `smoke`, `scan`, `data server`, `audit skills`, `audit origins`, `audit worldmap` and `validate`. Help is available through `--help`, `help <command>` or `<command> --help`; it prints metadata without starting the tool. Other options and positional arguments pass unchanged to the existing implementation, with relative paths resolved from the repository root even when the wrapper is invoked by absolute path from another working directory. The wrapper preserves child exit status and signals; SIGINT/SIGTERM/SIGHUP stop the active tool, while SIGUSR1 forwards a smoke rerun. Package scripts remain for client/server, docs, test, lint and format.
+
 ```sh
-bun run preflight --report /tmp/maple-preflight.json
-bun run extract                         # incremental; includes selected-world preflight
-bun run scenario list                   # names, recipe, maps and dependencies; no browser
-bun run scenario all --output artifacts/native-current
-bun run scenario world-tour-return --output artifacts/native-world
-bun run scenario --rerun artifacts/native-world/world-tour-return/inputs.json --output artifacts/native-rerun
-bun run smoke                           # persistent owned dev server + Chrome, default port3101
-bun run smoke --once                    # one generation, then owned-resource teardown
+bun tools/openms.js preflight --report /tmp/maple-preflight.json
+bun tools/openms.js extract                         # incremental; includes selected-world preflight
+bun tools/openms.js scenario list                   # names, recipe, maps and dependencies; no browser
+bun tools/openms.js scenario all --output artifacts/native-current
+bun tools/openms.js scenario world-tour-return --output artifacts/native-world
+bun tools/openms.js scenario --rerun artifacts/native-world/world-tour-return/inputs.json --output artifacts/native-rerun
+bun tools/openms.js smoke                           # persistent owned dev server + Chrome, default port3101
+bun tools/openms.js smoke --once                    # one generation, then owned-resource teardown
 ```
 
 Standalone scenarios require the current dev server; `smoke` owns its separate server and browser. It hashes declared inputs, coalesces changes, rebuilds the served source and reruns affected native scenarios in isolated, canonical seed-before-page contexts. A successful-extraction receipt reuses unchanged static assets across sessions; only a missing/changed receipt runs preflight and incremental extraction. Runtime-only edits do not force reconversion, while transitive compiler changes still invalidate their recipes. Reports preserve source/catalog identities, seeded-not-earned inputs, native-action deltas and failures. See [exact options, replay and loop ownership](validation-method.md#native-scenarios-and-replay).
 
-Broad gates remain explicit: `bun run extract:full` forces conversion rather than cache reuse; `bun run validate` runs the world/physics oracle; native full-release installation and stopped-origin cold reload require separate acceptance. None is silently run for every edit by `smoke`. No timing improvement is implied without a retained measurement. [Current validation](validation.md) indexes the final evidence and caveats; [delivery](asset-delivery.md#incremental-extraction-and-preflight) documents the cache contract.
+Broad gates remain explicit: `bun tools/openms.js extract --full` forces conversion rather than cache reuse; `bun tools/openms.js validate` runs the world/physics oracle; native full-release installation and stopped-origin cold reload require separate acceptance. None is silently run for every edit by `smoke`. No timing improvement is implied without a retained measurement. [Current validation](validation.md) indexes the final evidence and caveats; [delivery](asset-delivery.md#incremental-extraction-and-preflight) documents the cache contract.
 
 ```sh
-bun run scan       # full Map/Character/UI IMG metadata + checksum sweep
+bun tools/openms.js scan       # full Map/Character/UI IMG metadata + checksum sweep
 bun test           # decoding, animation, physics and input boundary regressions
 bun run lint       # strict JavaScript checks; zero warnings
-bun run validate   # explicit broad world/physics oracle and loading/performance gate
+bun tools/openms.js validate   # explicit broad world/physics oracle and loading/performance gate
 bun run format
 ```
 
-`bun run smoothness` samples the presented local-player pose per animation frame while a real key is held and reports kernel-gated stall and jerk ratios plus a raw-kernel control from the same trace:
+`bun tools/openms.js smoothness` samples the presented local-player pose per animation frame while a real key is held and reports kernel-gated stall and jerk ratios plus a raw-kernel control from the same trace:
 
 ```sh
-bun run smoothness --mode offline --output docs/validation/online-movement/offline
-bun run smoothness --mode online --url http://127.0.0.1:3102 \
+bun tools/openms.js smoothness --mode offline --output docs/validation/online-movement/offline
+bun tools/openms.js smoothness --mode online --url http://127.0.0.1:3102 \
   --account dev_player --password <launcher password> --output docs/validation/online-movement/online
 ```
 

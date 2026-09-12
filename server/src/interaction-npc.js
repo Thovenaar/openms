@@ -293,7 +293,8 @@ export async function publishNpcView(actor, world, lease = actor.conversation) {
       speaker: view.speaker,
       prev: view.prev === true,
       next: view.next === true,
-      defaultValue: view.defaultValue === undefined ? null : String(view.defaultValue),
+      defaultValue:
+        view.defaultValue === undefined ? null : String(view.defaultValue),
     },
     contentId,
     choices,

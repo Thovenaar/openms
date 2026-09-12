@@ -346,7 +346,7 @@ export async function main(args = process.argv.slice(2)) {
   const options = optionsFor(args);
   if (options.help) {
     console.log(
-      "bun client/tools/smoke.js [--once] [--scenarios name,name] [--concurrency 1..4] [--port 3101] [--url http://127.0.0.1:3101/] [--output artifacts/smoke] [--chrome PATH] [--assets DIR] [--server-reference DIR]\nContinuous rerun: SIGUSR1; stop: SIGINT/SIGTERM. Never runs --full or release browser/offline gates.",
+      "bun tools/openms.js smoke [--once] [--scenarios name,name] [--concurrency 1..4] [--port 3101] [--url http://127.0.0.1:3101/] [--output artifacts/smoke] [--chrome PATH] [--assets DIR] [--server-reference DIR]\nContinuous rerun: SIGUSR1; stop: SIGINT/SIGTERM. Never runs --full or release browser/offline gates.",
     );
     return 0;
   }

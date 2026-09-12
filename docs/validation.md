@@ -1,5 +1,23 @@
 # Validation results
 
+## Podman Compose quick start (2026-09-13)
+
+`podman compose -f infra/compose.yaml config` passed with Podman 6.1.1 / Docker Compose 5.1.0. An isolated project built the pinned PostgreSQL image and completed `up -d --build --wait --wait-timeout 90` in 3.3 seconds. A temporary `--env-file` supplied distinct user/password/database/port values; inspection confirmed healthy TCP readiness, loopback-only publishing, the `/var/lib/postgresql` volume mount and a 90-second stop timeout. The existing standalone database and its volume were not stopped or modified.
+
+`bun install --frozen-lockfile` completed without changes. `server:dev` initialized the temporary database and printed both development accounts; `client:dev:online` built and became ready in 502 ms using the existing generated assets. Browser challenge and login requests returned HTTP 200 through the client proxy. Non-browser challenge probes returned 403; browser locator attempts timed out before keyboard-based login succeeded. No extraction or test suite ran. Temporary application processes, the Compose container/network/volume and override files were removed. Existing-volume migration and persistence across restart were not exercised.
+
+## External PostgreSQL and online lifecycle (2026-09-12)
+
+The [environment and static-check report](validation/architecture-online/environment.json) records eight passing checks: scoped server/client defaults, exclusion of server credentials from client configuration, process-over-file precedence, refusal of an empty database URL, production overriding a requested development mode, and repository-root environment resolution from `server/`, `client/` and `/tmp`. A production server actually started from `/tmp` on port 3201 with `development: false`; the development launcher refused `NODE_ENV=production`.
+
+`infra/Containerfile` built successfully from `docker.io/library/postgres:18.6-bookworm`. The separately managed `openms-postgres` Podman container reported PostgreSQL **18.6** on Debian Bookworm, using the named `openms-postgres-data` volume and loopback port 55432. PostgreSQL remained available after stopping the application server. The previous `server/.cache/postgres` directory was not deleted or automatically migrated. Current setup and lifecycle commands are in the [server guide](server/index.md).
+
+The root operational CLI executed help, `extract --full --help` and `scenario list`; unknown commands returned exit status 2. Strict lint passed with zero warnings. **486 tests / 2,704 assertions across 71 files** passed, including both PostgreSQL durability regressions against the Podman instance. `bun run docs:build` passed with a nonfatal Vite chunk-size warning.
+
+Browser verification reproduced a second map-transfer disconnect after the initial readiness/baseline fix: [the captured server trace](validation/architecture-online/input-horizon-failure.json) rejected target tick 18 while the destination field was at tick 13, above its four-tick lead ceiling. The welcome round trip included server join work, and the client had bounded input against its own inflated arrival estimate. Input and prediction now respect the authenticated field-tick ceiling; committed transfers retire field timing, and epoch-less heartbeat replies cannot seed destination ticks. Regression coverage includes inflated timing, repeated neutral input, delayed hello, destination activation and retained source timing. The same run exposed unshipped duplicate map names shadowing packaged login backdrops; backdrop selection now admits only packaged IDs.
+
+No asset extraction or full offline installation was run. The final offline development-server restart retained the explicit release integrity/compression guards: integrity completed at 20.88 s for 49,439 resources / 4,548,720,997 bytes, release publication completed at 22.16 s, and HTTP encoding completed at 33.16 s. These are cumulative stages, not additive measurements; browser-only changes did not rebuild original assets.
+
 ## Online authority implementation
 
 The Bun authority runtime, the separate online browser and their shared protocol are implemented and exercised end to end. Strict lint passes with zero warnings; **472 tests / 2,640 assertions across 68 files** pass under `bun test`, and both PostgreSQL durability regressions (`server/test/database.test.js`) pass against the owned development cluster when `OPENMS_TEST_DATABASE_URL` is set — durable JSON round-trip, committed-receipt replay, digest conflict, rejected-mutation rollback, writer fencing after lease rotation, and soft deletion that frees the name while refusing deleted characters and preserving their history.

@@ -32,7 +32,6 @@ const COMMAND_CHANNELS = Object.freeze({
   "/all": 7,
 });
 
-
 function sessionState() {
   return {
     mailbox: [],

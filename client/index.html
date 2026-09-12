@@ -53,20 +53,27 @@
             <button id="reload" type="button">Reload field</button>
           </div>
           <select id="console-section" aria-label="Tool section">
-            <option value="field">Field</option>
-            <option value="character">Character</option>
             <option value="world">World</option>
+            <option value="character">Character</option>
             <option value="diagnostics">Diagnostics</option>
             <option value="agent">Agent</option>
             <option value="settings">Settings</option>
           </select>
         </div>
         <p id="ui-status" class="hint" role="status"></p>
-        <section id="console-field" aria-label="Field">
-          <h2>Field</h2>
-          <p id="console-field-hint" class="hint">
-            Travel to packaged maps and spawn development monsters; online, the
-            server authorises map travel and spawns.
+        <section id="console-character" aria-label="Character" hidden>
+          <h2>Character</h2>
+          <p id="console-character-hint" class="hint">
+            Stage a preset or edit values, then Apply. Drafts stay here until
+            saved or discarded; online, the server authorises applied edits.
+          </p>
+          <div id="inspection-controls"></div>
+        </section>
+        <section id="console-world" aria-label="World">
+          <h2>World</h2>
+          <p id="console-world-hint" class="hint">
+            Inspect scene entities, physics geometry, camera and life
+            placements. Previews affect this session, not original assets.
           </p>
           <p class="hint">
             Current field: <output id="map-current">Loading…</output>
@@ -141,21 +148,6 @@
               aria-live="polite"
             ></p>
           </details>
-        </section>
-        <section id="console-character" aria-label="Character" hidden>
-          <h2>Character</h2>
-          <p id="console-character-hint" class="hint">
-            Stage a preset or edit values, then Apply. Drafts stay here until
-            saved or discarded; online, the server authorises applied edits.
-          </p>
-          <div id="inspection-controls"></div>
-        </section>
-        <section id="console-world" aria-label="World" hidden>
-          <h2>World</h2>
-          <p id="console-world-hint" class="hint">
-            Inspect scene entities, physics geometry, camera and life
-            placements. Previews affect this session, not original assets.
-          </p>
           <fieldset
             id="scene-preview-controls"
             disabled

@@ -42,7 +42,9 @@ export function onlineBuildGraph(root) {
             throw new Error(`Online graph imports local authority: ${path}`);
           }
           inputs.add(filename);
-          if (inputs.size > MAX_GRAPH_FILES) throw new Error("Online module graph capacity exceeded");
+          if (inputs.size > MAX_GRAPH_FILES) {
+            throw new Error("Online module graph capacity exceeded");
+          }
           // Returning nothing preserves Bun's normal loader; this guard never rewrites source.
         });
       },

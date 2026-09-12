@@ -98,9 +98,17 @@ export function dropEntity(drop) {
     actionStartTick: 0,
     appearance: null,
     dropMotion: {
-      state: drop.state, age: drop.age, phaseAge: drop.phaseAge,
-      sourceX: drop.sourceX, sourceY: drop.sourceY, groundX: drop.groundX, groundY: drop.groundY,
-      durationMs: drop.durationMs, launchSpeed: drop.launchSpeed, rotation: drop.rotation, alpha: drop.alpha,
+      state: drop.state,
+      age: drop.age,
+      phaseAge: drop.phaseAge,
+      sourceX: drop.sourceX,
+      sourceY: drop.sourceY,
+      groundX: drop.groundX,
+      groundY: drop.groundY,
+      durationMs: drop.durationMs,
+      launchSpeed: drop.launchSpeed,
+      rotation: drop.rotation,
+      alpha: drop.alpha,
     },
   };
 }
@@ -156,7 +164,8 @@ export function selfView(actor) {
       id: effect.id,
       templateId: effect.templateId,
       kind: effect.kind,
-      duration: effect.duration ?? (effect.kind === "item" ? effect.spec.time : null),
+      duration:
+        effect.duration ?? (effect.kind === "item" ? effect.spec.time : null),
       expiresAt: effect.expiresAt,
       cancelable: effect.cancelable,
     })),

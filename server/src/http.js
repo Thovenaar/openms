@@ -220,11 +220,12 @@ export class OnlineHttp {
     );
   }
 
-  logout(request) {
+  async logout(request) {
     this.auth.origin(request);
     const session = this.auth.session(request);
     this.auth.csrf(session, request.headers.get("x-csrf-token"));
     this.auth.revoke(session);
+    await this.gateway.logout(session);
     return response(
       { code: "OK" },
       200,

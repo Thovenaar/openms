@@ -71,7 +71,7 @@ async function copyingRetainsSelection(context) {
 
 async function run(context) {
   const { page, assert, checkpoint, output } = context;
-  await openConsoleSection(page, "field");
+  await openConsoleSection(page, "world");
   const before = await page.$eval(
     "#map-selection",
     (element) => element.getBoundingClientRect().top,

@@ -4,7 +4,10 @@ import {
   tutorialPortalKind,
 } from "../npc/npc-script-portals.js";
 import {
-  portalEntryContains, portalRectangleContains, portalRevealContains, updatePortalGraphics,
+  portalEntryContains,
+  portalRectangleContains,
+  portalRevealContains,
+  updatePortalGraphics,
 } from "./portal-presentation.js";
 
 const MAX_PORTALS = 4096;

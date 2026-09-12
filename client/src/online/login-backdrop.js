@@ -40,6 +40,7 @@ export class LoginBackdrop {
   mapIds() {
     const names = new Map();
     for (const [id, name] of Object.entries(this.catalog?.mapNames ?? {})) {
+      if (!this.catalog.maps?.[id]) continue;
       names.set(String(name).toLowerCase(), id);
     }
     const ids = [];

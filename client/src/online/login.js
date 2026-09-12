@@ -1436,10 +1436,14 @@ export class OnlineLogin {
     const wasHidden = !this.visible;
     this.visible = true;
     this.host.hidden = false;
+    if (wasHidden || value.code === "SIGNED_OUT") this.selectionReset();
     if (wasHidden) {
-      this.selectionReset();
       this.startBackdrop(this.controller.signal);
       this.playTitleBgm();
+    }
+    if (value.code === "SIGNED_OUT") {
+      this.setStatus("Signed out. Sign in with your server account.");
+    } else if (wasHidden) {
       this.setStatus(
         "Connection closed. Sign in again, or press Enter to reconnect.",
       );

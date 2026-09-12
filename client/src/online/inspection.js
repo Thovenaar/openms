@@ -1,9 +1,15 @@
 import { createControls } from "../development/scene-controls.js";
 import { initializeInspectionTheme } from "../development/inspection-theme.js";
 import { AgentControl } from "../development/agent-control.js";
-import { mountStateTesting, inspectionText } from "../development/state-testing.js";
+import {
+  mountStateTesting,
+  inspectionText,
+} from "../development/state-testing.js";
 import { PROTOCOL } from "../../../shared/protocol.js";
-import { createOnlineDevelopment, mountOnlineExperiments } from "./inspection-development.js";
+import {
+  createOnlineDevelopment,
+  mountOnlineExperiments,
+} from "./inspection-development.js";
 
 const MAX_RECORDS = 80;
 const BADGE_SERVER = "SERVER";
@@ -57,7 +63,10 @@ export class OnlineInspection {
         ready: () => this.transport.status === "active",
       },
     });
-    this.experiments = mountOnlineExperiments(this, document.querySelector("#agent-controls"));
+    this.experiments = mountOnlineExperiments(
+      this,
+      document.querySelector("#agent-controls"),
+    );
     const observe = (event) => this.observeInput(event);
     for (const type of ["keydown", "keyup", "pointerdown", "pointerup"]) {
       this.hooks.canvas.addEventListener(type, observe, {
@@ -68,8 +77,9 @@ export class OnlineInspection {
 
   /** Offline keeps LOCAL; online states server authority and GM role when authorized. */
   refreshBadge() {
-    document.querySelector(".console-badge").textContent =
-      this.authorized() ? BADGE_DEVELOPER : BADGE_SERVER;
+    document.querySelector(".console-badge").textContent = this.authorized()
+      ? BADGE_DEVELOPER
+      : BADGE_SERVER;
   }
 
   /** The live placement inspector reads local placement metadata, so online states its absence. */
@@ -81,8 +91,10 @@ export class OnlineInspection {
   }
 
   authorized() {
-    return this.transport.config?.development === true &&
-      this.transport.config?.role === "developer";
+    return (
+      this.transport.config?.development === true &&
+      this.transport.config?.role === "developer"
+    );
   }
 
   /** Canvas input only: never record login fields, chat text or inspection drafts. */
@@ -102,8 +114,11 @@ export class OnlineInspection {
     const reason = available
       ? "Audited development HTTP request; server validates field ownership."
       : "Server authority: developer session required; player/production mutations refused.";
-    return { ...snapshot, developmentControls: { available, reason },
-      developmentSpawn: { available, reason } };
+    return {
+      ...snapshot,
+      developmentControls: { available, reason },
+      developmentSpawn: { available, reason },
+    };
   }
 
   controlAPI() {
@@ -114,9 +129,14 @@ export class OnlineInspection {
       pause: (paused) => this.develop({ kind: "pause", paused }),
       step: (ms) => this.step(ms),
       switchMap: (mapId) => this.develop({ kind: "map", mapId: Number(mapId) }),
-      reload: () => this.develop({ kind: "map", mapId: Number(this.model.field.mapId) }),
+      reload: () =>
+        this.develop({ kind: "map", mapId: Number(this.model.field.mapId) }),
       spawnMonster: async (templateId) => {
-        const result = await this.develop({ kind: "spawn", templateId, count: 1 });
+        const result = await this.develop({
+          kind: "spawn",
+          templateId,
+          count: 1,
+        });
         return { ok: result.status === "committed", reason: result.code };
       },
     };
@@ -125,17 +145,25 @@ export class OnlineInspection {
   step(ms) {
     const ticks = ms / PROTOCOL.TICK_MS;
     if (!Number.isSafeInteger(ticks) || ticks < 1 || ticks > 4) {
-      throw new Error(`Server step requires 1–4 ticks of ${PROTOCOL.TICK_MS} ms.`);
+      throw new Error(
+        `Server step requires 1–4 ticks of ${PROTOCOL.TICK_MS} ms.`,
+      );
     }
     return this.develop({ kind: "step", ticks });
   }
 
   async develop(action) {
-    if (!this.authorized()) throw new Error("Developer session required; no local mutation performed.");
+    if (!this.authorized()) {
+      throw new Error(
+        "Developer session required; no local mutation performed.",
+      );
+    }
     this.record("development request", action);
     const result = await this.transport.develop(action);
     this.record("development result", result);
-    if (result.status !== "committed") throw new Error(result.code || result.status);
+    if (result.status !== "committed") {
+      throw new Error(result.code || result.status);
+    }
     return result;
   }
 
@@ -156,9 +184,14 @@ export class OnlineInspection {
     this.record("inspection request", action);
     if (action.kind === "inspection.resync") {
       this.transport.resync("gap");
-      return { status: this.transport.status, requested: "authoritative resync" };
+      return {
+        status: this.transport.status,
+        requested: "authoritative resync",
+      };
     }
-    if (action.kind === "inspection.reconnect") return this.transport.reconnect();
+    if (action.kind === "inspection.reconnect") {
+      return this.transport.reconnect();
+    }
     return this.questCommand(action);
   }
 
@@ -170,9 +203,12 @@ export class OnlineInspection {
     }
     if (action.kind === "inspection.quest-abandon") {
       const quest = systems.quests;
-      if (!quest.giveUpAdmission(action.questId).ok) throw new Error("Quest cannot be abandoned.");
+      if (!quest.giveUpAdmission(action.questId).ok) {
+        throw new Error("Quest cannot be abandoned.");
+      }
       const confirmed = await systems.ui.hooks.confirmQuestGiveUp(
-        action.questId, quest.catalog.records[action.questId].name,
+        action.questId,
+        quest.catalog.records[action.questId].name,
       );
       if (!confirmed) return { status: "cancelled" };
       return quest.giveUp(action.questId, true);
@@ -183,23 +219,38 @@ export class OnlineInspection {
   }
 
   offeredQuestAction(action) {
-    const kind = action.kind === "inspection.quest-accept" ? "accept"
-      : action.kind === "inspection.quest-claim" ? "claim" : null;
+    const kind =
+      action.kind === "inspection.quest-accept"
+        ? "accept"
+        : action.kind === "inspection.quest-claim"
+          ? "claim"
+          : null;
     const offer = this.offer;
-    if (!kind || !offer || offer.conversationId !== action.conversationId ||
-      offer.step !== action.step || !offer.quests.some((entry) =>
-        entry.questId === action.questId && entry.action === kind)) {
+    if (
+      !kind ||
+      !offer ||
+      offer.conversationId !== action.conversationId ||
+      offer.step !== action.step ||
+      !offer.quests.some(
+        (entry) => entry.questId === action.questId && entry.action === kind,
+      )
+    ) {
       throw new Error("A current server NPC quest offer is required.");
     }
-    return { kind: `quest.${kind}`, questId: action.questId,
-      conversationId: offer.conversationId, step: offer.step };
+    return {
+      kind: `quest.${kind}`,
+      questId: action.questId,
+      conversationId: offer.conversationId,
+      step: offer.step,
+    };
   }
 
   questEntries() {
     const entries = this.model?.presentation?.quests ?? [];
     const catalog = this.hooks.catalog()?.quests;
     return entries.map((entry) => ({
-      ...entry, name: catalog?.records?.[entry.id]?.name,
+      ...entry,
+      name: catalog?.records?.[entry.id]?.name,
     }));
   }
 
@@ -227,8 +278,10 @@ export class OnlineInspection {
   questSnapshot() {
     const model = this.model;
     return {
-      entries: this.questEntries(), progress: model?.progress?.quests,
-      presentation: model?.presentation?.quests, offer: this.offer,
+      entries: this.questEntries(),
+      progress: model?.progress?.quests,
+      presentation: model?.presentation?.quests,
+      offer: this.offer,
       interactions: model?.presentation?.interactions,
     };
   }
@@ -242,9 +295,10 @@ export class OnlineInspection {
       return;
     }
     if (snapshot.presentation !== this.model?.presentation) {
-      this.offer = snapshot.presentation?.interactions?.find(
-        (event) => event.kind === "quest.offer",
-      ) ?? null;
+      this.offer =
+        snapshot.presentation?.interactions?.find(
+          (event) => event.kind === "quest.offer",
+        ) ?? null;
     }
     this.model = snapshot;
     if (!this.prepared) return;

@@ -3,12 +3,14 @@ import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { DROP_POLICY } from "./drop-system.js";
 import { dropDrawY } from "./drop-motion.js";
 import {
-  currencyVariant, currencyEntity, itemEntity, centerDrop,
+  currencyVariant,
+  currencyEntity,
+  itemEntity,
+  centerDrop,
 } from "./drop-artwork.js";
 
 const MAX_PENDING = 2;
 const PREFETCH_MARGIN = 128;
-
 
 /** Bounded demand owner. All decoding/instantiation runs outside fixed-step and draw. */
 export class DropRenderer {

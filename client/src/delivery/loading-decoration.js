@@ -99,6 +99,29 @@ export class LoadingDecoration {
     ) {
       return;
     }
+    await this.prepareArtwork(info, signal);
+  }
+
+  /** Online callers supply the catalog already verified against their server's identity. */
+  loadCatalog(catalog) {
+    if (!catalog.loadingDecoration || this.pending || this.signal.aborted) {
+      return;
+    }
+    if (this.releaseId === catalog.buildId) return;
+    this.releaseId = catalog.buildId;
+    this.pending = true;
+    const signal = AbortSignal.any([this.signal, AbortSignal.timeout(10000)]);
+    this.prepareArtwork(catalog.loadingDecoration, signal)
+      .catch(() => {
+        // Decoration is optional; real loading and sanitized failures keep their owner.
+        this.releaseId = null;
+      })
+      .finally(() => {
+        this.pending = false;
+      });
+  }
+
+  async prepareArtwork(info, signal) {
     const bytes = await verified(info, signal);
     signal.throwIfAborted();
     const url = URL.createObjectURL(

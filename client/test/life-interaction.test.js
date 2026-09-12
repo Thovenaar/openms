@@ -76,7 +76,8 @@ function fixture(info = {}) {
     }),
     hooks: {
       authority: "offline-local-policy",
-      canTalk: () => life.scene.offlineField.prepared && !life.scene.offlineField.dead,
+      canTalk: () =>
+        life.scene.offlineField.prepared && !life.scene.offlineField.dead,
       mobState: (id) => life.scene.offlineField.byId.get(id),
       onInteract: (npc) => delivered.push(npc),
       onError: (error) => {
@@ -97,13 +98,7 @@ function fixture(info = {}) {
       destroy: () => inspected.splice(0),
     },
   });
-  const slot = life.createSlot(record);
-  life.slots = [slot];
-  life.byId.set(record.id, slot);
-  life.mapleTV = new MapleTVSystem(life.scene, life.byId);
-  life.bind(slot, entity);
-  life.update(0);
-  owners.push(life);
+  const slot = bindFixture(life, record, entity);
   return {
     life,
     slot,
@@ -112,6 +107,17 @@ function fixture(info = {}) {
     inspected,
     boundary: new EventBoundary(stage),
   };
+}
+
+function bindFixture(life, record, entity) {
+  const slot = life.createSlot(record);
+  life.slots = [slot];
+  life.byId.set(record.id, slot);
+  life.mapleTV = new MapleTVSystem(life.scene, life.byId);
+  life.bind(slot, entity);
+  life.update(0);
+  owners.push(life);
+  return slot;
 }
 
 function release(target, type = "pointerup", button = 0) {

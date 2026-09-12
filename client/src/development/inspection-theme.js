@@ -5,15 +5,14 @@ const THEMES = new Set(["win95", "xp"]);
 
 /** Canonical console section ids, in navigation order. */
 export const CONSOLE_SECTIONS = [
-  "field",
-  "character",
   "world",
+  "character",
   "diagnostics",
   "agent",
   "settings",
 ];
 
-const DEFAULT_SECTION = "field";
+const DEFAULT_SECTION = "world";
 
 /** Select one console section without rebuilding controls or losing draft values. */
 export function showInspectionPanel(id) {
@@ -49,6 +48,10 @@ function restoreSection() {
   } catch (error) {
     document.querySelector("#ui-status").textContent =
       `Saved section preference unavailable: ${error.message}`;
+  }
+  if (saved === "field") {
+    saved = "world";
+    persistSection(saved);
   }
   applySection(CONSOLE_SECTIONS.includes(saved) ? saved : DEFAULT_SECTION);
 }

@@ -83,7 +83,8 @@ export class NpcWorldPresentation {
       speech: null,
       lines: [],
       actions: [],
-      cooldownMs: this.options.ambient === false ? 0 : (this.randomUint() % 6000) + 3000,
+      cooldownMs:
+        this.options.ambient === false ? 0 : (this.randomUint() % 6000) + 3000,
       actionMs: 0,
       speechTickMs: 0,
       pose: { x: 0, headY: 0 },
@@ -92,7 +93,13 @@ export class NpcWorldPresentation {
     this.slots.push(slot);
     life.worldPresentation = slot;
     const authored = life.template.speech;
-    if (!authored || life.template.info.imitate || this.options.ambient === false) return;
+    if (
+      !authored ||
+      life.template.info.imitate ||
+      this.options.ambient === false
+    ) {
+      return;
+    }
     slot.actions = authored.actions.map((action) => ({ ...action, lines: [] }));
     const hasSpeech =
       authored.lines.length ||

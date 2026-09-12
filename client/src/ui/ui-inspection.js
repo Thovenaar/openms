@@ -1455,7 +1455,8 @@ export class ProfileControls {
   }
   refreshPersistenceControls(store, profile, busy) {
     this.save.disabled = !profile || busy || typeof store.flush !== "function";
-    this.reset.disabled = busy || typeof this.owner.hooks.onReset !== "function";
+    this.reset.disabled =
+      busy || typeof this.owner.hooks.onReset !== "function";
     this.recover.disabled = !profile || profile.hp !== 0 || busy;
     this.editor.disabled = !profile || busy;
   }
@@ -1589,7 +1590,8 @@ export class ProfileControls {
       }
       this.dirty = false;
       this.skillEditSignature = null;
-      this.editStatus.textContent = this.owner.hooks.profileEditSuccess ?? "Profile edits saved locally.";
+      this.editStatus.textContent =
+        this.owner.hooks.profileEditSuccess ?? "Profile edits saved locally.";
     } catch (error) {
       if (!this.ownsEditRequest(request)) return;
       this.editStatus.textContent = `Profile edits failed: ${error.message}`;

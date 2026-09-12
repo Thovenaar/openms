@@ -127,14 +127,28 @@ function collectSnapshot(parts) {
   if (!field || !hasEntities || inventory.mesos === null || !hasProgress) {
     invalid("incomplete snapshot kinds");
   }
-  return { field, entities, inventory, progress: { quests, skills }, presentation: assembleNative(native) };
+  return {
+    field,
+    entities,
+    inventory,
+    progress: { quests, skills },
+    presentation: assembleNative(native),
+  };
 }
 
 function assembleNative(parts) {
-  if (!parts.length || parts.length !== parts[0].total) invalid("incomplete native presentation");
+  if (!parts.length || parts.length !== parts[0].total) {
+    invalid("incomplete native presentation");
+  }
   const chunks = new Array(parts.length);
   for (const part of parts) {
-    if (part.total !== parts.length || part.index >= parts.length || chunks[part.index] !== undefined) invalid("invalid native presentation pages");
+    if (
+      part.total !== parts.length ||
+      part.index >= parts.length ||
+      chunks[part.index] !== undefined
+    ) {
+      invalid("invalid native presentation pages");
+    }
     chunks[part.index] = part.data;
   }
   return decodeNativePresentation(chunks.join(""), domainEventSchema);
@@ -157,7 +171,8 @@ function mergeInventory(inventory, part) {
 }
 
 function assembleSnapshot(pending) {
-  const { field, entities, inventory, progress, presentation } = collectSnapshot(pending.parts);
+  const { field, entities, inventory, progress, presentation } =
+    collectSnapshot(pending.parts);
   if (field.field.fieldEpoch !== pending.first.fieldEpoch) {
     invalid("field epoch mismatch");
   }
@@ -197,29 +212,63 @@ function validateNativeCore(presentation, field, inventory, progress) {
 
 function validateNativeCharacter(profile, field, mesos) {
   const self = field.self;
-  if (profile.hp !== self.hp || profile.mp !== self.mp || profile.maxHP !== self.maxHp || profile.maxMP !== self.maxMp || profile.meso !== mesos || profile.name !== self.entity.appearance.name || Number(profile.location.mapId) !== field.field.mapId) invalid("native character mismatch");
+  if (
+    profile.hp !== self.hp ||
+    profile.mp !== self.mp ||
+    profile.maxHP !== self.maxHp ||
+    profile.maxMP !== self.maxMp ||
+    profile.meso !== mesos ||
+    profile.name !== self.entity.appearance.name ||
+    Number(profile.location.mapId) !== field.field.mapId
+  ) {
+    invalid("native character mismatch");
+  }
 }
 
 function validateNativeItems(profile, observed) {
   const items = new Map();
-  for (const item of profile.inventory) items.set(item.uid, { item, equipped: false });
-  for (const item of profile.equipment) items.set(item.uid, { item, equipped: true });
+  for (const item of profile.inventory) {
+    items.set(item.uid, { item, equipped: false });
+  }
+  for (const item of profile.equipment) {
+    items.set(item.uid, { item, equipped: true });
+  }
   if (items.size !== observed.length) invalid("native inventory mismatch");
   for (const wire of observed) validateNativeItem(items.get(wire.id), wire);
 }
 
 function validateNativeItem(owned, wire) {
-  if (!owned || owned.item.id !== wire.templateId || owned.item.count !== wire.quantity || Math.abs(owned.item.slot) !== wire.location.slot || owned.equipped !== (wire.location.kind === "equipped")) invalid("native item mismatch");
+  if (
+    !owned ||
+    owned.item.id !== wire.templateId ||
+    owned.item.count !== wire.quantity ||
+    Math.abs(owned.item.slot) !== wire.location.slot ||
+    owned.equipped !== (wire.location.kind === "equipped")
+  ) {
+    invalid("native item mismatch");
+  }
 }
 
 function validateNativeProgress(profile, progress) {
-  if (Object.keys(profile.skills).length !== progress.skills.length) invalid("native skills mismatch");
+  if (Object.keys(profile.skills).length !== progress.skills.length) {
+    invalid("native skills mismatch");
+  }
   for (const skill of progress.skills) {
     const learned = profile.skills[skill.id];
-    if (!learned || learned.level !== skill.rank || learned.masterLevel !== skill.mastery) invalid("native skill mismatch");
+    if (
+      !learned ||
+      learned.level !== skill.rank ||
+      learned.masterLevel !== skill.mastery
+    ) {
+      invalid("native skill mismatch");
+    }
   }
   for (const quest of progress.quests) {
-    if (profile.quests[quest.id]?.state !== (quest.state === "active" ? 1 : 2)) invalid("native quest mismatch");
+    if (
+      profile.quests[quest.id]?.state !== (quest.state === "active" ? 1 : 2)
+    ) {
+      invalid("native quest mismatch");
+    }
   }
 }
 

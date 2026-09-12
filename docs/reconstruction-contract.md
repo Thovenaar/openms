@@ -62,7 +62,7 @@ A region JSON is `{schemaVersion:2,id,entities:[Entity]}`. Entity/frame/part sem
 
 The initial visible regions, always regions and actor atlas set are the critical load; distant artwork is not. Runtime loads nearby regions ahead, cancels obsolete demand, keeps current complete visual state during map replacement, and enforces explicit GPU/CPU/cache bounds. Regions only become visible atomically after their required atlas set is ready. Leaving a region releases its references; shared atlas resources remain while referenced. Catalog map neighbors drive bounded map-prefetch metadata; traversal beyond packaged maps is explicitly unavailable, not a broken request.
 
-Existing all-at-once scene loading is replaced, not retained as a second supported production path. Parent migrates validation tools to this version. Packaging keeps `bun run extract` as the entry point, accepts `--map` or `--maps` and the existing asset-path override. New profiles start in Mushroom Town (`000010000`) when packaged, otherwise the first explicitly selected map. Saved locations are unchanged. Additional original map selection is evidence-driven.
+Existing all-at-once scene loading is replaced, not retained as a second supported production path. Parent migrates validation tools to this version. Packaging keeps `bun tools/openms.js extract` as the entry point, accepts `--map` or `--maps` and the existing asset-path override. New profiles start in Mushroom Town (`000010000`) when packaged, otherwise the first explicitly selected map. Saved locations are unchanged. Additional original map selection is evidence-driven.
 
 ## Integration amendments
 

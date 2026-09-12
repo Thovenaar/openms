@@ -124,12 +124,8 @@ export class OnlineScene {
       entity.templateId,
       entity.appearance,
     ]);
-    if (view && view.identity !== identity) {
-      this.remove(entity.id);
-      view = null;
-    }
-    if (!view) {
-      if (this.views.size >= MAX_ENTITIES) {
+    if (!view || view.identity !== identity) {
+      if (!view && this.views.size >= MAX_ENTITIES) {
         throw new Error("Online entity residency limit");
       }
       const owner = await this.prepareEntity(entity);
@@ -137,6 +133,7 @@ export class OnlineScene {
         owner.destroy();
         this.controller.signal.throwIfAborted();
       }
+      if (view) this.remove(entity.id);
       view = {
         owner,
         animation: owner.animation,

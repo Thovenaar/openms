@@ -50,18 +50,23 @@ export class ServerClock {
 
   reset() {
     this.connectionEpoch = null;
-    this.fieldEpoch = null;
+    this.resetField();
     this.roundTripMs = 0;
     this.oneWayMs = 0;
     this.offsetMs = 0;
+    this.wallObservedAt = 0;
+    this.rtts.clear();
+    this.offsets.clear();
+  }
+
+  /** Retire field ticks without discarding connection-wide heartbeat latency. */
+  resetField() {
+    this.fieldEpoch = null;
     this.tickOffsetMs = 0;
     this.serverTick = 0;
     this.receivedAt = 0;
-    this.wallObservedAt = 0;
     this.paused = false;
     this.ready = false;
-    this.rtts.clear();
-    this.offsets.clear();
     this.tickOffsets.clear();
   }
 
@@ -93,7 +98,8 @@ export class ServerClock {
       this.oneWayMs = this.roundTripMs / 2;
     }
     this.observeWall(sample);
-    this.observeTicks(sample);
+    // Heartbeats have no field epoch: their tick cannot authenticate a field clock.
+    if (sample.fieldEpoch !== undefined) this.observeTicks(sample);
     return this.snapshot();
   }
 
@@ -128,7 +134,7 @@ export class ServerClock {
       : slew(this.tickOffsetMs, median, sample.receivedAt - this.receivedAt);
     this.serverTick = sample.serverTick;
     this.receivedAt = sample.receivedAt;
-    this.ready = this.rtts.count > 0;
+    this.ready = true;
   }
 
   arrivalTick(now) {

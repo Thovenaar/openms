@@ -5,9 +5,9 @@ Cosmic is an authorized **server reference**, not original Nexon client source o
 ## Reproducible tool and output contract
 
 ```sh
-bun client/tools/server-data.js --help
-bun client/tools/server-data.js --output /tmp/maple-server-data-proof
-bun client/tools/server-data.js --server-root /path/to/Cosmic --output /path/to/generated
+bun tools/openms.js data server --help
+bun tools/openms.js data server --output /tmp/maple-server-data-proof
+bun tools/openms.js data server --server-root /path/to/Cosmic --output /path/to/generated
 ```
 
 Root precedence is `--server-root`, `MAPLE_SERVER_REFERENCE`, then `/Users/k/Development/tensorfish/Cosmic`. `--output` is required. Unknown/duplicate options and missing inputs fail explicitly.

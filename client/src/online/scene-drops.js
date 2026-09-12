@@ -38,7 +38,8 @@ export class SceneDrops {
       sourceX: event.position.x,
       sourceY: event.position.y,
       target: { x: target.drawX, y: target.drawY },
-      targetHeight: target.animation.current.geometry[target.animation.frame].height,
+      targetHeight:
+        target.animation.current.geometry[target.animation.frame].height,
       x: event.position.x,
       y: event.position.y,
       alpha: 1,

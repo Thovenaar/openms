@@ -41,10 +41,10 @@ Each `catalog.ui.skills[id]` preserves the existing `descriptor`, `iconPath`, `i
 
 These are capability classifications, **not a claim of complete native runtime fidelity**. The generated catalog computes them anew from the extraction input. Unavailable records state the missing controller/transaction/server prerequisite and remain visible in the full catalog.
 
-The reusable audit command, from `client/`, is:
+The reusable audit command, from the repository root, is:
 
 ```sh
-bun tools/skill-report.js public/generated/catalog.json default /tmp/maple-skill-coverage.json
+bun tools/openms.js audit skills client/public/generated/catalog.json default /tmp/maple-skill-coverage.json
 ```
 
 An optional fourth argument accepts an exported profile and joins **every type-1 binding** to learned/unexpired job ownership, its current controller and missing actor actions. `default` resolves the catalog's hashed default-map manifest; another manifest audits another extracted actor. No extraction/browser startup is required. The report includes authored action lists, equipment fallback, missing actor actions/rectangles, rank fields, visual/sound leaves and admission dependencies. The historical report's103 missing actor-action records and zero unresolved visual/sound leaves describe that earlier input/build, not current native acceptance.

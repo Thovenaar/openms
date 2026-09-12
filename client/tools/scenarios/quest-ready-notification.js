@@ -1,6 +1,11 @@
 import { join } from "node:path";
 import tutorialDrops from "./tutorial-drops.js";
-import { clickLabel, focusCanvas, openConsoleSection, TIMEOUT } from "./native.js";
+import {
+  clickLabel,
+  focusCanvas,
+  openConsoleSection,
+  TIMEOUT,
+} from "./native.js";
 
 const PROMPT = '.maple-ui-panel[aria-label="Quest ready notification"]';
 

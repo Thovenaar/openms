@@ -211,7 +211,7 @@ if (import.meta.main) {
   const [catalogPath, scenePath, outputPath, profilePath] = Bun.argv.slice(2);
   if (!catalogPath || !scenePath || !outputPath || Bun.argv.length > 6) {
     throw new Error(
-      "Usage: bun tools/skill-report.js catalog.json map.json|default report.json [profile.json]",
+      "Usage: bun tools/openms.js audit skills catalog.json map.json|default report.json [profile.json]",
     );
   }
   const catalog = await readJson(catalogPath);

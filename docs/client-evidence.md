@@ -145,7 +145,7 @@ Subsequent address-directed work recovered the standard fixed-loadout anchor for
 
 ### NPC ground alignment and reusable origin inspection
 
-`bun client/tools/inspect-origins.js SOURCE MAP_ID[,MAP_ID...] OUTPUT.json` reads the original WZ archives through the production parser/decoder, with bounded maps, placements, footholds and frames. It reports every stand-frame origin, canvas extent and bottommost nontransparent pixel relative to that origin; exact authored `x/y/cy/fh`, finite foothold geometry and placement-to-ground gap; and background origin, front/depth, camera ratios, repeat periods and original source paths. It writes evidence JSON, not replacement assets, and never recenters artwork using its opaque bounds.
+`bun tools/openms.js audit origins SOURCE MAP_ID[,MAP_ID...] OUTPUT.json` reads the original WZ archives through the production parser/decoder, with bounded maps, placements, footholds and frames. It reports every stand-frame origin, canvas extent and bottommost nontransparent pixel relative to that origin; exact authored `x/y/cy/fh`, finite foothold geometry and placement-to-ground gap; and background origin, front/depth, camera ratios, repeat periods and original source paths. It writes evidence JSON, not replacement assets, and never recenters artwork using its opaque bounds.
 
 An actual run over `100000000,100000001,103000000,108000500,230000000` produced `ghidra-client/origin-layer-probe.json`: **69 NPC placements and51 backgrounds**. Sixty-seven placements were more than one pixel above their authored foothold when drawn literally at map-editor `y`. Representative anchors:
 

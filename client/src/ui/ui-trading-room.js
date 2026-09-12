@@ -225,7 +225,8 @@ function refreshChat(panel, snapshot) {
     chat.scroll.setRange(count, pinned ? count - 1 : chat.scroll.position);
     chat.log.scrollTop = chat.scroll.position;
   }
-  chat.input.disabled = snapshot.state !== "open" || snapshot.chatSupported === false;
+  chat.input.disabled =
+    snapshot.state !== "open" || snapshot.chatSupported === false;
   panel.tradeSend.setDisabled(chat.input.disabled);
   if (chat.input.disabled && document.activeElement === chat.input) {
     chat.input.blur();

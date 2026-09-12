@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { buildOnlineBrowser } from "./browser-build.js";
 import { PROTOCOL } from "../../shared/protocol.js";
 import { createStaticResources } from "./static-resources.js";
+import { clientEnvironment } from "./environment.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_BACKLOG = 1024 * 1024;
@@ -10,12 +11,14 @@ const MAX_PENDING_FRAMES = 8;
 const MAX_RELAYS = 128;
 
 function configuration(options) {
-  const port = Number(options.port ?? Bun.env.ONLINE_PORT ?? 3102);
+  const port = Number(options.port ?? clientEnvironment.ONLINE_PORT ?? 3102);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("ONLINE_PORT must be in 1..65535");
   }
   const upstream = upstreamOrigin(
-    options.upstream ?? Bun.env.OPENMS_SERVER_URL ?? "http://127.0.0.1:3200",
+    options.upstream ??
+      clientEnvironment.OPENMS_SERVER_URL ??
+      "http://127.0.0.1:3200",
   );
   return { port, upstream };
 }
@@ -37,7 +40,6 @@ function upstreamOrigin(value) {
   }
   return upstream.origin;
 }
-
 
 /** Development proxy changes transport routing only; the upstream remains sole authority. */
 class OnlineProxy {
@@ -203,7 +205,11 @@ export async function startOnlineDevServer(options = {}) {
     development: true,
     progress: options.progress ?? console.log,
   });
-  const resources = createStaticResources({ root: ROOT, online: true, html: identity.html });
+  const resources = createStaticResources({
+    root: ROOT,
+    online: true,
+    html: identity.html,
+  });
   const proxy = new OnlineProxy(config, resources);
   const server = Bun.serve({
     hostname: "127.0.0.1",

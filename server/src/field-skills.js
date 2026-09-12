@@ -214,7 +214,9 @@ function prepareSkillCast(actor, action, plan) {
   }
   plan.destination = { x: 0, y: 0, foothold: null };
   if (plan.teleport) prepareTeleport(actor, info, plan.destination);
-  plan.attack = physical ? preparePhysical(actor, skill, info, plan.rank) : null;
+  plan.attack = physical
+    ? preparePhysical(actor, skill, info, plan.rank)
+    : null;
   plan.cast = prepareCastAction(actor, skill, info);
   plan.field = actor.field;
 }

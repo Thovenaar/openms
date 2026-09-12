@@ -79,7 +79,9 @@ export class Publications {
 
   snapshot(actor) {
     const socket = actor.connection;
-    if (!socket || socket.data.closed) return;
+    if (!socket || socket.data.closed || actor.state === "transitioning") {
+      return;
+    }
     const views = this.world.snapshot(actor);
     if (
       !Array.isArray(views) ||
@@ -100,6 +102,14 @@ export class Publications {
     this.offer(socket, snapshotId, eventSeq);
     socket.data.offeredSnapshotId = snapshotId;
     socket.data.pendingStateId = snapshotId;
+    this.trackSnapshotEntities(socket, views);
+    for (const frame of frames) {
+      if (!this.send(socket, frame)) return;
+    }
+    this.motion(actor);
+  }
+
+  trackSnapshotEntities(socket, views) {
     socket.data.knownEntities = new Set();
     for (const view of views) {
       if (view.kind === "entities") {
@@ -108,10 +118,6 @@ export class Publications {
         }
       }
     }
-    for (const frame of frames) {
-      if (!this.send(socket, frame)) return;
-    }
-    this.motion(actor);
   }
 
   snapshotFrames(actor, views, snapshotId, eventSeq) {

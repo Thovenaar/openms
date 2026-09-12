@@ -1,29 +1,45 @@
 # openms.dev
 
-A browser reconstruction of MapleStory's original v83 assets and rendering, written in JavaScript with JSDoc, Bun, and PixiJS.
+A browser reconstruction of MapleStory v83, with a Bun server and PostgreSQL persistence.
 
-The client streams 728 packaged original scenes through a directed route closure plus explicit tutorial/island and jump-course inspection roots, with keyboard-driven physics, local combat/progression, supported authored NPC quests/shops, portals/reactors and original UI/audio. Native inventory/equipment/AP, bindings/macros, social/Family, Monster Book, Cash Shop and two-character trade use schema 8 atomic offline authority. The local-peer console supplies explicit participants and prerequisites, not a network connection. Packaged scenes do not authorize missing scripts or complete every course mechanic; original Windows-runtime parity is not fabricated.
+## Quick start
 
-## Run
+Requires [Bun](https://bun.sh), [Podman](https://podman.io) and a Compose provider supporting `up --wait` (e.g. Docker Compose). Check with `podman compose version`.
 
-Requires [Bun](https://bun.sh), local original client assets and the authorized Cosmic server-reference checkout for drop extraction. Neither input tree is included here. See [setup and input configuration](docs/README.md#run).
+On macOS/Windows: `podman machine init` once, then `podman machine start` when stopped.
+
+Already running the old `openms-postgres` container? Stop it first with `podman stop openms-postgres`; Compose reuses `openms-postgres-data`.
+
+From the repository root, using your [original v83 assets and authorized Cosmic checkout](docs/inputs.md) (not included):
 
 ```sh
 bun install --frozen-lockfile
-bun run extract
-bun run dev:client:offline
+MAPLE_ASSETS=/path/to/v83 MAPLE_SERVER_REFERENCE=/path/to/Cosmic \
+  bun tools/openms.js extract
+podman compose -f infra/compose.yaml up -d --build --wait --wait-timeout 90
 ```
 
-Open **http://127.0.0.1:3100**. Click empty map space: arrows move/climb, Alt jumps, Down+Alt drops through eligible footholds, Up enters supported portals, Control attacks and Z picks up. I/E/S/K open graphical windows; Backslash opens KeyConfig, M cycles the minimap, Q opens the journal and Enter opens chat. Actions follow the live key configuration; unsupported actions remain explicit. Trusted input unlocks enabled audio. Verified current-map content can launch offline without a complete installation; **Download complete release**, then **Use installed release and reload**, is the optional full-catalog path. [Controls and boundaries](docs/README.md) distinguish recovered behavior from local policy.
+Run in **separate terminals**:
 
-For focused iteration, use `bun run preflight`, `bun run scenario all` against the running dev server, or `bun run smoke` for an owned rebuild/native-scenario loop on port3101. `bun run extract` reuses verified conversion units; `bun run extract:full` remains an explicit forced-conversion gate. [Commands, saved-fixture reruns and evidence](docs/validation-method.md#native-scenarios-and-replay) document the fast loop separately from broad world and complete-offline acceptance.
+```sh
+bun run server:dev
+```
 
-Development scripts use `dev:<service>[:mode]`: `bun run dev:client:offline` runs the offline client, and `bun run dev:docs` runs the documentation site. There is no implemented backend development command.
+```sh
+bun run client:dev:online
+```
 
-## Project
+Open **http://127.0.0.1:3102**. Log in as `dev_developer` or `dev_player` with the passwords printed by the server. Schema setup is automatic.
 
-- `client/` — asset decoding, browser rendering, and tooling.
-- `server/` — reserved for future backend work.
-- `docs/` — [Client documentation](docs/README.md) and [Server documentation](docs/server/index.md), with setup, subsystem contracts, evidence, and known limitations.
+## Configuration
 
-See [the documentation](docs/README.md), [offline gameplay checklist and evidence](docs/offline-gameplay.md), and [validation procedure](docs/validation-method.md). Earlier [in-game](docs/ingame-validation/results.md) and [physics](docs/physics-validation/results.md) results remain historical baselines; browser self-consistency does not substitute for original Windows reference captures.
+- [`.env.server`](.env.server) and [`.env.client`](.env.client) load automatically; exported variables override them.
+- Database defaults: `openms` user/database, `openms_local_only` password, `127.0.0.1:55432`. **Development only.**
+- Override Compose's `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` or `POSTGRES_PORT` via exported variables or `--env-file`; set the server's `DATABASE_URL` to match. Existing database passwords are not changed by these variables.
+- Optional `OPENMS_DEV_PASSWORD` fixes both development account passwords; otherwise they reset randomly on each server launch.
+
+Stop the database: `podman compose -f infra/compose.yaml down`. Data is retained; `down --volumes` deletes it.
+
+Offline client: `bun run client:dev:offline` → **http://127.0.0.1:3100** (after extraction; no database/server).
+
+[Client docs](docs/README.md) · [Server setup and production](docs/server/index.md) · [Validation](docs/validation.md)

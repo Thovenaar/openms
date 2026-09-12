@@ -253,8 +253,11 @@ function gameOptions(panel) {
 
 function selectedSettings(panel) {
   const settings = structuredClone(panel.owner.store.profile.settings);
-  const fields = panel.name === "GameOpt" ? ["gameOptions"] : ["BGM", "SE", "alerts"];
-  for (const field of fields) settings[field] = structuredClone(panel.settingsDraft[field]);
+  const fields =
+    panel.name === "GameOpt" ? ["gameOptions"] : ["BGM", "SE", "alerts"];
+  for (const field of fields) {
+    settings[field] = structuredClone(panel.settingsDraft[field]);
+  }
   return settings;
 }
 

@@ -152,10 +152,10 @@ export class OnlineTransport {
     this.baselines = new MultipartAssembly();
     this.shops = new MultipartAssembly();
     this.clock = new ServerClock();
-    this.helloSentAt = 0;
     this.lastMessageAt = 0;
     this.lastResyncAt = -Infinity;
     this.closed = false;
+    this.revoking = false;
     this.checkTimer = setInterval(this.check.bind(this), 250);
     this.blurHandler = this.neutral.bind(this);
     this.visibilityHandler = this.visibility.bind(this);
@@ -280,12 +280,40 @@ export class OnlineTransport {
   /** Sign out the browser session; the account form owns the returned state. */
   async revoke() {
     if (!this.config || typeof this.config.csrfToken !== "string") return;
-    await request("/api/v1/session", "DELETE", null, {
-      "x-csrf-token": this.config.csrfToken,
-    });
-    this.disconnect();
-    this.config = null;
-    this.characters = null;
+    this.revoking = true;
+    let reason = "SIGNED_OUT";
+    try {
+      this.setStatus("signing-out");
+      await request("/api/v1/session", "DELETE", null, {
+        "x-csrf-token": this.config.csrfToken,
+      });
+      this.config = null;
+      this.characters = [];
+      this.characterId = null;
+      this.playSession = null;
+      this.model =
+        this.field =
+        this.self =
+        this.inventory =
+        this.progress =
+          null;
+      for (const pending of this.pending.values()) {
+        const unknown = freezeView({
+          status: "unknown",
+          operationId: pending.fields.operationId,
+        });
+        pending.resolve(unknown);
+        pending.recoverResolve?.(unknown);
+      }
+      this.pending.clear();
+      this.closingCode = null;
+    } catch (error) {
+      reason = error.code ?? "SIGN_OUT_FAILED";
+      throw error;
+    } finally {
+      this.revoking = false;
+      this.disconnected(reason);
+    }
   }
 
   async listCharacters() {
@@ -434,7 +462,6 @@ export class OnlineTransport {
         lastEventSeq: this.lastEventSeq,
       };
     }
-    this.helloSentAt = performance.now();
     try {
       socket.send(JSON.stringify(decodeClient(JSON.stringify(hello))));
     } catch (error) {
@@ -609,14 +636,15 @@ export class OnlineTransport {
     this.expectedFieldEpoch = message.fieldEpoch;
     this.serverTick = message.serverTick;
     this.limits = message.limits;
-    this.timing(message, receivedAt, receivedAt - this.helloSentAt);
+    // Hello includes lease acquisition and map loading, not just network latency.
+    this.timing(message, receivedAt);
     this.setStatus("synchronizing");
   }
 
   timing(message, receivedAt, roundTripMs = null) {
     const timing = this.clock.observe({
       connectionEpoch: message.connectionEpoch,
-      fieldEpoch: message.fieldEpoch ?? this.expectedFieldEpoch,
+      fieldEpoch: message.fieldEpoch,
       serverTick: message.serverTick,
       serverTime: message.serverTime,
       paused: message.paused ?? this.clock.paused,
@@ -754,9 +782,14 @@ export class OnlineTransport {
     if (message.phase === "committed") {
       if (!message.destination) throw failure("INVALID_TRANSITION");
       this.expectedFieldEpoch = message.destination.fieldEpoch;
+      this.clock.resetField();
+      this.callbacks.onTiming?.(this.clock.snapshot());
       this.lastInputTick = -1;
       this.serverTick = 0;
       this.baselines.clear();
+      // The destination has not installed a baseline yet; never ack its transition
+      // using a source-field snapshot that the server has already retired.
+      this.baselineId = null;
       this.setStatus("synchronizing");
     }
     if (message.phase === "aborted") this.setStatus("active");
@@ -809,12 +842,16 @@ export class OnlineTransport {
       throw failure("INVALID_INPUT");
     }
     if (sample.targetTick <= this.lastInputTick) return null;
-    const arrivalTick = this.clock.arrivalTick(performance.now());
+    // An arrival estimate cannot grant lead beyond the authenticated field tick.
+    // Late hints are legal (the server retires them); excess future lead is fatal.
+    const clock = this.clock;
     if (
-      arrivalTick === null ||
-      this.clock.paused ||
-      sample.targetTick <= arrivalTick ||
-      sample.targetTick > arrivalTick + PROTOCOL.INPUT_LEAD_TICKS
+      !clock.ready ||
+      clock.connectionEpoch !== this.connectionEpoch ||
+      clock.fieldEpoch !== this.expectedFieldEpoch ||
+      clock.paused ||
+      sample.targetTick <= clock.serverTick ||
+      sample.targetTick > clock.serverTick + PROTOCOL.INPUT_LEAD_TICKS
     ) {
       return null;
     }
@@ -1014,7 +1051,10 @@ export class OnlineTransport {
     const arrivalTick = this.clock.arrivalTick(performance.now());
     if (arrivalTick === null) return;
     const targetTick = Math.max(
-      arrivalTick + PROTOCOL.INPUT_BUFFER_TICKS,
+      Math.min(
+        arrivalTick + PROTOCOL.INPUT_BUFFER_TICKS,
+        this.clock.serverTick + PROTOCOL.INPUT_LEAD_TICKS,
+      ),
       this.lastInputTick + 1,
     );
     try {
@@ -1065,7 +1105,7 @@ export class OnlineTransport {
   }
 
   setStatus(status, code) {
-    this.status = status;
+    this.status = this.revoking ? "signing-out" : status;
     this.callbacks.onStatus?.({ ...this.snapshot(), code });
   }
 

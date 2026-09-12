@@ -23,11 +23,13 @@ import { OnlineScene } from "./scene.js";
 import { OnlineUI } from "./ui.js";
 import { OnlineInspection } from "./inspection.js";
 import { OnlineLogin } from "./login.js";
+import { OnlineLoading } from "./loading.js";
 import { portalEntryContains } from "../world/portal-presentation.js";
 
 const app = new Application();
 const controller = new AbortController();
 const viewport = document.querySelector("#viewport");
+const loading = new OnlineLoading(viewport, controller.signal);
 const network = new Network();
 const services = { network, atlases: null };
 const hitboxInspector = new HitboxInspector(network);
@@ -104,13 +106,11 @@ function intent(action) {
 function clearInput() {
   input?.clear();
 }
+function isFieldBlocked() {
+  return destroyed || installing || transport.status !== "active";
+}
 function isBlocked() {
-  return (
-    destroyed ||
-    installing ||
-    transport.status !== "active" ||
-    Boolean(ui?.ui.blocksGameplay())
-  );
+  return isFieldBlocked() || Boolean(ui?.ui.blocksGameplay());
 }
 
 function status(value) {
@@ -140,9 +140,11 @@ function transition(message) {
   inspection?.record("transition", message);
 }
 function state(message) {
-  current?.changes(message).catch(failedScene);
+  const owner = current;
+  owner?.changes(message).catch((error) => failedScene(error, owner));
 }
-function failedScene(error) {
+function failedScene(error, owner) {
+  if (owner !== current || error?.name === "AbortError" || destroyed) return;
   report(error);
   transport.disconnect();
   prediction.clear();
@@ -151,6 +153,9 @@ function failedScene(error) {
 /** Stage the authoritative field before replacing any visible field or native-window owner. */
 async function install(snapshot) {
   const token = ++generation;
+  const loadingOwner = loading.begin(
+    "Preparing field, avatar and game interface…",
+  );
   installing = true;
   try {
     if (current?.fieldEpoch === snapshot.fieldEpoch) {
@@ -181,6 +186,7 @@ async function install(snapshot) {
     resize();
     app.canvas.focus();
   } finally {
+    loading.end(loadingOwner);
     if (token === generation) installing = false;
   }
 }
@@ -221,11 +227,10 @@ function installPrediction(candidate, snapshot) {
 }
 
 async function publishNative(snapshot) {
-  login.status({ status: "active" });
   await ui.update(snapshot);
   input.setBindings(ui.bindings);
   inspection.update(snapshot);
-  current?.setNativePresentation(ui.quests).catch(report);
+  await current?.setNativePresentation(ui.quests);
 }
 
 /** Native portal intent uses the original contact rectangle; the server admits the transition. */
@@ -424,6 +429,7 @@ function initializeInterfaces() {
     intent,
     report,
     isBlocked,
+    isFieldBlocked,
     tap: input.tap,
     portal,
   });
@@ -466,16 +472,22 @@ function initializeInterfaces() {
 }
 
 async function initialize() {
-  await initializeBrowserSurface(app, viewport);
-  if (destroyed) throw new DOMException("Client closed", "AbortError");
-  services.atlases = new AtlasStore(app.renderer, network);
-  initializeInterfaces();
-  await transport.initialize();
-  catalog = await loadCatalog();
-  await ui.prepare(catalog, controller.signal);
-  startPresentation();
-  await login.prepare(catalog, controller.signal);
-  status(transport.snapshot());
+  const loadingOwner = loading.begin("Loading game files…");
+  try {
+    await initializeBrowserSurface(app, viewport);
+    if (destroyed) throw new DOMException("Client closed", "AbortError");
+    services.atlases = new AtlasStore(app.renderer, network);
+    initializeInterfaces();
+    await transport.initialize();
+    catalog = await loadCatalog();
+    loading.decoration.loadCatalog(catalog);
+    await ui.prepare(catalog, controller.signal);
+    startPresentation();
+    await login.prepare(catalog, controller.signal);
+    status(transport.snapshot());
+  } finally {
+    loading.end(loadingOwner);
+  }
 }
 
 function startPresentation() {

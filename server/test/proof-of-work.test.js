@@ -1,13 +1,21 @@
 import { test, expect } from "bun:test";
 import { createHash } from "node:crypto";
-import { leadingZeroBits, satisfiesProofOfWork, validPowNonce, validChallengeId, powMessage } from "../../shared/proof-of-work.js";
+import {
+  leadingZeroBits,
+  satisfiesProofOfWork,
+  validPowNonce,
+  validChallengeId,
+  powMessage,
+} from "../../shared/proof-of-work.js";
 import { ProofOfWorkAuthority, POW_TTL_MS } from "../src/proof-of-work.js";
 import { SessionAuthority } from "../src/auth.js";
 
 function solve(challenge) {
   for (let nonce = 0; nonce < 1000000; nonce++) {
     const value = String(nonce);
-    const digest = createHash("sha256").update(powMessage(challenge.challengeId, value)).digest();
+    const digest = createHash("sha256")
+      .update(powMessage(challenge.challengeId, value))
+      .digest();
     if (satisfiesProofOfWork(digest, challenge.bits)) return value;
   }
   throw new Error("Proof search bound exceeded");
@@ -25,9 +33,20 @@ test("proof difficulty compares the exact most-significant bit boundary", () => 
 });
 
 test("nonce and challenge grammars reject coercion and ambiguous malformed values", () => {
-  for (const nonce of [0, null, "", "-1", "1.0", "1e2", "12345678901", "1\n"]) expect(validPowNonce(nonce)).toBe(false);
+  for (const nonce of [0, null, "", "-1", "1.0", "1e2", "12345678901", "1\n"]) {
+    expect(validPowNonce(nonce)).toBe(false);
+  }
   expect(validPowNonce("9999999999")).toBe(true);
-  for (const id of [null, 16, "a".repeat(15), "a".repeat(65), "abcdefghijklmnop.", "abcdefghijklmnop\n"]) expect(validChallengeId(id)).toBe(false);
+  for (const id of [
+    null,
+    16,
+    "a".repeat(15),
+    "a".repeat(65),
+    "abcdefghijklmnop.",
+    "abcdefghijklmnop\n",
+  ]) {
+    expect(validChallengeId(id)).toBe(false);
+  }
   expect(validChallengeId("a_b-cdefghijklmnop")).toBe(true);
   expect(powMessage("abcdefghijklmnop", "001")).toBe("abcdefghijklmnop.001");
 });
@@ -44,17 +63,37 @@ test("expired and unknown challenges expose the same invalid proof result", () =
   const authority = new ProofOfWorkAuthority(8);
   const challenge = authority.issue(owner, 1000);
   const proof = { challengeId: challenge.challengeId, nonce: solve(challenge) };
-  expect(() => authority.consume(owner, proof, 1000 + POW_TTL_MS)).toThrow("POW_INVALID");
+  expect(() => authority.consume(owner, proof, 1000 + POW_TTL_MS)).toThrow(
+    "POW_INVALID",
+  );
   expect(() => authority.consume(owner, proof, 1000)).toThrow("POW_INVALID");
-  expect(() => authority.consume(owner, { challengeId: "abcdefghijklmnop", nonce: "0" }, 1001)).toThrow("POW_INVALID");
+  expect(() =>
+    authority.consume(
+      owner,
+      { challengeId: "abcdefghijklmnop", nonce: "0" },
+      1001,
+    ),
+  ).toThrow("POW_INVALID");
 });
 
 test("malformed nonce and owner mismatch consume the challenge before rejecting", () => {
   const authority = new ProofOfWorkAuthority(8);
-  for (const invalid of [{ owner, nonce: "-1" }, { owner: "another-owner", nonce: null }]) {
+  for (const invalid of [
+    { owner, nonce: "-1" },
+    { owner: "another-owner", nonce: null },
+  ]) {
     const challenge = authority.issue(owner, 1000);
-    const proof = { challengeId: challenge.challengeId, nonce: solve(challenge) };
-    expect(() => authority.consume(invalid.owner, { ...proof, nonce: invalid.nonce ?? proof.nonce }, 1001)).toThrow("POW_INVALID");
+    const proof = {
+      challengeId: challenge.challengeId,
+      nonce: solve(challenge),
+    };
+    expect(() =>
+      authority.consume(
+        invalid.owner,
+        { ...proof, nonce: invalid.nonce ?? proof.nonce },
+        1001,
+      ),
+    ).toThrow("POW_INVALID");
     expect(() => authority.consume(owner, proof, 1002)).toThrow("POW_INVALID");
   }
 });
@@ -66,26 +105,74 @@ test("failed digest consumes the challenge and live challenge capacity is bounde
   let invalid = "0";
   for (let nonce = 0; nonce < 1000000; nonce++) {
     invalid = String(nonce);
-    const digest = createHash("sha256").update(powMessage(challenge.challengeId, invalid)).digest();
+    const digest = createHash("sha256")
+      .update(powMessage(challenge.challengeId, invalid))
+      .digest();
     if (!satisfiesProofOfWork(digest, challenge.bits)) break;
   }
-  expect(() => authority.consume(owner, { challengeId: challenge.challengeId, nonce: invalid }, 1001)).toThrow("POW_INVALID");
-  expect(() => authority.consume(owner, { challengeId: challenge.challengeId, nonce: valid }, 1002)).toThrow("POW_INVALID");
+  expect(() =>
+    authority.consume(
+      owner,
+      { challengeId: challenge.challengeId, nonce: invalid },
+      1001,
+    ),
+  ).toThrow("POW_INVALID");
+  expect(() =>
+    authority.consume(
+      owner,
+      { challengeId: challenge.challengeId, nonce: valid },
+      1002,
+    ),
+  ).toThrow("POW_INVALID");
   for (let index = 0; index < 4096; index++) authority.issue(owner, 1000);
   expect(() => authority.issue(owner, 1001)).toThrow("SERVER_BUSY");
-  expect(authority.issue(owner, 1000 + POW_TTL_MS).expiresAt).toBe(1000 + POW_TTL_MS * 2);
+  expect(authority.issue(owner, 1000 + POW_TTL_MS).expiresAt).toBe(
+    1000 + POW_TTL_MS * 2,
+  );
 });
 
 test("same-origin browser challenge GET needs its cookie but not an Origin header", () => {
-  const config = { origin: "http://127.0.0.1:3102", powBits: 8, secureCookie: false };
+  const config = {
+    origin: "http://127.0.0.1:3102",
+    powBits: 8,
+    secureCookie: false,
+  };
   const auth = new SessionAuthority(config, null);
-  const bootstrap = auth.bootstrap(new Request(`${config.origin}/api/v1/config`));
+  const bootstrap = auth.bootstrap(
+    new Request(`${config.origin}/api/v1/config`),
+  );
   const cookie = bootstrap.cookie.split(";")[0];
-  const request = new Request(`${config.origin}/api/v1/challenge`, { headers: { Cookie: cookie } });
+  const request = new Request(`${config.origin}/api/v1/challenge`, {
+    headers: { Cookie: cookie },
+  });
   const challenge = auth.challenge(request, "127.0.0.1");
   expect(validChallengeId(challenge.challengeId)).toBe(true);
-  expect(() => auth.challenge(new Request(request.url), "127.0.0.1")).toThrow("NOT_ALLOWED");
-  expect(() => auth.challenge(new Request(request.url, { headers: { Cookie: cookie, Origin: "https://other.example" } }), "127.0.0.1")).toThrow("NOT_ALLOWED");
-  const body = { name: "example", password: "example-password", csrfToken: bootstrap.loginToken, challengeId: challenge.challengeId, nonce: solve(challenge) };
-  expect(() => auth.admitLogin(new Request(`${config.origin}/api/v1/session`, { method: "POST", headers: { Cookie: cookie } }), body, "127.0.0.1")).toThrow("NOT_ALLOWED");
+  expect(() => auth.challenge(new Request(request.url), "127.0.0.1")).toThrow(
+    "NOT_ALLOWED",
+  );
+  expect(() =>
+    auth.challenge(
+      new Request(request.url, {
+        headers: { Cookie: cookie, Origin: "https://other.example" },
+      }),
+      "127.0.0.1",
+    ),
+  ).toThrow("NOT_ALLOWED");
+  const body = {
+    name: "example",
+    password: "example-password",
+    csrfToken: bootstrap.loginToken,
+    challengeId: challenge.challengeId,
+    nonce: solve(challenge),
+  };
+  expect(() =>
+    auth.admitLogin(
+      new Request(`${config.origin}/api/v1/session`, {
+        method: "POST",
+        headers: { Cookie: cookie },
+      }),
+      body,
+      "127.0.0.1",
+    ),
+  ).toThrow("NOT_ALLOWED");
 });

@@ -12,6 +12,8 @@ const PING_INTERVAL_MS = 15_000;
 const PONG_TIMEOUT_MS = 30_000;
 const LEASE_RENEW_MS = 15_000;
 const MAX_PREAUTH_PER_ACCOUNT = 2;
+const RETIRE_WAIT_ATTEMPTS = 3000;
+const RETIRE_WAIT_MS = 10;
 
 /** Socket/session epochs fence admission; PostgreSQL separately fences all writes. */
 export class GameplayGateway {
@@ -119,8 +121,7 @@ export class GameplayGateway {
         this.hello(socket, message).catch((error) => this.fail(socket, error));
         return;
       }
-      this.admit(socket, message);
-      this.dispatch(socket, message);
+      if (this.admit(socket, message) !== false) this.dispatch(socket, message);
     } catch (error) {
       this.fail(socket, error);
     }
@@ -177,7 +178,15 @@ export class GameplayGateway {
       this.characters.set(actor.id, actor);
       return actor;
     } catch (error) {
-      await this.database.releaseLease(actor);
+      this.world.leave(actor);
+      try {
+        if (session.revoked) {
+          await this.world.prepareLogout(actor);
+          await this.database.checkpoint(actor);
+        }
+      } finally {
+        await this.database.releaseLease(actor);
+      }
       throw error;
     }
   }
@@ -251,10 +260,25 @@ export class GameplayGateway {
     ) {
       throw protocolError("RATE_LIMITED");
     }
-    this.admitField(data, message);
+    return this.admitField(data, message);
+  }
+
+  drainsTransfer(data, message) {
+    const transfer = data.transfer;
+    if (!transfer || message.fieldEpoch !== transfer.sourceEpoch) return false;
+    if (message.type === "input") return true;
+    const cursor = transfer.baselines.get(message.snapshotId);
+    if (cursor === undefined) return false;
+    if (message.type === "ready") return true;
+    return (
+      message.type === "ack" &&
+      message.eventSeq >= cursor &&
+      message.eventSeq <= data.actor.eventSeq
+    );
   }
 
   admitField(data, message) {
+    if (this.drainsTransfer(data, message)) return false;
     if (
       message.type !== "command" &&
       message.fieldEpoch !== undefined &&
@@ -262,10 +286,11 @@ export class GameplayGateway {
     ) {
       throw protocolError("STALE_FIELD");
     }
-    if (["input", "command"].includes(message.type) && !data.ready) {
-      throw protocolError("NOT_ALLOWED");
-    }
-    if (message.type === "input" && data.actor.state === "transitioning") {
+    if (
+      !data.ready &&
+      (message.type === "input" ||
+        (message.type === "command" && !data.transfer))
+    ) {
       throw protocolError("NOT_ALLOWED");
     }
   }
@@ -336,6 +361,7 @@ export class GameplayGateway {
     }
     socket.data.ready = true;
     socket.data.ackSnapshotId = message.snapshotId;
+    socket.data.transfer = null;
   }
 
   resync(socket) {
@@ -387,6 +413,32 @@ export class GameplayGateway {
         this.publications.close(socket, "SESSION_EXPIRED");
       }
     }
+  }
+
+  async logout(session) {
+    const actor = this.accounts.get(session.accountId);
+    if (actor?.sessionId === session.id) {
+      actor.retiring = true;
+      this.world.leave(actor);
+      actor.retirement ??= this.finishLogout(actor);
+      await actor.retirement;
+    }
+    // Admission can still be acquiring a lease or loading content when revoked.
+    for (let attempt = 0; attempt < RETIRE_WAIT_ATTEMPTS; attempt++) {
+      if (!this.joining.has(session.accountId)) break;
+      await Bun.sleep(RETIRE_WAIT_MS);
+    }
+    if (this.joining.has(session.accountId)) throw protocolError("SERVER_BUSY");
+  }
+
+  async finishLogout(actor) {
+    for (let attempt = 0; attempt < RETIRE_WAIT_ATTEMPTS; attempt++) {
+      if (!actor.pending && !actor.renewing) break;
+      await Bun.sleep(RETIRE_WAIT_MS);
+    }
+    if (actor.pending || actor.renewing) throw protocolError("SERVER_BUSY");
+    await this.world.prepareLogout(actor);
+    await this.retire(actor);
   }
 
   maintain(now) {

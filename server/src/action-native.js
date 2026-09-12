@@ -3,9 +3,16 @@ import { nativeQuestViews } from "./native-presentation.js";
 import { reject } from "./action-rules.js";
 
 function validateTracked(profile, actor, world) {
-  const views = new Map(nativeQuestViews({ ...actor, profile }, world).map((entry) => [entry.id, entry]));
+  const views = new Map(
+    nativeQuestViews({ ...actor, profile }, world).map((entry) => [
+      entry.id,
+      entry,
+    ]),
+  );
   for (const id of profile.settings.questTracker.ids) {
-    if (!views.get(id)?.tracker) reject("NOT_ALLOWED", "Quest cannot be tracked.");
+    if (!views.get(id)?.tracker) {
+      reject("NOT_ALLOWED", "Quest cannot be tracked.");
+    }
   }
 }
 
@@ -29,7 +36,13 @@ export function executeNativePreference(profile, action, context) {
 function saveMacros(profile, macros, world) {
   for (const macro of macros) {
     for (const id of macro.skills) {
-      if (id && (!world.content.catalog.ui.skills[id] || !(profile.skills[id]?.level > 0))) reject("REQUIREMENTS_NOT_MET", "Macro skill is not learned.");
+      if (
+        id &&
+        (!world.content.catalog.ui.skills[id] ||
+          !(profile.skills[id]?.level > 0))
+      ) {
+        reject("REQUIREMENTS_NOT_MET", "Macro skill is not learned.");
+      }
     }
   }
   profile.skillMacros = structuredClone(macros);
@@ -41,16 +54,23 @@ function changeTracker(profile, action, context) {
     tracker.ids = tracker.ids.filter((id) => id !== action.questId);
     return;
   }
-  if (tracker.ids.includes(action.questId) || tracker.ids.length >= 5) reject("NOT_ALLOWED", "Quest tracker admission failed.");
+  if (tracker.ids.includes(action.questId) || tracker.ids.length >= 5) {
+    reject("NOT_ALLOWED", "Quest tracker admission failed.");
+  }
   tracker.ids.push(action.questId);
   tracker.open = true;
   validateTracked(profile, context.actor, context.world);
 }
 
 function acknowledgeNotice(profile, questId, context) {
-  const quest = nativeQuestViews({ ...context.actor, profile }, context.world).find((entry) => entry.id === questId);
+  const quest = nativeQuestViews(
+    { ...context.actor, profile },
+    context.world,
+  ).find((entry) => entry.id === questId);
   const cycle = profile.onlineState?.questCycles?.[questId];
-  if (!quest?.ready || !cycle) reject("NOT_ALLOWED", "Quest has no current readiness notice.");
+  if (!quest?.ready || !cycle) {
+    reject("NOT_ALLOWED", "Quest has no current readiness notice.");
+  }
   profile.onlineState.questNotices ??= {};
   profile.onlineState.questNotices[questId] = cycle;
 }

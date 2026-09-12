@@ -162,7 +162,7 @@ class Images {
   }
 }
 
-/** Usage: bun client/tools/inspect-origins.js SOURCE MAP_ID[,MAP_ID...] OUTPUT.json */
+/** Usage: bun tools/openms.js audit origins SOURCE MAP_ID[,MAP_ID...] OUTPUT.json */
 async function main(args) {
   const [source, ids, output] = args;
   if (!source || !ids || !output || !/^\d{9}(,\d{9})*$/.test(ids)) {

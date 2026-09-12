@@ -5,7 +5,11 @@ import { measureStage } from "./native-evidence.js";
 import { loadContent } from "../../server/src/content.js";
 import { onlineShell } from "./browser-shell.js";
 import { onlineBuildGraph } from "./online-build-graph.js";
-import { emitOnlineDeployment, publishBrowserOutputs } from "./online-deployment.js";
+import {
+  emitOnlineDeployment,
+  publishBrowserOutputs,
+} from "./online-deployment.js";
+import "./environment.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_SOURCE_FILES = 4096;
@@ -79,7 +83,9 @@ async function appendOnlineSources(paths) {
       onlyFiles: true,
       followSymlinks: false,
     })) {
-      if (paths.length >= MAX_SOURCE_FILES) throw new RangeError("Source file capacity exceeded");
+      if (paths.length >= MAX_SOURCE_FILES) {
+        throw new RangeError("Source file capacity exceeded");
+      }
       const name = path.replaceAll("\\", "/");
       if (!paths.includes(name)) paths.push(name);
     }
@@ -107,6 +113,7 @@ export async function buildBrowser(progress) {
         resolve(root, "tools/browser-oracle.js"),
       ],
       target: "browser",
+      env: "disable",
       format: "esm",
       naming: "[name].[ext]",
       sourcemap: "linked",
@@ -144,32 +151,48 @@ export async function buildOnlineBrowser({
   progress,
 } = {}) {
   const timings = {};
-  const identity = await measureStage(timings, "sourceIdentityMs", sourceIdentity);
+  const identity = await measureStage(
+    timings,
+    "sourceIdentityMs",
+    sourceIdentity,
+  );
   const contentRoot = resolve(root, "public/generated");
   const content = await measureStage(timings, "rulesIdentityMs", () =>
     loadContent({ root: contentRoot }),
   );
   const sourceBuildId = createHash("sha256")
-    .update(`${identity}\0online\0${development}\0${content.rulesHash}\0${content.catalogHash}`)
+    .update(
+      `${identity}\0online\0${development}\0${content.rulesHash}\0${content.catalogHash}`,
+    )
     .digest("hex");
   const shell = await onlineShellInputs(content);
   const graph = onlineBuildGraph(root);
-  progress?.("Online browser: compiling verified source without offline extraction/release rebuild");
+  progress?.(
+    "Online browser: compiling verified source without offline extraction/release rebuild",
+  );
   const result = await measureStage(timings, "compilationMs", () =>
     compileOnline({ development, sourceBuildId, content, graph }),
   );
   await recheckOnlineInputs(identity, content, timings);
   await publishBrowserOutputs(result.outputs);
-  const deployment = development ? null : await emitOnlineDeployment(root, {
-    sourceBuildId, content, shell, outputs: result.outputs,
-    catalog: {
-      url: "/generated/catalog.json",
-      sha256: content.catalogHash,
-      bytes: shell.get("/generated/catalog.json").byteLength,
-    },
-  });
+  const deployment = development
+    ? null
+    : await emitOnlineDeployment(root, {
+        sourceBuildId,
+        content,
+        shell,
+        outputs: result.outputs,
+        catalog: {
+          url: "/generated/catalog.json",
+          sha256: content.catalogHash,
+          bytes: shell.get("/generated/catalog.json").byteLength,
+        },
+      });
   return {
-    sourceBuildId, development, timings, deployment,
+    sourceBuildId,
+    development,
+    timings,
+    deployment,
     html: new TextDecoder().decode(shell.get("/index.html")),
     inputs: [...graph.inputs].sort(),
     outputs: result.outputs.map((file) => file.path),
@@ -181,14 +204,24 @@ async function onlineShellInputs(content) {
     ["/index.html", new TextEncoder().encode(await onlineShell(root))],
   ]);
   for (const [url, path] of [
-    ["/style.css", "style.css"], ["/online.css", "online.css"],
+    ["/style.css", "style.css"],
+    ["/online.css", "online.css"],
     ["/app-icon.svg", "public/app-icon.svg"],
     ["/generated/catalog.json", "public/generated/catalog.json"],
   ]) {
-    shell.set(url, new Uint8Array(await Bun.file(resolve(root, path)).arrayBuffer()));
+    shell.set(
+      url,
+      new Uint8Array(await Bun.file(resolve(root, path)).arrayBuffer()),
+    );
   }
-  if (createHash("sha256").update(shell.get("/generated/catalog.json")).digest("hex") !== content.catalogHash) {
-    throw new Error("Online catalog changed during shell capture; rebuild required");
+  if (
+    createHash("sha256")
+      .update(shell.get("/generated/catalog.json"))
+      .digest("hex") !== content.catalogHash
+  ) {
+    throw new Error(
+      "Online catalog changed during shell capture; rebuild required",
+    );
   }
   return shell;
 }
@@ -197,7 +230,10 @@ async function recheckOnlineInputs(identity, content, timings) {
   const verified = await measureStage(timings, "rulesIntegrityMs", () =>
     loadContent({ root: resolve(root, "public/generated") }),
   );
-  if (verified.rulesHash !== content.rulesHash || verified.catalogHash !== content.catalogHash) {
+  if (
+    verified.rulesHash !== content.rulesHash ||
+    verified.catalogHash !== content.catalogHash
+  ) {
     throw new Error("Online rule or catalog inputs changed; rebuild required");
   }
   if ((await sourceIdentity()) !== identity) {
@@ -213,6 +249,7 @@ async function compileOnline({ development, sourceBuildId, content, graph }) {
       resolve(root, "src/audio/audio-capture-worklet.js"),
     ],
     target: "browser",
+    env: "disable",
     format: "esm",
     naming: "[name].[ext]",
     sourcemap: development ? "linked" : "none",
@@ -231,6 +268,8 @@ async function compileOnline({ development, sourceBuildId, content, graph }) {
   if (!result.success) {
     throw new AggregateError(result.logs, "Online browser build failed");
   }
-  if (!graph.inputs.size) throw new Error("Online dependency graph was not observed");
+  if (!graph.inputs.size) {
+    throw new Error("Online dependency graph was not observed");
+  }
   return result;
 }

@@ -14,7 +14,39 @@ bun install --frozen-lockfile
 
 ## Online development
 
-Prepare the original assets and authorized reference data using the [client extraction setup](../README.md#run), then run these in separate terminals from the repository root:
+Prepare the original assets and authorized reference data using the [client extraction setup](../README.md#run). PostgreSQL is exclusively externally managed with Podman: neither JavaScript development nor production startup creates, initializes, starts or stops a cluster. Install Podman and a Compose provider supporting `up --wait` (for example, Docker Compose); `podman compose version` must work. On macOS/Windows, run `podman machine init` once and `podman machine start` when the machine is stopped.
+
+From the repository root:
+
+```sh
+podman compose -f infra/compose.yaml up -d --build --wait --wait-timeout 90
+```
+
+[`infra/compose.yaml`](../../infra/compose.yaml) builds the existing `Containerfile` from the official `docker.io/library/postgres:18.6-bookworm` image. PostgreSQL 18 stores its cluster under `/var/lib/postgresql/18/docker`; the named `openms-postgres-data` volume mounts at `/var/lib/postgresql`, not the pre-18 `/var/lib/postgresql/data` path. Only loopback is published. The TCP readiness healthcheck gates `up --wait` before Bun starts.
+
+Already using the previous standalone `openms-postgres` container? Stop it with `podman stop openms-postgres` **before** running Compose. Compose reuses the same named volume; never run two PostgreSQL instances against it. No container or volume removal is required.
+
+Compose accepts these exported variables, or an explicit `--env-file /path/to/private.env` before `up`:
+
+| Variable            | Default             |
+| ------------------- | ------------------- |
+| `POSTGRES_USER`      | `openms`            |
+| `POSTGRES_PASSWORD`  | `openms_local_only`  |
+| `POSTGRES_DB`        | `openms`            |
+| `POSTGRES_PORT`      | `55432`             |
+
+Defaults match `.env.server`. If overridden, supply the corresponding `DATABASE_URL` to the Bun server (`postgres://USER:PASSWORD@127.0.0.1:PORT/DB`; URL-encode credentials as needed). Compose's `--env-file` is not loaded by Bun; scoped `.env.server`/`.env.client` are not loaded by Compose. Keep private overrides outside tracked files; ignored `.env*.local` files require explicit loading.
+
+Stop/start ownership stays with the operator:
+
+```sh
+podman compose -f infra/compose.yaml stop
+podman compose -f infra/compose.yaml up -d --wait --wait-timeout 90
+```
+
+The container has a 90-second graceful stop timeout. Stopping Bun leaves PostgreSQL running. Compose `stop` and `down` retain the named volume; **`down --volumes` deletes database data**. Initialization variables apply to an **empty volume only**; changing `POSTGRES_PASSWORD` does not rotate an existing database password. These published development credentials are never production credentials. Existing user data under `server/.cache/postgres` is untouched and is **not automatically migrated**; plan any deliberate transfer separately.
+
+Then run the server and online client in separate terminals:
 
 ```sh
 bun run server:dev
@@ -23,15 +55,21 @@ bun run client:dev:online
 
 Open **http://127.0.0.1:3102**. The browser development server builds the online shell and proxies `/api/` HTTP/WebSocket traffic to the Bun runtime on loopback port **3200**. Restart after source changes. It serves already-generated immutable assets; it does not run extraction or the offline release-verification pipeline on every launch.
 
-The launcher creates `dev_developer` and `dev_player` if absent and resets their passwords on each launch. `OPENMS_DEV_PASSWORD` supplies an explicit password for both; otherwise generated passwords are printed only in the terminal. `OPENMS_PG_BIN` selects the PostgreSQL binary directory and `OPENMS_PG_PORT` selects the owned database listener (default `55432`). This bootstrap applies even when `DATABASE_URL` is supplied, which is why the launcher must only point at a dedicated development database.
+Server startup applies the database schema automatically. The launcher creates `dev_developer` and `dev_player` if absent and resets their passwords on each launch. `OPENMS_DEV_PASSWORD` supplies an explicit password for both; otherwise generated passwords are printed only in the terminal. This existing bootstrap always applies to the selected `DATABASE_URL`, so the launcher must only point at a dedicated development database. No `OPENMS_PG_BIN` or `OPENMS_PG_PORT` defaults or local-cluster fallback remain.
 
-The server requires PostgreSQL. `DATABASE_URL` selects an existing database; without it the development launcher owns a local PostgreSQL cluster under `server/.cache` when PostgreSQL tools are installed. It must fail explicitly if those prerequisites are absent—there is no in-memory economy fallback. Use a dedicated development database, never production data. The launcher prints development credentials; use them in the Win95 online sign in window. Credentials are server-side, not compiled into the browser bundle.
+Host tools load the repository-root `.env.server` or `.env.client` by module-relative path, independently of working directory. Process environment takes precedence; client programmatic options take precedence over both. `.env.server` allowlists `DATABASE_URL`, `OPENMS_ORIGIN`, `OPENMS_HOST`, `OPENMS_PORT`, `OPENMS_CONTENT_ROOT`, `OPENMS_RULES_HASH`, `OPENMS_POW_BITS` and `OPENMS_DEV_PASSWORD`. Tracked defaults select `postgres://openms:openms_local_only@127.0.0.1:55432/openms`, host `127.0.0.1`, port3200 and15 proof-of-work bits. `.env.client` only allowlists `PORT=3100`, `ONLINE_PORT=3102` and `OPENMS_SERVER_URL=http://127.0.0.1:3200`. These listener/proxy settings are development serving configuration; production builds use same-origin `/api/` and `/generated/`. Server secrets and arbitrary environment variables are not bundled into the browser. `.env*.local` files are ignored by version control but **not automatically read**.
+
+`OPENMS_MODE` is accepted only from the process environment, never a checked-in scoped file. `NODE_ENV=production` forces production mode and cannot enable development. The development launcher refuses production mode. PostgreSQL connectivity is required and failure stays explicit; there is no in-memory economy fallback.
 
 Accounts are also created at `POST /api/v1/accounts` from that same window. Sign in and sign up both require a single-use hashcash challenge from `GET /api/v1/challenge` (default 15 leading zero bits, `OPENMS_POW_BITS` overrides within 8..24) so credential endpoints stay expensive for automated spam; the server consumes the challenge before any password work and never distinguishes an expired, reused or wrong challenge. Registration provisions one default level-1 beginner character in the same durable operation, so a new account can enter the world immediately. After authentication the client shows the account's characters in a spotlight carousel; entering the world takes the selected character directly—there is no world or channel selection. An account can also create further characters from the same window: `POST /api/v1/characters` accepts a `4..13` name, four stats of `4..13` totalling 25 (the packaged baseline total) and packaged catalog cosmetics, then inserts the level-1 beginner atomically under the account row lock.
 
 The online shell does not open `ProfileStore`, import IndexedDB characters, install an offline service worker or merge disconnected earnings. Connection loss freezes online admission. Reconnect uses a fresh one-use ticket and server-owned state, not an offline continuation.
 
 Authentication sessions and one-use tickets are process-local (session lifetime12h; ticket lifetime30s). Restart requires login again; durable character/economy recovery is separate. The reconnect grace is30s, not offline permission or invulnerability.
+
+Online startup and field downloads use the shared original mushroom loading presentation while real asynchronous work prepares the browser surface, content, avatar and native game interface. It is decoration and status, not a fabricated percentage or a readiness authority. Native UI resources must be prepared before publication and matching transport readiness; stale preparations cannot replace the retained complete field. Field/network readiness is separate from modal gameplay blocking: a modal blocks movement and competing actions, but must not block its own revive confirmation from sending the authoritative request.
+
+Explicit logout immediately removes the actor from simulation, unlike transient-disconnect grace. It fences pending durable work, checkpoints the final character and releases its writer lease. A dead logout applies the ordinary authored `returnMap`/portal0 revival policy and restores HP50 capped by maximum HP before saving. See [session lifecycle](protocol.md#transport-and-session-lifecycle) for transfer readiness and recovery boundaries.
 
 ### Development controls
 
@@ -58,12 +96,12 @@ Configuration:
 | `OPENMS_HOST`, `OPENMS_PORT` | Runtime listener; defaults to loopback and `3200`.                                                                                                                                                             |
 | `OPENMS_CONTENT_ROOT`        | Validated generated catalog/content directory; defaults to `client/public/generated`.                                                                                                                          |
 | `OPENMS_RULES_HASH`          | Required production pin: exactly 64 lowercase hexadecimal SHA-256 characters, compared with the verified runtime rules identity before listening. A matching hash is not a review or proof of native behavior. |
-| `OPENMS_MODE`                | Only explicit `development` enables the loopback development namespace. Leave it unset for production; do not deploy the development launcher.                                                                 |
+| `OPENMS_MODE`                | Process-only mode; explicit `development` enables loopback development admission. `NODE_ENV=production` forces production regardless of this value. Never deploy the development launcher. |
 
 With production environment values provisioned securely and the matching shell/content deployed, launch the runtime directly:
 
 ```sh
-bun server/src/index.js
+bun run server:start
 ```
 
 Do not use `server:dev` in production; it explicitly selects development mode and bootstraps credentials.
@@ -87,8 +125,8 @@ The [authoritative browser-game protocol](protocol.md) defines closed client int
 The authorized Cosmic checkout is an external **server reference**, not original Nexon source. `MAPLE_SERVER_REFERENCE` selects that checkout; [input provenance](../inputs.md) records the distinction.
 
 ```sh
-bun run data:server --help
-bun run data:server --server-root /path/to/Cosmic --output /path/to/generated
+bun tools/openms.js data server --help
+bun tools/openms.js data server --server-root /path/to/Cosmic --output /path/to/generated
 ```
 
 [`client/tools/server-data.js`](../../client/tools/server-data.js) reads bounded SQL/schema records and script metadata into immutable content. It does not start Cosmic, execute its SQL or supply its account service. See [reference-data coverage](../offline-data.md) for supported records and excluded bootstrap credentials.

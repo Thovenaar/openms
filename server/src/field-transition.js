@@ -95,6 +95,14 @@ function beginTransition(world, actor, destination) {
   const transitionId = randomUUID();
   const deadline = world.now + 5000;
   actor.state = "transitioning";
+  const data = actor.connection?.data;
+  if (data) {
+    data.transfer = {
+      sourceEpoch: source.epoch,
+      baselines: new Map(data.baselines),
+    };
+    data.ready = false;
+  }
   actor.portalUntil = world.now + 500;
   world.neutralize(actor);
   return { request, source, transitionId, deadline };
@@ -102,7 +110,13 @@ function beginTransition(world, actor, destination) {
 
 function prepareTransition(world, actor, transition, target) {
   const { request, source, transitionId, deadline } = transition;
-  if (Date.now() > deadline || target.characters.size >= 128) {
+  if (actor.retiring || actor.session?.revoked) {
+    throw protocolError("SESSION_EXPIRED");
+  }
+  if (
+    Date.now() > deadline ||
+    (target !== source && target.characters.size >= 128)
+  ) {
     throw protocolError("SERVER_BUSY");
   }
   const arrival = destinationArrival(world, actor, target, request);
@@ -175,6 +189,7 @@ function commitTransition(world, actor, transition, operation) {
 
 function bindTransition(world, actor, transition) {
   const { source, target, arrival, simulation } = transition;
+  if (actor.retiring || actor.session?.revoked) return;
   releaseInteractions(actor, world);
   source.characters.delete(actor.id);
   actor.field = target;
@@ -189,6 +204,8 @@ function bindTransition(world, actor, transition) {
 
 function publishTransition(world, actor, transition) {
   const { transitionId, source, target, deadline } = transition;
+  if (actor.retiring || actor.session?.revoked) return;
+  resetReadiness(actor);
   world.publish(actor, {
     type: "transition",
     transitionId,
@@ -206,6 +223,7 @@ function publishTransition(world, actor, transition) {
 
 function rollbackTransition(world, actor, transition) {
   const { transitionId, source, deadline } = transition;
+  if (actor.retiring || actor.session?.revoked) return;
   actor.state = "active";
   actor.simulation.movementLocked = actor.profile.hp <= 0;
   world.publish(actor, {
@@ -218,6 +236,42 @@ function rollbackTransition(world, actor, transition) {
     deadline,
     code: "TRANSITION_FAILED",
   });
+  resetReadiness(actor);
+  world.publish(actor, { type: "snapshot-request" });
+}
+
+function resetReadiness(actor) {
+  const data = actor.connection?.data;
+  if (!data) return;
+  data.baselines.clear();
+  data.ackSnapshotId = null;
+  data.ready = false;
+}
+
+/** Detached logout uses the ordinary return-map/portal policy before its fenced checkpoint. */
+export async function prepareLogout(world, actor) {
+  actor.profile.hp = Math.max(0, actor.profile.hp - (actor.pendingDamage ?? 0));
+  actor.pendingDamage = 0;
+  actor.profile.mp = Math.max(
+    0,
+    actor.profile.mp - (actor.pendingMpDamage ?? 0),
+  );
+  actor.pendingMpDamage = 0;
+  if (actor.profile.hp > 0) return;
+  const source =
+    actor.field?.manifest?.id === actor.profile.location.mapId
+      ? actor.field.manifest
+      : await world.content.map(actor.profile.location.mapId);
+  const manifest = await world.content.map(revivalMap(source));
+  const target = { manifest };
+  const arrival = destinationArrival(world, actor, target, { portal: 0 });
+  actor.profile.location = {
+    mapId: target.manifest.id,
+    x: arrival.x,
+    y: arrival.y,
+    facing: 1,
+  };
+  actor.profile.hp = Math.min(actor.profile.maxHP, REVIVAL_POLICY.restoredHP);
 }
 
 /** Internal trusted destination only; gameplay portal intent never carries a map/XY. */

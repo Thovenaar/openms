@@ -154,7 +154,7 @@ async function assertSpawnLegible({ page, assert }) {
 
 async function spawnControls(context) {
   const { page, snapshot, assert, checkpoint } = context;
-  await openConsoleSection(page, "field");
+  await openConsoleSection(page, "world");
   await page.click("#map-selection summary");
   await page.click("#mob-spawn-section summary");
   await page.type("#mob-search", "Snail");

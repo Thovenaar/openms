@@ -1,14 +1,28 @@
 # Browser validation method
 
+## Validation scope
+
+Validation is proportional to the change. Use the smallest check that covers the changed contract, then stop; do not turn a setup or documentation task into an end-to-end acceptance run.
+
+- **Documentation/comments only:** review the edited instructions and links. No runtime, browser, extraction, build or test-suite run.
+- **Compose/environment/setup configuration:** use the relevant parser/configuration check; for Compose, `podman compose -f infra/compose.yaml config`. Do not start databases or application servers, migrate data, or exercise login/gameplay/persistence by default. A focused startup check is appropriate when startup behavior itself is the requested change, not merely because a quick start is being documented.
+- **Application logic:** run the affected existing test or a narrow reproduction. Do not traverse unrelated application flows.
+- **UI behavior/appearance:** check the changed interaction or surface only; do not expand into a full login/gameplay acceptance checklist.
+- **Asset/extraction logic:** check the affected decoder or recipe. Reuse existing generated assets for unrelated edits.
+
+Comprehensive smoke/end-to-end runs, `scenario all`, full extraction, world-oracle/full-offline acceptance and serial-versus-concurrent benchmarks require an explicitly requested validation/release/performance scope. The procedures below describe those available tools; they are not a per-edit checklist. The persistent smoke loop is optional, not a default completion gate.
+
+Documentation/configuration-only work needs no new tests, screenshots, timing reports or `validation.md` entry. Report the narrow check performed and any relevant limitation briefly. If a check fails, investigate that failure without expanding into unrelated checks.
+
 ## Run the current client
 
 For an explicit world/physics release gate, extract original inputs and start the development server:
 
 ```sh
-bun run extract
+bun tools/openms.js extract
 bun run client:dev:offline
 # In another terminal:
-bun run validate --duration 10 --maps 100000000,100000001,104040001,106010000,230030100,211040000 --output artifacts/world-current
+bun tools/openms.js validate --duration 10 --maps 100000000,100000001,104040001,106010000,230030100,211040000 --output artifacts/world-current
 ```
 
 The current entry point is `/generated/catalog.json` (package schema 2), not the
@@ -28,20 +42,20 @@ historical evidence; only artifacts named in that run's report belong to it.
 
 ## Native scenarios and replay
 
-Use these for focused iteration against an already running, rebuilt dev server:
+Use affected named cases for focused browser iteration against an already running, rebuilt dev server. The `all` example is for an explicitly requested full native run:
 
 ```sh
-bun run scenario list
-bun run scenario --list
-bun run scenario all --concurrency 2 --output artifacts/native-current
-bun run scenario world-tour-return claw-close-skill --output artifacts/native-selected
-bun run scenario window-map-travel --headed --output artifacts/native-window
-bun run scenario --rerun artifacts/native-window/window-map-travel/inputs.json --output artifacts/native-rerun
+bun tools/openms.js scenario list
+bun tools/openms.js scenario --list
+bun tools/openms.js scenario all --concurrency 2 --output artifacts/native-current
+bun tools/openms.js scenario world-tour-return claw-close-skill --output artifacts/native-selected
+bun tools/openms.js scenario window-map-travel --headed --output artifacts/native-window
+bun tools/openms.js scenario --rerun artifacts/native-window/window-map-travel/inputs.json --output artifacts/native-rerun
 ```
 
 The names are `world-tour-return`, `claw-close-skill`, `window-map-travel`, `diagnostic-replay`, `inspection-errors`, `same-map-teleport`, `npc-talk-menu` and `social-invitations`. `list`/`--list` prints schema-v1 descriptors (`name`, `recipe`, `mapIds`, `dependencies`) without launching Chrome. `all` or no names selects every case; named positional arguments select only those cases, rejecting duplicates and unknown names.
 
-The online login and console surface is a separate module, `client/tools/scenarios/online-login-console.js` (`runOnlineLoginConsole({browser, url, output, accounts, password})`), because it needs the online dev server, a developer and a player account, and an existing browser; it opens its own pages and never launches Chromium. It checks the recovered creation choices, the carousel portrait pixels, live login and field PCM, and all six console sections in both authority modes, writing `report.json` plus captures into its output directory.
+The online login and console surface is a separate module, `client/tools/scenarios/online-login-console.js` (`runOnlineLoginConsole({browser, url, output, accounts, password})`), because it needs the online dev server, a developer and a player account, and an existing browser; it opens its own pages and never launches Chromium. It checks the recovered creation choices, the carousel portrait pixels, live login and field PCM, and all five console sections in both authority modes, writing `report.json` plus captures into its output directory. An explicitly requested full online acceptance run must also cover original mushroom loading during startup/field preparation, prepared native windows, World default and persisted-section migration, same-field travel, death-dialog revival and explicit logout/relogin. Retained historical six-section runs are not evidence for these current contracts.
 
 Options are `--url` (default `http://127.0.0.1:3100`), `--output` (default `artifacts/native-scenarios`), `--chrome` (default installed macOS Chrome path above), `--browserWSEndpoint`, `--headed`, `--rerun`, `--concurrency` (integer1–4, default1) and `--list`. The bounded concurrent runner shares one browser process, **not a game session**: every case owns a fresh BrowserContext, profile, IndexedDB, service worker/CacheStorage and output directory. CDP focus emulation keeps isolated foreground input alive; do not run competing performance measurements concurrently. All workers drain before teardown, and reports retain selection order. Borrowed browsers are disconnected, not closed; owned browsers close in `finally`.
 
@@ -59,17 +73,19 @@ Failure reports also retain the development error journal as `errorLog.text` wit
 
 ### Timing the feedback loop
 
-Aggregate `report.timings` separates `catalogIdentityMs`, `browserAcquireMs`, `scenariosMs` and `teardownMs`. Each case separates fixture preparation/seeding, context creation, navigation, readiness, actions, final readiness/identity/catalog checks and teardown; failed stages also retain elapsed time. Compare identical named cases serially and with `--concurrency 2`, using distinct output directories and the same source/catalog identities. These are wall-clock observations, not inferred savings. Parent and child timings overlap: do not sum `scenariosMs` with each case's elapsed time.
+Aggregate `report.timings` separates `catalogIdentityMs`, `browserAcquireMs`, `scenariosMs` and `teardownMs`. Each case separates fixture preparation/seeding, context creation, navigation, readiness, actions, final readiness/identity/catalog checks and teardown; failed stages also retain elapsed time. When explicitly evaluating concurrency, compare identical named cases serially and with `--concurrency 2`, using distinct output directories and the same source/catalog identities; routine edits do not need this comparison. These are wall-clock observations, not inferred savings. Parent and child timings overlap: do not sum `scenariosMs` with each case's elapsed time.
 
 `bun run client:dev:offline` writes plain stdout lines with elapsed seconds and **0/25/50/75/100% completed stages**: browser build, verified release, HTTP encoding, listener readiness. Intermediate integrity counts preserve the last completed-stage percentage. This is a stage count, not a byte-weighted estimate or ETA;100% is emitted only after readiness. The programmatic server identity retains source hashing/compilation, catalog validation, asset integrity, release publication, HTTP encoding and listener timings.
 
 ## Persistent smoke loop
 
+Opt-in browser iteration tool. Do not launch it for documentation, Compose or unrelated server configuration changes.
+
 ```sh
-bun run smoke
-bun run smoke --once --output artifacts/smoke-current
-bun run smoke --scenarios world-tour-return,diagnostic-replay --port 3102
-bun run smoke --help
+bun tools/openms.js smoke
+bun tools/openms.js smoke --once --output artifacts/smoke-current
+bun tools/openms.js smoke --scenarios world-tour-return,diagnostic-replay --port 3102
+bun tools/openms.js smoke --help
 ```
 
 `smoke` owns a loopback dev server (default port3101) and one reusable headless Chrome; each native case still gets a new isolated context. Options are `--once`, `--scenarios` (comma-separated names), `--concurrency` (integer1–4, default1), `--port`, `--url`, `--output` (default `artifacts/smoke`), `--chrome`, `--assets`, `--server-reference` and `--help`. `--url`, if supplied, must be exactly the owned `http://127.0.0.1:<port>/` origin/root with no credentials, search or fragment; it is not a way to adopt an unrelated server. Asset/reference defaults and environment overrides match [extraction](asset-delivery.md#incremental-extraction-and-preflight).
@@ -78,7 +94,7 @@ The watcher inventories explicit source/tool/shell/package inputs, descriptor de
 
 Every generation first probes the published catalog against a persistent successful-extraction receipt in `client/.cache/extraction/` (or `MAPLE_EXTRACTION_CACHE`). Its key covers configured original/reference inputs, their content hashes, the lockfile/Bun version, and the existing transitive recipe hashes for the units in the successful extraction report. The catalog digest and report/build identity must also match. This includes shared compiler code imported by extraction, not just `client/tools` edits. Unchanged assets skip **both preflight and conversion**, including across separate smoke sessions; initial source/input scanning still runs.
 
-Without a matching receipt, `smoke` runs **incremental** extraction, including selected-world preflight exactly once. Its `--preflight-report` writes gate evidence directly into the generation; no second preflight subprocess is needed. Only successful extraction can publish a reuse receipt, and a changed algorithm during conversion cannot overwrite that receipt. The dev server still verifies published-resource integrity; a missing/corrupt resource cannot be served merely because extraction was reused. Explicit `bun run extract` remains the full output-closure verification/repair operation. Current orchestration-file hashing is conservative: changing `extract.js` can invalidate map conversion even when a narrower recipe split might be possible.
+Without a matching receipt, `smoke` runs **incremental** extraction, including selected-world preflight exactly once. Its `--preflight-report` writes gate evidence directly into the generation; no second preflight subprocess is needed. Only successful extraction can publish a reuse receipt, and a changed algorithm during conversion cannot overwrite that receipt. The dev server still verifies published-resource integrity; a missing/corrupt resource cannot be served merely because extraction was reused. Explicit `bun tools/openms.js extract` remains the full output-closure verification/repair operation. Current orchestration-file hashing is conservative: changing `extract.js` can invalidate map conversion even when a narrower recipe split might be possible.
 
 Declared dependency matches select affected scenarios; shared/extraction/unknown inputs conservatively select all configured cases with a recorded reason. Startup and SIGUSR1 manual rerun select all configured cases. The loop verifies the rebuilt source/asset identities against the native report before accepting a generation.
 
@@ -86,9 +102,9 @@ Evidence lives under `<output>/<timestamp>-<pid>/generation-N/`, retaining `chan
 
 Each subprocess also retains `<job>.timing.json`; generation `result.timings` separates `assetProbeMs`, the recorded `assetReuse` decision, optional asset refresh, server startup and browser acquisition/reuse. `result.identity.timings` holds the server stages, `result.nativeTimings` the runner totals, and session `teardown.json` the final owned-resource shutdown. Use these artifacts to identify the dominant stage before changing workflow.
 
-The loop **never** invokes `extract:full`/`--full`, broad `validate`, full-release download, stopped-origin cold reload, project-wide tests, lint or formatting. Those remain explicit release gates. Incremental extraction itself still performs selected-world preflight and verifies output closure; “fast loop” does not mean file-exists shortcuts or hidden skipped identity guards. Do not infer elapsed-time improvements from this procedure: retained reports in [current validation](validation.md) are the measurement authority.
+The loop **never** invokes `extract --full`, broad `validate`, full-release download, stopped-origin cold reload, project-wide tests, lint or formatting. Those remain explicit release gates. Incremental extraction itself still performs selected-world preflight and verifies output closure; “fast loop” does not mean file-exists shortcuts or hidden skipped identity guards. Do not infer elapsed-time improvements from this procedure: retained reports in [current validation](validation.md) are the measurement authority.
 
-Movement presentation is measured separately from frame rate. `bun run smoothness` samples the presented local-player pose on every animation frame while a real key is held, gates stalled and jerk frames on authoritative kernel movement within a trailing window, and computes a raw-kernel control from the same trace, so a presentation regression stays distinguishable from terrain blocking or deceleration. It runs against the offline or the online client with the same metric and never steps the simulation itself. Stall and jerk ratios are browser presentation policy, not original-client thresholds.
+Movement presentation is measured separately from frame rate. `bun tools/openms.js smoothness` samples the presented local-player pose on every animation frame while a real key is held, gates stalled and jerk frames on authoritative kernel movement within a trailing window, and computes a raw-kernel control from the same trace, so a presentation regression stays distinguishable from terrain blocking or deceleration. It runs against the offline or the online client with the same metric and never steps the simulation itself. Stall and jerk ratios are browser presentation policy, not original-client thresholds.
 
 ## Evidence boundaries
 
@@ -169,7 +185,7 @@ Use separate isolated browser contexts and nonoverlapping artifact directories. 
 
 Drive trusted keyboard/mouse input. `maple.snapshot()` and paginated `maple.agent.observe()` are observations, not mutation shortcuts. Reversible scenarios and canonical stopped-page IndexedDB fixtures may establish prerequisites, but reports must distinguish seeded items/funds/rosters/EXP from actual pickup, purchase, consent or earned progression. Use the outside-game local-peer producer only for the explicitly selected peer; the active character's native feature must still be exercised.
 
-Required independent slices:
+Independent slices for an explicitly requested full in-game acceptance run:
 
 1. **Bindings/focus:** all native binding routes, settings and macros; original Save/Discard semantics; shared HUD/carry state; text/IME, blur/visibility and pending modal loading; single-click Exit after human takeover.
 2. **Inventory/trade:** UID/slot move/merge/equip/use/drop/pickup/gather; real nine-slot two-profile offers/confirmation; cancellation; exact quantity/meso conservation; capacity refusal followed by a valid new room; durable reload.

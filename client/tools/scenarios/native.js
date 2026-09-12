@@ -120,9 +120,7 @@ export async function openConsoleSection(page, id) {
     (section) => {
       const select = document.querySelector("#console-section");
       const panel = document.getElementById(`console-${section}`);
-      return (
-        select?.value === section && panel !== null && !panel.hidden
-      );
+      return select?.value === section && panel !== null && !panel.hidden;
     },
     { timeout: TIMEOUT },
     id,

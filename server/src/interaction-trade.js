@@ -82,7 +82,12 @@ export function publishTrade(world, room, state = room.state) {
     participants: room.participants,
     members: room.participants.map((id) => {
       const member = world.actors.get(id);
-      return { id, appearance: member ? actorEntity(member).appearance : room.members.find((entry) => entry.id === id).appearance };
+      return {
+        id,
+        appearance: member
+          ? actorEntity(member).appearance
+          : room.members.find((entry) => entry.id === id).appearance,
+      };
     }),
     offers,
   };
@@ -139,7 +144,10 @@ function invite(actor, message, world) {
     ],
   };
   actor.tradeId = peer.tradeId = room.id;
-  room.members = [actor, peer].map((member) => ({ id: member.id, appearance: actorEntity(member).appearance }));
+  room.members = [actor, peer].map((member) => ({
+    id: member.id,
+    appearance: actorEntity(member).appearance,
+  }));
   actor.lastTradeInvite = now;
   state.trades.set(room.id, room);
   publishTrade(world, room);
