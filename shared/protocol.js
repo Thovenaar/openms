@@ -29,6 +29,61 @@ import {
   keyBindingsSchema,
   skillMacrosSchema,
 } from "./native-presentation.js";
+import {
+  SOCIAL_ACTION_ROWS,
+  SOCIAL_CHAT_ACTION_FIELDS,
+  SOCIAL_CHAT_CHANNELS,
+  SOCIAL_EPHEMERAL_ACTIONS,
+  SOCIAL_EVENT_SCHEMAS,
+  SOCIAL_RESULT_SCHEMAS,
+} from "./social-protocol.js";
+import {
+  COMMERCE_ACTION_ROWS,
+  COMMERCE_EPHEMERAL_ACTIONS,
+  COMMERCE_EVENT_SCHEMAS,
+  COMMERCE_RESULT_SCHEMAS,
+} from "./commerce-protocol.js";
+import {
+  TRADE_ACTION_ROWS,
+  TRADE_EPHEMERAL_ACTIONS,
+  TRADE_EVENT_FIELDS,
+  TRADE_OFFER_ITEM_FIELDS,
+  TRADE_RESULT_SCHEMAS,
+  validTradeEvent,
+} from "./trade-protocol.js";
+import {
+  NARRATIVE_ACTION_ROWS,
+  NARRATIVE_ACTION_FIELDS,
+  NARRATIVE_EPHEMERAL_ACTIONS,
+  NARRATIVE_EVENT_FIELDS,
+  NARRATIVE_EVENT_SCHEMAS,
+  NARRATIVE_RESULT_SCHEMAS,
+  narrativeObjectiveSchema,
+} from "./narrative-protocol.js";
+import {
+  DROP_ACTION_ROWS,
+  DROP_ENTITY_FIELDS,
+  DROP_EPHEMERAL_ACTIONS,
+  DROP_EVENT_SCHEMAS,
+  DROP_RESULT_SCHEMAS,
+} from "./drop-protocol.js";
+import {
+  COMBAT_ACTION_ROWS,
+  COMBAT_ENTITY_FIELDS,
+  COMBAT_EPHEMERAL_ACTIONS,
+  COMBAT_EVENT_SCHEMAS,
+  COMBAT_RESULT_SCHEMAS,
+} from "./combat-protocol.js";
+import {
+  WORLD_ACTION_ROWS,
+  WORLD_CLIENT_MESSAGES,
+  WORLD_ENTITY_FIELDS,
+  WORLD_EPHEMERAL_ACTIONS,
+  WORLD_EVENT_SCHEMAS,
+  WORLD_RESULT_SCHEMAS,
+  worldDestinationSchema,
+  worldTransitionFields,
+} from "./world-protocol.js";
 export { closedRecord, decodeJson, protocolError };
 export {
   ANIMATION_ACTIONS,
@@ -53,6 +108,10 @@ export const PROTOCOL = Object.freeze({
   MAX_ENTITY_CHANGES: 128,
   MAX_INPUT_HOLD_TICKS: 3,
 });
+
+// The 89-key preference command exceeds 256 schema nodes. Domain admission and
+// wire decoding must share the same bounded budget for every legal action.
+const CLIENT_SCHEMA_MAX_NODES = 2048;
 export const RESULT_CODES = Object.freeze([
   "OK",
   "INVALID_MESSAGE",
@@ -83,19 +142,10 @@ const code = enumeration(...RESULT_CODES);
 const quantity = number(1, 2147483647);
 const mesos = number(0, 2147483647);
 const template = u32;
-const mapId = number(0, 999999998);
 const facing = enumeration(-1, 1);
 const axis = enumeration(-1, 0, 1);
 const tab = enumeration("equip", "use", "setup", "etc", "cash");
-const channel = enumeration(
-  "map",
-  "whisper",
-  "party",
-  "buddy",
-  "guild",
-  "alliance",
-  "spouse",
-);
+const channel = enumeration(...SOCIAL_CHAT_CHANNELS);
 const operationId = string(
   /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
   36,
@@ -120,9 +170,7 @@ const answer = union("kind", {
   number: record({ kind: enumeration("number"), value: integer }),
   text: record({ kind: enumeration("text"), value: text }),
 });
-const itemQuantity = record({ itemId: id, quantity });
-const itemIdentity = (value) => value?.itemId;
-const ACTION_ROWS = [
+const CORE_ACTION_ROWS = [
   ["settings.save", "character", { settings: settingsSchema }],
   ["key-bindings.save", "character", { keyBindings: keyBindingsSchema }],
   ["skill-macros.save", "character", { skillMacros: skillMacrosSchema }],
@@ -136,7 +184,6 @@ const ACTION_ROWS = [
   ],
   ["skill.cast", "character", { skillId: template, target: optional(target) }],
   ["buff.cancel", "character", { effectId: id }],
-  ["drop.pickup", "inventory", { dropId: id }],
   [
     "inventory.move",
     "inventory",
@@ -151,8 +198,6 @@ const ACTION_ROWS = [
     "inventory",
     { scrollId: id, equipmentId: id, protectionId: optional(id) },
   ],
-  ["item.drop", "inventory", { itemId: id, quantity }],
-  ["mesos.drop", "inventory", { amount: quantity }],
   ["npc.open", "character", { npcId: id }],
   ["npc.answer", "conversation", { conversationId: id, step: u32, answer }],
   [
@@ -174,15 +219,6 @@ const ACTION_ROWS = [
   ["shop.buy", "inventory", { shopSession: id, rowId: u32, quantity }],
   ["shop.sell", "inventory", { shopSession: id, itemId: id, quantity }],
   ["shop.recharge", "inventory", { shopSession: id, itemId: id }],
-  ["trade.invite", "character", { targetId: id }],
-  ["trade.answer", "invitation", { invitationId: id, accept: boolean }],
-  [
-    "trade.offer",
-    "trade",
-    { tradeId: id, items: array(itemQuantity, 9, 0, itemIdentity), mesos },
-  ],
-  ["trade.confirm", "trade", { tradeId: id }],
-  ["trade.cancel", "trade", { tradeId: id }],
   [
     "stats.allocate",
     "character",
@@ -192,17 +228,54 @@ const ACTION_ROWS = [
     },
   ],
   ["skills.allocate", "character", { skillId: template, amount: quantity }],
-  ["chat.send", "social", { channel, recipientId: optional(id), text }],
+  [
+    "chat.send",
+    "social",
+    { channel, recipientId: optional(id), text, ...SOCIAL_CHAT_ACTION_FIELDS },
+  ],
 ];
+const ACTION_ROWS = [
+  ...new Map(
+    [
+      ...CORE_ACTION_ROWS,
+      ...SOCIAL_ACTION_ROWS,
+      ...COMMERCE_ACTION_ROWS,
+      ...TRADE_ACTION_ROWS,
+      ...NARRATIVE_ACTION_ROWS,
+      ...DROP_ACTION_ROWS,
+      ...COMBAT_ACTION_ROWS,
+      ...WORLD_ACTION_ROWS,
+    ].map((row) => [row[0], row]),
+  ).values(),
+];
+const EPHEMERAL_ACTIONS = new Set([
+  "npc.open",
+  "npc.answer",
+  "chat.send",
+  ...SOCIAL_EPHEMERAL_ACTIONS,
+  ...COMMERCE_EPHEMERAL_ACTIONS,
+  ...TRADE_EPHEMERAL_ACTIONS,
+  ...NARRATIVE_EPHEMERAL_ACTIONS,
+  ...DROP_EPHEMERAL_ACTIONS,
+  ...COMBAT_EPHEMERAL_ACTIONS,
+  ...WORLD_EPHEMERAL_ACTIONS,
+]);
+function validChatAction(value) {
+  const recipientCount =
+    Number(Object.hasOwn(value, "recipientId")) +
+    Number(Object.hasOwn(value, "recipientName"));
+  return (
+    recipientCount === (value.channel === "whisper" ? 1 : 0) &&
+    (value.channel === "group") === Object.hasOwn(value, "groupId")
+  );
+}
 const actionVariants = {},
   domains = new Map();
 for (const [kind, domain, fields] of ACTION_ROWS) {
-  const check =
-    kind === "chat.send"
-      ? (value) =>
-          (value.channel === "whisper") === Object.hasOwn(value, "recipientId")
-      : null;
-  actionVariants[kind] = record({ kind: enumeration(kind), ...fields }, check);
+  actionVariants[kind] = record(
+    { kind: enumeration(kind), ...fields, ...NARRATIVE_ACTION_FIELDS[kind] },
+    kind === "chat.send" ? validChatAction : null,
+  );
   domains.set(kind, domain);
 }
 export const ACTION_KINDS = Object.freeze(ACTION_ROWS.map((row) => row[0]));
@@ -243,6 +316,12 @@ const clientSchema = union("type", {
     reason: enumeration("gap", "baseline", "prediction-overflow"),
   }),
   pong: clientRecord("pong", { nonce: id }),
+  ...Object.fromEntries(
+    Object.entries(WORLD_CLIENT_MESSAGES).map(([type, fields]) => [
+      type,
+      clientRecord(type, fields),
+    ]),
+  ),
 });
 
 const appearance = record({
@@ -258,10 +337,24 @@ const appearance = record({
     (value) => value?.slot,
   ),
 });
+function playerEntityFragments(value) {
+  return value.kind === "player" || (
+    value.expression === undefined && value.seat === undefined &&
+    value.combatState === undefined && value.skillVisuals === undefined &&
+    value.skillVoices === undefined && value.diseases === undefined &&
+    value.skillDoor === undefined
+  );
+}
+
+function mobEntityFragments(value) {
+  return value.kind === "mob" ||
+    (value.placementId === undefined && value.mobState === undefined);
+}
+
 const entity = record(
   {
     id,
-    kind: enumeration("player", "mob", "npc", "drop"),
+    kind: enumeration("player", "mob", "npc", "drop", "reactor"),
     templateId: template,
     placementId: optional(string(/^life:[0-9]{1,5}$/u, 16)),
     position: point,
@@ -286,11 +379,16 @@ const entity = record(
         alpha: number(0, 1, false),
       }),
     ),
+    ...DROP_ENTITY_FIELDS,
+    ...COMBAT_ENTITY_FIELDS,
+    ...WORLD_ENTITY_FIELDS,
   },
   (value) =>
     (value.kind === "player") === (value.appearance !== null) &&
     (value.kind === "drop") === (value.dropMotion !== undefined) &&
-    (value.placementId === undefined || value.kind === "mob"),
+    (value.kind === "drop") === (value.dropInfo !== undefined) &&
+    (value.kind === "reactor") === (value.reactor !== undefined) &&
+    playerEntityFragments(value) && mobEntityFragments(value),
 );
 const statKey = enumeration(
   "str",
@@ -354,21 +452,7 @@ const quest = record({
   state: enumeration("active", "claimed"),
   ready: boolean,
   revision,
-  objectives: array(
-    record({
-      kind: enumeration("item", "kill"),
-      templateId: template,
-      current: u32,
-      required: u32,
-    }),
-    128,
-  ),
-});
-const fieldRef = record({
-  instanceId: id,
-  mapId,
-  fieldEpoch: id,
-  spawn: point,
+  objectives: array(narrativeObjectiveSchema, 128),
 });
 const self = record(
   {
@@ -410,7 +494,7 @@ export const snapshotPartSchema = union("kind", {
   ),
   field: record({
     kind: enumeration("field"),
-    field: fieldRef,
+    field: worldDestinationSchema,
     characterRevision: revision,
     inventoryRevision: revision,
     socialRevision: revision,
@@ -452,7 +536,7 @@ const tradeOffer = record({
   ownerId: id,
   items: array(
     record(
-      { item, quantity },
+      { item, quantity, ...TRADE_OFFER_ITEM_FIELDS },
       (value) => value.quantity <= value.item?.quantity,
     ),
     9,
@@ -480,15 +564,6 @@ function validDialogue(value) {
   }
   return value.input !== "text" || (value.minimum >= 0 && value.maximum <= 256);
 }
-function validTrade(value) {
-  if (!Array.isArray(value.participants) || !Array.isArray(value.offers)) {
-    return false;
-  }
-  for (const offer of value.offers) {
-    if (!value.participants.includes(offer?.ownerId)) return false;
-  }
-  return true;
-}
 
 function validSkillRank(value) {
   return (value.skillId === null) === (value.rank === null);
@@ -511,13 +586,6 @@ export const domainEventSchema = union("kind", {
     },
     validSkillRank,
   ),
-  "drop.pickup": record({
-    kind: enumeration("drop.pickup"),
-    dropId: id,
-    actorId: id,
-    position: point,
-    impactTick: revision,
-  }),
   combat: record(
     {
       kind: enumeration("combat"),
@@ -541,19 +609,6 @@ export const domainEventSchema = union("kind", {
     kind: enumeration("quest.ready"),
     questId: template,
     questRevision: revision,
-  }),
-  "quest.offer": record({
-    kind: enumeration("quest.offer"),
-    conversationId: id,
-    step: u32,
-    npcId: id,
-    npcTemplateId: template,
-    quests: array(
-      record({ questId: template, action: enumeration("accept", "claim") }),
-      128,
-      0,
-      (value) => value?.questId,
-    ),
   }),
   dialogue: record(
     {
@@ -581,6 +636,7 @@ export const domainEventSchema = union("kind", {
       input: enumeration("next", "yesno", "choice", "number", "text"),
       minimum: nullable(integer),
       maximum: nullable(integer),
+      ...NARRATIVE_EVENT_FIELDS.dialogue,
     },
     validDialogue,
   ),
@@ -614,19 +670,28 @@ export const domainEventSchema = union("kind", {
       kind: enumeration("trade"),
       tradeId: id,
       revision,
-      state: enumeration(
-        "invited",
-        "open",
-        "confirmed",
-        "committed",
-        "cancelled",
-      ),
       participants: array(id, 2, 2, true),
       members: array(record({ id, appearance }), 2, 2, (value) => value?.id),
-      offers: array(tradeOffer, 2, 0, (value) => value?.ownerId),
+      offers: array(tradeOffer, 2, 2, (value) => value?.ownerId),
+      ...TRADE_EVENT_FIELDS,
     },
-    validTrade,
+    validTradeEvent,
   ),
+  ...SOCIAL_EVENT_SCHEMAS,
+  ...COMMERCE_EVENT_SCHEMAS,
+  ...NARRATIVE_EVENT_SCHEMAS,
+  ...DROP_EVENT_SCHEMAS,
+  ...COMBAT_EVENT_SCHEMAS,
+  ...WORLD_EVENT_SCHEMAS,
+});
+export const resultValueSchema = union("kind", {
+  ...SOCIAL_RESULT_SCHEMAS,
+  ...COMMERCE_RESULT_SCHEMAS,
+  ...TRADE_RESULT_SCHEMAS,
+  ...NARRATIVE_RESULT_SCHEMAS,
+  ...DROP_RESULT_SCHEMAS,
+  ...COMBAT_RESULT_SCHEMAS,
+  ...WORLD_RESULT_SCHEMAS,
 });
 const serverBase = {
   v: enumeration(1),
@@ -683,6 +748,7 @@ export const serverSchema = union("type", {
       code,
       domainRevision: revision,
       transactionId: nullable(id),
+      value: optional(resultValueSchema),
     },
     (value) => (value.status === "committed") === (value.code === "OK"),
   ),
@@ -698,12 +764,15 @@ export const serverSchema = union("type", {
       transitionId: id,
       phase: enumeration("prepare", "committed", "aborted"),
       sourceEpoch: id,
-      destination: nullable(fieldRef),
+      destination: nullable(worldDestinationSchema),
       requiredContent: array(hash, 128, 0, true),
       deadline: revision,
       code,
+      ...worldTransitionFields(entity, PROTOCOL.MAX_ENTITY_CHANGES),
     },
-    (value) => value.phase === "aborted" || value.destination !== null,
+    (value) =>
+      (value.phase === "aborted" || value.destination !== null) &&
+      (value.preparation === undefined || value.phase === "prepare"),
   ),
   ping: serverRecord("ping", {
     nonce: id,
@@ -723,12 +792,12 @@ export function decodeClient(source) {
   const value = decodeJson(source, {
     maxBytes: PROTOCOL.MAX_MESSAGE_BYTES,
     maxDepth: 8,
-    maxNodes: 2048,
+    maxNodes: CLIENT_SCHEMA_MAX_NODES,
   });
   if (value && Object.hasOwn(value, "v") && value.v !== 1) {
     throw protocolError("UNSUPPORTED_VERSION");
   }
-  return validate(value, clientSchema, 2048);
+  return validate(value, clientSchema, CLIENT_SCHEMA_MAX_NODES);
 }
 export function decodeServer(source) {
   const value = decodeJson(source, {
@@ -739,8 +808,12 @@ export function decodeServer(source) {
   return validate(value, serverSchema);
 }
 export function actionDomain(action) {
-  validate(action, actionSchema, 256);
+  validate(action, actionSchema, CLIENT_SCHEMA_MAX_NODES);
   return domains.get(action.kind);
+}
+/** Transient outcomes survive reconnect only within their existing play session. */
+export function actionEphemeral(action) {
+  return EPHEMERAL_ACTIONS.has(action.kind);
 }
 /** Hash this canonical domain/action string, never incoming JSON bytes or socket epochs. */
 export function canonicalAction(action) {

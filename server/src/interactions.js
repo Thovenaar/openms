@@ -1,14 +1,22 @@
 import { executeNpc } from "./interaction-npc.js";
 import { executeQuest } from "./interaction-quest.js";
 import { executeShop } from "./interaction-shop.js";
-import { executeTrade, closeTrade } from "./interaction-trade.js";
+import { executeTrade, closeTrade, sweepTrade } from "./interaction-trade.js";
 import { executeChat } from "./interaction-chat.js";
+import { executeSocial } from "./interaction-social.js";
+import {
+  executeSocialRead,
+  executePeerInfo,
+  executeSocialResolve,
+} from "./social-presentation.js";
+import { executeCash } from "./interaction-cash.js";
+import { executeStorage } from "./interaction-storage.js";
+import { executeBook } from "./interaction-book.js";
 import {
   closeConversation,
   currentNpc,
   interactionState,
   requireInteraction,
-  INTERACTION_LIMITS,
 } from "./interaction-common.js";
 import { actionDomain } from "../../shared/protocol.js";
 
@@ -34,10 +42,18 @@ export function currentInteractionRevision(actor, action, world) {
 
 export async function executeInteraction(actor, message, world) {
   const kind = message.action.kind;
+  if (kind === "social.execute") return executeSocial(actor, message, world);
+  if (kind === "social.read") return executeSocialRead(actor, message, world);
+  if (kind === "social.peer") return executePeerInfo(actor, message, world);
+  if (kind === "social.resolve")
+    {return executeSocialResolve(actor, message, world);}
+  if (kind.startsWith("cash.")) return executeCash(actor, message, world);
+  if (kind.startsWith("storage.")) return executeStorage(actor, message, world);
+  if (kind === "monster-book.cover") return executeBook(actor, message, world);
   if (kind === "npc.open" || kind === "npc.answer") {
     return executeNpc(actor, message, world);
   }
-  if (["quest.accept", "quest.claim", "quest.abandon"].includes(kind)) {
+  if (kind.startsWith("quest.") || kind.startsWith("medal.")) {
     const receipt = await executeQuest(actor, message, world);
     if (receipt.status === "committed") {
       world.publish(actor, { type: "snapshot-request" });
@@ -54,6 +70,7 @@ export async function executeInteraction(actor, message, world) {
       "trade.offer",
       "trade.confirm",
       "trade.cancel",
+      "trade.chat",
     ].includes(kind)
   ) {
     return executeTrade(actor, message, world);
@@ -70,7 +87,7 @@ export function releaseInteractions(actor, world) {
 }
 
 function leaseExpired(actor, world) {
-  const lease = actor.conversation ?? actor.shop;
+  const lease = actor.conversation ?? actor.shop ?? actor.storage?.lease;
   if (!lease) return false;
   try {
     currentNpc(world, actor, lease);
@@ -93,40 +110,6 @@ function leaseExpired(actor, world) {
   }
 }
 
-function tradeSessionExpired(actor, now) {
-  return (
-    !actor.session || actor.session.revoked || actor.session.expiresAt <= now
-  );
-}
-
-function tradeExpired(room, world, now) {
-  if (room.expiresAt <= now) return true;
-  const first = world.actors.get(room.participants[0]);
-  const second = world.actors.get(room.participants[1]);
-  if (
-    !first ||
-    !second ||
-    first.field !== second.field ||
-    first.field.epoch !== room.fieldEpoch ||
-    first.profile.hp <= 0 ||
-    second.profile.hp <= 0
-  ) {
-    return true;
-  }
-  if (tradeSessionExpired(first, now) || tradeSessionExpired(second, now)) {
-    return true;
-  }
-  try {
-    world.nearby(first, second.id, "player", INTERACTION_LIMITS.range);
-    return false;
-  } catch (error) {
-    if (["NOT_FOUND", "NOT_IN_RANGE", "NOT_ALLOWED"].includes(error.code)) {
-      return true;
-    }
-    throw error;
-  }
-}
-
 /** Called from the scheduler; no per-tick allocation when the one-second slice is not due. */
 export function sweepInteractions(world) {
   const state = interactionState(world);
@@ -143,6 +126,6 @@ export function sweepInteractions(world) {
     }
   }
   for (const room of state.trades.values()) {
-    if (!room.busy && tradeExpired(room, world, now)) closeTrade(world, room);
+    sweepTrade(world, room, now);
   }
 }

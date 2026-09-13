@@ -27,10 +27,16 @@ export class SceneEvents {
 
   async event(message) {
     const event = message.event;
-    if (event.kind === "combat") this.damage(event);
+    if (event.kind === "combat.impact") this.damage(event);
     else if (event.kind === "projectile") this.projectile(event);
     else if (event.kind === "drop.pickup") this.owner.drops.pickup(event);
-    else if (event.kind === "chat" && event.channel === "map") {
+    else if (event.kind === "drop.explode") this.owner.drops.explode(event);
+    else if (event.kind === "combat.recovery" || event.kind === "drop.effect")
+      {this.recovery(event);}
+    else if (event.kind === "skill.magnet") {
+      const view = this.owner.views.get(event.targetId);
+      if (view) this.combat.onMagnetResult(this.target(view), event.success);
+    } else if (event.kind === "chat" && event.channel === "map") {
       await this.chat(event);
     }
   }
@@ -74,26 +80,66 @@ export class SceneEvents {
     }
   }
 
-  damage(event) {
-    const numbers = this.combat.snapshot();
-    const required = numbers.active + numbers.pending + event.hits.length;
-    if (required > numbers.hardCapacity) {
-      throw new Error("Online confirmed damage number residency limit");
+  target(view) {
+    if (!view.combatTarget) {
+      view.combatTarget = {
+        get x() {
+          return view.drawX;
+        },
+        get y() {
+          return view.drawY;
+        },
+        get presentation() {
+          return view.animation;
+        },
+      };
     }
+    return view.combatTarget;
+  }
+  reserveNumber() {
+    const numbers = this.combat.snapshot();
+    const required = numbers.active + numbers.pending + 1;
+    if (required > numbers.hardCapacity)
+      {throw new Error("Online confirmed damage number residency limit");}
     if (required > numbers.capacity) this.combat.growNumbers(required);
-    for (const hit of event.hits) {
-      this.impact(event, hit);
-      const view = this.owner.views.get(hit.targetId);
-      if (!view) continue;
+  }
+  damage(event) {
+    this.impact(event, {
+      targetId: event.targetId,
+      outcome: event.damage > 0 ? "hit" : "miss",
+    });
+    const view = this.owner.views.get(event.targetId);
+    if (!view) return;
+    this.reserveNumber();
+    if (view.entity.kind === "mob") {
+      const target = this.target(view);
+      if (event.skillId)
+        {this.combat.onSkillDamageLine(target, event.damage, event);}
+      else this.combat.onMobHit(target, event.damage);
+    } else {
       const animation = view.animation;
       const geometry = animation.current.geometry[animation.frame];
-      const player = view.entity.kind === "player";
-      const placement = this.combat.fixedNumberPlacement(
-        animation.baseX,
-        animation.baseY + geometry.y - (player ? 0 : 15),
+      this.combat.show(
+        event.hpDamage,
+        2,
+        this.combat.fixedNumberPlacement(
+          event.position.x,
+          event.position.y + geometry.y,
+        ),
       );
-      this.combat.show(hit.damage, player ? 2 : 0, placement);
     }
+  }
+  recovery(event) {
+    if (event.hp <= 0) return;
+    const view = this.owner.views.get(event.actorId);
+    if (!view) return;
+    this.reserveNumber();
+    const geometry = view.animation.current.geometry[view.animation.frame];
+    this.combat.show(
+      event.hp,
+      1,
+      this.combat.fixedNumberPlacement(view.drawX, view.drawY + geometry.y),
+    );
   }
 
   async chat(event) {

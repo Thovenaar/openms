@@ -252,28 +252,33 @@ export class SkillSummons {
     return fallback;
   }
 
-  interceptContact(mob, attackAction) {
+  interceptContact(mob, attackAction, outcome = null) {
     const target = this.targetFor(mob, null);
     if (!target) return false;
     const body = attackAction ? mob.attackBody : mob.body;
-    if (
-      !body.active ||
-      target.x < body.left ||
-      target.x >= body.right ||
-      target.y < body.top ||
-      target.y > body.bottom
-    ) {
-      return false;
-    }
+    if (!this.contactOverlaps(target, body)) return false;
     // Cosmic DamageSummonHandler: puppet takes the received monster damage, not player vitals.
     const damage = Math.max(
       1,
       attackAction?.info?.PADamage ?? mob.template.info.PADamage,
     );
-    target.hp -= damage;
-    if (target.hp <= 0) this.stop(target);
-    else this.pose(target, "summon/hit", false);
+    const apply = () => {
+      if (target.remainingMs <= 0) return;
+      target.hp -= damage;
+      if (target.hp <= 0) this.stop(target);
+      else this.pose(target, "summon/hit", false);
+    };
+    if (outcome) outcome.effects.push(apply);
+    else apply();
     return true;
+  }
+
+  contactOverlaps(target, body) {
+    return !( !body.active ||
+      target.x < body.left ||
+      target.x >= body.right ||
+      target.y < body.top ||
+      target.y > body.bottom );
   }
 
   stop(record) {

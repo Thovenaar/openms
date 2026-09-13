@@ -1,5 +1,8 @@
-import { EntityAnimation } from "../rendering/animation.js";
-import { loadVisualBundle } from "../rendering/visual-resources.js";
+import {
+  createSkillAnimation,
+  loadSkillVisual,
+} from "./skill-runtime-ports.js";
+
 import { MORPH_SKILLS } from "./skill-world-rules.js";
 
 const DESTROY = Object.freeze({ children: true });
@@ -32,12 +35,13 @@ export class SkillForms {
       }
       const descriptor = this.system.fullCatalog.ui.skillWorld?.forms[id];
       if (!descriptor) continue;
-      const owner = await loadVisualBundle(
+      const owner = await loadSkillVisual(
+        this.system,
         descriptor.bundle,
-        this.system.hooks.services,
         this.controller.signal,
       );
-      const animation = new EntityAnimation(
+      const animation = createSkillAnimation(
+        this.system,
         owner.manifest.entities[0],
         owner.textures,
       );

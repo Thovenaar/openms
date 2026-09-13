@@ -1,75 +1,130 @@
 import { randomUUID } from "node:crypto";
 import { protocolError } from "../../shared/protocol.js";
 import {
+  DROP_MOTION,
   launchDrop,
   stepDropFlight,
   hoverDrop,
+  fadeDisappearingDrop,
 } from "../../client/src/world/drop-motion.js";
-import { itemStackLimit } from "../../client/src/items/inventory-model.js";
+import {
+  DROP_POLICY,
+  rollDropRows,
+  placeDrop,
+} from "../../client/src/world/drop-rules.js";
+import { validateDropRow } from "../../client/src/world/drop-system.js";
+import { familyRate } from "../../client/src/social/local-social-family.js";
+import { refreshPickupConditions } from "./drop-conditions.js";
 
-export const MAX_FIELD_DROPS = 128;
-const DROP_LIFETIME_MS = 180000;
+export const MAX_FIELD_DROPS = DROP_POLICY.capacity;
+// Authorized Cosmic server/maps/MapItem.java:131-156 releases ownership at 15 seconds.
+export const DROP_OWNER_MS = 15000;
 
-/** Authored positive-X floors only; existing reference drop placement policy. */
-export function dropGround(field, source, offset = 0) {
-  const point = { x: source.x + offset, y: Infinity, foothold: null };
-  for (const segment of field.geometry.segments) {
-    if (
-      segment.x2 <= segment.x1 ||
-      point.x < segment.x1 ||
-      point.x > segment.x2
-    ) {
-      continue;
-    }
-    const y =
-      segment.y1 +
-      ((point.x - segment.x1) * (segment.y2 - segment.y1)) /
-        (segment.x2 - segment.x1);
-    if (y >= source.y - 85 && y < point.y) {
-      point.y = y;
-      point.foothold = segment;
-    }
+/** Shared authored floor selection; batch fanout falls back to its first supported floor. */
+export function dropGround(field, source, index = 0, first = null) {
+  const point = { x: 0, y: 0, foothold: null };
+  if (
+    !placeDrop(
+      point,
+      source,
+      { footholds: field.geometry.segments, first },
+      index,
+    )
+  ) {
+    throw protocolError("REQUIREMENTS_NOT_MET");
   }
-  if (!Number.isFinite(point.y)) throw protocolError("REQUIREMENTS_NOT_MET");
   return point;
 }
 
-/** Called only after durable debit, or for ephemeral server-generated kill loot. */
-export function createFieldDrop(world, actor, request) {
-  const field = actor.field;
-  if (request.id && field.drops.has(request.id)) {
-    return field.drops.get(request.id);
-  }
-  if (field.drops.size >= MAX_FIELD_DROPS) throw protocolError("SERVER_BUSY");
-  const source = request.source ?? actor.simulation;
-  const point = request.ground ?? dropGround(field, source);
-  const drop = createDropState(world, actor, request);
-  drop.position = { x: source.x, y: source.y };
-  drop.foothold = point.foothold;
-  launchDrop(drop, source, point);
-  field.drops.set(drop.id, drop);
-  return drop;
-}
-
-function createDropState(world, actor, request) {
+/** Payload construction cannot publish or reserve an entitlement. */
+function createDropContents(request) {
+  const disappearing = request.disappearing === true;
   return {
     id: request.id ?? randomUUID(),
     item: request.item ?? null,
     mesos: request.mesos ?? 0,
-    ownerId: request.ownerId ?? actor.id,
-    createdAt: request.createdAt ?? world.now,
-    expiresAt: world.now + DROP_LIFETIME_MS,
-    reservation: null,
-    position: null,
-    foothold: null,
-    durableEntitlement: request.durableEntitlement === true,
+    quantity: request.item?.count ?? request.mesos ?? 0,
     questId: request.questId ?? 0,
     itemId: request.item?.id ?? 0,
-    age: 0,
-    phaseAge: 0,
+    durableEntitlement: request.durableEntitlement === true && !disappearing,
+    disappearing,
   };
 }
 
+/** Complete motion preparation precedes every durable debit/grant. */
+export function prepareFieldDrop(world, actor, request) {
+  const source = request.source ?? actor.simulation;
+  const point = request.ground ?? dropGround(actor.field, source);
+  const createdAt = request.createdAt ?? world.now;
+  const drop = createDropContents(request);
+  drop.active = true;
+  drop.ownerId = request.ownerId ?? actor.id;
+  drop.ownerPartyId = actor.profile.social?.party?.id ?? null;
+  drop.ownerUntil = createdAt + DROP_OWNER_MS;
+  drop.createdAt = createdAt;
+  drop.expiresAt =
+    createdAt +
+    (drop.disappearing
+      ? DROP_MOTION.disappearLifetimeMs
+      : DROP_POLICY.lifetimeMs);
+  drop.reservation = null;
+  drop.position = { x: source.x, y: source.y };
+  drop.foothold = point.foothold;
+  launchDrop(drop, source, point);
+  return drop;
+}
+
+/** Capacity was reserved and state prepared before commit; no fallible placement remains. */
+export function publishFieldDrop(field, drop, now) {
+  if (field.drops.has(drop.id)) return field.drops.get(drop.id);
+  drop.createdAt = now;
+  drop.ownerUntil = now + DROP_OWNER_MS;
+  drop.expiresAt =
+    now +
+    (drop.disappearing
+      ? DROP_MOTION.disappearLifetimeMs
+      : DROP_POLICY.lifetimeMs);
+  field.drops.set(drop.id, drop);
+  return drop;
+}
+
+/** Existing world port, for callers that already own an admitted debit/grant. */
+export function createFieldDrop(world, actor, request) {
+  if (request.id && actor.field.drops.has(request.id))
+    {return actor.field.drops.get(request.id);}
+  if (actor.field.drops.size >= MAX_FIELD_DROPS)
+    {throw protocolError("SERVER_BUSY");}
+  return publishFieldDrop(
+    actor.field,
+    prepareFieldDrop(world, actor, request),
+    world.now,
+  );
+}
+
+function launchObservation(world, field, drop) {
+  const sound =
+    !drop.disappearing &&
+    world.now - (field.lastDropSoundAt ?? -Infinity) > 300;
+  if (sound) field.lastDropSoundAt = world.now;
+  world.broadcast(field, {
+    type: "event",
+    fieldEpoch: field.epoch,
+    event: {
+      kind: "drop.spawn",
+      eventId: drop.id,
+      dropId: drop.id,
+      actorId: drop.ownerId,
+      itemId: drop.itemId,
+      quantity: drop.item?.count ?? drop.mesos,
+      position: { ...drop.position },
+      impactTick: field.tick,
+      disappearing: drop.disappearing,
+      sound,
+    },
+  });
+}
+
+/** Shared 30ms ordinary flight/hover and native mode-3 discard fade, bounded by field capacity. */
 export function advanceDrops(world, field) {
   for (const drop of field.drops.values()) {
     if (drop.reservation) continue;
@@ -77,72 +132,76 @@ export function advanceDrops(world, field) {
       field.drops.delete(drop.id);
       continue;
     }
-    drop.age += 30;
-    drop.phaseAge += 30;
+    drop.age += DROP_MOTION.quantumMs;
+    drop.phaseAge += DROP_MOTION.quantumMs;
     if (drop.state === "waiting") {
       drop.state = "launching";
       drop.phaseAge = 0;
+      launchObservation(world, field, drop);
     } else if (drop.state === "grounded") hoverDrop(drop);
     else stepDropFlight(drop);
     drop.position.x = drop.x;
     drop.position.y = drop.y;
+    if (drop.disappearing && fadeDisappearingDrop(drop))
+      {field.drops.delete(drop.id);}
   }
 }
 
-/** Retained Cosmic packaged row probabilities; not native server drop fidelity. */
-export function killDrops(world, actor, mob) {
+function admittedRows(world, mob) {
   const rows = world.content.catalog.drops?.mobs?.[mob.templateId]?.rows;
-  if (!rows) {
-    actor.admission = "unsupported-content: mob drop table unavailable";
-    return;
-  }
-  if (rows.length > 256) throw protocolError("CONTENT_MISMATCH");
-  const pending = planKillDrops(world, actor, mob, rows);
-  if (!pending) return;
-  for (const drop of pending) createFieldDrop(world, actor, drop);
-}
-
-function eligibleDropRow(world, actor, row) {
-  if (row.status === "unavailable") return false;
-  if (row.status !== "supported") throw protocolError("CONTENT_MISMATCH");
-  if (row.questId && actor.profile.quests[row.questId]?.state !== 1) {
-    return false;
-  }
-  return !(Math.floor(world.random() * 999999) >= row.chance);
-}
-
-function planKillDrops(world, actor, mob, rows) {
-  const pending = [];
+  if (!rows) return null;
+  if (!Array.isArray(rows) || rows.length > DROP_POLICY.maximumRows)
+    {throw protocolError("CONTENT_MISMATCH");}
+  const admitted = [];
   for (const row of rows) {
-    if (!eligibleDropRow(world, actor, row)) continue;
-    let quantity =
-      row.minimum + Math.floor(world.random() * (row.maximum - row.minimum));
-    const limit = row.itemId
-      ? itemStackLimit(world.content.items[row.itemId])
-      : 2147483647;
-    for (let split = 0; quantity > 0 && split < 256; split++) {
-      if (
-        pending.length +
-          actor.field.drops.size +
-          actor.field.dropReservations >=
-        MAX_FIELD_DROPS
-      ) {
-        actor.admission = "field drop capacity exhausted; loot batch refused";
-        return null;
-      }
-      const count = Math.min(quantity, limit);
-      pending.push({
-        item: row.itemId ? createLootItem(row.itemId, count) : null,
-        mesos: row.itemId ? 0 : count,
-        source: mob,
-        questId: row.questId,
-        ground: dropGround(actor.field, mob),
-      });
-      quantity -= count;
-    }
-    if (quantity) throw protocolError("SERVER_BUSY");
+    if (row.status === "unavailable") continue;
+    if (row.status !== "supported") throw protocolError("CONTENT_MISMATCH");
+    validateDropRow(row, world.content.items);
+    admitted.push(row);
   }
-  return pending;
+  return admitted;
+}
+
+/** Capture accepted-impact rates before a queued durable reward can outlive its temporary sources. */
+export function captureKillDropRates(world, actor, mob) {
+  refreshPickupConditions(actor);
+  const effects = actor.skills?.effects ?? actor.temporaryStats;
+  const cardDropRates = Object.create(null);
+  const killDropRows = admittedRows(world, mob);
+  for (const row of killDropRows ?? []) {
+    cardDropRates[row.itemId] = effects?.cardRate(row.itemId) ?? 1;
+  }
+  return {
+    familyDropRate: familyRate(actor.profile, "drop", world.now),
+    mesoUp: effects?.derived.mesoUp ?? 0,
+    cardDropRates,
+    killDropRows,
+  };
+}
+
+function rollKillDrops(world, actor, mob, rows) {
+  const effects = actor.skills?.effects ?? actor.temporaryStats;
+  const context = {
+    profile: actor.profile,
+    items: world.content.items,
+    random: world.random,
+    rates: {
+      cardRate: (itemId) =>
+        mob.cardDropRates
+          ? mob.cardDropRates[itemId]
+          : (effects?.cardRate(itemId) ?? 1),
+      familyRate: () =>
+        mob.familyDropRate ?? familyRate(actor.profile, "drop", world.now),
+      mesoUp: () => mob.mesoUp ?? effects?.derived.mesoUp ?? 0,
+    },
+  };
+  const output = {
+    rolls: new Array(DROP_POLICY.maximumRows),
+    quantities: new Uint32Array(DROP_POLICY.maximumRows),
+    count: 0,
+  };
+  const count = rollDropRows(rows, context, output, mob.killDropRate ?? 1);
+  return { ...output, count };
 }
 
 function createLootItem(id, count) {
@@ -154,5 +213,127 @@ function createLootItem(id, count) {
     owner: "",
     flags: 0,
     expiresAt: null,
+  };
+}
+
+function prepareKillBatch(world, actor, mob, output) {
+  const requests = [];
+  const source = { x: mob.x, y: mob.y };
+  let first = null;
+  for (let index = 0; index < output.count; index++) {
+    const row = output.rolls[index];
+    const count = output.quantities[index];
+    const ground = dropGround(actor.field, source, index, first);
+    first ??= ground;
+    requests.push(
+      prepareFieldDrop(world, actor, {
+        item: row.itemId ? createLootItem(row.itemId, count) : null,
+        mesos: row.itemId ? 0 : count,
+        source,
+        ground,
+        questId: row.questId,
+        durableEntitlement: true,
+      }),
+    );
+  }
+  return requests;
+}
+
+/** Lethal owner includes grantEntitlements and value.dropPlanId in its one reward transaction. */
+export function prepareKillDrops(world, actor, mob) {
+  refreshPickupConditions(actor);
+  const field = actor.field;
+  const plan = {
+    id: randomUUID(),
+    field,
+    actorId: actor.id,
+    requests: [],
+    grantEntitlements: [],
+    state: "reserved",
+    reserved: 0,
+    refusal: null,
+  };
+  const rows =
+    mob.killDropRows === undefined
+      ? admittedRows(world, mob)
+      : mob.killDropRows;
+  if (!rows) {
+    plan.refusal = "unsupported-mob";
+    return plan;
+  }
+  const output = rollKillDrops(world, actor, mob, rows);
+  if (
+    output.count < 0 ||
+    output.count > MAX_FIELD_DROPS - field.drops.size - field.dropReservations
+  ) {
+    plan.refusal = "drop-capacity";
+    return plan;
+  }
+  try {
+    plan.requests = prepareKillBatch(world, actor, mob, output);
+  } catch (error) {
+    if (error.code !== "REQUIREMENTS_NOT_MET") throw error;
+    plan.refusal = "no-drop-ground";
+    return plan;
+  }
+  plan.grantEntitlements = plan.requests.map((drop) => ({
+    id: drop.id,
+    kind: "drop",
+  }));
+  plan.reserved = plan.requests.length;
+  field.dropReservations += plan.reserved;
+  return plan;
+}
+
+/** A durable duplicate cannot publish a newly rolled plan; the receipt fences this exact grant. */
+export function commitKillDrops(world, actor, plan, receipt) {
+  if (
+    plan.state !== "reserved" ||
+    receipt.status !== "committed" ||
+    receipt.value?.dropPlanId !== plan.id
+  )
+    {return false;}
+  if (plan.actorId !== actor.id || plan.field !== actor.field)
+    {throw protocolError("STALE_FIELD");}
+  for (const drop of plan.requests)
+    {publishFieldDrop(plan.field, drop, world.now);}
+  plan.state = "committed";
+  if (plan.refusal) {
+    world.publish(actor, {
+      type: "event",
+      fieldEpoch: plan.field.epoch,
+      event: { kind: "drop.refused", eventId: plan.id, reason: plan.refusal },
+    });
+  }
+  return true;
+}
+
+/** Caller owns finally; releasing twice is harmless and never removes a committed drop. */
+export function releaseKillDrops(field, plan) {
+  if (!plan || plan.field !== field || plan.state === "released") return;
+  field.dropReservations -= plan.reserved;
+  plan.reserved = 0;
+  plan.state = "released";
+}
+
+/** Server-private ownership admission; durable mirrored party records establish shared ownership. */
+export function ownsDrop(actor, drop, now) {
+  if (drop.ownerUntil <= now || !drop.ownerId || drop.ownerId === actor.id)
+    {return true;}
+  const party = actor.profile.social?.party;
+  if (!party) return false;
+  return party.id === drop.ownerPartyId || party.members.includes(drop.ownerId);
+}
+
+/** Public reconnect-required drop state; instance UID/flags and entitlements remain private. */
+export function dropInfo(drop) {
+  return {
+    quantity: drop.quantity,
+    ownerId: drop.ownerId,
+    ownerPartyId: drop.ownerPartyId,
+    ownerUntil: drop.ownerUntil,
+    expiresAt: drop.expiresAt,
+    questId: drop.questId,
+    disappearing: drop.disappearing,
   };
 }

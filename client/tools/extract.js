@@ -28,6 +28,15 @@ import { createExtractionCache } from "./extraction-cache.js";
 import { extractionRecipes } from "./extraction-recipes.js";
 import { resourceByteLimit } from "../public/offline-manifest.js";
 
+const started = performance.now();
+/** Terminal diagnostics stay separate from the existing JSON stdout records. */
+function progress(message) {
+  console.error(
+    `[extract +${((performance.now() - started) / 1000).toFixed(2)}s] ${message}`,
+  );
+}
+progress("Starting extraction: preparing options and output directories");
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
 const explicitMaps = args.includes("--maps") || args.includes("--map");
@@ -60,7 +69,6 @@ if (
   );
 }
 let mapIds = [...new Set(selected)].sort();
-const started = performance.now();
 const output = resolve(root, "client/public/generated");
 for (const directory of [
   "atlases",
@@ -72,6 +80,9 @@ for (const directory of [
 ]) {
   mkdirSync(resolve(output, directory), { recursive: true });
 }
+progress(
+  `Original assets: ${source}; ${explicitMaps ? `${mapIds.length} selected maps` : `${mapIds.length} roots with world closure`}; ${args.includes("--full") ? "full conversion forced" : "incremental verification and reuse enabled"}`,
+);
 // This conversion process owns these caches; no runtime shares mutable data.
 const archives = new Map(),
   images = new Map(),
@@ -93,11 +104,16 @@ state.regions = Object.create(null);
 state.tiledCanvases = Object.create(null);
 let incremental;
 let preflight;
+let decodedCanvases = 0;
+const SOURCE_PROGRESS_INTERVAL = 100;
+const CANVAS_PROGRESS_INTERVAL = 256;
 const recipe = extractionRecipes();
 const extractionContext = {
   image,
   part,
   frames,
+  scenery: extractScenery,
+  progress,
   output,
   imageEntries,
   mapIds,
@@ -106,6 +122,7 @@ const extractionContext = {
 /** @param {string} name */
 function archive(name) {
   if (!archives.has(name)) {
+    progress(`Opening and indexing original ${name}.wz`);
     archives.set(name, new WzArchive(resolve(source, `${name}.wz`)));
   }
   return archives.get(name);
@@ -116,6 +133,9 @@ function image(name, path) {
   retainSource(key);
   incremental?.observe(key);
   if (!images.has(key)) {
+    if (images.size % SOURCE_PROGRESS_INTERVAL === 0) {
+      progress(`Reading original image ${key} (${images.size} images parsed)`);
+    }
     const node = parseImage(archive(name).imageReader(path));
     node.source = key;
     images.set(key, node);
@@ -169,6 +189,9 @@ function nodePath(node) {
 ) {
   node = resolveNode(node);
   if (canvasIds.has(node)) return canvasIds.get(node);
+  if (decodedCanvases % CANVAS_PROGRESS_INTERVAL === 0) {
+    progress(`Decoding canvas ${nodePath(node)} (${decodedCanvases} decoded)`);
+  }
   const decoded = decodeCanvas(node);
   const id = createHash("sha256")
     .update(`${decoded.width}x${decoded.height}:`)
@@ -189,6 +212,7 @@ function nodePath(node) {
     formats[key] = (formats[key] ?? 0) + 1;
   }
   canvasIds.set(node, id);
+  decodedCanvases++;
   return id;
 }
 /** @param {import('../src/assets/image.js').WzNode} node @param {number} [x] @param {number} [y] @param {number} [z] */
@@ -296,6 +320,22 @@ async function backgrounds(map) {
     };
   }
 }
+
+/** Login and playable fields share original object, tile and background extraction. */
+async function extractScenery(map) {
+  state.entities = [];
+  for (let layer = 0; layer < 8; layer++) {
+    const node = at(map, String(layer));
+    await objects(layer, node);
+    await tiles(layer, node);
+  }
+  await backgrounds(map);
+  for (let index = 0; index < state.entities.length; index++) {
+    state.entities[index].order = index;
+  }
+  return state.entities;
+}
+
 /** Local initial field placement uses the original spawn portal and feet offset. */
 function appendAvatar(map, character) {
   const portal = spawnPortal(map);
@@ -318,7 +358,6 @@ function appendAvatar(map, character) {
 
 /** Extract a complete map's geometry and region-ready original artwork. */
 async function extractMap(mapId, character) {
-  state.entities = [];
   const mapPath = `Map/Map${mapId[0]}/${mapId}.img`;
   const map = image("Map", mapPath);
   const info = at(map, "info");
@@ -327,12 +366,7 @@ async function extractMap(mapId, character) {
       `Linked maps require explicit target extraction: ${value(info, "link")}`,
     );
   }
-  for (let layer = 0; layer < 8; layer++) {
-    const l = at(map, String(layer));
-    await objects(layer, l);
-    await tiles(layer, l);
-  }
-  await backgrounds(map);
+  await extractScenery(map);
   const portals = await extractPortals(extractionContext, map, mapId);
   const life = await extractLife(extractionContext, map, mapId);
   const reactors = await extractReactors(extractionContext, map, mapId);
@@ -423,6 +457,7 @@ function publicationFormats() {
 /** Publish diagnostics after the content-addressed catalog has been committed. */
 async function publishReport(catalog, reports) {
   const { buildId, maps, hitboxes } = catalog;
+  progress("Writing extraction diagnostics and JSON report");
   const report = conversionReport(buildId, reports);
   report.inputs = inputImages;
   report.tiledCanvases = state.tiledCanvases;
@@ -464,7 +499,9 @@ async function extractMaps(character, combat) {
       Buffer.from(JSON.stringify(extractionContext.portalPrograms)),
     ),
   };
+  let completed = 0;
   for (const id of mapIds) {
+    progress(`Map ${completed + 1}/${mapIds.length}: ${id}; preparing recipe`);
     const result = await incremental.run(
       {
         id: `map/${id}`,
@@ -482,6 +519,8 @@ async function extractMaps(character, combat) {
     for (const monster of result.monsters) {
       monsters[monster.id] ??= { ...monster, mapId: id };
     }
+    completed++;
+    progress(`Map ${completed}/${mapIds.length} complete: ${id}`);
   }
   return { maps, monsters, reports };
 }
@@ -489,6 +528,7 @@ async function extractMaps(character, combat) {
 async function packagedMap(id, character, combat) {
   const scene = await extractMap(id, character);
   scene.combat = combat;
+  progress(`Map ${id}: packaging regions and verifying atlas pixels`);
   const result = await packageMap(scene, state);
   const neighbors = [
     ...new Set(
@@ -530,6 +570,7 @@ function mapMonsterEntries(manifest) {
 }
 
 async function cached(name, prerequisites, build) {
+  progress(`Shared domain ${name}: preparing recipe`);
   return incremental.run(
     { id: name, recipe: await recipe(name), prerequisites },
     build,
@@ -560,10 +601,12 @@ async function sharedCatalog(converted) {
   const combat = await cached("combat", null, () =>
     extractCombat(extractionContext),
   );
+  progress("Shared drop data: resolving original item references");
   const drops = extractDropData(extractionContext, converted.datasets.drops);
   const serverData = await cached("server", converted, () =>
     extractServerData({ output, converted }),
   );
+  progress("Shared map names: reading original strings");
   const mapNames = extractMapNames(extractionContext);
   const ui = await cached(
     "ui",
@@ -592,12 +635,16 @@ async function run() {
       .filter((key) => /^\d+$/.test(key))
       .map(Number),
   );
+  progress("Scanning and converting authorized server references");
   const converted = await convertServerData({
     defaultTalkForNpc,
     originalQuestIds,
+    progress,
   });
   extractionContext.portalPrograms = converted.report.scripts.portalPrograms;
+  progress("Selecting original map and supported-NPC route closure");
   const routes = selectMapClosure(converted.datasets.shops.npcRoutes);
+  progress(`Selected ${mapIds.length} maps; converting shared avatar artwork`);
   const character = await extractAvatar(extractionContext);
   const { quests, combat, drops, serverData, mapNames, ui, audiovisual } =
     await sharedCatalog(converted);
@@ -608,6 +655,7 @@ async function run() {
   const loadingDecoration = await cached("loading", null, () =>
     extractLoadingArt(extractionContext),
   );
+  progress("Publishing original-source inventory");
   const originalSources = await reference({
     schemaVersion: 1,
     images: Object.fromEntries(
@@ -646,26 +694,33 @@ async function prepareExtraction() {
         resolve(root, "client/.cache/extraction"),
     ),
   );
+  progress(
+    `Preparing ${args.includes("--full") ? "full-conversion" : "incremental"} cache: ${directory}`,
+  );
   incremental = await createExtractionCache({
     directory,
     full: args.includes("--full"),
     state,
     source: sourceRecord,
     retain: retainSource,
+    progress,
   });
   const preflightReport = resolve(
     option("--preflight-report", resolve(directory, "preflight.json")),
   );
+  progress("Preflight: scanning original assets and authorized references");
   preflight = await preflightAssets({
     assets: source,
     maps: explicitMaps ? mapIds : undefined,
     report: preflightReport,
+    progress,
   });
   if (preflight.status !== "pass") {
     throw new Error(
       `Original-asset preflight failed (${preflight.failures.length} findings); previous catalog retained. See ${preflightReport}`,
     );
   }
+  progress(`Preflight passed: ${preflight.selection.ids.length} maps`);
 }
 
 function selectMapClosure(npcRoutes) {
@@ -694,6 +749,7 @@ function selectMapClosure(npcRoutes) {
 }
 
 async function publishCatalog(catalog, reports) {
+  progress(`Publishing catalog ${catalog.buildId} (${reports.length} maps)`);
   const encoded = JSON.stringify(catalog);
   if (
     Buffer.byteLength(encoded) > resourceByteLimit("/generated/catalog.json")
@@ -710,3 +766,6 @@ try {
 } finally {
   for (const a of archives.values()) a.close();
 }
+progress(
+  `Extraction succeeded: ${mapIds.length} maps; ${incremental.evidence.hits} cached units reused, ${incremental.evidence.misses} converted; elapsed ${((performance.now() - started) / 1000).toFixed(2)}s`,
+);

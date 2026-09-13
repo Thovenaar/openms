@@ -402,6 +402,7 @@ export class AvatarVisuals {
   constructor(services, catalog) {
     this.services = services;
     this.index = validateCatalog(catalog);
+    this.loadVisual = services.loadVisual ?? loadVisualBundle;
   }
 
   async prepare(profile, { signal, entity } = {}) {
@@ -414,7 +415,7 @@ export class AvatarVisuals {
     try {
       for (const entry of selection.entries) {
         requestSignal.throwIfAborted();
-        const owner = await loadVisualBundle(
+        const owner = await this.loadVisual(
           entry.descriptor,
           this.services,
           requestSignal,
@@ -428,7 +429,7 @@ export class AvatarVisuals {
       }
       const result = composedEntity(entity, records, selection);
       if (selection.equipmentEffect) {
-        const owner = await loadVisualBundle(
+        const owner = await this.loadVisual(
           selection.equipmentEffect.descriptor,
           this.services,
           requestSignal,

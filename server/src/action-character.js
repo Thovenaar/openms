@@ -15,6 +15,7 @@ import {
   prepareItemSpec,
   applyAlchemist,
   applyItemVitals,
+  inspectItemSpec,
 } from "../../client/src/items/item-effects.js";
 import { USE_INTERVAL_MS } from "../../client/src/items/item-use.js";
 import {
@@ -22,6 +23,7 @@ import {
   temporaryState,
   configureTemporaryState,
   MAX_TEMPORARY_STATS,
+  TEMPORARY_STATS,
 } from "../../client/src/skills/temporary-stats.js";
 import {
   admitActor,
@@ -108,35 +110,41 @@ export async function executeCharacter(actor, message, world, operation) {
     now: world.now,
     random: createServerRandom(),
   };
-  return world.database.commit(actor, operation, (profile) => {
-    try {
-      admitActor(actor, world, message.fieldEpoch);
-      context.now = world.now;
-      switch (message.action.kind) {
-        case "stats.allocate":
-          allocateStats(profile, message.action, context);
-          break;
-        case "skills.allocate":
-          allocateSkills(profile, message.action, context);
-          break;
-        case "buff.cancel":
-          cancelBuff(profile, message.action, context);
-          break;
-        case "settings.save":
-        case "key-bindings.save":
-        case "skill-macros.save":
-        case "quest.track":
-        case "quest.notice":
-          executeNativePreference(profile, message.action, context);
-          break;
-        default:
-          reject("INVALID_MESSAGE", "Not a character mutation.");
+  return world.participants.commit(
+    actor,
+    operation,
+    [actor.id],
+    async (drafts) => {
+      const profile = drafts.get(actor.id);
+      try {
+        admitActor(actor, world, message.fieldEpoch);
+        context.now = world.now;
+        switch (message.action.kind) {
+          case "stats.allocate":
+            allocateStats(profile, message.action, context);
+            break;
+          case "skills.allocate":
+            allocateSkills(profile, message.action, context);
+            break;
+          case "buff.cancel":
+            cancelBuff(profile, message.action, context);
+            break;
+          case "settings.save":
+          case "key-bindings.save":
+          case "skill-macros.save":
+          case "quest.track":
+          case "quest.notice":
+            await executeNativePreference(profile, message.action, context);
+            break;
+          default:
+            reject("INVALID_MESSAGE", "Not a character mutation.");
+        }
+        return {};
+      } catch (error) {
+        throw ruleError(error);
       }
-      return {};
-    } catch (error) {
-      throw ruleError(error);
-    }
-  });
+    },
+  );
 }
 
 function alchemist(profile, context) {
@@ -183,7 +191,7 @@ export function useItem(profile, action, context) {
   return {};
 }
 
-function installItemEffect(state, templateId, effect, now) {
+export function installItemEffect(state, templateId, effect, now) {
   const index = state.effects.findIndex(
     (entry) => entry.kind === "item" && entry.templateId === templateId,
   );
@@ -201,10 +209,15 @@ function installItemEffect(state, templateId, effect, now) {
   };
   if (index >= 0) state.effects.splice(index, 1);
   state.effects.push(row);
+  return row;
 }
 
 /** Rebuild only at join/commit boundaries. Runtime ticks reuse the prepared source arrays. */
 export function rebuildActorEffects(actor, world) {
+  if (actor.skills) {
+    hydrateRuntimeEffects(actor, world);
+    return;
+  }
   actor.temporaryStats ??= new TemporaryStats();
   projectEffects(actor.profile, world.now, actor.temporaryStats);
   recalculateVitals(
@@ -230,8 +243,129 @@ function projectEffects(profile, now, temporary) {
   }
 }
 
+function hydrateRuntimeEffects(actor, world) {
+  const system = actor.skills,
+    effects = system.effects;
+  actor.temporaryStats = effects;
+  if (effects.reservation) return;
+  const rows = onlineState(actor.profile).effects;
+  removeExpiredRuntimeEffects(system, rows, world.now);
+  for (const row of rows) hydrateRuntimeSource(actor, world, row);
+  system.refresh();
+  system.recompute();
+}
+
+function removeExpiredRuntimeEffects(system, rows, now) {
+  const effects = system.effects;
+  for (let index = effects.count - 1; index >= 0; index--) {
+    const source = effects.sources[index];
+    if (
+      rows.some(
+        (row) =>
+          row.kind === source.kind &&
+          row.templateId === source.id &&
+          row.expiresAt > now,
+      )
+    )
+      {continue;}
+    effects.remove(source.source);
+    if (source.kind === "skill")
+      {system.controllerFor(system.catalog[source.id])?.cancel?.(source.id);}
+  }
+}
+
+function hydrateRuntimeSource(actor, world, row) {
+    const system = actor.skills, effects = system.effects;
+    if (row.expiresAt <= world.now) return;
+    const prior = effects.find(
+      row.kind === "item" ? -row.templateId : row.templateId,
+    );
+    if (prior && prior.wireId === row.id) return;
+    const source =
+      row.kind === "item"
+        ? inspectItemSpec(world.content.items[row.templateId]).state
+        : system.states.get(row.templateId);
+    if (!source)
+      {reject("CONTENT_MISMATCH", "Missing learned temporary source.");}
+    configureTemporaryState(source, row.spec, row.expiresAt - world.now);
+    source.totalMs = row.duration;
+    source.rank = row.rank ?? system.level(row.templateId);
+    source.wireId = row.id;
+    source.expiresAt =
+      row.kind === "item"
+        ? row.expiresAt
+        : (actor.profile.skills[row.templateId]?.expiresAt ?? null);
+    source.itemValues = row.kind === "item" ? row.spec : null;
+    effects.start(source);
+    source.remaining = row.expiresAt - world.now;
+}
+
+/** Serialize active source changes, preserving the native controller/source identity. */
+export function syncActorEffects(actor, world) {
+  const effects = actor.skills.effects;
+  if (effects.reservation) return;
+  const rows = onlineState(actor.profile).effects;
+  for (let index = rows.length - 1; index >= 0; index--) {
+    const row = rows[index];
+    if (!effects.find(row.kind === "item" ? -row.templateId : row.templateId))
+      {rows.splice(index, 1);}
+  }
+  for (let index = 0; index < effects.count; index++) {
+    syncRuntimeSource(actor, world, effects.sources[index], rows);
+  }
+  syncRuntimeCooldowns(actor, world);
+}
+
+function syncRuntimeSource(actor, world, source, rows) {
+    let row = null;
+    for (const entry of rows) {
+      if (entry.kind === source.kind && entry.templateId === source.id) {
+        row = entry;
+        break;
+      }
+    }
+    if (!row) {
+      row = {
+        id: crypto.randomUUID(),
+        kind: source.kind,
+        templateId: source.id,
+        cancelable: true,
+        expiresAt: 0,
+        duration: source.totalMs,
+        rank: source.rank,
+        spec: source.kind === "item" ? { ...source.itemValues } : {},
+      };
+      rows.push(row);
+    }
+    source.wireId = row.id;
+    row.expiresAt = world.now + source.remaining;
+    row.duration = source.totalMs;
+    row.rank = source.rank;
+    row.cancelable = actor.skills.canCancelEffect(source.kind, source.id);
+    if (source.kind !== "item") syncRuntimeSourceStats(source, row);
+}
+
+function syncRuntimeSourceStats(source, row) {
+  for (let stat = 0; stat < TEMPORARY_STATS.length; stat++) {
+    const value = source.values[stat];
+    if (value) row.spec[TEMPORARY_STATS[stat]] = value;
+    else delete row.spec[TEMPORARY_STATS[stat]];
+  }
+}
+
+function syncRuntimeCooldowns(actor, world) {
+  const cooldowns = onlineState(actor.profile).cooldowns;
+  for (const key in cooldowns) {
+    if (!key.startsWith("skill:")) continue;
+    const state = actor.skills.states.get(Number(key.slice(6)));
+    if (state?.cooldown > 0) cooldowns[key] = world.now + state.cooldown;
+    else delete cooldowns[key];
+  }
+}
+
 /** Bounded, allocation-free expiration; world owns checkpoint/revision publication of the change. */
 export function expireActorEffects(actor, world) {
+  if (actor.skills) return false; // The shared skill clock expires sources, including final recovery ticks.
   const effects = actor.profile.onlineState?.effects;
   if (!effects) return false;
   let changed = false;

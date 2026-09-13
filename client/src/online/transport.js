@@ -3,6 +3,7 @@ import {
   decodeServer,
   decodeJson,
   actionDomain,
+  actionEphemeral,
   PROTOCOL,
 } from "../../../shared/protocol.js";
 import { MultipartAssembly } from "./transport-assembly.js";
@@ -18,15 +19,6 @@ const MAX_QUEUE = 256;
 const MAX_QUEUE_BYTES = 1024 * 1024;
 const SEND_SOFT_BYTES = 256 * 1024;
 const MAX_PENDING = 64;
-const SESSION_OPERATIONS = new Set([
-  "npc.open",
-  "npc.answer",
-  "trade.invite",
-  "trade.answer",
-  "trade.offer",
-  "trade.cancel",
-  "chat.send",
-]);
 const HASH = /^[a-f0-9]{64}$/;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const encoder = new TextEncoder();
@@ -45,8 +37,7 @@ function validConfig(config) {
     HASH.test(config.rulesHash) &&
     HASH.test(config.catalogHash) &&
     typeof config.csrfToken === "string" &&
-    (config.loginToken === undefined ||
-      typeof config.loginToken === "string") &&
+    typeof config.loginToken === "string" &&
     typeof config.development === "boolean"
   );
 }
@@ -143,6 +134,7 @@ export class OnlineTransport {
     this.lastInputTick = -1;
     this.socket = null;
     this.pending = new Map();
+    this.pendingTravel = 0;
     this.queue = [];
     this.queueBytes = 0;
     this.deferred = [];
@@ -192,26 +184,18 @@ export class OnlineTransport {
     }
   }
 
-  /** A login nonce is single-slot per browser, so one refresh retry covers a second tab. */
+  /** Submit a challenge-bound CSRF token once; a rejected proof may already be consumed. */
   async admitSession(path, { name, password, proof }) {
-    const credentials = () => ({
+    return request(path, "POST", {
       name,
       password,
-      csrfToken: this.config.loginToken ?? this.config.csrfToken,
+      csrfToken: proof.csrfToken,
       challengeId: proof.challengeId,
       nonce: proof.nonce,
     });
-    try {
-      return await request(path, "POST", credentials());
-    } catch (error) {
-      if (error.code !== "NOT_ALLOWED") throw error;
-      await this.initialize();
-      return request(path, "POST", credentials());
-    }
   }
 
   async login({ name, password, proof }) {
-    await this.initialize();
     const session = await this.admitSession("/api/v1/session", {
       name,
       password,
@@ -223,7 +207,6 @@ export class OnlineTransport {
 
   /** Registration is proof-of-work gated like sign in; success signs the browser in. */
   async register({ name, password, proof }) {
-    await this.initialize();
     const session = await this.admitSession("/api/v1/accounts", {
       name,
       password,
@@ -249,6 +232,7 @@ export class OnlineTransport {
     const result = await request("/api/v1/challenge");
     if (
       typeof result.challengeId !== "string" ||
+      typeof result.loginToken !== "string" ||
       !Number.isSafeInteger(result.bits) ||
       !Number.isSafeInteger(result.expiresAt)
     ) {
@@ -257,7 +241,7 @@ export class OnlineTransport {
     return freezeView(result);
   }
 
-  /** Register one account-owned character with rolled stats, packaged look and starter gear. */
+  /** Register one account-owned character with admitted stats, original look and starter gear. */
   async createCharacter(payload) {
     const result = await request("/api/v1/characters", "POST", {
       csrfToken: this.config.csrfToken,
@@ -306,6 +290,7 @@ export class OnlineTransport {
         pending.recoverResolve?.(unknown);
       }
       this.pending.clear();
+      this.pendingTravel = 0;
       this.closingCode = null;
     } catch (error) {
       reason = error.code ?? "SIGN_OUT_FAILED";
@@ -711,10 +696,16 @@ export class OnlineTransport {
       this.revisions[domain] = model.revisions[domain];
     }
     const conversation = model.presentation.interactions.find(
-      (event) => event.kind === "dialogue" || event.kind === "shop",
+      (event) =>
+        event.kind === "dialogue" ||
+        event.kind === "shop" ||
+        event.kind === "storage",
     );
     this.conversationId =
-      conversation?.conversationId ?? conversation?.shopSession ?? null;
+      conversation?.conversationId ??
+      conversation?.shopSession ??
+      conversation?.storageSession ??
+      null;
   }
 
   state(message) {
@@ -731,23 +722,7 @@ export class OnlineTransport {
       observed = { ...message, event: shop };
     }
     const event = observed.event;
-    if (event.kind === "dialogue" || event.kind === "quest.offer") {
-      this.conversationId = event.conversationId;
-      this.revisions.conversation = event.step;
-    }
-    if (event.kind === "shop") {
-      this.conversationId = event.shopSession;
-      this.revisions.conversation = event.revision;
-    }
-    if (event.kind === "dialogue.closed") {
-      if (this.shops.pending?.identity === event.conversationId) {
-        this.shops.clear();
-      }
-      if (this.conversationId === event.conversationId) {
-        this.conversationId = null;
-        this.revisions.conversation = 0;
-      }
-    }
+    this.observeConversation(event);
     if (event.kind === "trade") {
       this.revisions.trade = event.revision;
       this.revisions.invitation = event.revision;
@@ -755,10 +730,42 @@ export class OnlineTransport {
     this.callbacks.onEvent?.(freezeView(observed));
   }
 
+  observeConversation(event) {
+    switch (event.kind) {
+      case "dialogue":
+        this.conversationId = event.conversationId;
+        this.revisions.conversation = event.step;
+        break;
+      case "shop":
+        this.conversationId = event.shopSession;
+        this.revisions.conversation = event.revision;
+        break;
+      case "storage":
+        this.conversationId = event.storageSession;
+        break;
+      case "storage.closed":
+        if (this.conversationId === event.storageSession) {
+          this.conversationId = null;
+          this.revisions.conversation = 0;
+        }
+        break;
+      case "dialogue.closed":
+        if (this.shops.pending?.identity === event.conversationId) {
+          this.shops.clear();
+        }
+        if (this.conversationId === event.conversationId) {
+          this.conversationId = null;
+          this.revisions.conversation = 0;
+        }
+        break;
+    }
+  }
+
   result(message) {
     const pending = this.pending.get(message.operationId);
     if (pending) {
       this.pending.delete(message.operationId);
+      if (pending.travel) this.pendingTravel--;
       if (pending.domain) {
         this.revisions[pending.domain] = Math.max(
           this.revisions[pending.domain],
@@ -778,6 +785,15 @@ export class OnlineTransport {
     if (message.phase === "prepare") {
       this.setStatus("transitioning");
       this.shops.clear();
+      const deadline =
+        performance.now() +
+        Math.min(15000, Math.max(0, message.deadline - Date.now())) +
+        COMMAND_TIMEOUT_MS;
+      for (const pending of this.pending.values()) {
+        if (pending.fields.fieldEpoch === message.sourceEpoch) {
+          pending.deadline = Math.max(pending.deadline, deadline);
+        }
+      }
     }
     if (message.phase === "committed") {
       if (!message.destination) throw failure("INVALID_TRANSITION");
@@ -794,6 +810,23 @@ export class OnlineTransport {
     }
     if (message.phase === "aborted") this.setStatus("active");
     this.callbacks.onTransition?.(freezeView(message));
+  }
+  sendTransitionReady(
+    transitionId,
+    accepted,
+    fieldEpoch = this.expectedFieldEpoch,
+  ) {
+    if (
+      this.status !== "transitioning" ||
+      fieldEpoch !== this.expectedFieldEpoch
+    ) {
+      throw failure("STALE_FIELD");
+    }
+    return this.send("transition-ready", {
+      fieldEpoch,
+      transitionId,
+      accepted,
+    });
   }
 
   send(type, fields) {
@@ -891,18 +924,24 @@ export class OnlineTransport {
     } catch (error) {
       return Promise.reject(error);
     }
+    const travel =
+      action.kind === "portal.enter" ||
+      action.kind === "revive.request" ||
+      action.kind === "skill.door";
     const promise = new Promise((resolve) => {
       this.pending.set(operationId, {
         fields,
         domain,
+        travel,
         resolve,
-        deadline: performance.now() + COMMAND_TIMEOUT_MS,
+        deadline: performance.now() + (travel ? 25000 : COMMAND_TIMEOUT_MS),
         unknown: false,
         sentEpoch: null,
         playSession: this.playSession,
-        durable: !SESSION_OPERATIONS.has(action.kind),
+        durable: !actionEphemeral(action),
       });
     });
+    if (travel) this.pendingTravel++;
     promise.operationId = operationId;
     this.callbacks.onCommand?.(freezeView(fields));
     this.sendPending(this.pending.get(operationId));

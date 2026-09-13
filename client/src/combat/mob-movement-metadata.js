@@ -25,3 +25,7 @@ export function mobMovementMetadata(info, actions) {
     flySpeedPercent: type === 3 ? mobFlightSpeedPercent(info) : null,
   };
 }
+/** noFlip locks artwork/body mirroring, not the grounded controller's heading. */
+export function mobFlipped(mob) {
+  return mob.facing > 0 && !mob.template.info.noFlip;
+}

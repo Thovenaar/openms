@@ -11,6 +11,7 @@ const SCHEMA = 1;
  * is a measured headroom, not an open limit. */
 const MAX_RECORD_BYTES = 144 * 1024 * 1024;
 const MAX_SOURCES = 100000;
+const SOURCE_PROGRESS_INTERVAL = 256;
 const HASH = /^[a-f0-9]{64}$/;
 const digest = (value) => hash(Buffer.from(JSON.stringify(value)));
 
@@ -26,7 +27,7 @@ export async function createExtractionCache(options) {
     ...options,
     directory,
     ledger: publicationLedger(options.state),
-    outputs: extractionOutputs(output),
+    outputs: extractionOutputs(output, options.progress),
     active: null,
     evidence: { hits: 0, misses: 0, reusedRGBABytes: 0, units: [] },
   };
@@ -114,11 +115,19 @@ async function probe(runtime, unit) {
   const { record } = loaded;
   const difference = unitDifference(record, unit);
   if (difference) return { reason: difference };
-  for (const [key, expected] of Object.entries(record.sources)) {
+  const sources = Object.entries(record.sources);
+  let completed = 0;
+  for (const [key, expected] of sources) {
+    if (completed % SOURCE_PROGRESS_INTERVAL === 0) {
+      runtime.progress?.(
+        `${unit.id}: verifying original source ${completed + 1}/${sources.length}: ${key}`,
+      );
+    }
     const actual = runtime.source(key);
     if (actual.sha256 !== expected.sha256 || actual.bytes !== expected.bytes) {
       return { reason: `source-changed:${key}` };
     }
+    completed++;
   }
   if (!runtime.ledger.matches(record.publication)) {
     return { reason: "atlas-publication-binding-changed" };
@@ -142,6 +151,7 @@ function unitDifference(record, unit) {
 
 async function verifyRecord(runtime, record) {
   try {
+    runtime.progress?.(`${record.id}: verifying cached output closure`);
     const outputs = await runtime.outputs.closure({
       result: record.result,
       publication: record.publication.delta,
@@ -177,6 +187,9 @@ async function runUnit(runtime, unit, build) {
     throw new Error("Invalid extraction unit identity");
   }
   const started = performance.now();
+  runtime.progress?.(
+    `${unit.id}: ${runtime.full ? "bypassing cache (--full)" : "loading and verifying cache record"}`,
+  );
   const checked = await probe(runtime, unit);
   if (checked.record) {
     for (const key of Object.keys(checked.record.sources)) {
@@ -194,7 +207,9 @@ async function runUnit(runtime, unit, build) {
   }
   runtime.evidence.misses++;
   try {
+    runtime.progress?.(`${unit.id}: converting (${checked.reason})`);
     const record = await rebuildUnit(runtime, unit, build);
+    runtime.progress?.(`${unit.id}: saving verified cache record`);
     await saveRecord(runtime, record);
     recordTiming(runtime, unit.id, {
       status: "rebuilt",
@@ -225,6 +240,7 @@ async function rebuildUnit(runtime, unit, build) {
     publication = runtime.ledger.finish();
     runtime.active = null;
   }
+  runtime.progress?.(`${unit.id}: verifying converted output closure`);
   const outputs = await runtime.outputs.closure({
     result,
     publication: publication.delta,
@@ -265,4 +281,7 @@ function recordTiming(runtime, id, result) {
   };
   runtime.evidence.units.push(evidence);
   console.log(JSON.stringify({ extractionUnit: evidence }));
+  runtime.progress?.(
+    `${id}: ${result.status === "hit" ? "verified cache reused" : result.status === "rebuilt" ? "conversion complete" : "failed"} (${(evidence.elapsedMs / 1000).toFixed(2)}s; ${result.reason})`,
+  );
 }

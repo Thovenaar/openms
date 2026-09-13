@@ -1,10 +1,22 @@
 import {
+  TRADE_SLOTS,
+  tradeFee,
+  tradeInteger,
+  admitTradeMesoProposal,
+  tradeReceivedTotal,
   revalidateOffer,
   applyTradeItems,
   applyTradeMesos,
 } from "../../client/src/social/local-trade-rules.js";
+import {
+  TRADE_CHAT_LENGTH,
+  TRADE_CHAT_LINES,
+  TRADE_CHAT_BYTES,
+  TRADE_TERMINAL_STATES,
+} from "../../shared/trade-protocol.js";
+import { validUnicode } from "../../shared/schema.js";
 import { itemView, actorEntity } from "./field-views.js";
-import { operationFor, admitActor } from "./action-rules.js";
+import { operationFor, admitActor, ruleError } from "./action-rules.js";
 import {
   interactionState,
   interactionReceipt,
@@ -16,6 +28,7 @@ import {
 
 const MAX_TRADES = 2048;
 const INVITE_INTERVAL_MS = 3000;
+const CHAT_INTERVAL_MS = 300;
 
 function eligible(world, actor, peer) {
   requireInteraction(
@@ -46,59 +59,86 @@ function roomActors(world, room) {
   requireInteraction(
     actors.every(
       (actor) =>
-        actor.tradeId === room.id && actor.field.epoch === room.fieldEpoch,
+        actor.tradeId === room.id &&
+        actor.field.epoch === room.fieldEpoch &&
+        actor.playSession ===
+          room.sessions[room.participants.indexOf(actor.id)],
     ),
     "SESSION_EXPIRED",
   );
   return actors;
 }
 
+function tradeOfferView(world, room, index) {
+  const ownerId = room.participants[index];
+  const actor = world.actors.get(ownerId);
+  const offer = room.offers[index];
+  return {
+    ownerId,
+    items: offer.items.map((entry) => ({
+      slot: entry.slot,
+      item: itemView(
+        entry.item,
+        actor?.inventoryRevision ?? room.inventoryRevisions[index],
+        false,
+        world.content.items,
+      ),
+      quantity: entry.count,
+    })),
+    mesos: offer.mesos,
+    confirmed: offer.confirmed,
+  };
+}
+
 export function publishTrade(world, room, state = room.state) {
-  const offers = [];
-  for (let index = 0; index < 2; index++) {
-    const actor = world.actors.get(room.participants[index]);
-    if (!actor) continue;
-    const offer = room.offers[index];
-    offers.push({
-      ownerId: actor.id,
-      items: offer.items.map((entry) => ({
-        item: itemView(
-          entry.item,
-          actor.inventoryRevision,
-          false,
-          world.content.items,
-        ),
-        quantity: entry.count,
-      })),
-      mesos: offer.mesos,
-      confirmed: offer.confirmed,
-    });
-  }
   const event = {
     kind: "trade",
     tradeId: room.id,
     revision: room.revision,
     state,
+    expiresAt: room.expiresAt,
     participants: room.participants,
-    members: room.participants.map((id) => {
-      const member = world.actors.get(id);
-      return {
-        id,
-        appearance: member
-          ? actorEntity(member).appearance
-          : room.members.find((entry) => entry.id === id).appearance,
-      };
-    }),
-    offers,
+    members: room.members,
+    offers: [tradeOfferView(world, room, 0), tradeOfferView(world, room, 1)],
+    messages: room.messages.slice(),
+    result: room.result,
   };
   for (const id of room.participants) {
     const actor = world.actors.get(id);
-    if (actor) publishInteraction(world, actor, event);
+    if (!actor) continue;
+    try {
+      publishInteraction(world, actor, event);
+    } catch (error) {
+      world.deliveryFailed(actor, error);
+    }
   }
 }
 
-export function closeTrade(world, room, state = "cancelled") {
-  room.state = state;
+function terminalBase(room) {
+  return {
+    kind: "trade.result",
+    tradeId: room.id,
+    revision: room.revision + 1,
+    participantIds: room.participants.slice(),
+  };
+}
+
+function cancelledResult(room, state) {
+  return {
+    ...terminalBase(room),
+    ok: true,
+    code: state === "declined" ? "trade-declined" : "trade-cancelled",
+    side: null,
+    reason:
+      room.expiresAt <= Date.now()
+        ? room.state === "invited"
+          ? "The trade invitation expired."
+          : "The trade room expired."
+        : "The trade invitation or room is no longer available.",
+  };
+}
+
+function releaseTradeParticipants(world, room) {
   for (const id of room.participants) {
     const actor = world.actors.get(id);
     if (actor?.tradeId !== room.id) continue;
@@ -106,8 +146,37 @@ export function closeTrade(world, room, state = "cancelled") {
     actor.itemLocks?.clear();
     actor.tradeMesos = 0;
   }
+}
+
+/** Accepted commits drain. Every other terminal path releases only this room's reservations. */
+export function closeTrade(world, room, state = "cancelled", result = null) {
+  if (TRADE_TERMINAL_STATES.includes(room.state)) return room.result;
+  requireInteraction(TRADE_TERMINAL_STATES.includes(state), "INVALID_MESSAGE");
+  requireInteraction(
+    result !== null || state === "cancelled" || state === "declined",
+    "INVALID_MESSAGE",
+  );
+  room.result = result ?? cancelledResult(room, state);
+  room.state = state;
+  room.revision = room.result.revision;
+  releaseTradeParticipants(world, room);
   interactionState(world).trades.delete(room.id);
-  publishTrade(world, room, state);
+  publishTrade(world, room);
+  return room.result;
+}
+
+function cancelTrade(world, room, side, declined = false) {
+  const state = declined ? "declined" : "cancelled";
+  const result = closeTrade(world, room, state, {
+    ...terminalBase(room),
+    ok: true,
+    code: declined ? "trade-declined" : "trade-cancelled",
+    side,
+    reason: declined
+      ? "The trade invitation was declined."
+      : "The trade was cancelled.",
+  });
+  return interactionReceipt(room.revision, result);
 }
 
 function invite(actor, message, world) {
@@ -135,9 +204,16 @@ function invite(actor, message, world) {
     revision: 1,
     state: "invited",
     participants: [actor.id, peer.id],
+    sessions: [actor.playSession, peer.playSession],
+    inventoryRevisions: [actor.inventoryRevision, peer.inventoryRevision],
     fieldEpoch: actor.field.epoch,
     expiresAt: now + INTERACTION_LIMITS.invitationMs,
     busy: false,
+    messages: [],
+    chatBytes: 0,
+    chatSequence: 0,
+    lastChat: [0, 0],
+    result: null,
     offers: [
       { items: [], mesos: 0, confirmed: false },
       { items: [], mesos: 0, confirmed: false },
@@ -162,7 +238,10 @@ function getRoom(actor, message, world) {
     "NOT_FOUND",
   );
   requireInteraction(!room.busy, "CHARACTER_BUSY");
-  requireInteraction(room.expiresAt > Date.now(), "SESSION_EXPIRED");
+  if (room.expiresAt <= Date.now()) {
+    closeTrade(world, room);
+    requireInteraction(false, "SESSION_EXPIRED");
+  }
   requireInteraction(
     message.expectedRevision === room.revision,
     "STALE_REVISION",
@@ -175,12 +254,9 @@ function answer(actor, message, world, room) {
     room.state === "invited" && room.participants[1] === actor.id,
     "NOT_ALLOWED",
   );
+  if (!message.action.accept) return cancelTrade(world, room, 1, true);
   const actors = roomActors(world, room);
   requireInteraction(!actors[0].pending, "CHARACTER_BUSY");
-  if (!message.action.accept) {
-    closeTrade(world, room);
-    return interactionReceipt(room.revision);
-  }
   requireInteraction(
     actor.profile.settings.gameOptions.allowTrade,
     "NOT_ALLOWED",
@@ -194,17 +270,24 @@ function answer(actor, message, world, room) {
 
 function offeredItems(actor, requested, world) {
   requireInteraction(
-    requested.length <= 9 &&
-      new Set(requested.map((entry) => entry.itemId)).size === requested.length,
+    requested.length <= TRADE_SLOTS &&
+      new Set(requested.map((entry) => entry.itemId)).size ===
+        requested.length &&
+      new Set(requested.map((entry) => entry.slot)).size === requested.length,
     "INVALID_MESSAGE",
   );
   const items = [];
   for (const entry of requested) {
+    tradeInteger(entry.slot, 1, TRADE_SLOTS, "slot");
     const item = actor.profile.inventory.find(
       (candidate) => candidate.uid === entry.itemId,
     );
     requireInteraction(item, "NOT_FOUND");
-    const offer = { item: structuredClone(item), count: entry.quantity };
+    const offer = {
+      item: structuredClone(item),
+      count: entry.quantity,
+      slot: entry.slot,
+    };
     revalidateOffer(actor.profile, offer, world.content.catalog, Date.now());
     items.push(offer);
   }
@@ -230,6 +313,22 @@ function recordsFor(profiles, offers, world) {
   );
 }
 
+function receivedTotal(actor) {
+  return actor.tradeReceivedSession === actor.playSession
+    ? (actor.tradeReceivedMesos ?? 0)
+    : 0;
+}
+
+function receivedPlan(actors, profiles, offers) {
+  return actors.map((actor, index) =>
+    tradeReceivedTotal(
+      profiles[index].level,
+      receivedTotal(actor),
+      offers[1 - index].mesos,
+    ),
+  );
+}
+
 function validateCapacity(actors, offers, world) {
   const drafts = actors.map((actor) => structuredClone(actor.profile));
   const records = recordsFor(drafts, offers, world);
@@ -237,6 +336,27 @@ function validateCapacity(actors, offers, world) {
   applyTradeMesos(
     drafts,
     offers.map((offer) => offer.mesos),
+  );
+}
+
+/** Native offers are additive and occupied slots never mutate; removal cancels the room. */
+function admitOfferChange(actor, previous, next) {
+  requireInteraction(!previous.confirmed, "NOT_ALLOWED");
+  for (const entry of previous.items) {
+    const retained = next.items.find((item) => item.slot === entry.slot);
+    requireInteraction(
+      retained &&
+        retained.itemId === entry.item.uid &&
+        retained.quantity === entry.count,
+      "NOT_ALLOWED",
+    );
+  }
+  const amount = next.mesos - previous.mesos;
+  tradeInteger(amount, 0, actor.profile.meso - previous.mesos, "mesos");
+  if (amount > 0) admitTradeMesoProposal(actor.profile.level, amount);
+  requireInteraction(
+    amount > 0 || next.items.length > previous.items.length,
+    "NOT_ALLOWED",
   );
 }
 
@@ -248,22 +368,56 @@ function replaceOffer(actor, message, world, room) {
     "CHARACTER_BUSY",
   );
   const index = room.participants.indexOf(actor.id);
+  admitOfferChange(actor, room.offers[index], message.action);
   const offer = {
     items: offeredItems(actor, message.action.items, world),
     mesos: message.action.mesos,
     confirmed: false,
   };
-  const offers = [...room.offers];
+  const offers = room.offers.slice();
   offers[index] = offer;
   validateCapacity(actors, offers, world);
   room.offers = offers;
   room.revision++;
-  for (const entry of room.offers) entry.confirmed = false;
   actor.itemLocks = new Set(offer.items.map((entry) => entry.item.uid));
   actor.tradeMesos = offer.mesos;
   room.expiresAt = Date.now() + INTERACTION_LIMITS.tradeMs;
   publishTrade(world, room);
   return interactionReceipt(room.revision);
+}
+
+function feedback(error) {
+  const known = /^[a-z][a-z0-9-]{0,63}$/.test(error.code ?? "");
+  const mapped = ruleError(error);
+  return {
+    kind: "trade.feedback",
+    ok: false,
+    code: known ? error.code : mapped.code,
+    reason: known ? String(error.message).slice(0, 512) : mapped.code,
+  };
+}
+
+function failTrade(world, room, error) {
+  const detail = feedback(error);
+  return closeTrade(world, room, "failed", {
+    ...terminalBase(room),
+    ok: false,
+    code: "trade-failed",
+    cause: detail.code,
+    reason: detail.reason,
+  });
+}
+
+function publishConfirmedTrade(world, actor, room, receipt) {
+  room.offers[room.participants.indexOf(actor.id)].confirmed = true;
+  room.revision = receipt.value.revision;
+  room.expiresAt = Date.now() + INTERACTION_LIMITS.tradeMs;
+  publishTrade(world, room, "confirmed");
+  try {
+    world.publish(actor, { type: "snapshot-request" });
+  } catch (error) {
+    world.deliveryFailed(actor, error);
+  }
 }
 
 async function confirm(actor, message, world, room) {
@@ -275,52 +429,82 @@ async function confirm(actor, message, world, room) {
   requireInteraction(!peer.pending, "CHARACTER_BUSY");
   room.busy = true;
   peer.pending = true;
+  peer.pendingOperation = message.operationId;
+  peer.pendingOwner = actor.id;
   try {
     validateCapacity(actors, room.offers, world);
-    if (!room.offers[1 - index].confirmed) {
-      const receipt = await world.database.commit(
-        actor,
-        { ...operationFor(message), domainRevision: room.revision },
-        () => {
-          roomActors(world, room);
-          requireInteraction(
-            room.revision === message.expectedRevision,
-            "STALE_REVISION",
-          );
-          return { domainRevision: room.revision };
-        },
-      );
-      if (receipt.status === "committed") {
-        room.offers[index].confirmed = true;
-        publishTrade(world, room, "confirmed");
-        world.publish(actor, { type: "snapshot-request" });
-      }
-      return receipt;
+    if (room.offers[1 - index].confirmed) {
+      return await commitTrade(actor, message, world, room);
     }
-    return await commitTrade(actor, message, world, room);
+    const next = room.revision + 1;
+    const receipt = await world.database.commit(
+      actor,
+      { ...operationFor(message), domainRevision: next },
+      () => {
+        roomActors(world, room);
+        requireInteraction(
+          room.revision === message.expectedRevision,
+          "STALE_REVISION",
+        );
+        return {
+          domainRevision: next,
+          value: {
+            kind: "trade.confirmed",
+            tradeId: room.id,
+            revision: next,
+            side: index,
+          },
+        };
+      },
+    );
+    if (receipt.status === "committed") {
+      publishConfirmedTrade(world, actor, room, receipt);
+    } else failTrade(world, room, receipt);
+    return receipt;
+  } catch (error) {
+    failTrade(world, room, error);
+    throw error;
   } finally {
     peer.pending = false;
+    peer.pendingOperation = null;
+    peer.pendingOwner = null;
     room.busy = false;
+    world.participants.signalIdle();
   }
 }
 
+function completedResult(room) {
+  const mesos = room.offers.map((offer) => offer.mesos);
+  const fees = mesos.map(tradeFee);
+  return {
+    ...terminalBase(room),
+    ok: true,
+    code: "trade-completed",
+    fees,
+    netReceived: [mesos[1] - fees[1], mesos[0] - fees[0]],
+  };
+}
+
 async function commitTrade(actor, message, world, room) {
-  const actors = roomActors(world, room).sort((left, right) =>
-    left.id.localeCompare(right.id),
-  );
+  const participants = roomActors(world, room);
+  // The initiator must be first for its operation/session fence; DB orders row locks.
+  const actors = [actor, participants.find((entry) => entry !== actor)];
   const offers = actors.map(
     (entry) => room.offers[room.participants.indexOf(entry.id)],
   );
-  const receipt = await world.database.commitMany(
-    actors,
-    { ...operationFor(message), domainRevision: room.revision },
-    (drafts) => {
+  let received;
+  const receipt = await world.participants.commit(
+    actor,
+    { ...operationFor(message), domainRevision: room.revision + 1 },
+    actors.map((entry) => entry.id),
+    (profiles) => {
+      const drafts = actors.map((entry) => profiles.get(entry.id));
       roomActors(world, room);
       requireInteraction(
-        room.revision === message.expectedRevision &&
-          room.expiresAt > Date.now(),
+        room.revision === message.expectedRevision,
         "STALE_REVISION",
       );
+      received = receivedPlan(actors, drafts, offers);
       const records = recordsFor(drafts, offers, world);
       applyTradeItems(drafts, records);
       applyTradeMesos(
@@ -328,36 +512,129 @@ async function commitTrade(actor, message, world, room) {
         offers.map((offer) => offer.mesos),
       );
       return {
-        domainRevision: room.revision,
-        value: { tradeId: room.id, participants: room.participants },
+        domainRevision: room.revision + 1,
+        value: completedResult(room),
       };
     },
   );
-  if (receipt.status === "committed") {
-    room.offers[room.participants.indexOf(actor.id)].confirmed = true;
-    closeTrade(world, room, "committed");
-    for (const participant of actors) {
+  if (receipt.status !== "committed") {
+    failTrade(world, room, receipt);
+    return receipt;
+  }
+  requireInteraction(receipt.value?.kind === "trade.result", "SERVER_BUSY");
+  if (received) {
+    for (let index = 0; index < 2; index++) {
+      actors[index].tradeReceivedSession = actors[index].playSession;
+      actors[index].tradeReceivedMesos = received[index];
+    }
+  }
+  room.offers[room.participants.indexOf(actor.id)].confirmed = true;
+  closeTrade(world, room, "committed", receipt.value);
+  for (const participant of actors) {
+    try {
       world.publish(participant, { type: "snapshot-request" });
+    } catch (error) {
+      world.deliveryFailed(participant, error);
     }
   }
   return receipt;
 }
 
-export function executeTrade(actor, message, world) {
-  if (message.action.kind === "trade.invite") {
-    return invite(actor, message, world);
+function sendChat(actor, message, world, room) {
+  requireInteraction(room.state === "open", "NOT_ALLOWED");
+  roomActors(world, room);
+  const text = message.action.text;
+  requireInteraction(
+    typeof text === "string" &&
+      text.trim() &&
+      text.length <= TRADE_CHAT_LENGTH &&
+      validUnicode(text) &&
+      !/[^\u0020-\u007e\u0080-\uffff]/u.test(text),
+    "INVALID_MESSAGE",
+  );
+  const side = room.participants.indexOf(actor.id);
+  const now = Date.now();
+  requireInteraction(
+    now - room.lastChat[side] >= CHAT_INTERVAL_MS,
+    "RATE_LIMITED",
+  );
+  const bytes = Buffer.byteLength(text, "utf8");
+  while (
+    room.messages.length &&
+    (room.messages.length >= TRADE_CHAT_LINES ||
+      room.chatBytes + bytes > TRADE_CHAT_BYTES)
+  ) {
+    room.chatBytes -= Buffer.byteLength(room.messages.shift().text, "utf8");
   }
-  const room = getRoom(actor, message, world);
-  if (message.action.kind === "trade.answer") {
-    return answer(actor, message, world, room);
-  }
-  if (message.action.kind === "trade.offer") {
-    return replaceOffer(actor, message, world, room);
-  }
-  if (message.action.kind === "trade.confirm") {
-    return confirm(actor, message, world, room);
-  }
-  requireInteraction(message.action.kind === "trade.cancel", "INVALID_MESSAGE");
-  closeTrade(world, room);
+  room.messages.push({
+    sequence: ++room.chatSequence,
+    side,
+    name: actor.profile.name,
+    text,
+  });
+  room.chatBytes += bytes;
+  room.lastChat[side] = now;
+  room.expiresAt = now + INTERACTION_LIMITS.tradeMs;
+  // Chat never invalidates consent or an outstanding native quantity/confirmation dialog.
+  publishTrade(world, room);
   return interactionReceipt(room.revision);
+}
+
+/** Scheduler hook: expire invitations and revoke invalid field/session/blacklist rooms. */
+export function sweepTrade(world, room, now) {
+  if (room.busy || TRADE_TERMINAL_STATES.includes(room.state)) return;
+  if (room.expiresAt <= now) {
+    closeTrade(world, room);
+    return;
+  }
+  try {
+    roomActors(world, room);
+  } catch (error) {
+    if (
+      [
+        "NOT_FOUND",
+        "NOT_IN_RANGE",
+        "NOT_ALLOWED",
+        "STALE_FIELD",
+        "STALE_CONNECTION",
+        "UNAUTHENTICATED",
+        "SESSION_EXPIRED",
+      ].includes(error.code)
+    ) {
+      closeTrade(world, room);
+    } else throw error;
+  }
+}
+
+export async function executeTrade(actor, message, world) {
+  let room = null;
+  try {
+    if (message.action.kind === "trade.invite")
+      {return invite(actor, message, world);}
+    room = getRoom(actor, message, world);
+    switch (message.action.kind) {
+      case "trade.answer":
+        return answer(actor, message, world, room);
+      case "trade.offer":
+        return replaceOffer(actor, message, world, room);
+      case "trade.confirm":
+        return await confirm(actor, message, world, room);
+      case "trade.chat":
+        return sendChat(actor, message, world, room);
+      case "trade.cancel":
+        return cancelTrade(world, room, room.participants.indexOf(actor.id));
+      default:
+        requireInteraction(false, "INVALID_MESSAGE");
+    }
+  } catch (error) {
+    const detail = feedback(error);
+    const operation = {
+      ...operationFor(message),
+      domainRevision: room?.revision ?? message.expectedRevision,
+    };
+    return world.database.commit(actor, operation, () => ({
+      code: ruleError(error).code,
+      value: room?.result ?? detail,
+    }));
+  }
 }

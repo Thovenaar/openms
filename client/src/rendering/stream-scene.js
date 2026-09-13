@@ -4,6 +4,7 @@ import { createSimulation } from "../physics/simulation.js";
 import { check, aborted } from "./stream-network.js";
 import { entities, LIMITS } from "./stream-validation.js";
 import { VisualTextures } from "./visual-resources.js";
+import { avatarAction } from "./animation-timing.js";
 
 /** Viewport intersection and one-half viewport near-prefetch are browser policies. */
 function intersects(bounds, camera, viewport, margin) {
@@ -13,17 +14,6 @@ function intersects(bounds, camera, viewport, margin) {
     bounds.bottom >= camera.y - margin * viewport.height &&
     bounds.top <= camera.y + (1 + margin) * viewport.height
   );
-}
-
-/** Resolve authored weapon action families without changing other pose actions. */
-function avatarAction(actor, action) {
-  if (action === "stand1" || action === "stand2") {
-    action = actor.avatar?.standAction ?? action;
-  }
-  if (action === "walk1" || action === "walk2") {
-    action = actor.avatar?.walkAction ?? action;
-  }
-  return action;
 }
 
 /** Region owns subtextures/display objects; atlas sources are shared/refcounted. */

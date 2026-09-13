@@ -20,7 +20,13 @@ import { NativeShop } from "./native-shop.js";
 import { NativeTrade } from "./native-trade.js";
 import { NativeEffects } from "./native-effects.js";
 import { NativeSkillPresentation } from "./native-skill-presentation.js";
-import { animationName } from "../../../shared/motion-schema.js";
+import { NativeSocial } from "./native-social.js";
+import { NativeCashShop } from "./native-cash-shop.js";
+import { NativeStorage } from "./native-storage.js";
+import { NativeMonsterBook } from "./native-monster-book.js";
+import { NativeWorldActions } from "./native-world-actions.js";
+import { NativeTransitions } from "./native-transitions.js";
+import { nearestPickupDrop } from "./scene-drops.js";
 
 const CHAT_BINDINGS = {
   ChatAll: 7,
@@ -31,37 +37,19 @@ const CHAT_BINDINGS = {
   ChatSpouse: 5,
   ChatAlliance: 4,
 };
+const USER_TABS = Object.freeze({ Friends: 0, Guild: 2, Party: 1 });
 const EMPTY_ENTITIES = Object.freeze([]);
 function conversationIdentity(event) {
-  return event.conversationId ?? event.shopSession ?? event.tradeId;
+  return (
+    event.conversationId ??
+    event.shopSession ??
+    event.tradeId ??
+    event.storageSession
+  );
 }
 function interactionKey(event) {
   return `${conversationIdentity(event)}:${event.part ?? ""}`;
 }
-const CHANNELS = [
-  "buddy",
-  null,
-  "party",
-  "guild",
-  "alliance",
-  "spouse",
-  "whisper",
-  "map",
-];
-const UNSUPPORTED_WINDOWS = {
-  CashShop: "cash shop",
-  Trunk: "storage",
-  MonsterBook: "monster book",
-  UserList: "social management",
-  Messenger: "messenger",
-  Family: "family",
-  FamilyTree: "family tree",
-  Title: "medals",
-  PartySearch: "party search",
-  PartyHP: "party HP",
-  EnchantSkill: "enhancement skills",
-  SocialInvitation: "social invitations",
-};
 const PROFILE_EDITOR_NOTICE =
   "Profile and preset editing requires an authorized GM developer session.";
 
@@ -95,12 +83,19 @@ export class OnlineUI {
       onEnabled: () => this.skillVisuals.enableAudio(),
     });
     services.audio = this.audio.audio;
+    this.social = new NativeSocial(this);
+    this.worldActions = new NativeWorldActions(this);
     this.ui = new GameUI(app, services, this.nativeHooks());
     this.ui.setVisible(false);
     this.dialogue = new NativeDialogue(this);
     this.effects = new NativeEffects(this);
     this.skillVisuals = new NativeSkillPresentation(this);
     this.questReady = new QuestReadyNotification(this.ui);
+    this.transitions = new NativeTransitions(this);
+    this.storage = null;
+    this.cash = null;
+    this.book = null;
+    this.tradeTerminal = null;
     this.shop = null;
     this.trade = null;
     this.shopPages = new Map();
@@ -134,6 +129,7 @@ export class OnlineUI {
       isWorldInteractive: (x, y) =>
         this.hooks.scene()?.isInteractive?.(x, y) ?? false,
       mapName: (id) => this.catalog?.mapNames[id] ?? null,
+      ...this.social.nativeHooks(),
     };
   }
   profileHooks() {
@@ -158,12 +154,6 @@ export class OnlineUI {
           text: "If you invest your AP in HP or MP, your character may have\\r\\ninsufficient stats to become as strong as it could be.\\r\\nDo you still wish to raise this skill?",
         }),
       characterStats: () => this.state?.presentation.stats,
-      userInfoProfile: () => this.store.profile,
-      userInfoPortrait: (surface, point) => this.portrait(surface, point),
-      userInfoFamily: () => unsupported("family management"),
-      userInfoParty: () => unsupported("party invitations"),
-      userInfoGift: () => unsupported("cash gifts"),
-      monsterBook: () => ({ data: this.catalog.ui.monsterBook }),
       petEquipmentUnavailable: () => unsupported("pet equipment").reason,
       onRecover: () => {
         this.ui.showRevival(this.scene).catch((error) => this.report(error));
@@ -181,6 +171,9 @@ export class OnlineUI {
       shop: () => this.shop,
       trade: () => this.trade,
       macros: () => this.macros,
+      cashShop: () => this.cashShop(),
+      storage: () => this.storage,
+      monsterBook: () => this.book,
       onNpcDialogue: (panel) => this.dialogue.mount(panel),
       onQuestJournal: (panel) => mountQuestJournal(panel, this.quests),
       tradePortrait: (surface, point) => this.portrait(surface, point),
@@ -190,12 +183,10 @@ export class OnlineUI {
           text: `Do you want to forfeit ${name}?`,
         }),
       markQuestNpc: (id) => this.markQuestNpc(id),
-      tradeOutcome: (result) =>
-        this.ui.prompt({
-          kind: "notice",
-          text: result.text ?? result.reason ?? result.code,
-        }),
+      tradeOutcome: (result) => this.tradeOutcome(result),
       onDropMesos: (amount) => this.request({ kind: "mesos.drop", amount }),
+      onOfferItem: (uid) =>
+        this.worldActions.offer({ uid, actorId: this.store.id }),
       onChatSubmit: (text, channel) => this.submitChat(text, channel),
       onChatSettings: (settings) => this.stageChatSettings(settings),
     };
@@ -223,12 +214,15 @@ export class OnlineUI {
   prepareProfile() {
     this.inventory = new NativeInventory(this);
     this.quests = new NativeQuests(this);
+    this.book = new NativeMonsterBook(this);
     this.macros = new NativeMacros(this);
     this.bindings = new KeyBindings(this.store, this.catalog, {
       onAction: (name) => this.activateBinding(name),
+      onCashExpression: (templateId) =>
+        this.worldActions.useCashExpression(templateId),
       onSkill: (skillId) => this.cast(skillId),
-      onSkillRelease: () => this.hooks.clearInput(),
-      onSkillCancel: () => this.hooks.clearInput(),
+      onSkillRelease: (skillId) => this.endSkill(skillId, false),
+      onSkillCancel: (skillId) => this.endSkill(skillId, true),
       isBlocked: () => this.blocked() || this.ui.blocksGameplay(),
       now: () => performance.now(),
       report: (text) => this.report(text),
@@ -249,12 +243,26 @@ export class OnlineUI {
     if (!snapshot.presentation?.profile) {
       throw new Error("The server did not publish native presentation state.");
     }
-    const previous = this.state;
-    if (previous && previous.self.entity.id !== snapshot.self.entity.id) {
+    let previous = this.state;
+    if (
+      previous &&
+      (previous.self.entity.id !== snapshot.self.entity.id ||
+        this.playSession !== this.transport.playSession)
+    ) {
       this.releaseCharacter();
+      previous = null;
     }
     this.state = snapshot;
+    this.playSession = this.transport.playSession;
     if (!this.bindings) this.prepareProfile();
+    if (this.social.closed) {
+      this.social = new NativeSocial(this);
+      Object.assign(this.ui.hooks, this.social.nativeHooks());
+    }
+    if (!snapshot.presentation.social) {
+      throw new Error("The server did not publish native social state.");
+    }
+    this.social.publish(snapshot.presentation.social);
     const scene = this.scene;
     if (this.ui.scene !== scene) {
       this.ui.setScene(scene);
@@ -263,10 +271,9 @@ export class OnlineUI {
     this.store.publish();
     this.applySavedPresentation(previous);
     await this.effects.publish(snapshot.self.effects);
-    await this.skillVisuals.publish(previous);
+    await this.observeEntities(snapshot);
     this.questReady.refresh(this.quests);
     await this.reconcileInteractions(snapshot.presentation.interactions);
-    this.publishProgressEffects(previous, snapshot);
     await this.openInitialWindows(previous, scene);
   }
   async openInitialWindows(previous, scene) {
@@ -298,11 +305,20 @@ export class OnlineUI {
     }
     this.closeShop();
     this.closeTrade();
+    this.closeStorage();
+    this.cash?.destroy();
+    this.cash = null;
+    this.book?.destroy();
+    this.book = null;
+    this.effects.destroy();
+    this.skillVisuals.destroy();
+    this.social.destroy();
+    this.transitions.cancel();
+    this.tradeTerminal = null;
     this.ui.retireAllWindows();
     this.bindings?.destroy();
     this.macros?.destroy();
     this.bindings = null;
-    this.whisperId = null;
     this.interactionSignatures.clear();
   }
   stageChatSettings(settings) {
@@ -319,30 +335,6 @@ export class OnlineUI {
     this.persist({ kind: "settings.save", settings }).catch((error) =>
       this.report(error),
     );
-  }
-  publishProgressEffects(previous, current) {
-    if (!previous || previous.self.entity.id !== current.self.entity.id) return;
-    if (current.self.level > previous.self.level) {
-      this.audio
-        .playGameplayEffect("LevelUp")
-        .catch((error) => this.report(error));
-    }
-    if (previous.self.hp > 0 && current.self.hp === 0) {
-      this.audio.onPlayerDeath();
-    }
-    for (const quest of current.presentation.quests) {
-      if (
-        quest.state === 2 &&
-        previous.presentation.quests.some(
-          (entry) => entry.id === quest.id && entry.state !== 2,
-        )
-      ) {
-        this.audio
-          .playGameplayEffect("QuestClear")
-          .catch((error) => this.report(error));
-        break;
-      }
-    }
   }
   async reconcileInteractions(events) {
     const ids = new Set(),
@@ -368,6 +360,8 @@ export class OnlineUI {
     }
     if (this.shop && !ids.has(this.shop.event.shopSession)) this.closeShop();
     if (this.trade && !ids.has(this.trade.event.tradeId)) this.closeTrade();
+    if (this.storage && !ids.has(this.storage.event.storageSession))
+      {this.closeStorage();}
   }
   async command(action, revision) {
     if (this.destroyed) throw new Error("Native online UI was destroyed.");
@@ -461,28 +455,30 @@ export class OnlineUI {
     );
     return true;
   }
-  nearest(kind) {
-    if (!this.state) return null;
-    const position =
-      this.scene?.presentation ?? this.state.self.entity.position;
-    let nearest = null,
-      distance = Infinity;
-    for (const entity of this.entities) {
-      if (entity.kind !== kind) continue;
-      const next = Math.hypot(
-        entity.position.x - position.x,
-        entity.position.y - position.y,
-      );
-      if (next < distance) {
-        distance = next;
-        nearest = entity;
-      }
-    }
-    return nearest;
+  endSkill(skillId, cancelled) {
+    if (this.destroyed || this.transport.status !== "active") return;
+    this.command({
+      kind: cancelled ? "skill.cancel" : "skill.release",
+      skillId,
+    }).catch((error) => this.report(error));
   }
   pickup() {
-    const drop = this.nearest("drop");
-    if (!drop || this.blocked()) return false;
+    if (this.blocked()) return false;
+    const party = this.store.profile.social.party;
+    const position =
+      this.transport.model?.self.entity.position ??
+      this.state.self.entity.position;
+    const drop = nearestPickupDrop(
+      this.entities,
+      position,
+      {
+        id: this.store.id,
+        partyId: party?.id ?? null,
+        partyMembers: party?.members ?? [],
+      },
+      Date.now(),
+    );
+    if (!drop) return false;
     this.command({ kind: "drop.pickup", dropId: drop.id }).catch((error) =>
       this.report(error),
     );
@@ -490,8 +486,23 @@ export class OnlineUI {
   }
   activateBinding(name) {
     if (!this.store.profile) return false;
+    if (Object.hasOwn(USER_TABS, name))
+      {return this.activateUserTab(USER_TABS[name]);}
+    if (name === "Sit" || name.startsWith("Expression:")) {
+      if (this.blocked() || this.ui.blocksGameplay()) return false;
+      return this.worldActions.activateBinding(name);
+    }
+    if (name === "UserInfo") {
+      this.social.peers
+        .openUserInfo(this.social.selectedId() ?? this.store.id)
+        .catch((error) => this.report(error));
+      return true;
+    }
     const input = this.activateInputBinding(name);
     if (input !== null) return input;
+    return this.activateWindowBinding(name);
+  }
+  activateWindowBinding(name) {
     if (name === "MiniMap") return this.ui.advanceMinimap();
     if (name === "Quit") {
       this.quit().catch((error) => this.report(error));
@@ -509,6 +520,24 @@ export class OnlineUI {
     const opened = this.ui.toggleWindow(name);
     if (!opened) this.report(unsupported(name).reason);
     return opened;
+  }
+  activateUserTab(index) {
+    const panel = this.ui.windows.get("UserList");
+    if (panel?.localTab === index || this.ui.pending.has("UserList")) {
+      this.ui.close("UserList");
+    } else if (panel) {
+      panel.selectLocalTab(index);
+      this.ui.front(panel);
+    } else {
+      this.ui
+        .open("UserList")
+        .then((opened) => {
+          if (opened && this.ui.windows.get("UserList") === opened)
+            {opened.selectLocalTab(index);}
+        })
+        .catch((error) => this.report(error));
+    }
+    return true;
   }
   activateInputBinding(name) {
     if (Object.hasOwn(CHAT_BINDINGS, name)) {
@@ -548,43 +577,19 @@ export class OnlineUI {
     else this.ui.close("QuestAlarm", true);
   }
   windowCapability(name) {
-    if (UNSUPPORTED_WINDOWS[name]) {
-      return unsupported(UNSUPPORTED_WINDOWS[name]).reason;
-    }
-    if (
-      ["Friends", "Guild", "Party", "Channel", "NPT", "Sit"].includes(name) ||
-      name.startsWith("Expression:")
-    ) {
-      return unsupported(name).reason;
-    }
     if (name === "Shop" && !this.shop) {
       return "No server shop conversation is active.";
+    }
+    if (name === "Trunk" && !this.storage) {
+      return "No server account storage conversation is active.";
     }
     if ((name === "TradingRoom" || name === "TradeInvitation") && !this.trade) {
       return "No server trade session is active.";
     }
     return null;
   }
-  async submitChat(text, index) {
-    const channel = CHANNELS[index];
-    if (!channel) {
-      return {
-        accepted: false,
-        reason: "The server does not provide group chat.",
-      };
-    }
-    const action = { kind: "chat.send", channel, text };
-    if (channel === "whisper") {
-      if (!this.whisperId) {
-        this.whisperId = await this.selectPlayer("Whisper to which player?");
-      }
-      if (!this.whisperId) {
-        return { accepted: false, reason: "No whisper recipient selected." };
-      }
-      action.recipientId = this.whisperId;
-    }
-    const result = await this.request(action);
-    return { accepted: result.ok, reason: result.reason, delivery: "server" };
+  submitChat(text, index) {
+    return this.social.chat.submit(text, index);
   }
   async selectPlayer(text) {
     const name = await this.ui.prompt({
@@ -604,8 +609,8 @@ export class OnlineUI {
     }
     return entity.id;
   }
-  async inviteTrade() {
-    const targetId = await this.selectPlayer("Trade with which player?");
+  async inviteTrade(targetId = null) {
+    targetId ??= await this.selectPlayer("Trade with which player?");
     if (!targetId) return { ok: false, code: "cancelled" };
     return this.request({ kind: "trade.invite", targetId });
   }
@@ -646,35 +651,120 @@ export class OnlineUI {
       );
     }
     if (await this.interactionEvent(event)) return;
+    if (await this.worldActions.event(message)) return;
+    if (await this.skillEvent(event)) return;
+    if (await this.combatEvent(event)) return;
+    if (await this.dropEvent(event)) return;
+    if (event.kind === "chat") this.chatEvent(event);
+    else await this.narrativeEvent(event);
+  }
+  async narrativeEvent(event) {
     switch (event.kind) {
-      case "chat":
+      case "narrative.reward":
+        await this.reward(event);
+        break;
+      case "quest.ready":
+        if (this.quests) this.questReady.refresh(this.quests);
+        break;
+    }
+  }
+  chatEvent(event) {
+    if (event.channel === "map") {
+      if (event.senderId !== this.store.id)
         this.ui.chat.receive({
           source: "session",
           text: `${event.senderName}: ${event.text}`,
           time: performance.now(),
         });
-        break;
-      case "combat":
-        await this.skillVisuals.combat(event);
-        this.combatAudio(event);
-        break;
-      case "projectile":
-        await this.skillVisuals.projectile(event);
-        break;
-      case "quest.ready":
-        if (this.quests) this.questReady.refresh(this.quests);
-        break;
-      case "drop.pickup":
-        if (event.actorId === this.store.id) {
-          await this.audio.playSound("Game", "PickUpItem");
-        }
-        break;
+    } else this.social.chat.receive(event);
+  }
+  async skillEvent(event) {
+    switch (event.kind) {
+      case "skill.cast":
+        await this.skillVisuals.cast(event);
+        return true;
+      case "skill.visual":
+        await this.skillVisuals.visual(event);
+        return true;
+      case "skill.sound":
+        await this.skillVisuals.sound(event);
+        return true;
+      case "skill.utility":
+        if (event.actorId === this.store.id) await this.ui.open(event.window);
+        return true;
+      default:
+        return false;
     }
+  }
+  async combatEvent(event) {
+    switch (event.kind) {
+      case "combat.attack":
+        this.attackAudio(event);
+        return true;
+      case "combat.impact":
+        this.impactAudio(event);
+        return true;
+      case "combat.reward":
+        if (event.actorId === this.store.id) {
+          this.ui.notices.publish({
+            kind: "exp",
+            amount: event.amount,
+            white: true,
+          });
+          if (event.levels > 0) await this.audio.playGameplayEffect("LevelUp");
+        }
+        return true;
+      case "combat.death":
+        if (event.actorId === this.store.id) {
+          this.audio.onPlayerDeath();
+          this.macros.interrupt();
+          await this.ui.showRevival(this.scene);
+        }
+        return true;
+      default:
+        return false;
+    }
+  }
+  async dropEvent(event) {
+    switch (event.kind) {
+      case "drop.pickup":
+        if (event.actorId === this.store.id)
+          await this.audio.playSound("Game", "PickUpItem");
+        return true;
+      case "drop.gain":
+        if (event.actorId === this.store.id) {
+          this.ui.notices.publish(
+            event.itemId === 0
+              ? { kind: "meso", amount: event.quantity }
+              : { kind: "item", itemId: event.itemId, amount: event.quantity },
+          );
+        }
+        return true;
+      case "drop.spawn":
+        if (event.sound) await this.audio.playSound("Game", "DropItem");
+        return true;
+      case "drop.card":
+        this.recordCard(event);
+        return true;
+      default:
+        return false;
+    }
+  }
+  recordCard(event) {
+    if (event.actorId !== this.store.id) return;
+    const name = this.catalog.ui.items[event.cardItemId]?.name;
+    if (event.full || name)
+      this.ui.chat.receive({
+        source: "gameplay",
+        text: event.full
+          ? "This card is already full in the Monster Book. This card will disappear."
+          : `[${name}] has been successfully recorded on the Monster Book.`,
+        time: performance.now(),
+      });
   }
   async interactionEvent(event) {
     switch (event.kind) {
       case "dialogue":
-      case "quest.offer":
         await this.dialogue.publish(event);
         return true;
       case "dialogue.closed":
@@ -685,6 +775,13 @@ export class OnlineUI {
         return true;
       case "shop":
         await this.publishShop(event);
+        return true;
+      case "storage":
+        await this.publishStorage(event);
+        return true;
+      case "storage.closed":
+        if (this.storage?.event.storageSession === event.storageSession)
+          {this.closeStorage();}
         return true;
       case "trade":
         await this.publishTrade(event);
@@ -725,18 +822,34 @@ export class OnlineUI {
     this.shop = null;
   }
   async publishTrade(event) {
+    const existingRoom =
+      this.trade?.event.tradeId === event.tradeId &&
+      this.ui.windows.has("TradingRoom");
     if (this.trade?.event.tradeId === event.tradeId) this.trade.update(event);
     else {
       this.closeTrade();
       this.trade = new NativeTrade(this, event);
     }
+    if (this.trade.terminal) return this.publishTradeTerminal(event, existingRoom);
     if (event.state === "invited" && event.participants[1] === this.store.id) {
       await this.ui.open("TradeInvitation");
     } else if (
-      (event.state === "open" || event.state === "confirmed") &&
-      !this.ui.windows.has("TradeInvitation")
+      event.state === "invited" ||
+      event.state === "open" ||
+      event.state === "confirmed"
     ) {
+      this.ui.close("TradeInvitation", true);
       await this.ui.open("TradingRoom");
+    }
+  }
+  async publishTradeTerminal(event, existingRoom) {
+    const key = `${event.tradeId}:${event.revision}`;
+    if (this.tradeTerminal === key) return;
+    this.tradeTerminal = key;
+    if (!existingRoom) {
+      const presentation = this.trade.terminalPresentation();
+      this.ui.close("TradeInvitation", true);
+      if (presentation) await this.ui.hooks.tradeOutcome(presentation);
     }
   }
   closeTrade() {
@@ -746,40 +859,128 @@ export class OnlineUI {
     this.ui.close("TradingRoom", true);
     previous?.destroy().catch((error) => this.report(error));
   }
-  combatAudio(event) {
-    const actor = this.entities.find((entry) => entry.id === event.actorId);
-    if (!actor) return;
-    if (actor.kind === "mob") {
-      this.audio.onMobAttack(
+  tradeOutcome(result) {
+    if (result.kind === "trade.result") {
+      this.tradeTerminal = `${result.tradeId}:${result.revision}`;
+    }
+    return this.ui.prompt({
+      kind: "notice",
+      text: result.text ?? result.reason ?? result.code,
+    });
+  }
+  cashShop() {
+    if (!this.cash || this.cash.closed) {
+      this.cash?.destroy();
+      this.cash = new NativeCashShop(this);
+    }
+    return this.cash;
+  }
+  async publishStorage(event) {
+    if (!event.account)
+      {throw new Error("The server account storage state is missing.");}
+    if (
+      this.storage?.event.storageSession === event.storageSession &&
+      !this.storage.closed
+    ) {
+      this.storage.update(event);
+      return;
+    }
+    this.closeStorage();
+    this.storage = new NativeStorage(this, event);
+    await this.storage.open();
+    this.dialogue.close(event.storageSession);
+    await this.ui.open("Trunk");
+  }
+  closeStorage() {
+    const previous = this.storage;
+    this.storage = null;
+    previous?.destroy();
+    this.ui.close("Trunk", true);
+  }
+  async reward(event) {
+    for (const item of event.items) {
+      if (item.amount > 0) this.ui.notices.publish({ kind: "item", ...item });
+    }
+    if (event.mesos > 0)
+      {this.ui.notices.publish({ kind: "meso", amount: event.mesos });}
+    if (event.exp > 0)
+      {this.ui.notices.publish({ kind: "exp", amount: event.exp, white: true });}
+    if (event.levels > 0) await this.audio.playGameplayEffect("LevelUp");
+    if (event.questClear) await this.audio.playGameplayEffect("QuestClear");
+  }
+  async observeEntities(snapshot) {
+    const entities = snapshot.entities.some(
+      (entity) => entity.id === snapshot.self.entity.id,
+    )
+      ? snapshot.entities
+      : [snapshot.self.entity, ...snapshot.entities];
+    await this.skillVisuals.observe(entities);
+    this.macros?.observeState();
+  }
+  attackAudio(event) {
+    if (event.weaponSfx) this.audio.onPlayerAttack(event.weaponSfx);
+    else if (event.templateId !== null && event.action) {
+      const actor = this.entities.find((entry) => entry.id === event.actorId);
+      if (actor)
+        {this.audio.onMobAttack(
+          {
+            ...actor.position,
+            templateId: event.templateId,
+            action: event.action,
+          },
+          this.scene.presentation,
+        );}
+    }
+  }
+  impactAudio(event) {
+    const target = this.entities.find((entry) => entry.id === event.targetId);
+    if (target?.kind === "mob" && event.damage > 0) {
+      const mob = {
+        ...event.position,
+        templateId: target.templateId,
+        alive: !event.lethal,
+      };
+      if (event.lethal) this.audio.onMobDeath(mob, this.scene.presentation);
+      else this.audio.onMobHit(mob, event.damage, this.scene.presentation);
+    } else if (target?.kind === "player") {
+      const source = this.entities.find((entry) => entry.id === event.actorId);
+      this.audio.onPlayerHit(
         {
-          ...actor.position,
-          templateId: actor.templateId,
-          action: animationName(actor.action),
+          amount: event.damage,
+          attackAction: event.attackAction,
+          source:
+            source?.kind === "mob"
+              ? { ...source.position, templateId: source.templateId }
+              : null,
         },
         this.scene.presentation,
       );
-    } else if (!event.skillId) this.weaponAudio(actor);
-    for (const hit of event.hits) {
-      const target = this.entities.find((entry) => entry.id === hit.targetId);
-      if (target?.kind === "mob" && hit.damage > 0) {
-        this.audio.combatSound("Mob", target.templateId, "Damage");
-      }
     }
-  }
-  weaponAudio(actor) {
-    const weapon = actor.appearance.equipment.find(
-      (entry) => entry.slot === 11,
-    );
-    const sound =
-      this.catalog.ui.avatar.entries[weapon?.templateId]?.combat?.sfx;
-    if (sound) this.audio.onPlayerAttack(sound);
   }
   status(value) {
     this.connection = value;
-    const visible = value.status === "active" && Boolean(this.store.profile);
+    const visible =
+      (value.status === "active" || value.status === "transitioning") &&
+      Boolean(this.store.profile);
     if (this.ui.visible !== visible) this.ui.setVisible(visible);
-    if (value.status === "active") this.flushChatSettings();
-    if (value.status !== "active") {
+    this.updateConnectionActivity(value.status);
+    if (value.code === "SIGNED_OUT" && this.state) {
+      this.releaseCharacter();
+      this.state = null;
+      this.playSession = null;
+    }
+  }
+  updateConnectionActivity(status) {
+    if (status === "active") {
+      this.flushChatSettings();
+      this.social.observeInvitation();
+    }
+    if (status === "disconnected" || status === "signing-out") {
+      this.transitions.cancel();
+      this.closeStorage();
+    }
+    if (status !== "active") {
+      this.macros?.interrupt();
       this.bindings?.releaseAllSkills();
       this.hooks.clearInput();
     }
@@ -798,10 +999,13 @@ export class OnlineUI {
   }
   draw(elapsedMs) {
     this.effects.update();
+    this.macros?.update(elapsedMs);
     this.skillVisuals.update(elapsedMs);
     this.audio.update(elapsedMs);
+    this.social.pollInvitation();
     this.ui.update(elapsedMs);
     this.questReady.update(elapsedMs);
+    this.transitions.draw(elapsedMs);
   }
   destroy() {
     this.destroyed = true;
@@ -813,6 +1017,12 @@ export class OnlineUI {
     this.skillVisuals.destroy();
     this.closeShop();
     this.closeTrade();
+    this.closeStorage();
+    this.cash?.destroy();
+    this.book?.destroy();
+    this.social.destroy();
+    this.worldActions.destroy();
+    this.transitions.destroy();
     this.bindings?.destroy();
     this.macros?.destroy();
     this.store.destroy();

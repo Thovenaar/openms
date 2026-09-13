@@ -11,6 +11,11 @@ const MAX_PENDING_FRAMES = 8;
 const MAX_RELAYS = 128;
 
 function configuration(options) {
+  const hostname =
+    options.hostname ?? clientEnvironment.ONLINE_HOST ?? "127.0.0.1";
+  if (typeof hostname !== "string" || !hostname.trim()) {
+    throw new Error("ONLINE_HOST must be a non-empty hostname or IP address");
+  }
   const port = Number(options.port ?? clientEnvironment.ONLINE_PORT ?? 3102);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("ONLINE_PORT must be in 1..65535");
@@ -20,23 +25,20 @@ function configuration(options) {
       clientEnvironment.OPENMS_SERVER_URL ??
       "http://127.0.0.1:3200",
   );
-  return { port, upstream };
+  return { hostname, port, upstream };
 }
 
 function upstreamOrigin(value) {
   const upstream = new URL(value);
   if (
     upstream.protocol !== "http:" ||
-    !["127.0.0.1", "localhost", "[::1]"].includes(upstream.hostname) ||
     upstream.pathname !== "/" ||
     upstream.search ||
     upstream.hash ||
     upstream.username ||
     upstream.password
   ) {
-    throw new Error(
-      "Development API upstream must be an exact loopback HTTP origin",
-    );
+    throw new Error("Development API upstream must be an exact HTTP origin");
   }
   return upstream.origin;
 }
@@ -90,25 +92,16 @@ class OnlineProxy {
     }
   }
 
-  allowedOrigin(origin) {
-    if (!origin) return false;
-    const parsed = new URL(origin);
-    return (
-      parsed.origin === origin &&
-      parsed.protocol === "http:" &&
-      ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname) &&
-      parsed.port === String(this.config.port)
-    );
-  }
-
   upgrade(request, server) {
     if (this.relays.size >= MAX_RELAYS) {
       return new Response("Busy", { status: 503 });
     }
     const origin = request.headers.get("origin");
+    const requestUrl = new URL(request.url);
     if (
-      !this.allowedOrigin(origin) ||
-      new URL(request.url).search ||
+      requestUrl.protocol !== "http:" ||
+      origin !== requestUrl.origin ||
+      requestUrl.search ||
       request.headers.get("sec-websocket-protocol") !== PROTOCOL.SUBPROTOCOL
     ) {
       return new Response("Forbidden", { status: 403 });
@@ -212,7 +205,7 @@ export async function startOnlineDevServer(options = {}) {
   });
   const proxy = new OnlineProxy(config, resources);
   const server = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname: config.hostname,
     port: config.port,
     maxRequestBodySize: 16 * 1024,
     fetch: proxy.fetch.bind(proxy),

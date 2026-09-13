@@ -10,6 +10,17 @@ import { questOffers } from "./interaction-quest.js";
 import { publishNpcMenu, answerNpcMenu } from "./interaction-npc-menu.js";
 import { answerQuestDialogue } from "./interaction-quest-dialogue.js";
 import { operationFor } from "./action-rules.js";
+import { admitActor } from "./action-rules.js";
+import { portalNpcProgram, virtualNpcLease } from "./interaction-npc-lease.js";
+import {
+  npcRewardEvents,
+  publishNarrativeEvents,
+} from "./interaction-npc-feedback.js";
+
+import {
+  familyProgressIds,
+  applyOnlineFamilyProgress,
+} from "./social-family.js";
 import {
   closeConversation,
   currentNpc,
@@ -41,6 +52,11 @@ export async function executeNpc(actor, message, world) {
     return receipt ?? runRoute(actor, message, world, lease);
   }
   requireInteraction(lease.view, "NOT_ALLOWED");
+  if (lease.view.kind === "storage") {
+    requireInteraction(message.action.answer.kind === "cancel", "NOT_ALLOWED");
+    closeConversation(actor, world);
+    return interactionReceipt(lease.step + 1);
+  }
   const input = decodeResponse(
     { ...lease.view, sessionId: lease.id, revision: lease.step },
     wireResponse(lease, message.action.answer),
@@ -77,6 +93,56 @@ async function openNpc(actor, message, world) {
     return interactionReceipt(actor.revision);
   }
   return runRoute(actor, message, world, lease);
+}
+
+/** Only the authenticated original tutorial portal may acquire this virtual conversation. */
+export async function openPortalNpc(actor, portal, world) {
+  const field = actor.field;
+  admitActor(actor, world, field.epoch);
+  const program = portalNpcProgram(actor, portal);
+  if (actor.conversation) return;
+  requireInteraction(!actor.tradeId && actor.profile.hp > 0, "CHARACTER_BUSY");
+  const characters = await world.database.listCharacters(actor.accountId);
+  admitActor(actor, world, field.epoch);
+  requireInteraction(actor.field === field, "STALE_FIELD");
+  if (
+    actor.profile.level < program.openNpc.minimumAccountLevel &&
+    !characters.some(
+      (entry) => entry.level >= program.openNpc.minimumAccountLevel,
+    )
+  )
+    {return;}
+  if (actor.conversation) return;
+  const lease = virtualNpcLease(actor, program.openNpc.npcId, {
+    kind: "portal",
+    portalId: portal.id,
+  });
+  const references = await npcReferences(world);
+  admitActor(actor, world, field.epoch);
+  requireInteraction(
+    !actor.conversation && actor.field === field,
+    "CHARACTER_BUSY",
+  );
+  lease.route = resolveNpcRoute(
+    references,
+    { templateId: lease.npcTemplateId },
+    world.content.catalog,
+  );
+  requireInteraction(lease.route?.status === "supported", "CONTENT_MISMATCH");
+  actor.conversation = lease;
+  const message = {
+    operationId: crypto.randomUUID(),
+    expectedRevision: actor.revision,
+    fieldEpoch: field.epoch,
+    action: { kind: "npc.open", npcId: lease.npcId },
+  };
+  try {
+    const receipt = await runRoute(actor, message, world, lease);
+    requireInteraction(receipt.status === "committed", receipt.code);
+  } catch (error) {
+    closeConversation(actor, world);
+    throw error;
+  }
 }
 
 async function runRoute(actor, message, world, lease) {
@@ -150,6 +216,15 @@ async function admitView(actor, world, lease, view) {
     await admitShop(world, view.shopId);
     return;
   }
+  if (view.kind === "storage") {
+    requireInteraction(
+      typeof world.openStorage === "function" &&
+        world.content.catalog.ui.npcPortraits[lease.npcTemplateId]?.storage,
+      "CONTENT_MISMATCH",
+    );
+    requireInteraction(view.npcId === lease.npcTemplateId, "NOT_ALLOWED");
+    return;
+  }
   requireInteraction(
     ["say", "yes-no", "accept-decline", "choice", "number", "text"].includes(
       view.kind,
@@ -200,61 +275,105 @@ async function runTurn(actor, message, world, { lease, input }) {
   lease.vmState = result.state;
   lease.view = result.view;
   lease.expiresAt = Date.now() + INTERACTION_LIMITS.leaseMs;
-  if (actor.field.epoch === lease.fieldEpoch) {
-    await publishNpcView(actor, world, lease);
-    if (lease.view.kind === "closed" && !lease.offers.length) {
-      closeConversation(actor, world);
-    }
-  } else closeConversation(actor, world);
+  try {
+    await finishTurnView(actor, world, lease);
+  } catch (error) {
+    if (!receipt.applied) throw error;
+    world.deliveryFailed(actor, error);
+  }
+  publishNarrativeEvents(actor, receipt, world);
   return receipt;
 }
 
-async function commitTurn(actor, message, world, execution) {
-  const { lease, request } = execution;
-  let result = execution.result;
-  const destination = result.effects.find((effect) => effect.kind === "warp");
-  const operation = { ...operationFor(message), domainRevision: lease.step };
-  async function mutate(draft) {
-    currentNpc(world, actor, lease, Boolean(destination));
-    requireInteraction(actor.conversation === lease, "SESSION_EXPIRED");
-    if (message.action.kind === "npc.answer") {
-      requireInteraction(
-        message.expectedRevision === lease.step,
-        "STALE_REVISION",
-      );
-    }
-    const fresh = { ...request, profile: scriptProfile(draft) };
-    const prepared = await boundedNpcTurn(world, fresh);
-    requireInteraction(
-      sameDestination(
-        destination,
-        prepared.effects.find((effect) => effect.kind === "warp"),
-      ),
-      "REQUIREMENTS_NOT_MET",
-    );
-    requireInteraction(
-      JSON.stringify(prepared.view) === JSON.stringify(execution.result.view),
-      "REQUIREMENTS_NOT_MET",
-    );
-    currentNpc(world, actor, lease, Boolean(destination));
-    result = replayNpcPlan(draft, fresh, prepared);
-    return {
-      domainRevision:
-        message.action.kind === "npc.answer" ? lease.step + 1 : undefined,
-      value: { conversationId: lease.id, step: lease.step + 1 },
-    };
+async function prepareTurnPlan(actor, world, turn, draft) {
+  const { lease, message, destination } = turn;
+  currentNpc(world, actor, lease, Boolean(destination));
+  requireInteraction(actor.conversation === lease, "SESSION_EXPIRED");
+  if (message.action.kind === "npc.answer") {
+    requireInteraction(message.expectedRevision === lease.step, "STALE_REVISION");
   }
+  const request = { ...turn.request, profile: scriptProfile(draft) };
+  const prepared = await boundedNpcTurn(world, request);
+  requireInteraction(
+    sameDestination(
+      destination,
+      prepared.effects.find((effect) => effect.kind === "warp"),
+    ),
+    "REQUIREMENTS_NOT_MET",
+  );
+  requireInteraction(
+    JSON.stringify(prepared.view) === JSON.stringify(turn.view),
+    "REQUIREMENTS_NOT_MET",
+  );
+  currentNpc(world, actor, lease, Boolean(destination));
+  return { request, prepared };
+}
+
+async function replayTurnPlan(actor, world, turn, profiles) {
+  const draft = profiles.get(actor.id);
+  const { request, prepared } = await prepareTurnPlan(actor, world, turn, draft);
+  const previousLevel = draft.level;
+  turn.result = replayNpcPlan(draft, request, prepared);
+  const familyProgress = { now: world.now, operationId: turn.message.operationId };
+  for (let level = previousLevel + 1; level <= draft.level; level++) {
+    applyOnlineFamilyProgress(
+      profiles,
+      actor.id,
+      { kind: "level", maxHp: 0 },
+      familyProgress,
+    );
+  }
+  return {
+    domainRevision:
+      turn.message.action.kind === "npc.answer" ? turn.lease.step + 1 : undefined,
+    value: {
+      kind: "npc.turn",
+      conversationId: turn.lease.id,
+      step: turn.lease.step + 1,
+    },
+    events: npcRewardEvents(turn.lease, turn.result),
+  };
+}
+
+async function commitTurn(actor, message, world, execution) {
+  const destination = execution.result.effects.find((effect) => effect.kind === "warp");
+  const turn = {
+    ...execution,
+    message,
+    destination,
+    view: execution.result.view,
+  };
+  const operation = { ...operationFor(message), domainRevision: turn.lease.step };
+  const ids = [actor.id, ...familyProgressIds(actor.profile)];
+  const mutate = (profiles) => replayTurnPlan(actor, world, turn, profiles);
   let receipt;
   if (destination) {
     receipt = await world.transition(actor, destination, {
       ...operation,
+      ids,
       mutate,
     });
-  } else receipt = await world.database.commit(actor, operation, mutate);
+  } else
+    {receipt = await world.participants.commit(actor, operation, ids, mutate);}
   if (receipt.status === "committed") {
-    world.publish(actor, { type: "snapshot-request" });
+    try {
+      world.publish(actor, { type: "snapshot-request" });
+    } catch (error) {
+      world.deliveryFailed(actor, error);
+    }
   }
-  return { receipt, result };
+  return { receipt, result: turn.result };
+}
+
+async function finishTurnView(actor, world, lease) {
+  if (actor.field.epoch !== lease.fieldEpoch) {
+    closeConversation(actor, world);
+    return;
+  }
+  await publishNpcView(actor, world, lease);
+  if (lease.view.kind === "closed" && !lease.offers.length) {
+    closeConversation(actor, world);
+  }
 }
 
 /** Translate an admitted authored prompt into its wire input kind. */
@@ -264,11 +383,23 @@ function dialogueInput(view) {
   return view.kind;
 }
 
+function dialogueBounds(view) {
+  if (view.kind === "number") return { minimum: view.min, maximum: view.max };
+  if (view.kind === "text") {
+    return { minimum: view.minLength, maximum: Math.min(view.maxLength, 256) };
+  }
+  return { minimum: null, maximum: null };
+}
+
 export async function publishNpcView(actor, world, lease = actor.conversation) {
   const view = lease?.view;
   if (!view || view.kind === "closed") return;
   if (view.kind === "shop") {
     await openShop(actor, world, lease, view.shopId);
+    return;
+  }
+  if (view.kind === "storage") {
+    await world.openStorage(actor, lease);
     return;
   }
   requireInteraction(
@@ -299,17 +430,6 @@ export async function publishNpcView(actor, world, lease = actor.conversation) {
     contentId,
     choices,
     input,
-    minimum:
-      view.kind === "number"
-        ? view.min
-        : view.kind === "text"
-          ? view.minLength
-          : null,
-    maximum:
-      view.kind === "number"
-        ? view.max
-        : view.kind === "text"
-          ? Math.min(view.maxLength, 256)
-          : null,
+    ...dialogueBounds(view),
   });
 }

@@ -49,7 +49,7 @@ export async function startServer(options = {}) {
     `openms.dev authoritative server ready at ${server.url} (${(performance.now() - started).toFixed(1)}ms)`,
   );
   console.log(
-    `Rules ${content.rulesHash}; assets ${content.assetBuildId}; ${config.development ? "loopback development" : "production"}`,
+    `Rules ${content.rulesHash}; assets ${content.assetBuildId}; ${config.development ? "development" : "production"}`,
   );
   return {
     server,

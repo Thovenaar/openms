@@ -4,6 +4,9 @@ import { progressQuestViews } from "./interaction-quest.js";
 import { UPGRADE_STATS } from "../../client/src/profile/profile-item-state.js";
 import { equipmentUpgrade } from "../../client/src/items/equipment-enhancement.js";
 import { nativePresentationParts } from "./native-presentation.js";
+import { actorWorldFields } from "./field-world-actions.js";
+import { actorCombatFields, mobCombatFields } from "./field-combat.js";
+import { dropInfo } from "./field-drops.js";
 
 const TABS = ["equip", "use", "setup", "etc", "cash"];
 const STATS = [
@@ -36,11 +39,7 @@ export function actorEntity(actor) {
   const sim = actor.simulation;
   const profile = actor.profile;
   const name =
-    profile.hp <= actor.pendingDamage
-      ? "dead"
-      : actor.attackState.active
-        ? actor.attackState.action
-        : (actor.castAction ?? sim.action);
+    profile.hp <= 0 ? "dead" : (actor.skillField?.action ?? sim.action);
   return {
     id: actor.id,
     kind: "player",
@@ -60,6 +59,8 @@ export function actorEntity(actor) {
         templateId: item.id,
       })),
     },
+    ...actorWorldFields(actor),
+    ...actorCombatFields(actor),
   };
 }
 
@@ -78,6 +79,7 @@ export function lifeEntity(entity, kind) {
     action: animationId(entity.action ?? "stand"),
     actionStartTick: entity.actionStartTick ?? 0,
     appearance: null,
+    ...(kind === "mob" ? mobCombatFields(entity) : {}),
   };
 }
 
@@ -97,6 +99,7 @@ export function dropEntity(drop) {
     ),
     actionStartTick: 0,
     appearance: null,
+    dropInfo: dropInfo(drop),
     dropMotion: {
       state: drop.state,
       age: drop.age,
@@ -150,8 +153,8 @@ export function selfView(actor) {
   const p = actor.profile;
   return {
     entity: actorEntity(actor),
-    hp: Math.max(0, p.hp - actor.pendingDamage),
-    mp: Math.max(0, p.mp - (actor.pendingMpDamage ?? 0)),
+    hp: p.hp,
+    mp: p.mp,
     maxHp: p.maxHP,
     maxMp: p.maxMP,
     job: p.job,

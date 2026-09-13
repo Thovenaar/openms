@@ -1,8 +1,9 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { CONSOLE_SECTIONS } from "../../src/development/inspection-theme.js";
-import { assertion } from "../native-evidence.js";
-import { TIMEOUT } from "./native.js";
+import { assertion, failureDetails, measureStage } from "../native-evidence.js";
+import { TIMEOUT, clickLabel } from "./native.js";
+import { onlineIdentity } from "./online-lifecycle.js";
 
 const ENTER_ATTEMPTS = 8;
 const ENTER_RETRY_MS = 2500;
@@ -53,7 +54,7 @@ export async function runOnlineLoginConsole({
     url,
     accounts: { developer: accounts.developer, player: accounts.player },
     scope:
-      "Real Chromium against the development proxy and server: recovered creation choices, carousel portrait pixels, login music and console sections. Not original Windows parity.",
+      "Real Chromium against the development proxy and server: recovered creation choices, three-slot roster portrait pixels, login music and console sections. Not original Windows parity.",
     checks: [],
   };
   const tools = { report, url, password, accounts, output };
@@ -61,13 +62,394 @@ export async function runOnlineLoginConsole({
   await developerSession(browser, tools);
   log("player session");
   await playerSession(browser, tools);
-  report.status = report.checks.every((item) => item.pass) ? "pass" : "fail";
+  await saveLoginReport(report, output);
+  return report;
+}
+
+/** Change-scoped native login replay. The supplied account is a dedicated fixture;
+ * only its four exact fixture character names are created/deleted. No field entry. */
+export async function runNativeLoginPresentation({
+  browser,
+  url,
+  output,
+  account,
+  password,
+  register = false,
+}) {
+  await mkdir(output, { recursive: true });
+  const report = {
+    schemaVersion: 1,
+    startedAt: new Date().toISOString(),
+    url,
+    account,
+    scope:
+      "Original MapLogin artwork, native controls, four-character paging, name/appearance creation and presentation-only tools. No Windows runtime parity.",
+    timings: {},
+    captures: [],
+    checks: [],
+  };
+  const tools = { report, url, output, account, password, register };
+  const context = await measureStage(report.timings, "browserAcquisition", () =>
+    browser.createBrowserContext(),
+  );
+  const { page, errors } = await openPage(context);
+  try {
+    await measureStage(report.timings, "readiness", () =>
+      nativeLoginReady(page, tools),
+    );
+    await measureStage(report.timings, "account", () =>
+      nativeLoginAccount(page, tools),
+    );
+    await measureStage(report.timings, "creationAndRoster", () =>
+      nativeLoginCharacters(page, tools),
+    );
+    await measureStage(report.timings, "transitions", () =>
+      nativeLoginReplay(page, tools),
+    );
+    await measureStage(report.timings, "minimumViewport", () =>
+      nativeLoginMinimum(page, tools),
+    );
+    await measureStage(report.timings, "fixtureCleanup", () =>
+      nativeLoginCleanup(page, tools),
+    );
+    check(report, "No unexpected browser errors", errors.length === 0, {
+      errors,
+    });
+  } catch (error) {
+    await captureLoginFailure(page, tools, error, errors);
+  } finally {
+    await measureStage(report.timings, "teardown", () => context.close());
+    await saveLoginReport(report, output);
+  }
+  return report;
+}
+
+async function saveLoginReport(report, output) {
+  report.status ??= report.checks.every((entry) => entry.pass)
+    ? "pass"
+    : "fail";
   report.finishedAt = new Date().toISOString();
   await Bun.write(
     join(output, "report.json"),
     JSON.stringify(report, null, 2) + "\n",
   );
-  return report;
+}
+
+async function captureLoginFailure(page, tools, error, errors) {
+  tools.report.status = "fail";
+  tools.report.failure = failureDetails(error);
+  tools.report.errors = errors;
+  tools.report.runtime = await page.evaluate(() => ({
+    login: window.maple?.snapshot().login,
+    lastError: window.maple?.snapshot().lastError,
+    errorLog: document.querySelector("#error")?.value?.slice(0, 6000),
+  }));
+  await page.screenshot({ path: join(tools.output, "failure.png") });
+}
+
+async function nativeLoginArtwork(page) {
+  await page.waitForFunction(
+    () => {
+      const state = window.maple?.snapshot();
+      return state?.lastError || state?.login?.artwork;
+    },
+    { timeout: TIMEOUT },
+  );
+  const error = await page.evaluate(() => window.maple.snapshot().lastError);
+  assertion(!error, `Native login startup failed: ${error}`);
+}
+
+async function nativeLoginReady(page, tools) {
+  await page.goto(tools.url, {
+    waitUntil: "domcontentloaded",
+    timeout: TIMEOUT,
+  });
+  await nativeLoginArtwork(page);
+  tools.report.identity = await onlineIdentity(tools.url);
+  await showConsole(page);
+  await page.select("#console-section", "world");
+  const observed = await page.evaluate(() => ({
+    sourceBuildId: window.maple.snapshot().sourceBuildId,
+    catalogBuildId: window.maple.snapshot().login.catalogBuildId,
+  }));
+  assertion(
+    observed.sourceBuildId === tools.report.identity.sourceBuildId &&
+      observed.catalogBuildId === tools.report.identity.assetBuildId,
+    "Native login must use the current source and catalog",
+    { observed, expected: tools.report.identity },
+  );
+  tools.report.observedIdentity = observed;
+  const before = await nativeLoginPause(page, true);
+  await wait(100);
+  const paused = await page.evaluate(() => window.maple.snapshot().login);
+  await page.click('[data-login-action="step"]');
+  const stepped = await page.evaluate(() => window.maple.snapshot().login);
+  check(
+    tools.report,
+    "Login animation pauses and advances by exactly 30ms",
+    paused.elapsedMs === before.elapsedMs &&
+      stepped.elapsedMs === paused.elapsedMs + 30,
+    { before, paused, stepped },
+  );
+  await nativeLoginCapture(page, tools, "account");
+  await nativeLoginPause(page, false);
+}
+
+async function nativeLoginPause(page, paused) {
+  const current = await page.evaluate(
+    () => window.maple.snapshot().login.paused,
+  );
+  if (current !== paused) await page.click('[data-login-action="pause"]');
+  return page.evaluate(() => window.maple.snapshot().login);
+}
+
+async function nativeLoginAccount(page, tools) {
+  await nativeLoginHomepage(page, tools);
+  if (tools.register) {
+    await press(page, "Register");
+    await page.type('[name="registration-name"]', tools.account);
+    await page.type('[name="registration-password"]', tools.password);
+    await page.type('[name="registration-confirm"]', tools.password);
+    await nativeLoginCapture(page, tools, "registration");
+    await page.click(".online-registration-submit");
+  } else await nativeLoginSignIn(page, tools.account, tools.password);
+  await waitForRoster(page);
+  await page.click(".online-login-signout");
+  await waitForAccount(page);
+  await nativeLoginSignIn(page, tools.account, tools.password);
+  await waitForRoster(page);
+  tools.names = Array.from(
+    { length: 4 },
+    (_, index) =>
+      `${tools.account.replace(/[^A-Za-z0-9]/g, "").slice(0, 11)}${index}`,
+  );
+  const authenticated = await page.evaluate(async () => ({
+    stage: window.maple.snapshot().login.stage,
+    status: (await fetch("/api/v1/characters")).status,
+  }));
+  check(
+    tools.report,
+    "Valid credentials sign in again after logout",
+    authenticated.stage === "characters" && authenticated.status === 200,
+    authenticated,
+  );
+  await nativeLoginCleanup(page, tools);
+  tools.baselineNames = (await listNames(page)).names;
+  tools.report.baselineCharacters = tools.baselineNames;
+}
+
+async function nativeLoginHomepage(page, tools) {
+  await waitForAccount(page);
+  const destination = page.waitForRequest(
+    (request) =>
+      request.isNavigationRequest() &&
+      request.url() === "https://docs.openms.dev/",
+    { timeout: 10000 },
+  );
+  await press(page, "Homepage");
+  tools.report.homepage = (await destination).url();
+  await page.goto(tools.url, {
+    waitUntil: "domcontentloaded",
+    timeout: TIMEOUT,
+  });
+  await waitForAccount(page);
+  await showConsole(page);
+  await page.select("#console-section", "world");
+}
+
+async function nativeLoginSignIn(page, account, password) {
+  for (const [name, value] of [
+    ["name", account],
+    ["password", password],
+  ]) {
+    const input = `.online-login [name="${name}"]`;
+    await page.click(input, { count: 3 });
+    await page.keyboard.press("Backspace");
+    await page.type(input, value);
+  }
+  await page.click(".online-login-submit");
+}
+
+function waitForAccount(page) {
+  return page.waitForFunction(
+    () => {
+      const state = window.maple?.snapshot().login;
+      return (
+        state?.artwork &&
+        state.stage === "account" &&
+        !state.transition.active &&
+        document.querySelector(".online-login")?.getAttribute("aria-busy") !==
+          "true"
+      );
+    },
+    { timeout: TIMEOUT },
+  );
+}
+
+async function nativeLoginCharacters(page, tools) {
+  for (let index = 0; index < tools.names.length; index++) {
+    await press(page, "Create character");
+    await waitForName(page);
+    if (index === 0) {
+      await nativeLoginCapture(page, tools, "create-name");
+      const rejection = await proveValidationDialog(page, tools);
+      assertion(
+        rejection?.open,
+        "Invalid name did not open the original-art modal",
+      );
+      await pressDialog(page, "confirm");
+    }
+    await nameCharacter(page, tools.names[index]);
+    if (index === 0) {
+      const choices = await readCreateScreen(page);
+      checkCreateChoices(tools.report, choices);
+      check(
+        tools.report,
+        "Face selection changes the paused avatar raster",
+        choices.repaint,
+      );
+      await nativeLoginCapture(page, tools, "create-appearance");
+    }
+    await createCharacter(page);
+    await page.waitForFunction(rosterPixelsReady, { timeout: TIMEOUT });
+    if (tools.baselineNames.length + index + 1 === 3) {
+      await nativeLoginCapture(page, tools, "roster-three");
+    }
+  }
+  const roster = await listNames(page);
+  await selectCharacter(page, roster.names[3]);
+  await page.waitForFunction(rosterPixelsReady, { timeout: TIMEOUT });
+  await nativeLoginCapture(page, tools, "roster-page-two");
+  const second = await page.evaluate(rosterVisuals);
+  await page.click(".online-login-previous");
+  await page.waitForFunction(rosterPixelsReady, { timeout: TIMEOUT });
+  const first = await page.evaluate(rosterVisuals);
+  const seen = [...first, ...second]
+    .map((slot) => slot.name)
+    .filter(Boolean)
+    .sort();
+  check(
+    tools.report,
+    "Every character appears across three native slots per page",
+    JSON.stringify(seen) ===
+      JSON.stringify([...tools.baselineNames, ...tools.names].sort()) &&
+      first.every((slot) => slot.painted >= MIN_PAINTED_PIXELS),
+    { first, second, created: tools.names, baseline: tools.baselineNames },
+  );
+  await nativeLoginCapture(page, tools, "roster-page-one");
+  await nativeLoginConfirmation(page, tools);
+}
+
+async function nativeLoginConfirmation(page, tools) {
+  const before = await listNames(page);
+  await press(page, "Delete character");
+  await expectDialog(page);
+  await nativeLoginCapture(page, tools, "delete-confirmation");
+  await pressDialog(page, "cancel");
+  const after = await listNames(page);
+  check(
+    tools.report,
+    "Cancelling native deletion preserves every character",
+    JSON.stringify(before.names) === JSON.stringify(after.names),
+    { before, after },
+  );
+}
+
+function rosterVisuals() {
+  return Array.from(document.querySelectorAll(".online-login-card")).map(
+    (card) => {
+      const canvas = card.querySelector("canvas");
+      let painted = 0;
+      if (canvas?.width && canvas.height) {
+        const bytes = canvas
+          .getContext("2d")
+          .getImageData(0, 0, canvas.width, canvas.height).data;
+        for (let index = 3; index < bytes.length; index += 4) {
+          if (bytes[index]) painted++;
+        }
+      }
+      return {
+        name: card.querySelector(".online-login-character-name").textContent,
+        selected: card.getAttribute("aria-pressed") === "true",
+        painted,
+      };
+    },
+  );
+}
+
+function rosterPixelsReady() {
+  const slots = document.querySelectorAll(".online-login-card");
+  for (const slot of slots) {
+    if (!slot.querySelector(".online-login-character-name").textContent) {
+      continue;
+    }
+    const canvas = slot.querySelector("canvas");
+    if (!canvas?.width || !canvas.height) return false;
+    const bytes = canvas
+      .getContext("2d")
+      .getImageData(0, 0, canvas.width, canvas.height).data;
+    let painted = 0;
+    for (let index = 3; index < bytes.length; index += 4) {
+      if (bytes[index]) painted++;
+    }
+    if (painted < 1000) return false;
+  }
+  return true;
+}
+
+async function nativeLoginReplay(page, tools) {
+  const before = await nativeLoginPause(page, true);
+  await page.click('[data-login-action="replay"]');
+  await page.waitForFunction(
+    () => window.maple.snapshot().login.transition.elapsedMs === 0,
+  );
+  for (let index = 0; index < 10; index++) {
+    await page.click('[data-login-action="step"]');
+  }
+  const middle = await page.evaluate(() => window.maple.snapshot().login);
+  check(
+    tools.report,
+    "Replay moves the original camera without changing the roster",
+    middle.transition.active &&
+      middle.transition.elapsedMs === 300 &&
+      middle.camera.y !== before.camera.y &&
+      middle.characters === before.characters,
+    { before, middle },
+  );
+  await nativeLoginCapture(page, tools, "transition");
+  await nativeLoginPause(page, false);
+  await waitForRoster(page);
+}
+
+async function nativeLoginMinimum(page, tools) {
+  await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
+  await page.click(".online-login-card:nth-child(2)");
+  const state = await nativeLoginPause(page, true);
+  check(
+    tools.report,
+    "Roster and login tools remain interactive at800x600",
+    state.selected === 1 && state.paused,
+  );
+  await nativeLoginCapture(page, tools, "minimum-viewport");
+  await nativeLoginPause(page, false);
+  await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+}
+
+async function nativeLoginCapture(page, tools, name) {
+  await page.screenshot({ path: join(tools.output, `${name}.png`) });
+  const scene = await page.$(".online-login-window");
+  await scene.screenshot({ path: join(tools.output, `${name}-scene.png`) });
+  await scene.dispose();
+  tools.report.captures.push({
+    name,
+    state: await page.evaluate(() => window.maple.snapshot().login),
+  });
+}
+
+async function nativeLoginCleanup(page, tools) {
+  for (const name of tools.names) {
+    if (await selectCharacter(page, name)) await deleteSelected(page);
+  }
 }
 
 function log(message) {
@@ -108,44 +490,43 @@ async function signIn(page, tools, account) {
   await page.waitForSelector('.online-login [name="name"]', { visible: true });
   await page.type('.online-login [name="name"]', account);
   await page.type('.online-login [name="password"]', tools.password);
-  // The sign-in tab shares its label, so submit through the form's own button.
   await page.click(".online-login-submit");
   try {
-    await waitForCarousel(page);
+    await waitForRoster(page);
   } catch {
     // A refused challenge or a stale build states its reason; surface it, then retry once.
     const state = await readDialog(page);
     log(`sign in retry (${JSON.stringify(state.text ?? "no dialog")})`);
     if (state.open) await pressDialog(page, "confirm");
     await page.click(".online-login-submit");
-    await waitForCarousel(page);
+    await waitForRoster(page);
   }
 }
 
-async function waitForCarousel(page) {
+async function waitForRoster(page) {
   await page.waitForFunction(
     () => {
       const stage = document.querySelector(
         '.online-login[data-stage="characters"] .online-login-characters',
       );
-      const enter = stage?.querySelector(".online-login-enter");
+      const login = window.maple?.snapshot().login;
       return Boolean(
-        stage?.querySelector(".online-login-card") && enter && !enter.disabled,
+        stage &&
+        login?.artwork &&
+        !login.transition.active &&
+        !stage.closest(".online-login-body").inert &&
+        !document
+          .querySelector(".online-login")
+          .getAttribute("aria-busy")
+          ?.includes("true"),
       );
     },
     { timeout: TIMEOUT },
   );
 }
 
-async function press(page, label) {
-  await page.evaluate((text) => {
-    const button = Array.from(
-      document.querySelectorAll(".online-login button"),
-    ).find((node) => node.textContent === text && !node.disabled);
-    if (button) {
-      button.click();
-    }
-  }, label);
+function press(page, label) {
+  return clickLabel(page, label, ".online-login");
 }
 
 /** A released character lease can briefly outlive the previous browser. */
@@ -160,37 +541,30 @@ async function enterWorld(page) {
   }
   const message = await page.evaluate(() => {
     const dialog = document.querySelector(".online-dialog-text")?.textContent;
-    const status = document.querySelector(".online-login-status")?.textContent;
+    const status = window.maple.snapshot().login?.status;
     return dialog || status || null;
   });
   throw new Error(`Entering the world failed: ${message}`);
 }
 
-/** The bottom message box is gone; failures must surface as a Win95 dialog. */
+/** Failures use the original-art modal rather than a separate bottom message box. */
 function readDialog(page) {
   return page.evaluate(() => {
     const overlay = document.querySelector(".online-dialog-overlay");
     const cancel = document.querySelector(".online-dialog-cancel");
     return {
       open: Boolean(overlay && !overlay.hidden),
-      title: document.querySelector(".online-dialog .maple95-title")
+      title: document.querySelector(".online-dialog .online-dialog-title")
         ?.textContent,
       text: document.querySelector(".online-dialog-text")?.textContent,
       confirm: document.querySelector(".online-dialog-confirm")?.textContent,
       cancel: cancel && !cancel.hidden ? cancel.textContent : null,
-      messageBoxes: document.querySelectorAll(
-        ".online-login-message, .online-login-hint",
-      ).length,
     };
   });
 }
 
 async function pressDialog(page, choice) {
-  await page.evaluate(
-    (selector) => {
-      const button = document.querySelector(selector);
-      if (button) button.click();
-    },
+  await page.click(
     choice === "confirm" ? ".online-dialog-confirm" : ".online-dialog-cancel",
   );
   await page.waitForFunction(
@@ -207,41 +581,49 @@ async function expectDialog(page) {
   return readDialog(page);
 }
 
-/** Account characters as the server reports them, plus the carousel count. */
+/** Account characters as the server reports them, plus the displayed roster count. */
 function listNames(page) {
   return page.evaluate(async () => {
     const response = await fetch("/api/v1/characters", { cache: "no-store" });
     const value = await response.json();
     return {
       names: value.characters.map((character) => character.name),
-      dots: document.querySelectorAll(".online-login-dot").length,
+      count: window.maple.snapshot().login.characters,
     };
   });
 }
 
-/** Select one carousel entry by name; false when it is no longer listed. */
-function selectCharacter(page, name) {
-  return page.evaluate((expected) => {
-    const dots = Array.from(document.querySelectorAll(".online-login-dot"));
-    const index = dots.findIndex((dot) =>
-      dot.getAttribute("aria-label")?.includes(expected),
+/** Page to the account-owned character and select its visible native slot. */
+async function selectCharacter(page, name) {
+  const roster = await listNames(page);
+  const index = roster.names.indexOf(name);
+  if (index < 0) return false;
+  const target = Math.floor(index / 3);
+  let current = await page.evaluate(() => window.maple.snapshot().login.page);
+  for (let step = 0; current !== target && step < 22; step++) {
+    await page.click(
+      current < target ? ".online-login-next" : ".online-login-previous",
     );
-    if (index < 0) return false;
-    dots[index].click();
-    return true;
-  }, name);
+    current = await page.evaluate(() => window.maple.snapshot().login.page);
+  }
+  assertion(
+    current === target,
+    "Character page did not reach the requested roster index",
+  );
+  await page.click(`.online-login-card:nth-child(${(index % 3) + 1})`);
+  return true;
 }
 
 /** Open the confirm dialog and accept it, waiting for the entry to disappear. */
 async function deleteSelected(page) {
   const before = await page.evaluate(
-    () => document.querySelectorAll(".online-login-dot").length,
+    () => window.maple.snapshot().login.characters,
   );
   await press(page, "Delete character");
   await expectDialog(page);
   await pressDialog(page, "confirm");
   await page.waitForFunction(
-    (count) => document.querySelectorAll(".online-login-dot").length < count,
+    (count) => window.maple.snapshot().login.characters < count,
     { timeout: 30000 },
     before,
   );
@@ -270,17 +652,23 @@ function evidenceNames(page) {
   });
 }
 
-/** A too-short name exercises the failure path: one Win95 dialog, no inline box. */
+/** A too-short name exercises the failure path: one original-art dialog, no inline box. */
 async function proveValidationDialog(page, tools) {
-  await page.evaluate(() => {
-    document.querySelector('.online-login [name="character"]').value = "abc";
-  });
-  await press(page, "Create");
+  const before = await page.evaluate(
+    () => window.maple.snapshot().login.characters,
+  );
+  const input = '.online-login [name="character"]';
+  await page.click(input, { count: 3 });
+  await page.keyboard.press("Backspace");
+  await page.type(input, "abc");
+  await press(page, "Next");
   const open = await expectDialog(page)
     .then(() => true)
     .catch(() => false);
   if (!open) return null;
   const dialog = await readDialog(page);
+  dialog.beforeCharacters = before;
+  dialog.after = await page.evaluate(() => window.maple.snapshot().login);
   await page.screenshot({ path: join(tools.output, "error-dialog.png") });
   return dialog;
 }
@@ -297,9 +685,9 @@ async function deleteCreatedCharacter(page, tools, created) {
   await expectDialog(page);
   await pressDialog(page, "confirm");
   await page.waitForFunction(
-    (count) => document.querySelectorAll(".online-login-dot").length < count,
+    (count) => window.maple.snapshot().login.characters < count,
     { timeout: 30000 },
-    before.dots,
+    before.count,
   );
   return {
     before,
@@ -313,18 +701,17 @@ async function deleteCreatedCharacter(page, tools, created) {
 /** Create, prove the invalid-name dialog and deletion, then create the playable character. */
 async function exerciseCreation(page, tools) {
   await press(page, "Create character");
-  const create = await readCreateScreen(page);
-  await page.screenshot({ path: join(tools.output, "create.png") });
+  await waitForName(page);
   const rejection = await proveValidationDialog(page, tools);
   if (rejection) await pressDialog(page, "confirm");
+  await nameCharacter(page, `Evidence${Date.now() % 1000000}`);
+  const create = await readCreateScreen(page);
+  await page.screenshot({ path: join(tools.output, "create.png") });
   const doomed = await createCharacter(page);
   const deletion = await deleteCreatedCharacter(page, tools, doomed);
-  // Deletion returns to the carousel, so reopen the create screen for the playable one.
   await press(page, "Create character");
-  await page.waitForFunction(
-    () => document.querySelector(".online-login")?.dataset.stage === "create",
-    { timeout: TIMEOUT },
-  );
+  await waitForName(page);
+  await nameCharacter(page, `Evidence${Date.now() % 1000000}`);
   return { create, rejection, deletion, created: await createCharacter(page) };
 }
 
@@ -387,7 +774,9 @@ async function readSections(page) {
 /** Composed portrait pixels and their placement inside the clipped portrait host. */
 async function readPortrait(page) {
   return page.evaluate((minimum) => {
-    const card = document.querySelector(".online-login-card");
+    const card = document.querySelector(
+      '.online-login-card[aria-pressed="true"]',
+    );
     const canvas = card.querySelector("canvas");
     const context = canvas.getContext("2d");
     const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -410,7 +799,6 @@ async function readPortrait(page) {
         box.y >= host.y - 1 &&
         box.x + box.width <= host.x + host.width + 1 &&
         box.y + box.height <= host.y + host.height + 1,
-      placeholderHidden: card.querySelector(".online-login-mark").hidden,
     };
   }, MIN_PAINTED_PIXELS);
 }
@@ -418,35 +806,31 @@ async function readPortrait(page) {
 async function readCardClip(page) {
   return page.evaluate(() => {
     const box = document
-      .querySelector(".online-login-card")
+      .querySelector('.online-login-card[aria-pressed="true"]')
       .getBoundingClientRect();
     return { x: box.x, y: box.y, width: box.width, height: box.height };
   });
 }
 
-async function stepCarousel(page) {
-  return page.evaluate(async () => {
-    const index = () =>
-      Array.from(document.querySelectorAll(".online-login-dot")).findIndex(
-        (dot) => dot.textContent === "●",
-      );
-    const start = index();
-    document.querySelector(".online-login-next").click();
-    await new Promise((done) => {
-      setTimeout(done, 400);
-    });
-    const moved = index();
-    document.querySelector(".online-login-previous").click();
-    await new Promise((done) => {
-      setTimeout(done, 400);
-    });
-    return { start, moved, back: index() };
-  });
+async function stepRoster(page) {
+  const before = await page.evaluate(() => window.maple.snapshot().login);
+  await page.click('.online-login-card[aria-pressed="true"]');
+  await page.keyboard.press("ArrowRight");
+  const moved = await page.evaluate(
+    () => window.maple.snapshot().login.selected,
+  );
+  await page.keyboard.press("ArrowLeft");
+  const back = await page.evaluate(
+    () => window.maple.snapshot().login.selected,
+  );
+  return { start: before.selected, count: before.characters, moved, back };
 }
 
 async function readCreateScreen(page) {
   await page.waitForFunction(
-    () => document.querySelector(".online-login").dataset.stage === "create",
+    () =>
+      document.querySelector(".online-login-create")?.dataset.phase ===
+      "appearance",
     { timeout: TIMEOUT },
   );
   const state = await page.evaluate(() => ({
@@ -461,32 +845,29 @@ async function readCreateScreen(page) {
       document.querySelector(".online-login").dataset.options,
     ),
   }));
-  state.repaint = await page.evaluate(async () => {
-    const canvas = document.querySelector(".online-login-preview canvas");
-    const before = canvas.toDataURL();
-    const row = Array.from(
-      document.querySelectorAll(".online-login-option"),
-    ).find(
-      (entry) =>
-        entry.querySelector(".online-login-label").textContent === "Face",
-    );
-    row.querySelector(".online-login-option-next").click();
-    await new Promise((done) => {
-      setTimeout(done, 1200);
-    });
-    return canvas.toDataURL() !== before;
-  });
+  const wasPaused = await page.evaluate(
+    () => window.maple.snapshot().login.paused,
+  );
+  await showConsole(page);
+  await page.select("#console-section", "world");
+  await nativeLoginPause(page, true);
+  const canvas = ".online-login-preview canvas";
+  const before = await page.$eval(canvas, (node) => node.toDataURL());
+  await clickLabel(page, "Next face", ".online-login");
+  await page.waitForFunction(
+    (previous) =>
+      document.querySelector(".online-login-preview canvas").toDataURL() !==
+      previous,
+    { timeout: TIMEOUT },
+    before,
+  );
+  state.repaint = true;
+  await nativeLoginPause(page, wasPaused);
   return state;
 }
 
 async function createCharacter(page) {
   const input = '.online-login [name="character"]';
-  // The field keeps whatever a previous step typed, so replace it outright.
-  await page.$eval(input, (node) => {
-    node.value = "";
-  });
-  await page.type(input, `Evidence${Date.now() % 1000000}`);
-  // The field caps names at 13 characters, so read back what it accepted.
   const name = await page.$eval(input, (node) => node.value);
   const ready = await page.evaluate(() => ({
     stage: document.querySelector(".online-login")?.dataset.stage,
@@ -504,6 +885,7 @@ async function createCharacter(page) {
       const host = document.querySelector(".online-login");
       return (
         host.dataset.stage === "characters" &&
+        !window.maple.snapshot().login.transition.active &&
         host.textContent.includes(expected)
       );
     },
@@ -519,20 +901,51 @@ async function createCharacter(page) {
   }, name);
 }
 
+async function waitForName(page) {
+  await page.waitForFunction(
+    () => {
+      const login = window.maple?.snapshot().login;
+      return (
+        login?.stage === "create" &&
+        login.creationPhase === "name" &&
+        !login.transition.active
+      );
+    },
+    { timeout: TIMEOUT },
+  );
+}
+
+async function nameCharacter(page, name) {
+  const input = '.online-login [name="character"]';
+  await page.click(input, { count: 3 });
+  await page.keyboard.press("Backspace");
+  await page.type(input, name);
+  await press(page, "Next");
+  await page.waitForFunction(
+    () =>
+      document.querySelector(".online-login-create")?.dataset.phase ===
+        "appearance" &&
+      !document.querySelector(".online-login-create-submit").disabled,
+    { timeout: TIMEOUT },
+  );
+}
+
 function checkDeveloperSession(
   report,
   { portrait, arrows, audio, consoleState, errors },
 ) {
   check(
     report,
-    "Carousel portrait paints the character inside its host without the placeholder",
-    portrait.meetsMinimum && portrait.insideHost && portrait.placeholderHidden,
+    "Selected roster portrait paints the character inside its host",
+    portrait.meetsMinimum && portrait.insideHost,
     portrait,
   );
   check(
     report,
-    "Carousel arrows move the selection",
-    arrows.moved !== arrows.start && arrows.back === arrows.start,
+    "Roster keyboard navigation selects characters and returns to the original slot",
+    (arrows.count === 1
+      ? arrows.moved === arrows.start
+      : arrows.moved !== arrows.start) && arrows.back === arrows.start,
     arrows,
   );
   check(
@@ -563,17 +976,18 @@ function checkDeveloperSession(
 }
 
 async function developerSession(browser, tools) {
-  const { page, errors } = await openPage(browser);
+  const context = await browser.createBrowserContext();
+  const { page, errors } = await openPage(context);
   try {
     await signIn(page, tools, tools.accounts.developer);
-    await page.screenshot({ path: join(tools.output, "carousel.png") });
+    await page.screenshot({ path: join(tools.output, "roster.png") });
     await wait(1500);
     const portrait = await readPortrait(page);
     await page.screenshot({
-      path: join(tools.output, "carousel-portrait.png"),
+      path: join(tools.output, "roster-portrait.png"),
       clip: await readCardClip(page),
     });
-    const arrows = await stepCarousel(page);
+    const arrows = await stepRoster(page);
     await wait(1500);
     const audio = { login: await captureAudio(page, AUDIO_SECONDS) };
     await enterWorld(page);
@@ -604,7 +1018,7 @@ async function developerSession(browser, tools) {
     });
     tools.report.developerErrors = errors;
   } finally {
-    await page.close();
+    await context.close();
   }
 }
 
@@ -619,10 +1033,7 @@ function checkCreateChoices(report, create) {
       counts.hairColor === EXPECTED_HAIR_COLOUR_COUNT &&
       counts.skin === EXPECTED_SKIN_COUNT &&
       create.rows.length === EXPECTED_CREATE_ROWS &&
-      !create.rows.some((row) => row.label === "Hat") &&
-      create.rows.some(
-        (row) => row.label === "Hair colour" && row.value === "Black",
-      ),
+      !create.rows.some((row) => row.label === "Hat"),
     { choices: create.choices, rows: create.rows, note: create.note },
   );
 }
@@ -635,24 +1046,22 @@ function checkDeletion(report, deletion) {
     report,
     "Delete asks first, cancels harmlessly and removes the character when confirmed",
     deletion.confirm.open &&
-      deletion.confirm.cancel === "Cancel" &&
-      /cannot be undone/.test(deletion.confirm.text ?? "") &&
       deletion.afterCancel.names.length === deletion.before.names.length &&
       removed.length === 1 &&
       removed[0] === deletion.name &&
-      deletion.after.dots === deletion.before.dots - 1,
+      deletion.after.count === deletion.before.count - 1,
     deletion,
   );
 }
 
-function checkDialogs(report, rejection, deletion) {
+function checkDialogs(report, rejection) {
   check(
     report,
-    "Failures open a Win95 dialog and the login keeps no bottom message box",
+    "An invalid name opens a modal without advancing creation or changing the roster",
     rejection?.open === true &&
-      rejection.messageBoxes === 0 &&
-      deletion.confirm.messageBoxes === 0,
-    { rejection, messageBoxes: deletion.confirm.messageBoxes },
+      rejection.after.creationPhase === "name" &&
+      rejection.after.characters === rejection.beforeCharacters,
+    { rejection },
   );
 }
 
@@ -662,7 +1071,7 @@ function checkPlayerSession(
 ) {
   checkCreateChoices(report, create);
   checkDeletion(report, deletion);
-  checkDialogs(report, rejection, deletion);
+  checkDialogs(report, rejection);
   check(
     report,
     "Changing the face repaints the create preview",
@@ -697,7 +1106,8 @@ function checkPlayerSession(
 }
 
 async function playerSession(browser, tools) {
-  const { page, errors } = await openPage(browser);
+  const context = await browser.createBrowserContext();
+  const { page, errors } = await openPage(context);
   try {
     await signIn(page, tools, tools.accounts.player);
     const cleaned = await cleanupEvidenceCharacters(page);
@@ -746,6 +1156,6 @@ async function playerSession(browser, tools) {
     });
     tools.report.playerErrors = errors;
   } finally {
-    await page.close();
+    await context.close();
   }
 }

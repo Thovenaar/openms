@@ -41,12 +41,19 @@ export class SkillBarrel {
     }
   }
 
-  intercept(mob, info) {
+  intercept(mob, info, outcome = null) {
     const contact = this.contacts.get(mob.id);
     if (!contact) return false;
     if (!contact.overlapping) {
-      contact.overlapping = true;
-      contact.concealed = Math.random() * 100 >= info.prop;
+      const concealed =
+        (this.system.hooks.random ?? Math.random)() * 100 >= info.prop;
+      const apply = () => {
+        contact.overlapping = true;
+        contact.concealed = concealed;
+      };
+      if (outcome) outcome.effects.push(apply);
+      else apply();
+      return concealed;
     }
     return contact.concealed;
   }

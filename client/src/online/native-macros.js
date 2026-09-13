@@ -5,6 +5,9 @@ import {
 } from "../skills/skill-macro-name.js";
 import { unsupported } from "./native-source.js";
 
+const TICK_MS = 30;
+const ADMISSION_TIMEOUT_MS = 4000; // Original0063196b clears only after elapsed >4000.
+
 /** Detached native editor drafts; Save and each macro cast are closed server requests. */
 export class NativeMacros {
   constructor(owner) {
@@ -15,6 +18,8 @@ export class NativeMacros {
     this.generation = 0;
     this.running = false;
     this.listeners = new Set();
+    this.queue = null;
+    this.debt = 0;
     this.words = prepareMacroWords(owner.catalog.ui.skillMacroRules);
   }
   subscribe(listener) {
@@ -122,35 +127,88 @@ export class NativeMacros {
     if (!record || this.running || !record.skills.some((id) => id > 0)) {
       return unsupported("this macro activation");
     }
-    const generation = ++this.generation;
-    this.run(record, generation).catch((error) => this.owner.report(error));
+    this.running = true;
+    this.queue = {
+      record: structuredClone(record),
+      slot: 0,
+      elapsed: 0,
+      pending: false,
+      generation: ++this.generation,
+      fieldEpoch: this.owner.state.fieldEpoch,
+    };
+    this.debt = 0;
+    this.changed();
     return { ok: true };
   }
-  async run(record, generation) {
-    this.running = true;
-    try {
-      for (const skillId of record.skills) {
-        if (generation !== this.generation) return;
-        if (!skillId) continue;
-        const result = await this.owner.request({
-          kind: "skill.cast",
-          skillId,
-        });
-        if (!result.ok) {
-          this.owner.report(result.reason);
-          return;
+  observeState() {
+    if (!this.queue) return;
+    if (
+      this.owner.state?.self.hp <= 0 ||
+      this.owner.state?.fieldEpoch !== this.queue.fieldEpoch
+    ) {
+      this.interrupt();
+    }
+  }
+  update(ms) {
+    this.observeState();
+    if (!this.queue) return;
+    if (!Number.isFinite(ms) || ms < 0 || ms > 60000)
+      {throw new Error("Invalid macro elapsed time");}
+    this.debt += ms;
+    const ticks = Math.floor(this.debt / TICK_MS);
+    this.debt %= TICK_MS;
+    if (!ticks) return;
+    this.queue.elapsed += ticks * TICK_MS;
+    if (this.queue.elapsed > ADMISSION_TIMEOUT_MS) {
+      this.owner.report("Macro admission timed out.");
+      this.interrupt();
+      return;
+    }
+    if (!this.queue.pending) this.attempt(this.queue);
+  }
+  attempt(queue) {
+    while (
+      queue.slot < queue.record.skills.length &&
+      !queue.record.skills[queue.slot]
+    )
+      {queue.slot++;}
+    if (queue.slot === queue.record.skills.length) {
+      this.finish(queue);
+      return;
+    }
+    queue.pending = true;
+    this.owner
+      .request({ kind: "skill.cast", skillId: queue.record.skills[queue.slot] })
+      .then((result) => {
+        if (queue.generation !== this.generation) return;
+        if (result.ok) {
+          queue.slot++;
+          queue.elapsed = 0;
         }
-      }
-      if (record.shout && generation === this.generation) {
-        await this.owner.submitChat(record.name, 7);
-      }
-    } finally {
-      this.running = false;
-      this.changed();
+      })
+      .catch((error) => this.owner.report(error))
+      .finally(() => {
+        queue.pending = false;
+      });
+  }
+  finish(queue) {
+    this.interrupt();
+    if (
+      queue.record.shout &&
+      this.owner.state?.self.hp > 0 &&
+      this.owner.state.fieldEpoch === queue.fieldEpoch
+    ) {
+      this.owner
+        .submitChat(queue.record.name, 7)
+        .catch((error) => this.owner.report(error));
     }
   }
   interrupt() {
     this.generation++;
+    this.queue = null;
+    this.running = false;
+    this.debt = 0;
+    this.changed();
   }
   snapshot() {
     return {

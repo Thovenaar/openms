@@ -24,6 +24,8 @@ export class NativeShop {
       rechargeable: isRechargeable(row.templateId),
     }));
     this.pending = false;
+    this.lastTransaction = null;
+    this.destroyed = false;
     this.listeners = new Set();
     this.unsubscribe = owner.store.subscribe(() => this.changed());
   }
@@ -63,7 +65,7 @@ export class NativeShop {
       mesos: profile.meso,
       pending: this.pending,
       committing: this.pending,
-      lastTransaction: null,
+      lastTransaction: this.lastTransaction,
     };
   }
   saleView(item) {
@@ -95,15 +97,22 @@ export class NativeShop {
       rechargePrice,
     };
   }
-  async quantity(text, max) {
-    return this.owner.ui.prompt({
-      kind: "number",
-      text,
-      value: 1,
-      min: 1,
-      max,
-      owner: this,
-    });
+  async prompt(request) {
+    if (this.pending || this.destroyed) return null;
+    this.pending = true;
+    this.changed();
+    try {
+      return await this.owner.ui.prompt({ ...request, owner: this });
+    } finally {
+      this.pending = false;
+      this.changed();
+    }
+  }
+  quantity(text, max) {
+    return this.prompt({ kind: "number", text, value: 1, min: 1, max });
+  }
+  confirm(text) {
+    return this.prompt({ kind: "confirm", text });
   }
   async buy({ row }) {
     const record = this.rows.find((entry) => entry.row === row);
@@ -113,7 +122,11 @@ export class NativeShop {
     const max =
       record.rechargeable || inventoryType(record.itemId) === 1 ? 1 : 1000;
     const quantity =
-      max === 1 ? 1 : await this.quantity("How many will you buy?", max);
+      max === 1
+        ? (await this.confirm("Are you sure you want to buy it?")) === true
+          ? 1
+          : null
+        : await this.quantity("How many are you willing to buy?", max);
     if (quantity === null) return { ok: false, code: "cancelled" };
     return this.run({
       kind: "shop.buy",
@@ -126,8 +139,10 @@ export class NativeShop {
     const item = this.owner.inventory.item(uid);
     const quantity =
       item.count === 1 || isRechargeable(item.id)
-        ? item.count
-        : await this.quantity("How many will you sell?", item.count);
+        ? (await this.confirm("Are you sure you want to sell it?")) === true
+          ? item.count
+          : null
+        : await this.quantity("How many are you willing to sell?", item.count);
     if (quantity === null) return { ok: false, code: "cancelled" };
     return this.run({
       kind: "shop.sell",
@@ -136,7 +151,12 @@ export class NativeShop {
       quantity,
     });
   }
-  recharge(uid) {
+  async recharge(uid) {
+    if (
+      (await this.confirm("Are you sure you want to recharge it?")) !== true
+    ) {
+      return { ok: false, code: "cancelled" };
+    }
     return this.run({
       kind: "shop.recharge",
       shopSession: this.event.shopSession,
@@ -144,14 +164,41 @@ export class NativeShop {
     });
   }
   async run(action) {
-    if (this.pending) {
-      return { ok: false, reason: "A shop request is pending." };
+    if (this.pending || this.destroyed) {
+      return {
+        ok: false,
+        reason: "The shop is unavailable or a request is pending.",
+      };
     }
     this.pending = true;
     this.changed();
     try {
       const result = await this.owner.request(action);
       if (!result.ok) this.owner.report(result.reason);
+      else {
+        const value = result.receipt?.value;
+        if (
+          value?.kind !== "shop.transaction" ||
+          value.shopSession !== this.event.shopSession
+        ) {
+          return {
+            ok: false,
+            code: "OUTCOME_UNKNOWN",
+            reason: "The server did not publish the shop transaction.",
+            receipt: result.receipt,
+          };
+        }
+        this.lastTransaction = {
+          ok: true,
+          kind: value.action,
+          itemId: value.itemId,
+          uid: value.uid,
+          count: value.count,
+          amount: value.amount,
+          currency: value.currency,
+          revision: result.receipt.domainRevision,
+        };
+      }
       return result;
     } finally {
       this.pending = false;
@@ -172,6 +219,7 @@ export class NativeShop {
     return result;
   }
   destroy() {
+    this.destroyed = true;
     this.unsubscribe();
     this.listeners.clear();
   }

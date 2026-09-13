@@ -18,6 +18,8 @@ export class NativeDialogue {
     this.pending = false;
     this.request = null;
     this.selectedOffer = null;
+    this.rewardIndex = null;
+    this.questConfirmation = null;
   }
   async publish(event) {
     const generation = ++this.generation;
@@ -25,23 +27,21 @@ export class NativeDialogue {
     this.request = new AbortController();
     this.event = event;
     this.selectedOffer = null;
-    if (event.kind === "quest.offer") this.offerMenu(event);
-    else {
-      const response = await fetch(`/api/v1/content/${event.contentId}`, {
-        credentials: "same-origin",
-        cache: "no-store",
-        signal: this.request.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`Dialogue content HTTP ${response.status}`);
-      }
-      const content = await response.json();
-      if (generation !== this.generation) return;
-      if (typeof content.text !== "string" || content.text.length > 65536) {
-        throw new Error("Invalid server dialogue prose");
-      }
-      this.view = this.dialogueView(event, content.text);
+    this.rewardIndex = null;
+    this.questConfirmation = null;
+    const response = await fetch(`/api/v1/content/${event.contentId}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: this.request.signal,
+    });
+    if (!response.ok)
+      {throw new Error(`Dialogue content HTTP ${response.status}`);}
+    const content = await response.json();
+    if (generation !== this.generation) return;
+    if (typeof content.text !== "string" || content.text.length > 65536) {
+      throw new Error("Invalid server dialogue prose");
     }
+    this.view = this.dialogueView(event, content.text);
     if (generation !== this.generation) return;
     const existing = this.owner.ui.windows.get("UtilDlgEx");
     if (
@@ -61,7 +61,7 @@ export class NativeDialogue {
     }
   }
   dialogueView(event, text) {
-    return {
+    const view = {
       ...event.native,
       text,
       sessionId: event.conversationId,
@@ -74,36 +74,37 @@ export class NativeDialogue {
       minLength: event.minimum,
       maxLength: event.maximum,
     };
+    if (event.quest?.mode !== "confirm") return view;
+    this.selectedOffer = {
+      questId: event.quest.questId,
+      action: event.quest.stage === 0 ? "accept" : "claim",
+    };
+    this.questConfirmation = view;
+    return event.quest.rewardChoices.length ? this.rewardChoiceView() : view;
   }
-  offerMenu(event) {
-    this.view = {
+  rewardChoiceView() {
+    const rows = this.event.quest.rewardChoices.map(
+      (item) => `#L${item.index}##i${item.id}# #t${item.id}# × ${item.count}#l`,
+    );
+    return {
+      ...this.questConfirmation,
       kind: "choice",
-      sessionId: event.conversationId,
-      revision: event.step,
-      npcId: event.npcTemplateId,
-      speaker: 0,
-      choices: event.quests.map((entry) => entry.questId),
-      text: event.quests
-        .map(
-          (entry) =>
-            `#L${entry.questId}#${this.owner.catalog.quests.records[entry.questId]?.name ?? entry.questId}#l`,
-        )
-        .join("\r\n"),
+      next: false,
+      choices: this.event.quest.rewardChoices.map((item) => item.index),
+      text: `${this.questConfirmation.text}\r\n\r\nSelect one original item reward:\r\n${rows.join("\r\n")}`,
     };
   }
-  selectOffer(id) {
-    const offer = this.event.quests.find((entry) => entry.questId === id);
-    if (!offer) {
-      return { ok: false, reason: "This quest is no longer offered." };
-    }
-    this.selectedOffer = offer;
-    const record = this.owner.catalog.quests.records[id];
+  selectReward(index) {
+    const choice = this.event.quest.rewardChoices.find(
+      (item) => item.index === index,
+    );
+    if (!choice)
+      {return { ok: false, reason: "This reward is no longer offered." };}
+    this.rewardIndex = index;
     this.view = {
-      ...this.view,
-      kind: offer.action === "accept" ? "accept-decline" : "say",
-      next: false,
+      ...this.questConfirmation,
       prev: true,
-      text: `${record?.name ?? id}\r\n\r\n${record?.info?.[offer.action === "accept" ? 0 : 1] ?? ""}`,
+      text: `${this.questConfirmation.text}\r\n\r\n#i${choice.id}# #t${choice.id}# × ${choice.count}`,
     };
     return { ok: true };
   }
@@ -116,14 +117,8 @@ export class NativeDialogue {
     ) {
       return { ok: false, reason: "This conversation has changed." };
     }
-    if (event.kind === "quest.offer" && response.action === "choose") {
-      return this.selectOffer(response.value);
-    }
-    if (event.kind === "quest.offer" && response.action === "previous") {
-      this.selectedOffer = null;
-      this.offerMenu(event);
-      return { ok: true };
-    }
+    const reward = this.rewardResponse(response, event);
+    if (reward) return reward;
     const action = this.commandFor(response, event);
     this.pending = true;
     try {
@@ -138,6 +133,22 @@ export class NativeDialogue {
       this.owner.ui.windows.get("UtilDlgEx")?.dialogCleanup?.refresh();
     }
   }
+  rewardResponse(response, event) {
+    if (event.quest?.mode !== "confirm" || !event.quest.rewardChoices.length)
+      return null;
+    if (response.action === "choose") return this.selectReward(response.value);
+    if (response.action === "previous" && this.rewardIndex !== null) {
+      this.rewardIndex = null;
+      this.view = this.rewardChoiceView();
+      return { ok: true };
+    }
+    if (
+      this.rewardIndex === null &&
+      (response.action === "accept" || response.action === "acknowledge")
+    )
+      return { ok: false, reason: "Select an original item reward." };
+    return null;
+  }
   commandFor(response, event) {
     if (
       this.selectedOffer &&
@@ -148,6 +159,9 @@ export class NativeDialogue {
         questId: this.selectedOffer.questId,
         conversationId: event.conversationId,
         step: event.step,
+        ...(this.rewardIndex === null
+          ? {}
+          : { rewardChoice: this.rewardIndex }),
       };
     }
     return {
@@ -159,7 +173,7 @@ export class NativeDialogue {
   }
   answer(response) {
     if (response.action === "decline") {
-      return this.event.kind === "quest.offer"
+      return this.event.quest
         ? { kind: "cancel" }
         : { kind: "yesno", value: false };
     }

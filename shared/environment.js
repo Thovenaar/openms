@@ -14,7 +14,7 @@ const KEYS = Object.freeze({
     "OPENMS_POW_BITS",
     "OPENMS_DEV_PASSWORD",
   ],
-  client: ["PORT", "ONLINE_PORT", "OPENMS_SERVER_URL"],
+  client: ["HOST", "PORT", "ONLINE_HOST", "ONLINE_PORT", "OPENMS_SERVER_URL"],
 });
 
 /** Read at most 16 KiB plus an overflow byte; paths never depend on the working directory. */

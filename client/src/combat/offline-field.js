@@ -42,9 +42,9 @@ import {
   overlaps,
   rectangleState,
   setMobAction,
-  mobFlipped,
   MOB_POLICY,
 } from "./offline-mobs.js";
+import { mobFlipped } from "./mob-movement-metadata.js";
 import {
   awardExperience,
   experienceRequired,
@@ -105,9 +105,12 @@ export class OfflineField {
     this.simulation = scene.simulation;
     this.combat = scene.actor.avatar?.combat;
     validateWeaponCombat(this.combat ?? null);
-    this.mobs = createMobs(scene.manifest.life, this.simulation);
+    this.mobs = hooks.mobs ?? createMobs(scene.manifest.life, this.simulation);
     this.byId = new Map(this.mobs.map((mob) => [mob.id, mob]));
-    this.renderer = new OfflineMobRenderer(scene, this.mobs);
+    this.renderer =
+      hooks.renderer === undefined
+        ? new OfflineMobRenderer(scene, this.mobs)
+        : hooks.renderer;
     this.hitboxes = createHitboxState();
     this.receiverContext = {};
     this.attackBody = rectangleState();
@@ -169,6 +172,7 @@ export class OfflineField {
       standardPDD: this.scene.manifest.combat.standardPDD,
       attackPADamage: null,
     };
+    this.defenseContext = { magic: false, contact: false, outcome: null };
     this.damageGenerator = new PhysicalDamage(
       this.random,
       this.hooks.nextUint32 ?? null,
@@ -963,33 +967,80 @@ export class OfflineField {
     if (hasMobStatus(mob, "inert")) {
       return this.hypnotizedImpact(mob, attackAction);
     }
-    if (!this.canReceiveMobHit(mob, attackAction)) return false;
-    const hit = this.localHit;
-    hit.source = mob;
-    hit.attackAction = attackAction;
-    hit.element =
-      magic && attackAction !== null
-        ? (mob.pendingAttack?.properties.elemAttr ?? 0)
-        : 0;
-    if (this.rejectsHit(hit)) return false;
-    if (!this.admitIncomingHit(hit, mob, magic)) return false;
-    hit.direction = this.simulation.x >= mob.x ? 1 : -1;
-    const accepted = this.tryReceiveHit(hit);
-    if (accepted) this.publishIncomingHit(hit);
-    return accepted;
+    return this.commitHitOutcome(this.prepareMobHit(mob, magic, attackAction));
   }
 
-  canReceiveMobHit(mob, attackAction) {
-    if (this.hooks.interceptContact?.(mob, attackAction)) return false;
+  /** Original admission and damage, with controller effects deferred until its owner commits. */
+  prepareMobHit(mob, magic, attackAction = null, profile = this.store.profile) {
+    const outcome = this.prepareMobHitAdmission(
+      mob,
+      magic,
+      attackAction,
+      profile,
+    );
+    return outcome.admitted
+      ? this.prepareHitOutcome(outcome.hit, profile, outcome)
+      : outcome;
+  }
+
+  prepareMobHitAdmission(
+    mob,
+    magic,
+    attackAction = null,
+    profile = this.store.profile,
+  ) {
+    const outcome = this.createMobHitOutcome(mob, magic, attackAction, profile);
+    const { hit } = outcome;
+    if (
+      !this.canReceiveMobHit(mob, attackAction, outcome) ||
+      this.rejectsHit(hit)
+    ) {
+      return outcome;
+    }
+    if (!this.admitIncomingHit(hit, mob, magic, outcome)) return outcome;
+    hit.direction = this.simulation.x >= mob.x ? 1 : -1;
+    outcome.admitted =
+      !this.rejectsHit(hit) &&
+      !(outcome.rejectContact && attackAction === null);
+    return outcome;
+  }
+
+  createMobHitOutcome(mob, magic, attackAction, profile) {
+    const hit = {
+      ...this.localHit,
+      source: mob,
+      attackAction,
+      element:
+        magic && attackAction !== null
+          ? (mob.pendingAttack?.properties.elemAttr ?? 0)
+          : 0,
+    };
+    return {
+      hit,
+      effects: [],
+      accepted: false,
+      consumed: false,
+      profile,
+      publishIncoming: true,
+    };
+  }
+
+  canReceiveMobHit(mob, attackAction, outcome = null) {
+    if (this.hooks.interceptContact?.(mob, attackAction, outcome)) return false;
     if (this.targetFor(mob) !== this.simulation) return false;
     return !this.hooks.protects?.(this.simulation.x, this.simulation.y);
   }
 
-  publishIncomingHit(hit) {
+  publishIncomingHit(hit, outcome) {
     const mob = hit.source;
+    const target = this.hooks.resolveIncomingSource
+      ? this.hooks.resolveIncomingSource(mob)
+      : mob;
     this.hooks.onEventDamage?.();
-    if (hit.attackAction === null) this.skillCombat.energyTouch(mob);
-    this.skillDefenses.flushReflection();
+    if (hit.attackAction === null && target) {
+      this.skillCombat.energyTouch(target);
+    }
+    this.skillDefenses.flushReflection(outcome);
     const properties = mob.pendingAttack?.properties;
     if (hit.amount > 0 && properties?.disease) {
       this.diseases.apply(properties.disease, properties.level ?? 1);
@@ -997,20 +1048,32 @@ export class OfflineField {
   }
 
   hypnotizedImpact(mob, action) {
+    return this.commitHitOutcome(this.prepareHypnotizedImpact(mob, action));
+  }
+
+  prepareHypnotizedImpact(mob, action) {
+    const outcome = { effects: [], accepted: false, consumed: false };
     const controller = this.hooks.skillTargetController?.();
     const target = controller?.targetFor(mob);
-    if (!target) return false;
+    if (!target) return outcome;
+    const generation = target.deaths;
     const amount = controller.attack(
       mob,
       target,
       action ? mob.pendingAttack : null,
+      outcome,
     );
-    if (amount === null) return false;
-    this.damageTarget(target, amount, this.hypnotizeHit, mob.facing);
-    return true;
+    if (amount === null) return outcome;
+    outcome.effects.push(() => {
+      if (target.deaths === generation && target.alive && target.active) {
+        this.damageTarget(target, amount, this.hypnotizeHit, mob.facing);
+      }
+    });
+    outcome.intercepted = true;
+    return outcome;
   }
 
-  admitIncomingHit(hit, mob, magic) {
+  admitIncomingHit(hit, mob, magic, outcome = null) {
     const info = mob.skillStatus.projected;
     if (
       !this.prepareIncomingOptions(
@@ -1033,7 +1096,7 @@ export class OfflineField {
       return false;
     }
     projectCharacterStats(
-      this.store.profile,
+      outcome?.profile ?? this.store.profile,
       this.hooks,
       this.receiverStats,
       this.hooks.derivedStats?.() ?? null,
@@ -1044,12 +1107,12 @@ export class OfflineField {
       info,
       this.incomingOptions,
     );
-    hit.amount = this.skillDefenses.reduce(
-      hit.amount,
-      mob,
-      magic,
-      hit.attackAction === null,
-    );
+    const context = this.defenseContext;
+    context.magic = magic;
+    context.contact = hit.attackAction === null;
+    context.outcome = outcome;
+    hit.amount = this.skillDefenses.reduce(hit.amount, mob, context);
+    context.outcome = null;
     return true;
   }
 
@@ -1091,18 +1154,38 @@ export class OfflineField {
    * 009581a9 bypasses timer/death in authorized mode. Its separate status/action
    * deadlines are not equivalent to every ordinary attack being invulnerable. */
   tryReceiveHit(hit) {
+    return this.commitHitOutcome(
+      this.prepareHitOutcome(hit, this.store.profile),
+    );
+  }
+
+  prepareHitOutcome(
+    hit,
+    profile,
+    outcome = { hit, effects: [], accepted: false, consumed: false, profile },
+  ) {
     validatePlayerHit(hit);
-    if (this.rejectsHit(hit)) return false;
-    this.receiveHitImpulse(hit);
-    const profile = this.store.profile;
-    this.applyHitDamage(hit, profile);
-    this.lastDamage = hit.amount;
-    this.hitTimerMs = hit.amount > 0 ? PLAYER_HIT.timerMs : -PLAYER_HIT.timerMs;
-    if (hit.amount > 0) {
-      this.hooks.interruptChakra?.();
-      this.scene.actor.setExpression("hit", PLAYER_HIT.timerMs);
-      this.alertTimerMs = PLAYER_HIT.alertMs;
+    if (
+      this.rejectsHit(hit) ||
+      (outcome.rejectContact && hit.attackAction === null)
+    ) {
+      return outcome;
     }
+    outcome.impulse ??= this.prepareHitImpulse(hit);
+    this.applyHitDamage(hit, profile, outcome);
+    outcome.accepted = true;
+    return outcome;
+  }
+
+  /** One-use publication consumes neither currency nor another random word. */
+  commitHitOutcome(outcome) {
+    if (!outcome || outcome.consumed) return false;
+    outcome.consumed = true;
+    for (const effect of outcome.effects) effect();
+    if (!outcome.accepted) return outcome.intercepted ?? false;
+    const { hit, impulse } = outcome;
+    const profile = this.store.profile;
+    this.applyHitPresentation(hit, impulse);
     const killed = profile.hp === 0 && !this.dead;
     if (killed) {
       this.phase = "dead";
@@ -1112,14 +1195,34 @@ export class OfflineField {
     this.changed();
     this.hooks.onPlayerHit?.(hit, this.simulation);
     if (killed) this.hooks.onPlayerDeath?.();
+    if (outcome.publishIncoming) this.publishIncomingHit(hit, outcome);
     return true;
   }
 
+  applyHitPresentation(hit, impulse) {
+    this.receiveHitImpulse(hit, impulse);
+    this.lastDamage = hit.amount;
+    this.hitTimerMs = hit.amount > 0 ? PLAYER_HIT.timerMs : -PLAYER_HIT.timerMs;
+    if (hit.amount > 0) {
+      this.hooks.interruptChakra?.();
+      this.scene.actor.setExpression("hit", PLAYER_HIT.timerMs);
+      this.alertTimerMs = PLAYER_HIT.alertMs;
+    }
+  }
+
   /** 00959321..382 computes absorption first, then element-qualified item defense. */
-  applyHitDamage(hit, profile) {
-    const guarded = this.skillDefenses.absorbMeso(Math.max(0, hit.amount));
+  applyHitDamage(hit, profile, outcome) {
+    const mp = profile.mp,
+      meso = profile.meso;
+    const guarded = this.skillDefenses.absorbMeso(
+      Math.max(0, hit.amount),
+      profile,
+      outcome,
+    );
     let hpDamage =
-      guarded > 0 ? (this.hooks.absorbDamage?.(guarded) ?? guarded) : 0;
+      guarded > 0
+        ? (this.hooks.absorbDamage?.(guarded, profile, outcome) ?? guarded)
+        : 0;
     if (
       !Number.isSafeInteger(hpDamage) ||
       hpDamage < 0 ||
@@ -1132,37 +1235,40 @@ export class OfflineField {
     hit.amount = defended;
     if (hit.amount > 0) profile.hp = Math.max(0, profile.hp - hpDamage);
     hit.hpDamage = hpDamage;
+    hit.mpDamage = mp - profile.mp;
+    hit.mesoDamage = meso - profile.meso;
   }
 
   /** Damage and protection still commit when the native impulse is refused. */
-  receiveHitImpulse(hit) {
-    this.lastKnockbackRoll = -1;
-    this.lastKnockback = "nonpositive-damage";
-    if (hit.amount <= 0) return;
+  prepareHitImpulse(hit) {
+    const impulse = {
+      roll: -1,
+      kind: "nonpositive-damage",
+      direction: hit.direction,
+    };
+    if (hit.amount <= 0) return impulse;
     const stance = knockbackChance(
       Math.max(
         this.hooks.derivedStats?.().stance ?? 0,
         this.skillCombat.energyStance(),
       ),
     );
-    this.lastKnockbackRoll = knockbackRoll(this.damageGenerator.next());
-    if (this.lastKnockbackRoll < stance) {
-      this.lastKnockback = "stance";
-      return;
+    impulse.roll = knockbackRoll(this.damageGenerator.next());
+    if (impulse.roll < stance) impulse.kind = "stance";
+    else if (hit.direction === PLAYER_HIT.noDirection) {
+      impulse.kind = "no-direction";
+    } else if (hit.source && impulse.roll >= OFFLINE_ORDINARY_RECOIL_PERCENT) {
+      impulse.kind = "offline-recoil-resistance";
+    } else impulse.kind = "ordinary";
+    return impulse;
+  }
+
+  receiveHitImpulse(hit, impulse = this.prepareHitImpulse(hit)) {
+    this.lastKnockbackRoll = impulse.roll;
+    this.lastKnockback = impulse.kind;
+    if (impulse.kind === "ordinary") {
+      applyHitImpulse(this.simulation, impulse.direction);
     }
-    if (hit.direction === PLAYER_HIT.noDirection) {
-      this.lastKnockback = "no-direction";
-      return;
-    }
-    if (
-      hit.source &&
-      this.lastKnockbackRoll >= OFFLINE_ORDINARY_RECOIL_PERCENT
-    ) {
-      this.lastKnockback = "offline-recoil-resistance";
-      return;
-    }
-    applyHitImpulse(this.simulation, hit.direction);
-    this.lastKnockback = "ordinary";
   }
 
   projectHitState(hit) {

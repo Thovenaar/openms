@@ -1,6 +1,12 @@
 import { test, expect } from "bun:test";
-import { decodeServer, PROTOCOL } from "../../shared/protocol.js";
+import {
+  canonicalAction,
+  decodeClient,
+  decodeServer,
+  PROTOCOL,
+} from "../../shared/protocol.js";
 import { OnlineTransport } from "../src/online/transport.js";
+import { createDefaultBindings } from "../src/input/keymap.js";
 
 function transition(phase, fieldEpoch, eventSeq) {
   return decodeServer(
@@ -50,6 +56,33 @@ function connected() {
   });
   return { transport, sent };
 }
+
+test("a complete keyboard preference passes client and server command admission", async () => {
+  const { transport, sent } = connected();
+  try {
+    const keyBindings = createDefaultBindings();
+    keyBindings.keys[30] = { type: 4, id: 0 };
+    const action = { kind: "key-bindings.save", keyBindings };
+    const pending = transport.command(action);
+    const command = decodeClient(JSON.stringify(sent[0]));
+    // Server receipt identity uses the same domain admission as the client sender.
+    expect(JSON.parse(canonicalAction(command.action))).toEqual({
+      domain: "character",
+      action,
+    });
+    const receipt = {
+      operationId: command.operationId,
+      status: "committed",
+      code: "OK",
+      domainRevision: 1,
+      transactionId: "binding_commit",
+    };
+    transport.result(receipt);
+    await pending;
+  } finally {
+    transport.close();
+  }
+});
 
 function timing(fieldEpoch, serverTick) {
   return {

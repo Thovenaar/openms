@@ -615,10 +615,27 @@ function backgroundRepeat(type) {
   return 3;
 }
 
+/** Action-root repeat is retained once; native -1/-2 are nonlooping modes. */
+function actionRepeat(frames) {
+  for (let index = 0; index < frames.length; index++) {
+    const repeat = frames[index].repeat;
+    if (repeat === undefined) continue;
+    if (
+      index !== 0 ||
+      !Number.isSafeInteger(repeat) ||
+      repeat < -2 ||
+      repeat >= frames.length
+    ) {
+      throw new Error("Invalid animation repeat");
+    }
+  }
+}
+
 /** Validate action collections and the initial action after entity metadata. */
 function entityActions(entity, map) {
   for (const [, frames] of entries(entity.actions, LIMITS.actions)) {
     if (!array(frames, LIMITS.frames).length) throw new Error("Empty action");
+    actionRepeat(frames);
     for (const value of frames) {
       frame(value, map, entity.background);
     }

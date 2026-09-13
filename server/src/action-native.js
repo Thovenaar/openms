@@ -1,27 +1,27 @@
 import { validateNativePreferences } from "../../shared/native-presentation.js";
 import { nativeQuestViews } from "./native-presentation.js";
 import { reject } from "./action-rules.js";
+import { narrativeQuestSystem } from "./interaction-quest-system.js";
+import { questObjectives } from "../../client/src/quests/quest-journal-model.js";
 
-function validateTracked(profile, actor, world) {
-  const views = new Map(
-    nativeQuestViews({ ...actor, profile }, world).map((entry) => [
-      entry.id,
-      entry,
-    ]),
-  );
+function validateTracked(profile, world) {
+  const system = narrativeQuestSystem(profile, world);
   for (const id of profile.settings.questTracker.ids) {
-    if (!views.get(id)?.tracker) {
-      reject("NOT_ALLOWED", "Quest cannot be tracked.");
-    }
+    const record = system.catalog.records[id];
+    if (
+      !system.isTrackerQuest(record, id, profile) ||
+      !questObjectives(system, record, profile).length
+    )
+      {reject("NOT_ALLOWED", "Quest cannot be tracked.");}
   }
 }
 
 /** These closed requests only change admitted preference/notice domains inside the existing transaction. */
-export function executeNativePreference(profile, action, context) {
+export async function executeNativePreference(profile, action, context) {
   validateNativePreferences(action);
   if (action.kind === "settings.save") {
     profile.settings = structuredClone(action.settings);
-    validateTracked(profile, context.actor, context.world);
+    validateTracked(profile, context.world);
   } else if (action.kind === "key-bindings.save") {
     profile.keyBindings = structuredClone(action.keyBindings);
   } else if (action.kind === "skill-macros.save") {
@@ -31,6 +31,11 @@ export function executeNativePreference(profile, action, context) {
   } else if (action.kind === "quest.notice") {
     acknowledgeNotice(profile, action.questId, context);
   } else reject("INVALID_MESSAGE", "Unknown native preference command.");
+  if (action.kind === "quest.track") {
+    const exclusions = new Set(context.actor.questTrackerExclusions);
+    if (!action.tracked) exclusions.add(action.questId);
+    await autoRegisterQuests(profile, context.world, exclusions);
+  }
 }
 
 function saveMacros(profile, macros, world) {
@@ -51,6 +56,9 @@ function saveMacros(profile, macros, world) {
 function changeTracker(profile, action, context) {
   const tracker = profile.settings.questTracker;
   if (!action.tracked) {
+    if (!context.world.content.catalog.quests.records[action.questId]) {
+      reject("NOT_ALLOWED", "Unknown original quest.");
+    }
     tracker.ids = tracker.ids.filter((id) => id !== action.questId);
     return;
   }
@@ -59,7 +67,7 @@ function changeTracker(profile, action, context) {
   }
   tracker.ids.push(action.questId);
   tracker.open = true;
-  validateTracked(profile, context.actor, context.world);
+  validateTracked(profile, context.world);
 }
 
 function acknowledgeNotice(profile, questId, context) {
@@ -73,4 +81,22 @@ function acknowledgeNotice(profile, questId, context) {
   }
   profile.onlineState.questNotices ??= {};
   profile.onlineState.questNotices[questId] = cycle;
+}
+
+/** Event-time registration shares the offline quest service; the enclosing DB owns commit. */
+export async function autoRegisterQuests(profile, world, exclusions) {
+  if (!profile.settings.questTracker.auto) return;
+  await narrativeQuestSystem(profile, world, exclusions).autoRegister();
+}
+
+/** Exclusions last one play lifetime and change only after the preference is durable. */
+export function commitNativePreference(actor, action, receipt) {
+  if (
+    receipt.status === "committed" &&
+    action.kind === "quest.track" &&
+    !action.tracked
+  ) {
+    actor.questTrackerExclusions ??= new Set();
+    actor.questTrackerExclusions.add(action.questId);
+  }
 }

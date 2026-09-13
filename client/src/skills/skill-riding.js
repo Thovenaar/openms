@@ -1,5 +1,8 @@
-import { EntityAnimation } from "../rendering/animation.js";
-import { loadVisualBundle } from "../rendering/visual-resources.js";
+import {
+  createSkillAnimation,
+  loadSkillVisual,
+} from "./skill-runtime-ports.js";
+
 import { composeRiding } from "./skill-riding-composition.js";
 import { RIDING_SKILLS } from "./skill-world-rules.js";
 
@@ -62,17 +65,17 @@ export class SkillRiding {
   }
 
   async loadMount(input, saddleDescriptor) {
-    const owner = await loadVisualBundle(
+    const owner = await loadSkillVisual(
+      this.system,
       input.descriptor.bundle,
-      this.system.hooks.services,
       this.controller.signal,
     );
     let saddleOwner = null;
     try {
       if (saddleDescriptor) {
-        saddleOwner = await loadVisualBundle(
+        saddleOwner = await loadSkillVisual(
+          this.system,
           saddleDescriptor.bundle,
-          this.system.hooks.services,
           this.controller.signal,
         );
       }
@@ -103,7 +106,7 @@ export class SkillRiding {
     for (const [id, texture] of input.saddleOwner?.textures ?? []) {
       textures.set(id, texture);
     }
-    const animation = new EntityAnimation(entity, textures);
+    const animation = createSkillAnimation(this.system, entity, textures);
     animation.container.visible = false;
     this.system.scene.addWorldContainer(
       animation.container,

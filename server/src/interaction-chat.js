@@ -3,6 +3,7 @@ import {
   publishInteraction,
   requireInteraction,
 } from "./interaction-common.js";
+import { admitActor } from "./action-rules.js";
 
 const MAX_RECIPIENTS = 2048;
 const MAX_MEMBERS = 32;
@@ -83,40 +84,47 @@ function memberIds(group) {
   );
 }
 
-function groupRecipients(actor, channel, world) {
+async function groupRecipients(actor, channel, world) {
   const group = actor.profile.social[channel];
   const ids = memberIds(group);
   requireInteraction(ids.includes(actor.id), "NOT_ALLOWED");
+  const profiles = await world.participants.load(ids);
   const signature = JSON.stringify(group);
   const recipients = [];
   for (const id of ids) {
-    const peer = world.actors.get(id);
-    if (!peer || peer === actor) continue;
-    const membership = peer.profile.social[channel];
+    const profile = profiles.get(id);
+    const membership = profile?.social[channel];
     requireInteraction(
       membership &&
-        membership.id === group.id &&
         JSON.stringify(membership) === signature &&
         memberIds(membership).includes(actor.id),
       "NOT_ALLOWED",
     );
     if (channel === "alliance") {
       requireInteraction(
-        group.guilds.includes(peer.profile.social.guild?.id) &&
+        group.guilds.includes(profile.social.guild?.id) &&
           group.guilds.includes(actor.profile.social.guild?.id),
         "NOT_ALLOWED",
       );
     }
-    if (permitted(actor, peer, channel)) recipients.push(peer);
+    const peer = world.actors.get(id);
+    if (peer !== actor && permitted(actor, peer, channel))
+      {recipients.push(peer);}
   }
   return recipients;
 }
 
-function buddyRecipients(actor, world) {
+function buddyRecipients(actor, world, groupId = null) {
   const friends = actor.profile.social.friends;
   requireInteraction(friends.length <= MAX_MEMBERS, "CONTENT_MISMATCH");
   const recipients = [];
+  if (groupId !== null)
+    {requireInteraction(
+      actor.profile.social.groups.includes(groupId),
+      "NOT_ALLOWED",
+    );}
   for (const friend of friends) {
+    if (groupId !== null && friend.group !== groupId) continue;
     const peer = world.actors.get(friend.id);
     if (
       permitted(actor, peer, "buddy") &&
@@ -152,14 +160,28 @@ function mapRecipients(actor, world) {
   return recipients;
 }
 
-function chatRecipients(actor, action, world) {
+async function chatRecipients(actor, action, world) {
   if (action.channel === "map") return mapRecipients(actor, world);
   if (action.channel === "buddy") return buddyRecipients(actor, world);
+  if (action.channel === "group") {
+    requireInteraction(typeof action.groupId === "string", "NOT_ALLOWED");
+    return buddyRecipients(actor, world, action.groupId);
+  }
   if (["party", "guild", "alliance"].includes(action.channel)) {
     return groupRecipients(actor, action.channel, world);
   }
   // No authored spouse relation exists in the admitted durable social schema.
   requireInteraction(action.channel !== "spouse", "CONTENT_MISMATCH");
+  if (action.recipientName) {
+    try {
+      action = {
+        ...action,
+        recipientId: await world.participants.resolve(action.recipientName),
+      };
+    } catch {
+      requireInteraction(false, "NOT_ALLOWED");
+    }
+  }
   requireInteraction(
     action.channel === "whisper" && action.recipientId !== actor.id,
     "NOT_ALLOWED",
@@ -170,9 +192,18 @@ function chatRecipients(actor, action, world) {
   return [peer];
 }
 
-export function executeChat(actor, message, world) {
+export async function executeChat(actor, message, world) {
   chatAdmission(actor, message);
-  const recipients = chatRecipients(actor, message.action, world);
+  const recipients = await chatRecipients(actor, message.action, world);
+  admitActor(actor, world, message.fieldEpoch);
+  requireInteraction(
+    message.expectedRevision === actor.socialRevision,
+    "STALE_REVISION",
+  );
+  requireInteraction(
+    message.action.channel === "map" || recipients.length > 0,
+    "NOT_ALLOWED",
+  );
   const event = {
     kind: "chat",
     messageId: crypto.randomUUID(),

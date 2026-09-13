@@ -1,194 +1,453 @@
 import { Container } from "pixi.js";
-import { StreamScene } from "../rendering/stream-scene.js";
-import { manifest as validateManifest } from "../rendering/stream-validation.js";
-import { nearestSavedArrival } from "../world/field-arrival.js";
+import { loadVisualBundle } from "../rendering/visual-resources.js";
+import { UISurface } from "../ui/ui-surface.js";
+import { LoginScene } from "./login-scene.js";
+import { loginCameraY } from "./login-motion.js";
 
-const CANDIDATE_NAMES = [
-  "Henesys",
-  "Ellinia",
-  "Kerning City",
-  ["Lith Harbor", "Lith Harbour"],
-  "Orbis",
-  "Ludibrium",
-];
-const HOLD_MS = 18000;
-const FADE_MS = 1400;
-const PAN_SPEED = 26;
-const PAN_MARGIN = 60;
+const BUTTON_STATES = ["normal", "mouseOver", "pressed", "disabled"];
+const MAX_SURFACES = 48;
+// 005fc0e4: centerY=-8-600*stage. Explorer creation adds race substate1.
+const STAGES = Object.freeze({
+  account: { index: 0, centerY: -8 },
+  characters: { index: 2, centerY: -1208 },
+  create: { index: 4, centerY: -3008 },
+});
 
-/** Presentation-only map scenery behind the account window; never field/gameplay authority. */
+/** Native MapLogin field plus original login controls; no substitute scenery. */
 export class LoginBackdrop {
-  constructor({ app, services, catalog, network, onError = null }) {
-    this.app = app;
-    this.services = services;
-    this.catalog = catalog;
-    this.network = network;
-    this.onError = onError;
-    this.container = new Container({ label: "login-backdrop" });
-    this.container.eventMode = "none";
+  constructor(login) {
+    this.login = login;
+    this.root = new Container({ label: "login-artwork" });
+    this.surfaces = [];
+    this.buttons = [];
+    this.stages = new Map();
+    this.scene = new LoginScene(login.window);
+    this.camera = { x: -400, y: -308 };
+    this.currentStage = null;
+    this.transition = null;
     this.controller = new AbortController();
-    this.scenes = [];
-    this.queue = [];
-    this.heldMs = 0;
-    this.fade = 0;
-    this.loading = false;
+    this.ready = false;
     this.destroyed = false;
-    this.failed = new Set();
-  }
-
-  /** Candidate ids resolve once by authored map name; unknown names are skipped, never guessed. */
-  mapIds() {
-    const names = new Map();
-    for (const [id, name] of Object.entries(this.catalog?.mapNames ?? {})) {
-      if (!this.catalog.maps?.[id]) continue;
-      names.set(String(name).toLowerCase(), id);
-    }
-    const ids = [];
-    for (const candidate of CANDIDATE_NAMES) {
-      const variants = Array.isArray(candidate) ? candidate : [candidate];
-      const id = variants
-        .map((name) => names.get(name.toLowerCase()))
-        .find((value) => value !== undefined);
-      if (id) ids.push(id);
-    }
-    return ids;
   }
 
   async prepare(signal) {
-    const ids = this.mapIds();
-    if (!ids.length) return;
-    this.queue = ids;
-    this.app.stage.addChildAt(this.container, 0);
-    const combined = signal
-      ? AbortSignal.any([signal, this.controller.signal])
-      : this.controller.signal;
-    this.signal = combined;
-    await this.showNext(combined);
-  }
-
-  async showNext(signal) {
-    if (this.loading) return;
-    const available = this.queue.filter((id) => !this.failed.has(id));
-    if (!available.length) return;
-    const id = available[Math.floor(Math.random() * available.length)];
-    this.loading = true;
-    let scene;
-    try {
-      scene = await this.loadScene(id, signal);
-    } catch (error) {
-      if (error?.name === "AbortError") return;
-      // One unrenderable map must never block the account window.
-      this.failed.add(id);
-      this.onError?.(error);
-      this.loading = false;
-      return this.showNext(signal);
-    } finally {
-      this.loading = false;
+    const combined = AbortSignal.any([signal, this.controller.signal]);
+    const descriptor = this.login.catalog.ui?.bundles?.Login;
+    if (!descriptor) {
+      throw new Error("The original Login artwork bundle is missing");
     }
-    if (this.destroyed || signal?.aborted) {
-      scene.destroy();
+    this.resource = await loadVisualBundle(
+      descriptor,
+      this.login.services,
+      combined,
+    );
+    if (this.destroyed) {
+      this.resource.destroy();
       return;
     }
-    scene.container.alpha = 0;
-    const previous = this.scenes.at(-1) ?? null;
-    this.scenes.push(scene);
-    this.fade = 0;
-    this.heldMs = 0;
-    if (previous) previous.retiring = true;
+    this.basicResource = await loadVisualBundle(
+      this.login.catalog.ui.bundles.Basic,
+      this.login.services,
+      combined,
+    );
+    if (this.destroyed) {
+      this.basicResource.destroy();
+      return;
+    }
+    await this.scene.prepare(this.login.catalog, this.login.services, combined);
+    if (this.destroyed) return;
+    this.buildScreens();
+    this.buildButtons();
+    this.buildDialog();
+    this.ready = true;
+    this.login.host.dataset.artwork = "ready";
   }
 
-  async loadScene(id, signal) {
-    const descriptor = this.catalog?.maps?.[id];
-    if (!descriptor) {
-      throw new Error(`Login backdrop map ${id} is not packaged`);
+  surface(host, name, size, resource = this.resource) {
+    if (this.surfaces.length >= MAX_SURFACES) {
+      throw new Error("Login artwork surface limit exceeded");
     }
-    const manifest = validateManifest(
-      await this.network.json(descriptor, signal),
+    const panel = new UISurface(
+      { app: this.login.app, host, root: this.root },
+      name,
+      resource,
+      size,
     );
-    const scene = new StreamScene(manifest, this.services, {
-      width: this.app.screen.width,
-      height: this.app.screen.height,
-    });
-    // Presentation-only: no character, mob, NPC or drop actors are instanced.
-    await scene.preparePresentation(
-      signal,
-      nearestSavedArrival(manifest, { x: 0, y: 0, facing: 1 }),
-    );
-    if (this.destroyed || signal?.aborted) {
-      scene.destroy();
-      throw new DOMException("Backdrop cancelled", "AbortError");
-    }
-    this.container.addChildAt(scene.container, 0);
-    this.frameScene(scene);
-    return scene;
+    panel.ownsResource = false;
+    panel.element.className = "online-login-artwork";
+    panel.element.setAttribute("aria-hidden", "true");
+    panel.element.style.pointerEvents = "none";
+    panel.element.style.left = "0";
+    panel.element.style.top = "0";
+    this.surfaces.push(panel);
+    return panel;
   }
 
-  /** The sweep spans the authored map bounds so the camera never leaves packaged regions. */
-  frameScene(scene) {
-    const bounds = scene.manifest.bounds;
-    const viewport = scene.viewport.width;
-    const left = bounds.left + PAN_MARGIN;
-    const right = Math.max(left, bounds.right - viewport - PAN_MARGIN);
-    scene.pan = { left, right, direction: 1 };
-    scene.camera.x = left;
-    scene.camera.y = Math.min(
-      Math.max(scene.camera.y, bounds.top),
-      Math.max(bounds.top, bounds.bottom - scene.viewport.height),
+  buildFrame() {
+    const panel = this.surface(this.login.window, "Login frame", [800, 600]);
+    panel.element.style.zIndex = "1";
+    panel.image("Common/frame", 0, 0);
+  }
+
+  stage(name) {
+    const panel = this.surface(this.login.window, `Login ${name}`, [800, 600]);
+    panel.element.style.zIndex = "2";
+    panel.root.rasterClip = { x: 0, y: 0, width: 800, height: 600 };
+    this.stages.set(name, panel);
+    return panel;
+  }
+
+  buildScreens() {
+    this.buildFrame();
+    this.stage("account");
+    const characters = this.stage("characters");
+    this.characterInfo = characters.image("CharSelect/charInfo", 180, 160);
+    this.rosterArt = [];
+    // 00603ff0: window(-290,-1218); 00606ba9: feet(170+125*i,80).
+    for (let index = 0; index < this.login.rosterSlots.length; index++) {
+      const x = 280 + index * 125;
+      this.rosterArt.push({
+        shadow: characters.stateImage("CharSelect/character/0/0", x, 370),
+        empty: characters.stateImage("CharSelect/character/1/0", x, 370),
+        tags: [
+          this.buildNameTag(characters, 0),
+          this.buildNameTag(characters, 1),
+        ],
+      });
+    }
+    const create = this.stage("create");
+    this.createSettings = create.image("NewChar/charSet", 509, 95);
+    this.createName = create.image("NewChar/charName", 509, 95);
+    this.createRows = [];
+    for (let index = 0; index < 9; index++) {
+      this.createRows.push(
+        create.image(
+          `NewChar/avatarSel/${index}/normal`,
+          520,
+          200 + 18 * index,
+        ),
+      );
+    }
+    this.renderRoster();
+    this.renderCreate();
+  }
+
+  /** 00605b52 tiles the nine-pixel middle, then overlays the two original caps. */
+  buildNameTag(panel, state) {
+    const root = new Container();
+    panel.root.addChild(root);
+    const middle = [];
+    for (let index = 0; index < 24; index++) {
+      const image = panel.image(`CharSelect/nameTag/${state}/1`, index * 9, 0);
+      root.addChild(image.container);
+      middle.push(image);
+    }
+    const left = panel.image(`CharSelect/nameTag/${state}/0`, 0, 0);
+    const right = panel.image(`CharSelect/nameTag/${state}/2`, 0, 0);
+    root.addChild(left.container, right.container);
+    return { root, middle, right };
+  }
+
+  positionNameTags(index) {
+    const slot = this.login.rosterSlots[index];
+    const width = Math.min(
+      216,
+      slot.name.clientWidth < 41 ? 58 : slot.name.clientWidth + 18,
     );
+    const selected = slot.index === this.login.selected;
+    for (let state = 0; state < 2; state++) {
+      const tag = this.rosterArt[index].tags[state];
+      tag.root.visible = Boolean(slot.character) && state === Number(selected);
+      tag.root.position.set(286 + index * 125 - Math.trunc(width / 2), 370);
+      tag.right.setPosition(width - 10, 0);
+      for (let tile = 0; tile < tag.middle.length; tile++) {
+        tag.middle[tile].container.visible = tile * 9 < width - 10;
+      }
+    }
+  }
+  renderRoster() {
+    if (!this.rosterArt) return;
+    this.characterInfo.container.visible = this.login.characters.length > 0;
+    this.login.characterDetail.hidden = !this.login.characters.length;
+    const x = 180 + 130 * (this.login.selected % 3);
+    this.characterInfo.setPosition(x + 45, 160 + 57);
+    this.login.characterDetail.style.left = `${x}px`;
+    for (let index = 0; index < this.rosterArt.length; index++) {
+      const occupied = Boolean(this.login.rosterSlots[index].character);
+      this.rosterArt[index].shadow.container.visible = occupied;
+      this.rosterArt[index].empty.container.visible = !occupied;
+      this.positionNameTags(index);
+    }
+  }
+
+  renderCreate() {
+    if (!this.createSettings) return;
+    const naming = this.login.creationPhase === "name";
+    this.createSettings.container.visible = !naming;
+    this.createName.container.visible = naming;
+    for (const row of this.createRows) row.container.visible = !naming;
+  }
+
+  buildButtons() {
+    const login = this.login;
+    const bindings = [
+      [login.submitButton, "Title/BtLogin"],
+      [login.signUpTab, "Title/BtNew"],
+      [login.enterButton, "CharSelect/BtSelect"],
+      [login.createButton, "CharSelect/BtNew"],
+      [login.deleteButton, "CharSelect/BtDelete"],
+      [login.backButton, "NewChar/BtNo"],
+      [login.submitCreate, "NewChar/BtYes"],
+    ];
+    for (const [button, path] of bindings) this.skin(button, path);
+    this.skinPage(login.previous, "CharSelect/pageL");
+    this.skinPage(login.next, "CharSelect/pageR");
+    for (const row of Object.values(login.optionRows)) {
+      this.skin(row.previous, "NewChar/BtLeft");
+      this.skin(row.next, "NewChar/BtRight");
+    }
+    for (const { button, path } of login.accountButtons) {
+      this.skin(button, path);
+    }
+  }
+
+  skin(button, path, resource = this.resource) {
+    const normal = resource.manifest.metadata.assets[`${path}/normal/0`];
+    if (!normal) throw new Error(`Missing login control ${path}`);
+    const panel = this.surface(
+      button,
+      path,
+      [normal.width, normal.height],
+      resource,
+    );
+    const entry = {
+      button,
+      panel,
+      states: {},
+      hover: false,
+      pressed: false,
+    };
+    button.classList.add("online-login-skinned");
+    button.style.width = `${Math.max(parseFloat(button.style.width) || 0, normal.width)}px`;
+    button.style.height = `${Math.max(parseFloat(button.style.height) || 0, normal.height)}px`;
+    button.title = button.getAttribute("aria-label") ?? button.textContent;
+    for (const state of BUTTON_STATES) {
+      const source = `${path}/${state}/0`;
+      if (panel.assets[source]) {
+        entry.states[state] = panel.stateImage(
+          source,
+          normal.origin.x,
+          normal.origin.y,
+        );
+      }
+    }
+    this.bindButtonInput(entry);
+    this.buttons.push(entry);
+    this.paintButton(entry);
+    return entry;
+  }
+
+  /** Page arrows are two authored image states, not NewChar's small row arrows. */
+  skinPage(button, path) {
+    const normal = this.resource.manifest.metadata.assets[`${path}/0/0`];
+    const panel = this.surface(button, path, [normal.width, normal.height]);
+    const entry = { button, panel, states: {}, hover: false, pressed: false };
+    button.classList.add("online-login-skinned");
+    button.style.width = `${normal.width}px`;
+    button.style.height = `${normal.height}px`;
+    entry.states.normal = panel.stateImage(
+      `${path}/0/0`,
+      normal.origin.x,
+      normal.origin.y,
+    );
+    entry.states.mouseOver = panel.stateImage(
+      `${path}/1/0`,
+      normal.origin.x,
+      normal.origin.y - Number(path.endsWith("pageR")),
+    );
+    this.bindButtonInput(entry);
+    this.buttons.push(entry);
+  }
+
+  bindButtonInput(entry) {
+    const { button } = entry;
+    const options = { signal: this.controller.signal };
+    button.addEventListener(
+      "pointerenter",
+      () => {
+        entry.hover = true;
+      },
+      options,
+    );
+    button.addEventListener(
+      "pointerleave",
+      () => {
+        entry.hover = false;
+        entry.pressed = false;
+      },
+      options,
+    );
+    button.addEventListener(
+      "pointerdown",
+      () => {
+        entry.pressed = true;
+      },
+      options,
+    );
+    button.addEventListener(
+      "pointerup",
+      () => {
+        entry.pressed = false;
+      },
+      options,
+    );
+    button.addEventListener(
+      "blur",
+      () => {
+        entry.pressed = false;
+      },
+      options,
+    );
+    button.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === " " || event.key === "Enter") entry.pressed = true;
+      },
+      options,
+    );
+    button.addEventListener(
+      "keyup",
+      () => {
+        entry.pressed = false;
+      },
+      options,
+    );
+  }
+
+  buildDialog() {
+    const dialog = this.login.dialogs;
+    const panel = this.surface(dialog.window, "Login message", [362, 219]);
+    panel.image("Notice/backgrnd/2", 0, 0);
+    this.skin(dialog.confirmButton, "BtOK2", this.basicResource);
+    this.skin(dialog.cancelButton, "BtCancel2", this.basicResource);
+  }
+
+  paintButton(entry) {
+    const state = entry.button.disabled
+      ? "disabled"
+      : entry.pressed
+        ? "pressed"
+        : entry.hover
+          ? "mouseOver"
+          : "normal";
+    const visible = entry.states[state] ?? entry.states.normal;
+    for (const name of BUTTON_STATES) {
+      const sprite = entry.states[name];
+      if (sprite) sprite.container.visible = sprite === visible;
+    }
+  }
+
+  showStage(name) {
+    if (!this.ready) return;
+    const next = STAGES[name];
+    if (!next) throw new Error(`Unknown native login stage ${name}`);
+    if (this.currentStage && this.currentStage !== name) {
+      const previous = STAGES[this.currentStage];
+      this.transition = {
+        from: this.currentStage,
+        to: name,
+        fromY: this.camera.y,
+        toY: next.centerY - 300,
+        durationMs: 500 + 300 * Math.abs(next.index - previous.index),
+        elapsedMs: 0,
+      };
+    } else if (!this.currentStage) {
+      this.camera.y = next.centerY - 300;
+    }
+    this.currentStage = name;
+    for (const [stage, panel] of this.stages) {
+      panel.element.hidden = stage !== name;
+      panel.root.visible = stage === name;
+    }
+    this.positionStage();
+  }
+
+  replayTransition() {
+    if (!this.transition) return;
+    this.transition.elapsedMs = 0;
+    this.camera.y = this.transition.fromY;
+    this.positionStage();
+  }
+
+  positionStage() {
+    const offset = STAGES[this.currentStage].centerY - 300 - this.camera.y;
+    const transform = `translateY(${Math.trunc(offset)}px)`;
+    this.stages.get(this.currentStage).element.style.transform = transform;
+    const stage =
+      this.currentStage === "account"
+        ? this.login.accountStage
+        : this.currentStage === "characters"
+          ? this.login.characterStage
+          : this.login.createStage;
+    stage.style.transform = transform;
+    this.login.window.querySelector(".online-login-body").inert = Boolean(
+      this.transition && this.transition.elapsedMs < this.transition.durationMs,
+    );
+  }
+
+  advanceTransition(ms) {
+    const transition = this.transition;
+    if (!transition || transition.elapsedMs >= transition.durationMs) return;
+    transition.elapsedMs = Math.min(
+      transition.durationMs,
+      transition.elapsedMs + ms,
+    );
+    this.camera.y = loginCameraY(
+      transition.fromY,
+      transition.toY,
+      transition.elapsedMs,
+      transition.durationMs,
+    );
+    this.positionStage();
+    if (transition.elapsedMs === transition.durationMs) this.login.focusStage();
+  }
+
+  snapshot() {
+    const transition = this.transition;
+    return {
+      ...this.scene.snapshot(),
+      transition: {
+        from: transition?.from ?? null,
+        to: transition?.to ?? this.currentStage,
+        elapsedMs: Math.trunc(transition?.elapsedMs ?? 0),
+        durationMs: transition?.durationMs ?? 0,
+        active: Boolean(
+          transition && transition.elapsedMs < transition.durationMs,
+        ),
+        replayable: Boolean(transition),
+      },
+    };
   }
 
   update(ms) {
-    if (this.destroyed || !this.scenes.length) return;
-    for (const scene of this.scenes) this.advanceScene(scene, ms);
-    this.advanceCycle(ms);
+    if (!this.ready || this.destroyed) return;
+    this.advanceTransition(ms);
+    this.scene.update(this.camera, ms);
+    for (const entry of this.buttons) this.paintButton(entry);
+    for (const panel of this.surfaces) panel.update(ms);
   }
 
-  /** Scenery advances authored frame timings; backgrounds also re-layout under the pan. */
-  advanceScene(scene, ms) {
-    scene.container.position.set(-scene.camera.x, -scene.camera.y);
-    for (const entity of scene.backgrounds) {
-      entity.updateBackground(scene.camera, scene.viewport);
-    }
-    for (const entity of scene.entities) {
-      if (!entity.gameplayOwned) entity.advance(ms);
-    }
-    if (scene.retiring) return;
-    const pan = scene.pan;
-    scene.camera.x += pan.direction * PAN_SPEED * (ms / 1000);
-    if (scene.camera.x <= pan.left || scene.camera.x >= pan.right) {
-      pan.direction = -pan.direction;
-      scene.camera.x = Math.min(pan.right, Math.max(pan.left, scene.camera.x));
-    }
-    scene.updateDemand();
-  }
-
-  advanceCycle(ms) {
-    if (this.scenes.length === 1) {
-      this.scenes[0].container.alpha = 1;
-      this.heldMs += ms;
-      if (this.heldMs >= HOLD_MS) {
-        this.heldMs = 0;
-        this.showNext(this.controller.signal).catch(() => {});
-      }
-      return;
-    }
-    this.fade = Math.min(1, this.fade + ms / FADE_MS);
-    const [previous, current] = this.scenes;
-    previous.container.alpha = 1 - this.fade;
-    current.container.alpha = this.fade;
-    if (this.fade < 1) return;
-    previous.destroy();
-    this.scenes.shift();
-    this.heldMs = 0;
-  }
-
-  /** Entering the world removes the backdrop immediately; the field owns the canvas. */
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
     this.controller.abort();
-    for (const scene of this.scenes) scene.destroy();
-    this.scenes.length = 0;
-    this.container.destroy({ children: true });
+    this.scene.destroy();
+    for (const panel of this.surfaces) panel.destroy();
+    this.resource?.destroy();
+    this.basicResource?.destroy();
+    this.root.destroy({ children: true });
+    this.surfaces.length = 0;
+    this.buttons.length = 0;
+    this.stages.clear();
   }
 }

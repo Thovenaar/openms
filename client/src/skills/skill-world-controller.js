@@ -390,11 +390,11 @@ export class SkillWorldController {
   targetFor(mob, fallback) {
     return this.summons.targetFor(mob, fallback);
   }
-  interceptContact(mob, action) {
-    if (this.summons.interceptContact(mob, action)) return true;
+  interceptContact(mob, action, outcome = null) {
+    if (this.summons.interceptContact(mob, action, outcome)) return true;
     const form = this.forms.current;
     return !action && form?.skillId === 5101007
-      ? this.barrel.intercept(mob, form.info)
+      ? this.barrel.intercept(mob, form.info, outcome)
       : false;
   }
   protects(x, y) {

@@ -1,6 +1,6 @@
 import { placeBody, sweepBody } from "../world/life-geometry-numeric.js";
 import { knockbackChance } from "./combat-knockback.js";
-import { mobMovementMetadata } from "./mob-movement-metadata.js";
+import { mobFlipped, mobMovementMetadata } from "./mob-movement-metadata.js";
 import {
   createMobFlight,
   moveMobFlightRecoil,
@@ -352,11 +352,6 @@ function advanceMobAction(mob, ms) {
       return;
     }
   }
-}
-
-/** noFlip locks artwork/body mirroring, not the grounded controller's heading. */
-export function mobFlipped(mob) {
-  return mob.facing > 0 && !mob.template.info.noFlip;
 }
 
 export function updateMobBody(mob) {

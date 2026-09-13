@@ -136,6 +136,7 @@ export async function rebuildOwnedServer(session, output) {
 if (import.meta.main) {
   const { startDevServer } = await import("./dev.js");
   const dev = await startDevServer({
+    hostname: "127.0.0.1",
     port: Number(process.argv[2]),
     progress: (line) => console.log(line),
   });

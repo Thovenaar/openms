@@ -319,6 +319,29 @@ export class LocalSocial {
     return this._closed ? null : (this._stores.get(id) ?? null);
   }
 
+  resolveTarget(name) {
+    if (!this._closed && this._stores.has(name))
+      {return { ok: true, targetId: name };}
+    const normalized =
+      typeof name === "string" ? name.trim().toLowerCase() : "";
+    const matches = [];
+    for (const [id, store] of this._stores) {
+      if (id === name || store.profile.name.toLowerCase() === normalized)
+        {matches.push(id);}
+    }
+    if (this._closed || matches.length !== 1) {
+      return {
+        ok: false,
+        code: matches.length > 1 ? "ambiguous-name" : "character-not-loaded",
+        reason:
+          matches.length > 1
+            ? "More than one character has that name. Select an exact character identity."
+            : "No loaded character has that exact name.",
+      };
+    }
+    return { ok: true, targetId: matches[0] };
+  }
+
   participants() {
     return Object.freeze(
       [...this._stores.values()].map((store) =>

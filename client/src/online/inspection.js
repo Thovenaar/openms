@@ -37,6 +37,7 @@ export class OnlineInspection {
     initializeInspectionTheme(this.controller.signal);
     this.refreshBadge();
     this.qualifyWorldSection();
+    this.mountLoginInspection();
     const step = document.querySelector("#step-ms");
     step.min = String(PROTOCOL.TICK_MS);
     step.max = String(PROTOCOL.TICK_MS * 4);
@@ -88,6 +89,73 @@ export class OnlineInspection {
     if (life) life.hidden = true;
     const hint = document.querySelector("#console-world-hint");
     if (hint) hint.textContent = WORLD_HINT_ONLINE;
+  }
+
+  /** Login controls are presentation-only and require no gameplay authority. */
+  mountLoginInspection() {
+    const root = document.createElement("details");
+    root.id = "login-inspection";
+    root.open = true;
+    const title = document.createElement("summary");
+    title.textContent = "Login scene · animation and transitions";
+    this.loginReadout = document.createElement("pre");
+    this.loginReadout.className = "hint";
+    this.loginReadout.setAttribute("aria-label", "Login presentation state");
+    this.loginButtons = [];
+    const actions = document.createElement("div");
+    actions.className = "button-row";
+    for (const [text, action] of [
+      ["Pause animation", "pause"],
+      ["Step 30 ms", "step"],
+      ["Replay transition", "replay"],
+    ]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = text;
+      button.dataset.loginAction = action;
+      button.addEventListener("click", () => this.loginAction(action), {
+        signal: this.controller.signal,
+      });
+      actions.append(button);
+      this.loginButtons.push(button);
+    }
+    root.append(title, actions);
+    const login = this.hooks.login();
+    this.loginUtilities = document.createElement("div");
+    this.loginUtilities.className = "button-row";
+    for (const button of [login.refreshButton, login.signOutButton]) {
+      button.classList.remove("online-login-button");
+      this.loginUtilities.append(button);
+    }
+    root.append(this.loginUtilities, this.loginReadout);
+    document.querySelector("#console-world-hint").after(root);
+    this.loginInspection = root;
+    this.refreshLoginInspection();
+  }
+
+  loginAction(action) {
+    const login = this.hooks.login();
+    if (!login?.visible) return;
+    if (action === "pause") {
+      login.presentationPaused = !login.presentationPaused;
+    } else if (action === "step") login.stepPresentation(PROTOCOL.TICK_MS);
+    else if (action === "replay") login.backdrop?.replayTransition();
+    this.refreshLoginInspection();
+  }
+
+  refreshLoginInspection() {
+    const login = this.hooks.login();
+    const state = login?.snapshot();
+    this.loginInspection.hidden = !state?.visible;
+    if (!state?.visible) return;
+    this.loginUtilities.hidden = state.stage !== "characters";
+    this.loginReadout.textContent = inspectionText(state);
+    this.loginButtons[0].textContent = state.paused
+      ? "Resume animation"
+      : "Pause animation";
+    this.loginButtons[0].setAttribute("aria-pressed", String(state.paused));
+    this.loginButtons[1].disabled = !state.paused || !state.artwork;
+    this.loginButtons[2].disabled = !state.transition?.replayable;
   }
 
   authorized() {
@@ -225,24 +293,33 @@ export class OnlineInspection {
         : action.kind === "inspection.quest-claim"
           ? "claim"
           : null;
+    const offer = this.requireQuestOffer(action, kind);
+    const dialogue = this.hooks.systems().dialogue;
+    if (
+      dialogue.event?.conversationId !== offer.conversationId ||
+      dialogue.event?.step !== offer.step
+    )
+      {throw new Error("The native quest conversation has changed.");}
+    return dialogue.commandFor(
+      { action: kind === "accept" ? "accept" : "acknowledge" },
+      offer,
+    );
+  }
+
+  requireQuestOffer(action, kind) {
     const offer = this.offer;
     if (
       !kind ||
       !offer ||
       offer.conversationId !== action.conversationId ||
       offer.step !== action.step ||
-      !offer.quests.some(
-        (entry) => entry.questId === action.questId && entry.action === kind,
-      )
+      offer.quest?.mode !== "confirm" ||
+      offer.quest.questId !== action.questId ||
+      offer.quest.stage !== (kind === "accept" ? 0 : 1)
     ) {
       throw new Error("A current server NPC quest offer is required.");
     }
-    return {
-      kind: `quest.${kind}`,
-      questId: action.questId,
-      conversationId: offer.conversationId,
-      step: offer.step,
-    };
+    return offer;
   }
 
   questEntries() {
@@ -287,9 +364,11 @@ export class OnlineInspection {
   }
 
   update(snapshot) {
+    this.refreshLoginInspection();
     if (!snapshot) {
       this.model = null;
       this.offer = null;
+      this.controls?.refresh(this.controlSnapshot());
       this.state?.refresh();
       this.refreshBadge();
       return;
@@ -297,7 +376,8 @@ export class OnlineInspection {
     if (snapshot.presentation !== this.model?.presentation) {
       this.offer =
         snapshot.presentation?.interactions?.find(
-          (event) => event.kind === "quest.offer",
+          (event) =>
+            event.kind === "dialogue" && event.quest?.mode === "confirm",
         ) ?? null;
     }
     this.model = snapshot;
@@ -310,8 +390,9 @@ export class OnlineInspection {
 
   event(message) {
     const event = message.event ?? message;
-    if (event.kind === "quest.offer") this.offer = event;
-    if (["dialogue", "dialogue.closed"].includes(event.kind)) this.offer = null;
+    if (event.kind === "dialogue")
+      {this.offer = event.quest?.mode === "confirm" ? event : null;}
+    if (event.kind === "dialogue.closed") this.offer = null;
     this.record("server event", message);
   }
 
@@ -333,6 +414,7 @@ export class OnlineInspection {
 
   destroy() {
     this.controller.abort();
+    this.loginInspection?.remove();
     this.controls?.destroy();
     this.agent?.destroy();
     this.state?.destroy();

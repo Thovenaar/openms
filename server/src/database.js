@@ -2,8 +2,26 @@ import { SQL } from "bun";
 import {
   PROFILE_LIMITS,
   validateProfile,
+  validateCharacterUids,
 } from "../../client/src/profile/profile-validation.js";
-import { isRechargeable } from "../../client/src/items/inventory-model.js";
+import { createCash } from "../../client/src/profile/profile-domains.js";
+import {
+  createAccountStorage,
+  validateAccountStorage,
+} from "../../client/src/profile/account-storage.js";
+import {
+  hasSocialLinks,
+  validateSocialCommit,
+} from "../../client/src/profile/profile-social-transaction.js";
+import { CASH_CURRENCIES } from "../../client/src/items/cash-commerce.js";
+import {
+  cacheProfile,
+  flatten,
+  flattenStorage,
+  hydrateProfileItems,
+  itemDeltas,
+  MAX_ITEMS,
+} from "./database-items.js";
 import {
   admitCharacterSlot,
   MAX_ACCOUNT_CHARACTERS,
@@ -12,7 +30,6 @@ import { characterSummary } from "./character-summary.js";
 
 const MAX_ATTEMPTS = 3;
 const MAX_EVENTS = 256;
-const MAX_ITEMS = 4224;
 const LEASE_SECONDS = 45;
 
 function failure(code) {
@@ -25,13 +42,6 @@ function numeric(value) {
   const result = Number(value);
   if (!Number.isSafeInteger(result)) throw failure("SERVER_BUSY");
   return result;
-}
-function cacheProfile(profile) {
-  const cache = structuredClone(profile);
-  delete cache.inventory;
-  delete cache.equipment;
-  delete cache.meso;
-  return cache;
 }
 function revision(actor, domain, hint = 0) {
   if (domain === "inventory") return actor.inventoryRevision;
@@ -53,28 +63,6 @@ function actorFromRow(row, profile) {
     inventoryRevision: numeric(row.inventory_revision),
     socialRevision: numeric(row.social_revision),
   };
-}
-function flatten(profile) {
-  const result = new Map();
-  for (const location of ["inventory", "equipment"]) {
-    for (const item of profile[location]) {
-      if (
-        !/^[A-Za-z0-9_-]{1,64}$/.test(item.uid) ||
-        item.count < 0 ||
-        (item.count === 0 && !isRechargeable(item.id)) ||
-        result.has(item.uid)
-      ) {
-        throw failure("NOT_ALLOWED");
-      }
-      result.set(item.uid, {
-        item,
-        location: location === "equipment" ? "equipped" : "inventory",
-        tab: Math.floor(item.id / 1000000),
-      });
-    }
-  }
-  if (result.size > MAX_ITEMS) throw failure("INVENTORY_FULL");
-  return result;
 }
 
 /** Kill counters belong only to a matching active quest lifecycle. */
@@ -138,16 +126,25 @@ function pruneQuestNotices(state, cycles) {
     if (state.questNotices[id] !== cycles[id]) delete state.questNotices[id];
   }
 }
+function mergeTimedProfile(draft, live) {
+  if (draft.mount && live.mount) draft.mount.tiredness = live.mount.tiredness;
+  for (const pet of draft.pets) {
+    const current = live.pets.find((entry) => entry.uid === pet.uid);
+    if (!current) continue;
+    pet.fullness = current.fullness;
+    pet.summonedSlot = current.summonedSlot;
+  }
+}
 
 function mutationDraft(durable, live) {
-  const draft = {
-    ...structuredClone(live),
-    inventory: structuredClone(durable.inventory),
-    equipment: structuredClone(durable.equipment),
-    meso: durable.meso,
-    quests: structuredClone(durable.quests),
-  };
-  draft.onlineState ??= { effects: [], cooldowns: {} };
+  const draft = structuredClone(durable);
+  // Only continuous, lease-owned state crosses the checkpoint boundary.
+  for (const key of ["hp", "mp", "maxHP", "maxMP"]) draft[key] = live[key];
+  mergeTimedProfile(draft, live);
+  draft.location = structuredClone(live.location);
+  draft.onlineState = structuredClone(
+    live.onlineState ?? { effects: [], cooldowns: {} },
+  );
   draft.onlineState.questCycles = structuredClone(
     durable.onlineState?.questCycles ?? {},
   );
@@ -155,7 +152,9 @@ function mutationDraft(durable, live) {
   return draft;
 }
 
-function assertSessions(owners) {
+function assertSessions(owners, serverProduced = false) {
+  // A server-owned earned outcome may finish after logout; lease/fence checks still apply.
+  if (serverProduced) return;
   for (const owner of owners) {
     if (
       owner.session &&
@@ -169,7 +168,7 @@ function assertSessions(owners) {
 /** Memoize the mutation and its RNG outcomes across SERIALIZABLE retries. */
 async function planMutation(request, states) {
   const { owners, mutator, memo } = request;
-  const baseline = JSON.stringify(states);
+  const baseline = JSON.stringify({ states, storage: request.storage });
   if (memo.plan && memo.plan.baseline !== baseline) {
     throw failure("SERVER_BUSY");
   }
@@ -177,16 +176,17 @@ async function planMutation(request, states) {
   const drafts = states.map((state, index) =>
     mutationDraft(state.profile, owners[index].profile),
   );
+  const storage = request.storage ? structuredClone(request.storage) : null;
   let result;
   try {
-    result = (await mutator(drafts)) ?? {};
+    result = (await mutator(drafts, storage)) ?? {};
   } catch (error) {
     if (!/^[A-Z_]+$/.test(error.code ?? "") || error.code === "SERVER_BUSY") {
       throw error;
     }
     result = { code: error.code };
   }
-  memo.plan = { baseline, drafts, result, transactionId: id() };
+  memo.plan = { baseline, drafts, storage, result, transactionId: id() };
 }
 
 /** PostgreSQL is the only storage authority; profile JSON excludes all owned items and money. */
@@ -261,18 +261,21 @@ export class Database {
     if (!rows.length) throw failure("STALE_CONNECTION");
   }
   async migrate() {
-    const migration = await Bun.file(
-      new URL("../sql/001-authority.sql", import.meta.url),
-    ).text();
+    const migrations = await Promise.all(
+      ["001-authority.sql", "002-participant-cohorts.sql"].map((name) =>
+        Bun.file(new URL(`../sql/${name}`, import.meta.url)).text(),
+      ),
+    );
     await this.sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(742031091)`;
-      await tx.unsafe(migration).simple();
+      for (const migration of migrations) await tx.unsafe(migration).simple();
     });
   }
   validate(profile) {
     const copy = structuredClone(profile);
     delete copy.onlineState;
     validateProfile(copy, this.items);
+    validateCharacterUids([profile]);
     if (
       profile.onlineState &&
       JSON.stringify(profile.onlineState).length > 65536
@@ -344,9 +347,11 @@ export class Database {
         await tx`SELECT id FROM account WHERE id=${accountId} FOR UPDATE`;
       if (!accounts[0]) throw failure("UNAUTHENTICATED");
       const rows =
-        await tx`SELECT id,lease_until>clock_timestamp() AS leased FROM character WHERE id=${characterId} AND account_id=${accountId} AND deleted_at IS NULL FOR UPDATE`;
+        await tx`SELECT id,profile,lease_until>clock_timestamp() AS leased FROM character WHERE id=${characterId} AND account_id=${accountId} AND deleted_at IS NULL FOR UPDATE`;
       if (!rows[0]) throw failure("NOT_FOUND");
       if (rows[0].leased) throw failure("CHARACTER_BUSY");
+      // As with an offline reset, mirrored links must be detached through social authority.
+      if (hasSocialLinks(rows[0].profile.social)) throw failure("NOT_ALLOWED");
       await tx`UPDATE character SET deleted_at=clock_timestamp(),lease_owner=NULL,lease_until=NULL,field_instance=NULL,field_epoch=NULL WHERE id=${characterId}`;
       return { id: characterId };
     });
@@ -384,31 +389,28 @@ export class Database {
   }
   async insertCharacter(tx, accountId, profile, characterId) {
     await tx`INSERT INTO character(id,account_id,profile,meso,map_id) VALUES(${characterId},${accountId},${cacheProfile(profile)},${profile.meso},${Number(profile.location.mapId)})`;
-    const empty = { inventory: [], equipment: [], meso: 0 };
+    const empty = { inventory: [], equipment: [], meso: 0, cash: createCash() };
     const entry = {
       characterId,
       transactionId: characterId,
       reason: "bootstrap",
+      revision: 0,
     };
-    await this.materializeItems(tx, entry, empty, profile);
+    await this.materializeItems(tx, entry, flatten(empty), flatten(profile));
     await this.currencyLedger(tx, { ...entry, delta: profile.meso });
-    await tx`INSERT INTO character_op_log(character_id,operation_id,transaction_id,kind,effect) VALUES(${characterId},${characterId},${characterId},'bootstrap',${{ kind: "bootstrap", profile: cacheProfile(profile) }})`;
+    await this.cashLedger(
+      tx,
+      entry,
+      empty.cash.balances,
+      profile.cash.balances,
+    );
+    await tx`INSERT INTO character_op_log(character_id,operation_id,transaction_id,kind,effect) VALUES(${characterId},${characterId},${characterId},'bootstrap',${{ kind: "bootstrap", profile }})`;
   }
   async hydrate(tx, row) {
     const rows =
-      await tx`SELECT data,location FROM item_instance WHERE owner_id=${row.id} ORDER BY id LIMIT ${MAX_ITEMS + 1}`;
+      await tx`SELECT data,location,container_id FROM item_instance WHERE owner_id=${row.id} ORDER BY location,container_id,slot,id LIMIT ${MAX_ITEMS + 1}`;
     if (rows.length > MAX_ITEMS) throw failure("SERVER_BUSY");
-    const profile = {
-      ...row.profile,
-      meso: numeric(row.meso),
-      inventory: [],
-      equipment: [],
-    };
-    for (const item of rows) {
-      profile[item.location === "equipped" ? "equipment" : "inventory"].push(
-        item.data,
-      );
-    }
+    const profile = hydrateProfileItems(row.profile, rows, numeric(row.meso));
     this.validate(profile);
     return actorFromRow(row, profile);
   }
@@ -475,10 +477,12 @@ export class Database {
       const row = rows[0];
       if (
         !row ||
+        row.deleted_at ||
         row.account_id !== actor.accountId ||
-        row.lease_owner !== this.owner ||
-        !row.lease_valid ||
-        numeric(row.fencing_generation) !== actor.fence
+        numeric(row.fencing_generation) !== actor.fence ||
+        (actor.passive
+          ? row.lease_valid || numeric(row.revision) !== actor.revision
+          : row.lease_owner !== this.owner || !row.lease_valid)
       ) {
         throw failure("STALE_CONNECTION");
       }
@@ -492,21 +496,10 @@ export class Database {
     this.validate(profile);
     await this.transaction(async (tx) => {
       const [durable] = await this.lockActors(tx, [{ ...actor, fence }]);
-      const cache = cacheProfile(profile);
-      // Only monotonic kills cross the class-2 boundary; lifecycle stays transactional.
-      cache.quests = structuredClone(durable.profile.quests);
-      cache.onlineState ??= { effects: [], cooldowns: {} };
-      cache.onlineState.questCycles = structuredClone(
-        durable.profile.onlineState?.questCycles ?? {},
-      );
-      mergeQuestKills(cache, profile);
-      this.validate({
-        ...cache,
-        inventory: durable.profile.inventory,
-        equipment: durable.profile.equipment,
-        meso: durable.profile.meso,
-      });
-      await tx`UPDATE character SET profile=${cache},map_id=${Number(profile.location.mapId)},updated_at=clock_timestamp() WHERE id=${actor.id} AND fencing_generation=${fence}`;
+      const current = mutationDraft(durable.profile, profile);
+      this.validate(current);
+      const cache = cacheProfile(current);
+      await tx`UPDATE character SET profile=${cache},map_id=${Number(current.location.mapId)},updated_at=clock_timestamp() WHERE id=${actor.id} AND fencing_generation=${fence} AND lease_owner=${this.owner} AND lease_until>clock_timestamp()`;
       await tx`INSERT INTO character_snapshot(character_id,fencing_generation,profile) VALUES(${actor.id},${fence},${cache})`;
     });
   }
@@ -515,11 +508,12 @@ export class Database {
       mutator(profiles[0]),
     );
   }
-  async commitMany(actors, operation, mutator) {
+  async commitMany(actors, operation, mutator, options = {}) {
     if (
       !Array.isArray(actors) ||
       actors.length < 1 ||
-      actors.length > 2 ||
+      actors.length > PROFILE_LIMITS.characters ||
+      actors[0].passive ||
       new Set(actors.map((actor) => actor.id)).size !== actors.length
     ) {
       throw failure("NOT_ALLOWED");
@@ -529,9 +523,20 @@ export class Database {
       profile: structuredClone(actor.profile),
     }));
     const memo = { plan: null };
-    const outcome = await this.transaction((tx) =>
-      this.commitAttempt(tx, { owners, operation, mutator, memo }),
-    );
+    const request = {
+      owners,
+      operation,
+      mutator,
+      memo,
+      account: options.account ?? null,
+      serverProduced: options.serverProduced === true,
+    };
+    // A browser may stage a destination, but must never hold SQL locks while doing so.
+    let outcome =
+      operation.membership || options.prepareOutsideTransaction
+        ? await this.prepareCommit(request)
+        : null;
+    outcome ??= await this.transaction((tx) => this.commitAttempt(tx, request));
     if (outcome.states) {
       for (let index = 0; index < actors.length; index += 1) {
         const state = outcome.states[index];
@@ -542,46 +547,55 @@ export class Database {
         actors[index].socialRevision = state.socialRevision;
       }
     }
+    Object.defineProperty(outcome.receipt, "applied", {
+      value: Boolean(outcome.states),
+    });
     return outcome.receipt;
   }
-  async cohortReceipt(tx, owners, operation) {
-    const found = [];
-    for (const owner of owners) {
-      const rows =
-        await tx`SELECT digest,receipt FROM operation_receipt WHERE character_id=${owner.id} AND operation_id=${operation.operationId}`;
-      if (rows[0]) found.push(rows[0]);
-    }
-    if (!found.length) return null;
-    const first = found[0];
-    if (
-      found.length !== owners.length ||
-      found.some(
-        (row) =>
-          row.digest !== operation.digest ||
-          JSON.stringify(row.receipt) !== JSON.stringify(first.receipt),
-      )
-    ) {
+  async prepareCommit(request) {
+    const prepared = await this.transaction(async (tx) => {
+      assertSessions(request.owners, request.serverProduced);
+      const states = await this.lockActors(tx, request.owners);
+      request.storage = request.account
+        ? await this.lockStorage(tx, request.owners[0])
+        : null;
+      const receipt = await this.admitCommit(tx, request, states);
+      return { states, receipt };
+    });
+    if (prepared.receipt) return { receipt: prepared.receipt };
+    await planMutation(request, prepared.states);
+    assertSessions(request.owners, request.serverProduced);
+    return null;
+  }
+  async operationReceipt(tx, owner, operation) {
+    const rows =
+      await tx`SELECT digest,receipt FROM operation_receipt WHERE character_id=${owner.id} AND operation_id=${operation.operationId}`;
+    if (!rows[0]) return null;
+    if (rows[0].digest !== operation.digest) {
       return rejected(
         "OPERATION_CONFLICT",
-        revision(owners[0], operation.domain, operation.domainRevision),
+        revision(owner, operation.domain, operation.domainRevision),
       );
     }
-    return first.receipt;
+    return rows[0].receipt;
   }
   async commitAttempt(tx, request) {
     const { owners } = request;
-    assertSessions(owners);
+    assertSessions(owners, request.serverProduced);
     const states = await this.lockActors(tx, owners);
+    request.storage = request.account
+      ? await this.lockStorage(tx, owners[0])
+      : null;
     const receipt = await this.admitCommit(tx, request, states);
     if (receipt) return { receipt };
     await planMutation(request, states);
     const outcome = await this.persistPlan(tx, request, states);
-    assertSessions(owners);
+    assertSessions(owners, request.serverProduced);
     return outcome;
   }
   async admitCommit(tx, request, states) {
     const { owners, operation } = request;
-    const prior = await this.cohortReceipt(tx, owners, operation);
+    const prior = await this.operationReceipt(tx, owners[0], operation);
     if (prior) return prior;
     if (operation.fieldEpoch) {
       const membership =
@@ -600,10 +614,12 @@ export class Database {
     );
     if (
       ["character", "inventory", "social"].includes(operation.domain) &&
-      current !== operation.expectedRevision
+      (current !== operation.expectedRevision ||
+        (request.account &&
+          request.storage.revision !== request.account.expectedRevision))
     ) {
       const receipt = rejected("STALE_REVISION", current);
-      await this.storeCohortReceipt(tx, owners, operation, receipt);
+      await this.storeReceipt(tx, owners[0].id, operation, receipt);
       return receipt;
     }
     return null;
@@ -616,7 +632,8 @@ export class Database {
         result.code,
         revision(states[0], operation.domain, operation.domainRevision),
       );
-      await this.storeCohortReceipt(tx, owners, operation, receipt);
+      if (result.value !== undefined) receipt.value = result.value;
+      await this.storeReceipt(tx, owners[0].id, operation, receipt);
       return { receipt };
     }
     if ((result.events?.length ?? 0) > MAX_EVENTS) throw failure("SERVER_BUSY");
@@ -624,19 +641,37 @@ export class Database {
       stampQuestCycles(states[index].profile, drafts[index], transactionId);
       this.validate(drafts[index]);
     }
+    validateCharacterUids(drafts);
+    validateSocialCommit(
+      owners.map((owner) => owner.id),
+      states.map((state) => state.profile),
+      drafts,
+    );
+    if (memo.plan.storage) {
+      memo.plan.storage.revision = numeric(request.storage.revision + 1);
+      this.validateStorage(memo.plan.storage, drafts[0], owners[0].accountId);
+      await this.removeChangedItems(
+        tx,
+        { accountId: owners[0].accountId },
+        flattenStorage(request.storage),
+        flattenStorage(memo.plan.storage),
+      );
+    }
+    await this.socialNames(tx, result.socialNames);
     await this.entitlements(tx, transactionId, result);
-    // Remove changed rows for both owners first: transfers/swaps retain unique identity atomically.
+    // Remove every changed owner row before inserting any transfer destination.
     for (let index = 0; index < states.length; index += 1) {
       await this.removeChangedItems(
         tx,
-        states[index].id,
-        states[index].profile,
-        drafts[index],
+        { characterId: states[index].id },
+        flatten(states[index].profile),
+        flatten(drafts[index]),
       );
     }
     for (let index = 0; index < states.length; index += 1) {
       await this.persistMutation(tx, request, states[index], index);
     }
+    if (memo.plan.storage) await this.persistStorage(tx, request);
     return this.publishPlan(tx, request, states);
   }
   async persistMutation(tx, request, state, index) {
@@ -647,18 +682,47 @@ export class Database {
       transactionId,
       characterId: state.id,
       reason: operation.kind,
+      revision: state.inventoryRevision + 1,
     };
-    await this.materializeItems(tx, entry, state.profile, draft);
+    await this.materializeItems(
+      tx,
+      entry,
+      flatten(state.profile),
+      flatten(draft),
+    );
     await this.currencyLedger(tx, {
       ...entry,
       delta: draft.meso - state.profile.meso,
     });
+    await this.cashLedger(
+      tx,
+      entry,
+      state.profile.cash.balances,
+      draft.cash.balances,
+    );
+    if (
+      operation.domain === "social" ||
+      JSON.stringify(state.profile.social) !== JSON.stringify(draft.social)
+    ) {
+      state.socialRevision += 1;
+    }
     state.profile = structuredClone(draft);
     state.revision += 1;
     state.inventoryRevision += 1;
-    if (operation.domain === "social") state.socialRevision += 1;
-    await this.persistCharacter(tx, state, owners[index], operation);
-    await tx`INSERT INTO character_op_log(character_id,operation_id,transaction_id,kind,effect) VALUES(${state.id},${operation.operationId},${transactionId},${operation.kind},${{ kind: operation.kind, profile: cacheProfile(state.profile), inventory: state.profile.inventory, equipment: state.profile.equipment, meso: state.profile.meso, value: result.value ?? null }})`;
+    await this.persistCharacter(
+      tx,
+      state,
+      owners[index],
+      index === 0 ? (operation.membership ?? null) : null,
+    );
+    const effect = {
+      kind: operation.kind,
+      profile: state.profile,
+      value: result.value ?? null,
+    };
+    if (index === 0 && memo.plan.storage)
+      {effect.accountStorage = memo.plan.storage;}
+    await tx`INSERT INTO character_op_log(character_id,operation_id,transaction_id,kind,effect) VALUES(${state.id},${operation.operationId},${transactionId},${operation.kind},${effect})`;
   }
   async publishPlan(tx, request, states) {
     const { owners, operation, memo } = request;
@@ -673,65 +737,158 @@ export class Database {
       events: result.events ?? [],
     };
     if (result.value !== undefined) receipt.value = result.value;
-    await this.storeCohortReceipt(tx, states, operation, receipt);
+    await this.storeReceipt(tx, owners[0].id, operation, receipt);
     for (const event of result.events ?? []) {
       await tx`INSERT INTO outbox(id,transaction_id,character_id,event) VALUES(${id()},${transactionId},${owners[0].id},${event})`;
     }
     return { receipt, states };
   }
-  async persistCharacter(tx, state, owner, operation) {
-    const field = operation.membership ?? null;
+  async persistCharacter(tx, state, owner, field) {
+    const passive = owner.passive === true;
     const rows =
-      await tx`UPDATE character SET profile=${cacheProfile(state.profile)},meso=${state.profile.meso},revision=${state.revision},inventory_revision=${state.inventoryRevision},social_revision=${state.socialRevision},map_id=${Number(state.profile.location.mapId)},field_instance=COALESCE(${field?.instanceId ?? null},field_instance),field_epoch=COALESCE(${field?.fieldEpoch ?? null},field_epoch),updated_at=clock_timestamp() WHERE id=${state.id} AND fencing_generation=${owner.fence} AND lease_owner=${this.owner} AND lease_until>clock_timestamp() RETURNING id`;
+      await tx`UPDATE character SET profile=${cacheProfile(state.profile)},meso=${state.profile.meso},revision=${state.revision},inventory_revision=${state.inventoryRevision},social_revision=${state.socialRevision},map_id=${Number(state.profile.location.mapId)},field_instance=COALESCE(${field?.instanceId ?? null},field_instance),field_epoch=COALESCE(${field?.fieldEpoch ?? null},field_epoch),updated_at=clock_timestamp() WHERE id=${state.id} AND deleted_at IS NULL AND fencing_generation=${owner.fence} AND ((${passive} AND (lease_until IS NULL OR lease_until<=clock_timestamp())) OR (NOT ${passive} AND lease_owner=${this.owner} AND lease_until>clock_timestamp())) RETURNING id`;
     if (!rows.length) throw failure("STALE_CONNECTION");
-  }
-  async storeCohortReceipt(tx, owners, operation, receipt) {
-    for (const owner of owners) {
-      await this.storeReceipt(tx, owner.id, operation, receipt);
-    }
   }
   async storeReceipt(tx, characterId, operation, receipt) {
     await tx`INSERT INTO operation_receipt(character_id,operation_id,digest,receipt) VALUES(${characterId},${operation.operationId},${operation.digest},${receipt})`;
   }
-  async removeChangedItems(tx, characterId, before, after) {
-    const next = flatten(after);
-    for (const [uid, previous] of flatten(before)) {
-      if (JSON.stringify(previous) !== JSON.stringify(next.get(uid))) {
-        await tx`DELETE FROM item_instance WHERE id=${uid} AND owner_id=${characterId}`;
+  async removeChangedItems(tx, owner, previous, next) {
+    for (const [uid, value] of previous) {
+      if (JSON.stringify(value) !== JSON.stringify(next.get(uid))) {
+        await tx`DELETE FROM item_instance WHERE id=${uid} AND (owner_id=${owner.characterId ?? null} OR account_owner_id=${owner.accountId ?? null})`;
       }
     }
   }
-  async materializeItems(tx, entry, before, after) {
-    const { characterId, transactionId, reason } = entry;
-    const previous = flatten(before);
-    const next = flatten(after);
+  async materializeItems(tx, entry, previous, next) {
+    const {
+      characterId = null,
+      accountId = null,
+      transactionId,
+      reason,
+    } = entry;
     for (const [uid, value] of next) {
       if (JSON.stringify(previous.get(uid)) === JSON.stringify(value)) continue;
-      await tx`INSERT INTO item_instance(id,owner_id,template_id,quantity,location,tab,slot,revision,data) VALUES(${uid},${characterId},${value.item.id},${value.item.count},${value.location},${value.tab},${value.item.slot},(SELECT inventory_revision+1 FROM character WHERE id=${characterId}),${value.item})`;
+      await tx`INSERT INTO item_instance(id,owner_id,account_owner_id,template_id,quantity,location,container_id,tab,slot,revision,data) VALUES(${uid},${characterId},${accountId},${value.item.id},${value.item.count},${value.location},${value.containerId},${value.tab},${value.slot},${entry.revision},${value.item})`;
     }
-    const assets = new Map();
-    for (const value of previous.values()) {
-      assets.set(
-        value.item.id,
-        (assets.get(value.item.id) ?? 0) - value.item.count,
-      );
-    }
-    for (const value of next.values()) {
-      assets.set(
-        value.item.id,
-        (assets.get(value.item.id) ?? 0) + value.item.count,
-      );
-    }
-    for (const [template, delta] of assets) {
+    for (const [template, delta] of itemDeltas(previous, next)) {
       if (delta) {
         await this.ledgerPair(tx, {
           transactionId,
-          characterId,
+          characterId: characterId ?? `account:${accountId}`,
           asset: `item:${template}`,
           delta,
           reason,
         });
       }
+    }
+  }
+  async loadParticipant(characterId) {
+    return this.transaction(async (tx) => {
+      const rows =
+        await tx`SELECT * FROM character WHERE id=${characterId} AND deleted_at IS NULL FOR SHARE`;
+      if (!rows[0]) return null;
+      return { ...(await this.hydrate(tx, rows[0])), passive: true };
+    });
+  }
+  async searchParticipants(query = {}) {
+    const {
+      name = null,
+      mapId = null,
+      partySearch = false,
+      limit = 128,
+    } = query;
+    if (
+      Object.keys(query).some(
+        (key) => !["name", "mapId", "partySearch", "limit"].includes(key),
+      ) ||
+      (name !== null &&
+        (typeof name !== "string" || !name.length || name.length > 32)) ||
+      (mapId !== null && !/^\d{1,9}$/.test(String(mapId))) ||
+      typeof partySearch !== "boolean" ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 128
+    ) {
+      throw failure("NOT_ALLOWED");
+    }
+    const rows = await this
+      .sql`SELECT id,profile->>'name' AS name,profile->>'level' AS level,profile->>'job' AS job,map_id,lease_until>clock_timestamp() AS online FROM character WHERE deleted_at IS NULL AND (${name}::text IS NULL OR lower(profile->>'name')=lower(${name}::text)) AND (${mapId}::integer IS NULL OR map_id=${mapId}::integer) AND (NOT ${partySearch} OR jsonb_typeof(profile#>'{social,search}')='object') ORDER BY lower(profile->>'name'),id LIMIT ${limit}`;
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      level: numeric(row.level),
+      job: numeric(row.job),
+      mapId: String(row.map_id).padStart(9, "0"),
+      online: Boolean(row.online),
+    }));
+  }
+  validateStorage(storage, profile, accountId) {
+    const ordinary = { ...profile };
+    delete ordinary.onlineState;
+    validateAccountStorage(storage, ordinary, this.items, accountId);
+  }
+  async lockStorage(tx, actor) {
+    const initial = createAccountStorage(actor.accountId);
+    await tx`INSERT INTO account_storage(account_id,state) VALUES(${actor.accountId},${initial}) ON CONFLICT(account_id) DO NOTHING`;
+    const rows =
+      await tx`SELECT state FROM account_storage WHERE account_id=${actor.accountId} FOR UPDATE`;
+    const items =
+      await tx`SELECT data FROM item_instance WHERE account_owner_id=${actor.accountId} ORDER BY slot,id LIMIT 49`;
+    const storage = { ...rows[0].state, items: items.map((row) => row.data) };
+    this.validateStorage(storage, actor.profile, actor.accountId);
+    return storage;
+  }
+  async loadStorage(actor) {
+    return this.transaction(async (tx) => {
+      const [owner] = await this.lockActors(tx, [actor]);
+      return this.lockStorage(tx, owner);
+    });
+  }
+  async persistStorage(tx, request) {
+    const { owners, operation, memo } = request;
+    const { storage, transactionId } = memo.plan;
+    const accountId = owners[0].accountId;
+    const entry = {
+      accountId,
+      transactionId,
+      reason: operation.kind,
+      revision: storage.revision,
+    };
+    await this.materializeItems(
+      tx,
+      entry,
+      flattenStorage(request.storage),
+      flattenStorage(storage),
+    );
+    await this.currencyLedger(tx, {
+      transactionId,
+      characterId: `account:${accountId}`,
+      reason: operation.kind,
+      delta: storage.meso - request.storage.meso,
+    });
+    const cache = { ...storage, items: [] };
+    await tx`UPDATE account_storage SET state=${cache},updated_at=clock_timestamp() WHERE account_id=${accountId}`;
+  }
+  async cashLedger(tx, entry, before, after) {
+    for (const asset of CASH_CURRENCIES) {
+      const delta = after[asset] - before[asset];
+      if (delta) await this.ledgerPair(tx, { ...entry, asset, delta });
+    }
+  }
+  async socialNames(tx, names) {
+    if (!names) return;
+    const releases = names.release ?? [];
+    const reserves = names.reserve ?? [];
+    if (releases.length + reserves.length > 128) throw failure("NOT_ALLOWED");
+    for (const entry of releases) {
+      const rows =
+        await tx`DELETE FROM social_name WHERE kind=${entry.kind} AND name=${entry.name} AND group_id=${entry.groupId} RETURNING group_id`;
+      if (!rows.length) throw failure("NOT_ALLOWED");
+    }
+    for (const entry of reserves) {
+      const rows =
+        await tx`INSERT INTO social_name(kind,name,group_id) VALUES(${entry.kind},${entry.name},${entry.groupId}) ON CONFLICT(kind,name) DO UPDATE SET group_id=EXCLUDED.group_id WHERE social_name.group_id=EXCLUDED.group_id RETURNING group_id`;
+      if (!rows.length) throw failure("NOT_ALLOWED");
     }
   }
   async currencyLedger(tx, entry) {

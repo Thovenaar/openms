@@ -7,8 +7,10 @@ import {
   verifyBytes,
 } from "../public/offline-manifest.js";
 
+const OUTPUT_PROGRESS_INTERVAL = 256;
+
 /** Cache only verified descriptor children, not resource bytes or enormous parsed bundles. */
-export function extractionOutputs(output) {
+export function extractionOutputs(output, progress) {
   const verified = new Map();
   const stats = { resources: 0, bytes: 0 };
   return {
@@ -17,7 +19,13 @@ export function extractionOutputs(output) {
       const found = new Map();
       const budget = { nodes: 0 };
       collectDescriptors(value, found, budget);
+      let completed = 0;
       for (const descriptor of found.values()) {
+        if (completed % OUTPUT_PROGRESS_INTERVAL === 0) {
+          progress?.(
+            `Output verification: ${completed} descriptors checked, ${found.size} discovered; current ${descriptor.url}`,
+          );
+        }
         const children = await verifiedChildren(
           output,
           descriptor,
@@ -25,7 +33,11 @@ export function extractionOutputs(output) {
           stats,
         );
         for (const child of children) collectDescriptors(child, found, budget);
+        completed++;
       }
+      progress?.(
+        `Output verification complete: ${completed} descriptors checked`,
+      );
       return [...found.values()].sort((a, b) =>
         a.url.localeCompare(b.url, "en"),
       );

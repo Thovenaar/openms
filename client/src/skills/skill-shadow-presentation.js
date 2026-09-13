@@ -1,4 +1,4 @@
-import { EntityAnimation } from "../rendering/animation.js";
+import { createSkillAnimation } from "./skill-runtime-ports.js";
 
 const SHADOW_IDS = Object.freeze([4111002, 14111000]);
 const MAX_ACTIONS = 256;
@@ -53,7 +53,8 @@ export class SkillShadowPresentation {
 
   createAnimation(id, actor) {
     const source = this.sources.get(id);
-    return new EntityAnimation(
+    return createSkillAnimation(
+      this.system,
       {
         id: `shadow:${id}`,
         kind: "effect",

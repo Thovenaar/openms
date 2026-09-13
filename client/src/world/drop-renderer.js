@@ -1,6 +1,6 @@
 import { EntityAnimation } from "../rendering/animation.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
-import { DROP_POLICY } from "./drop-system.js";
+import { DROP_POLICY } from "./drop-rules.js";
 import { dropDrawY } from "./drop-motion.js";
 import {
   currencyVariant,

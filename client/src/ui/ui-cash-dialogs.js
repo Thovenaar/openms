@@ -235,12 +235,7 @@ function drawRecipients(panel, layer, state) {
   }
 }
 
-/** Gift names resolve only to actual loaded local character handles, never invented peers. */
-export function cashGiftDialog(panel, sn, recipient = "") {
-  const offer = panel.cashService.catalog.ui.cashShop.commodities[sn];
-  if (!offer) return false;
-  const dialog = beginCashDialog(panel, "Send cash gift", [266, 169]);
-  if (!dialog) return false;
+function giftControls(dialog, recipient) {
   dialog.body.image("CSGift/backgrnd", 0, 0);
   // 007e2b10..1e: target84,52,122x13; message26,76/92,210x13.
   const target = cashInput(
@@ -267,6 +262,16 @@ export function cashGiftDialog(panel, sn, recipient = "") {
     { x: 14, y: 113, width: 237, height: 25 },
     "#a00000",
   );
+  return { target, message, error };
+}
+
+/** Gift names resolve through the active service to actual, unambiguous recipient identities. */
+export function cashGiftDialog(panel, sn, recipient = "", targetId = null) {
+  const offer = panel.cashService.catalog.ui.cashShop.commodities[sn];
+  if (!offer) return false;
+  const dialog = beginCashDialog(panel, "Send cash gift", [266, 169]);
+  if (!dialog) return false;
+  const { target, message, error } = giftControls(dialog, recipient);
   // 007e2717: Guild56, Buddy110, OK168, Cancel210; all at139.
   dialog.body.button("CSGift/BtBuddy", 110, 139, {
     label: "Friends",
@@ -277,11 +282,16 @@ export function cashGiftDialog(panel, sn, recipient = "") {
     action: () => recipientList(panel, dialog, target, "guild"),
   });
   dialog.submit = () => {
-    submitGift(panel, dialog, { sn, target, message, error }).catch(
-      (failure) => {
-        error.textContent = failure.message;
-      },
-    );
+    submitGift(panel, dialog, {
+      sn,
+      target,
+      message,
+      error,
+      recipient,
+      targetId,
+    }).catch((failure) => {
+      error.textContent = failure.message;
+    });
   };
   dialog.body.button("BtOK2", 168, 139, {
     label: "Confirm gift",
@@ -295,31 +305,23 @@ export function cashGiftDialog(panel, sn, recipient = "") {
   return true;
 }
 
-function giftTargets(panel, controls) {
-  const participants = panel.cashService.hooks.participants?.() ?? [];
-  if (participants.length > 32) throw new Error("Local gift recipient bound");
-  const names = controls.target.value
-    .split(";")
-    .map((name) => name.trim().toLocaleLowerCase());
-  if (!names.length || names.length > 31 || names.some((name) => !name)) {
-    controls.error.textContent =
-      "Enter each recipient name separated by a semicolon.";
+async function giftTargets(panel, controls) {
+  if (controls.targetId && controls.target.value === controls.recipient) {
+    return [{ id: controls.targetId }];
+  }
+  const names = controls.target.value.split(";").map((name) => name.trim());
+  try {
+    return await panel.cashService.resolveRecipients(names);
+  } catch (error) {
+    controls.error.textContent = error.message;
     return null;
   }
-  const targets = names.map((name) =>
-    participants.find((entry) => entry.name.toLocaleLowerCase() === name),
-  );
-  if (targets.some((target) => !target)) {
-    controls.error.textContent = "A selected local character is not loaded.";
-    return null;
-  }
-  return targets;
 }
 
 async function submitGift(panel, dialog, controls) {
   if (panel.cashService.pending || panel.cashDialog !== dialog) return;
-  const targets = giftTargets(panel, controls);
-  if (!targets) return;
+  const targets = await giftTargets(panel, controls);
+  if (!targets || panel.disposed || panel.cashDialog !== dialog) return;
   const message =
     controls.message.first.value +
     (controls.message.second.value

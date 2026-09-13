@@ -1,353 +1,777 @@
-import { randomUUID } from "node:crypto";
-import { protocolError } from "../../shared/protocol.js";
-import { profileSkillLevel } from "../../client/src/skills/skill-allocation-rules.js";
-import { STATE_SKILLS } from "../../client/src/skills/skill-state-rules.js";
-import { TELEPORT_SKILLS } from "../../client/src/skills/skill-world-rules.js";
+import { SkillSystem } from "../../client/src/skills/skill-system.js";
+import { SkillCosts } from "../../client/src/skills/skill-costs.js";
+import { AvatarVisuals } from "../../client/src/character/avatar-visuals.js";
+import { AuthorityCombat } from "./combat-controller.js";
+import { AuthoritySkillResources, authorityLayer } from "./skill-resources.js";
+import { createCombatHooks, emitCombat, death } from "./skill-hooks.js";
+import { combatOperation } from "./combat-rewards.js";
 import {
-  SkillCosts,
-  skillNumber,
-} from "../../client/src/skills/skill-costs.js";
-import { TEMPORARY_STATS } from "../../client/src/skills/temporary-stats.js";
-import {
-  teleportDestination,
-  commitTeleport,
-} from "../../client/src/physics/skill-relocation.js";
-import { beginAttack, refreshActorCombat } from "./field-combat.js";
-import { rebuildActorEffects } from "./action-character.js";
+  AuthoritySkillDrops,
+  prepareSkillDrops,
+  admitSkillDrops,
+  commitSkillDrops,
+  releaseSkillDrops,
+  commitPickpocketDrops,
+} from "./skill-drops.js";
+import { rebuildActorEffects, syncActorEffects } from "./action-character.js";
+import { admitActor, ruleError } from "./action-rules.js";
+import { prepareActorCombat } from "./field-combat.js";
+import { protocolError } from "../../shared/schema.js";
 
-const PHYSICAL_SKILLS = new Set([1001004, 1001005, 11001002, 11001003]);
-const SELF_STATES = new Set([
-  "derived-stats",
-  "hyper-body",
-  "maple-warrior",
-  "echo",
-  "booster",
-  "speed-infusion",
-  "invincible",
-  "magic-guard",
-]);
-const SCALARS = new Set([
-  "pad",
-  "pdd",
-  "mad",
-  "mdd",
-  "acc",
-  "eva",
-  "speed",
-  "jump",
-]);
-
-function unavailable(actor, reason) {
-  actor.admission = `unsupported-content: ${reason}`;
-  throw protocolError("REQUIREMENTS_NOT_MET");
+/** Shared controllers can spend resources only in a paid server phase. */
+class AuthorityCosts extends SkillCosts {
+  constructor(system) {
+    super(system);
+    this.paid = null;
+  }
+  error(skill, info) {
+    return this.paid?.skill === skill && this.paid.info === info
+      ? null
+      : super.error(skill, info);
+  }
+  consume(skill, info) {
+    const paid = this.paid;
+    if (!paid || paid.skill !== skill || paid.info !== info)
+      {throw new Error("Skill phase lacks committed resource debit");}
+    this.paid = null;
+    this.projectilePAD = paid.costs.projectilePAD;
+    this.projectileId = paid.costs.projectileId;
+    this.mpRestore = paid.costs.mpRestore;
+    this.mesoSpent = paid.costs.mesoSpent;
+    return null;
+  }
 }
 
-function admitSkill(world, actor, action) {
-  const skill = world.content.catalog.ui.skills[action.skillId];
-  const rank = profileSkillLevel(
-    world.content.catalog.ui.skills,
-    actor.profile,
-    action.skillId,
-    world.now,
-  );
-  const info = skill?.levels[rank];
-  if (!skill || !rank || !info || actor.profile.hp <= actor.pendingDamage) {
-    throw protocolError("REQUIREMENTS_NOT_MET");
+class AuthoritySkills extends SkillSystem {
+  publishCast(skill, info, rank) {
+    super.publishCast(skill, info, rank);
+    const actor = this.hooks.actor;
+    const state = this.states.get(skill.id);
+    actor.profile.onlineState.cooldowns[`skill:${skill.id}`] =
+      this.hooks.now() + state.cooldown;
+    syncActorEffects(actor, this.hooks.world);
+    emitCombat(this.hooks.world, actor, {
+      kind: "skill.cast",
+      actorId: actor.id,
+      skillId: skill.id,
+      rank,
+      actionId: actor.skillField.actionId ?? actor.id,
+      position: { x: actor.simulation.x, y: actor.simulation.y },
+    });
   }
-  admitSkillActivation(actor, skill);
-  admitSkillPrerequisites(world, actor, skill);
-  if (actor.profile.level < (skill.properties.reqLev ?? 0)) {
-    throw protocolError("REQUIREMENTS_NOT_MET");
-  }
-  admitSkillCooldown(world, actor, skill.id);
-  refreshActorCombat(world, actor);
-  const weapon = skillNumber(
-    skill.properties.weapon ?? skill.properties["weapon "],
-  );
-  if (weapon && actor.stats.weaponType !== weapon) {
-    throw protocolError("REQUIREMENTS_NOT_MET");
-  }
-  return { skill, info, rank };
 }
 
-function admitSkillActivation(actor, skill) {
+function authorityStore(world, actor) {
+  return {
+    id: actor.id,
+    draft: null,
+    operationScope: null,
+    listeners: new Set(),
+    get profile() {
+      return this.draft ?? actor.profile;
+    },
+    get profileTransactionPending() {
+      return Boolean(!this.draft && actor.pending && !actor.skillExecuting);
+    },
+    markDirty() {
+      actor.runtimeDirty = true;
+    },
+    subscribe(listener) {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    },
+    rebind(next) {
+      actor = next;
+    },
+    async commitProfile(mutator) {
+      const scope = this.operationScope;
+      if (scope?.used) throw protocolError("SERVER_BUSY");
+      if (scope) scope.used = true;
+      const operation =
+        scope?.operation ?? combatOperation(actor, "skill.profile");
+      let fresh = false,
+        value;
+      const receipt = await world.participants.commit(
+        actor,
+        operation,
+        [actor.id],
+        async (drafts) => {
+          fresh = true;
+          try {
+            value = await mutator(drafts.get(actor.id));
+          } catch (error) {
+            throw ruleError(error);
+          }
+          return value;
+        },
+      );
+      if (scope) scope.receipt = receipt;
+      if (receipt.status !== "committed")
+        {throw protocolError(receipt.code ?? "NOT_ALLOWED");}
+      if (!fresh) throw protocolError("STALE_REVISION");
+      return value;
+    },
+  };
+}
+
+/** Bind an original workflow to exactly one already-admitted wire operation. */
+export async function runSkillOperation(world, actor, operation, run) {
+  const store = actor.skills?.store;
+  if (!store || store.operationScope) throw protocolError("SERVER_BUSY");
+  const previous = actor.skillExecuting;
+  const scope = { operation, used: false, receipt: null };
+  store.operationScope = scope;
+  actor.skillExecuting = true;
+  try {
+    const value = await run();
+    return { receipt: scope.receipt, value };
+  } finally {
+    store.operationScope = null;
+    actor.skillExecuting = previous;
+  }
+}
+
+function skillHooks(world, actor, scene) {
+  return {
+    actor,
+    world,
+    items: world.content.items,
+    now: () => world.now,
+    random: world.random,
+    report: (error) => {
+      actor.admission = error.code ?? error.message;
+    },
+    rebind(next) {
+      actor = next;
+    },
+    targetState: (mob, state) =>
+      actor.bound === false ? state : (mob.controllerState ??= state),
+    controlsMob: (mob) =>
+      actor.bound !== false && mob.controllerOwnerId === actor.id,
+    gameplay: () => actor.skillField,
+    drops: () => actor.skillDrops,
+    isBlocked: () =>
+      actor.state !== "active" ||
+      Boolean(
+        actor.retiring ||
+        actor.deliveryError ||
+        actor.tradeId ||
+        actor.conversation,
+      ),
+    isCurrent: () => actor.field === scene.field && !actor.session.revoked,
+    validateCast: () => actor.skillField.skillCastError(),
+    supportsAction: (action) =>
+      scene.actor.actions.has(action) ||
+      actor.skills.worldController.supportsAction(action),
+    validateAttack: (entry, info) =>
+      actor.skillField.skillAttackError(entry, info),
+    admitAttack: (entry, info, hit) =>
+      actor.skillField.beginSkillAttack(entry, info, hit),
+    startAction: (action) => actor.skillField.beginSkillPose(action),
+    travelDoor: (destination) => world.travelSkillDoor(actor, destination),
+    prepareEnhancement: async () => {
+      const descriptor = world.content.catalog.ui.bundles.EnchantSkill;
+      if (!descriptor) throw protocolError("CONTENT_MISMATCH");
+      await world.content.json(descriptor);
+    },
+    enhancementError: () =>
+      world.content.catalog.ui.bundles.EnchantSkill
+        ? null
+        : "Original enhancement surface is unavailable",
+    openEnhancement: () =>
+      emitCombat(
+        world,
+        actor,
+        { kind: "skill.utility", actorId: actor.id, window: "EnchantSkill" },
+        true,
+      ),
+    commitSkillPhase: (entry, info, publish) =>
+      queueSkillPhase(world, actor, { skill: entry, info, publish }),
+  };
+}
+
+/** Async preparation validates all learned controllers and authored resources before admission. */
+export async function prepareActorSkills(
+  world,
+  actor,
+  previous = actor.skills,
+) {
+  actor.skillPreparing = true;
+  actor.skillExecuting = true;
+  if (!previous && !actor.skillTravelCandidate) {
+    actor.profile.onlineState.effects.length = 0;
+    actor.profile.onlineState.cooldowns = {};
+  }
+  const preparation = prepareSkillRuntime(world, actor, previous);
+  const { scene, resources, avatars } = preparation;
+  try {
+    const avatar = await avatars.prepare(actor.profile);
+    scene.avatarOwner = { resource: avatar };
+    scene.actor = resources.createAnimation(avatar.entity, avatar.textures);
+    scene.actor.setPosition(actor.simulation.x, actor.simulation.y);
+    scene.presentation = {
+      x: actor.simulation.x,
+      y: actor.simulation.y,
+      facing: actor.simulation.facing,
+      action: actor.simulation.action,
+      playback: "loop",
+    };
+    installSkillRuntime(world, actor, previous, preparation);
+    await actor.skills.prepare();
+    if (previous && previous !== actor.skills) previous.destroy();
+    actor.skillField.projectActor();
+  } catch (error) {
+    discardSkillPreparation(actor, preparation);
+    throw error;
+  } finally {
+    actor.skillPreparing = false;
+    actor.skillExecuting = false;
+  }
+}
+
+function prepareSkillRuntime(world, actor, previous) {
+  const store = previous?.store ?? authorityStore(world, actor);
+  const layer = authorityLayer();
+  const scene = {
+    field: actor.field,
+    manifest: actor.field.manifest,
+    simulation: actor.simulation,
+    overlays: layer,
+    addWorldContainer(node, depth) {
+      node.zIndex = depth;
+      layer.addChild(node);
+    },
+    removeWorldContainer(node) {
+      layer.removeChild(node);
+    },
+  };
+  const hooks = skillHooks(world, actor, scene);
+  const resources = new AuthoritySkillResources(world, actor, scene, hooks);
+  hooks.resources = resources;
+  hooks.createAnimation = resources.createAnimation.bind(resources);
+  hooks.loadVisual = resources.loadVisual.bind(resources);
+  const avatars = new AvatarVisuals(
+    { loadVisual: (descriptor, services, signal) =>
+      resources.loadVisual(descriptor, signal) },
+    world.content.catalog,
+  );
+  return {
+    store, scene, hooks, resources, avatars,
+    priorField: actor.skillField, priorDrops: actor.skillDrops,
+  };
+}
+
+function installSkillRuntime(world, actor, previous, { scene, store, hooks }) {
+  actor.skills = new AuthoritySkills(scene, store, world.content.catalog, hooks);
+  actor.skills.costs = new AuthorityCosts(actor.skills);
+  actor.skills.debitCosts = new SkillCosts(actor.skills);
+  actor.skillDrops = new AuthoritySkillDrops(world, actor);
+  actor.skillField = new AuthorityCombat(world, actor, {
+    scene, store, hooks: createCombatHooks(world, actor),
+  });
+  actor.hitboxes = actor.skillField.hitboxes;
+  actor.combat = actor.skillField.combat;
+  actor.skillGeneration = (actor.skillGeneration ?? 0) + 1;
+  if (previous && !previous.destroyed) actor.skills.inherit(previous);
+  actor.temporaryStats = actor.skills.effects;
+  rebuildActorEffects(actor, world);
+  Object.assign(actor, profileResourceKeys(actor.profile));
+}
+
+function discardSkillPreparation(actor, { scene, resources, priorField, priorDrops }) {
+  if (actor.skills?.scene === scene) actor.skills.destroy();
+  if (actor.skillField !== priorField) actor.skillField?.destroy();
+  if (actor.skillDrops !== priorDrops) actor.skillDrops?.destroy();
+  scene.actor?.container.destroy();
+  scene.avatarOwner?.resource.destroy();
+  resources.destroy();
+}
+
+function admitCast(world, actor, action) {
+  admitActor(actor, world, actor.field.epoch);
+  if (!actor.skills || actor.skillPreparing || actor.skillTask)
+    {throw protocolError("SERVER_BUSY");}
   if (
-    !skill.classification.supported ||
-    skill.classification.activation === "passive"
+    action.target &&
+    (action.target.kind !== "entity" || action.target.entityId !== actor.id)
   ) {
-    unavailable(actor, skill.classification.reason ?? "passive skill");
-  }
-  if (actor.attackState.active || actor.simulation.state === "ladder") {
     throw protocolError("NOT_ALLOWED");
   }
-  if (actor.tradeId || actor.conversation) throw protocolError("NOT_ALLOWED");
+  const system = actor.skills;
+  if (!system.level(action.skillId))
+    {throw protocolError("REQUIREMENTS_NOT_MET");}
+  const id = system.activationId(action.skillId);
+  const skill = system.catalog[id],
+    rank = system.level(id),
+    info = system.info(id, rank);
+  const error = system.castError(skill, info);
+  if (error) {
+    actor.admission = error;
+    throw protocolError(
+      error.includes("cooldown") || error.includes("action is active")
+        ? "COOLDOWN"
+        : "REQUIREMENTS_NOT_MET",
+    );
+  }
+  return { system, skill, info, rank, controller: system.controllerFor(skill) };
 }
 
-function admitSkillPrerequisites(world, actor, skill) {
-  for (const requirement of skill.prerequisites) {
-    if (
-      profileSkillLevel(
-        world.content.catalog.ui.skills,
-        actor.profile,
-        requirement.skillId,
-        world.now,
-      ) < requirement.rank
-    ) {
-      throw protocolError("REQUIREMENTS_NOT_MET");
-    }
-  }
-}
-
-function admitSkillCooldown(world, actor, id) {
-  if (
-    world.now < (actor.profile.onlineState?.cooldowns?.[`skill:${id}`] ?? 0)
-  ) {
-    throw protocolError("COOLDOWN");
-  }
-  if (world.now < (actor.castUntil ?? 0)) throw protocolError("COOLDOWN");
-}
-
-function selfState(actor, skill, info) {
-  const spec = STATE_SKILLS.get(skill.id);
-  if (!spec || !SELF_STATES.has(spec.family)) return null;
-  if (spec.weapons && !spec.weapons.includes(actor.stats.weaponType)) {
-    throw protocolError("REQUIREMENTS_NOT_MET");
-  }
-  const duration = skillNumber(info.time) * 1000;
-  if (
-    !Number.isSafeInteger(duration) ||
-    duration < 16 ||
-    duration > 2147483647
-  ) {
-    throw protocolError("CONTENT_MISMATCH");
-  }
-  const values = {};
-  for (const field of TEMPORARY_STATS) {
-    const value = selfStateValue(spec, info, field);
-    if (value !== 0) values[field] = value;
-  }
-  return { values, duration };
-}
-
-function selfStateValue(spec, info, field) {
-  let value = SCALARS.has(field) ? skillNumber(info[field]) : 0;
-  const mapping = spec.fields[field];
-  if (mapping !== undefined) {
-    value = typeof mapping === "number" ? mapping : skillNumber(info[mapping]);
-  }
-  if (!Number.isSafeInteger(value)) throw protocolError("CONTENT_MISMATCH");
-  return value;
-}
-
-function resourceAdapter(world, actor, draft) {
-  let dirty = false;
-  const system = {
-    store: {
-      profile: draft,
-      profileTransactionPending: false,
-      markDirty() {
-        dirty = true;
-      },
-    },
-    fullCatalog: world.content.catalog,
-    hooks: { items: world.content.items },
-    derived() {
-      return actor.temporaryStats.derived;
-    },
-    level(id) {
-      return profileSkillLevel(
-        world.content.catalog.ui.skills,
-        draft,
-        id,
-        world.now,
-      );
-    },
-    info(id, rank) {
-      return world.content.catalog.ui.skills[id]?.levels[rank];
-    },
-  };
-  return {
-    costs: new SkillCosts(system),
-    changed() {
-      return dirty;
-    },
-  };
-}
-
-/** Supported controllers reuse original collision, costs, stat aggregation and damage. */
 export async function castSkill(world, actor, action, operation) {
-  const plan = admitSkill(world, actor, action);
-  prepareSkillCast(actor, action, plan);
-  const { buff, teleport, destination, attack, cast, field } = plan;
-  const receipt = await world.database.commit(actor, operation, (draft) => {
-    admitCastCommit(actor, field);
-    return consumeSkillCosts(world, actor, draft, plan);
+  actor.skillExecuting = true;
+  let drops = null;
+  try {
+    const plan = admitCast(world, actor, action);
+    if (plan.controller.basicFallback) {
+      return await castBasicFallback(world, actor, plan, operation);
+    }
+    if (plan.skill.id === 4211006) {
+      const targets = plan.system.combatController.targets;
+      drops = prepareSkillDrops(
+        actor,
+        plan.skill,
+        targets.selected,
+        targets.count,
+      );
+    }
+    const deferred = Boolean(plan.controller.deferredCost?.(plan.skill));
+    let fresh = false;
+    const receipt = deferred
+      ? await world.participants.commit(actor, operation, [actor.id], () => {
+          fresh = true;
+          return {
+            value: {
+              kind: "skill.cast",
+              skillId: plan.skill.id,
+              rank: plan.rank,
+              deferred: true,
+              dropPlanId: null,
+            },
+          };
+        })
+      : await debitSkill(world, actor, {
+          skill: plan.skill, info: plan.info, operation, drops,
+        });
+    if (
+      receipt.status !== "committed" ||
+      (deferred ? !fresh : !plan.system.costs.paid)
+    )
+      {return receipt;}
+    publishPaidCast(world, actor, plan, { operation, drops, receipt, deferred });
+    return receipt;
+  } finally {
+    if (drops) releaseSkillDrops(drops);
+    actor.skillExecuting = false;
+  }
+}
+
+async function castBasicFallback(world, actor, plan, operation) {
+  let fresh = false;
+  const receipt = await world.participants.commit(actor, operation, [actor.id], () => {
+    fresh = true;
+    return { value: {
+      kind: "skill.cast", skillId: plan.skill.id, rank: plan.rank,
+      deferred: false, dropPlanId: null,
+    } };
   });
-  if (receipt.status !== "committed") return receipt;
-  if (buff) rebuildActorEffects(actor, world);
-  actor.castUntil = world.now + cast.duration;
-  actor.castAction = cast.action;
-  actor.actionStartTick = actor.field.tick;
-  if (teleport) commitTeleport(actor.simulation, destination);
-  if (attack) beginAttack(world, actor, attack);
-  world.publish(actor, { type: "snapshot-request" });
+  if (receipt.status === "committed" && fresh) plan.controller.castBasicFallback();
   return receipt;
 }
 
-function prepareSkillCast(actor, action, plan) {
-  const { skill, info } = plan;
-  plan.buff = selfState(actor, skill, info);
-  const physical = PHYSICAL_SKILLS.has(skill.id);
-  plan.teleport = TELEPORT_SKILLS.has(skill.id);
-  if (!plan.buff && !physical && !plan.teleport) {
-    unavailable(
-      actor,
-      `skill ${skill.id} needs its target/form/script controller`,
-    );
+function publishPaidCast(world, actor, plan, { operation, drops, receipt, deferred }) {
+  admitActor(actor, world, operation.fieldEpoch);
+  if (drops) commitSkillDrops(actor, drops, receipt);
+  if (!deferred) {
+    plan.system.costs.consume(plan.skill, plan.info);
+    if (plan.skill.classification.owner === "state")
+      plan.system.utilityController.events.consume(plan.skill);
   }
-  if (
-    action.target &&
-    (action.target.kind !== "entity" || action.target.entityId !== actor.id) &&
-    !physical
-  ) {
-    throw protocolError("NOT_ALLOWED");
-  }
-  plan.destination = { x: 0, y: 0, foothold: null };
-  if (plan.teleport) prepareTeleport(actor, info, plan.destination);
-  plan.attack = physical
-    ? preparePhysical(actor, skill, info, plan.rank)
-    : null;
-  plan.cast = prepareCastAction(actor, skill, info);
-  plan.field = actor.field;
+  plan.controller.cast(plan.skill, plan.info, plan.rank);
+  if (!deferred) plan.system.publishCast(plan.skill, plan.info, plan.rank);
+  world.publish(actor, { type: "snapshot-request" });
 }
 
-function prepareTeleport(actor, info, destination) {
-  const range = skillNumber(info.range);
-  if (!Number.isSafeInteger(range) || range <= 0 || range > 1048576) {
-    throw protocolError("CONTENT_MISMATCH");
-  }
-  if (teleportDestination(actor.simulation, range, destination)) {
-    throw protocolError("REQUIREMENTS_NOT_MET");
-  }
-}
-
-function admitCastCommit(actor, field) {
-  if (actor.field !== field || actor.profile.hp <= 0) {
-    throw protocolError("STALE_FIELD");
-  }
-  if (
-    !actor.session ||
-    actor.session.revoked ||
-    actor.session.expiresAt <= Date.now()
-  ) {
-    throw protocolError("SESSION_EXPIRED");
-  }
-}
-
-function consumeSkillCosts(world, actor, draft, plan) {
-  const { skill, info, buff } = plan;
-  const adapter = resourceAdapter(world, actor, draft);
-  const error = adapter.costs.consume(skill, info);
-  if (error) unavailable(actor, error);
-  if (!adapter.changed()) throw protocolError("CONTENT_MISMATCH");
-  const state = draft.onlineState;
-  const cooldown = skillNumber(info.cooltime) * 1000;
-  if (!Number.isSafeInteger(cooldown) || cooldown < 0) {
-    throw protocolError("CONTENT_MISMATCH");
-  }
-  state.cooldowns[`skill:${skill.id}`] = world.now + cooldown;
-  if (buff) installBuff(state, skill.id, buff, world.now);
-  return { value: { skillId: skill.id } };
-}
-
-function installBuff(state, id, buff, now) {
-  const index = state.effects.findIndex(
-    (effect) => effect.kind === "skill" && effect.templateId === id,
+async function debitSkill(world, actor, { skill, info, operation, drops = null }) {
+  const system = actor.skills;
+  const field = actor.field;
+  let debit = null;
+  const receipt = await world.participants.commit(
+    actor,
+    operation,
+    [actor.id],
+    (drafts) => {
+      admitActor(actor, world, field.epoch);
+      admitSkillDrops(actor, drops);
+      system.store.draft = drafts.get(actor.id);
+      try {
+        const costs = system.debitCosts;
+        const denied = costs.consume(skill, info);
+        if (denied) {
+          actor.admission = denied;
+          throw protocolError("REQUIREMENTS_NOT_MET");
+        }
+        debit = { skill, info, costs };
+        return {
+          value: {
+            kind: "skill.cast",
+            skillId: skill.id,
+            rank: system.level(skill.id),
+            deferred: false,
+            debitId: operation.operationId,
+            dropPlanId: drops?.id ?? null,
+          },
+          consumeEntitlements: drops?.consumeEntitlements ?? [],
+        };
+      } finally {
+        system.store.draft = null;
+      }
+    },
   );
-  if (index < 0 && state.effects.length >= 64) {
-    throw protocolError("SERVER_BUSY");
-  }
-  const effect = {
-    id: randomUUID(),
-    kind: "skill",
-    templateId: id,
-    cancelable: true,
-    expiresAt: now + buff.duration,
-    duration: buff.duration,
-    spec: buff.values,
-  };
-  if (index >= 0) state.effects.splice(index, 1);
-  state.effects.push(effect);
-}
-
-function preparePhysical(actor, skill, info, rank) {
   if (
-    !actor.combat ||
-    ![30, 31, 32, 33, 40, 41, 42, 43, 44].includes(actor.stats.weaponType)
-  ) {
-    throw protocolError("REQUIREMENTS_NOT_MET");
-  }
-  const damageInfo = physicalDamageInfo(info);
-  const action =
-    typeof info.action === "string"
-      ? info.action
-      : (skill.actions[0] ?? actor.combat.defaultAction);
-  if (!actor.actionPoses[action]?.length) {
-    throw protocolError("CONTENT_MISMATCH");
-  }
-  const rectangle = physicalRectangle(actor, action, info);
-  return {
-    id: skill.id,
-    rank,
-    action,
-    info: damageInfo,
-    rectangle,
-  };
+    receipt.status === "committed" &&
+    receipt.value?.debitId === operation.operationId &&
+    debit
+  )
+    {system.costs.paid = debit;}
+  return receipt;
 }
 
-function physicalDamageInfo(info) {
-  const damage = skillNumber(info.damage);
-  const count = skillNumber(info.mobCount, 1);
+function queueSkillPhase(world, actor, { skill, info, publish }) {
+  if (!skill || actor.skillTask) return;
+  const generation = actor.skillGeneration;
+  const operation = combatOperation(actor, "skill.phase");
+  actor.skillTask = debitSkill(world, actor, { skill, info, operation })
+    .then((receipt) => {
+      if (
+        receipt.status !== "committed" ||
+        !actor.skills.costs.paid ||
+        actor.skillGeneration !== generation
+      )
+        {return;}
+      actor.skillExecuting = true;
+      try {
+        admitActor(actor, world, operation.fieldEpoch);
+        publish();
+      } finally {
+        actor.skillExecuting = false;
+      }
+    })
+    .catch((error) => {
+      actor.admission = error.code ?? error.message;
+      actor.skills.combatController.cancelHold();
+      actor.skills.utilityController.interruptChakra();
+    })
+    .finally(() => {
+      actor.skillTask = null;
+    });
+}
+
+export function releaseSkill(world, actor, action) {
+  if (!actor.skills) throw protocolError("CHARACTER_BUSY");
   if (
-    !Number.isSafeInteger(damage) ||
-    damage <= 0 ||
-    !Number.isSafeInteger(count) ||
-    count < 1 ||
-    count > 6
+    actor.pending ||
+    actor.skillTask ||
+    actor.skillPreparing ||
+    actor.skillField?.hasPendingIncoming
   ) {
-    throw protocolError("CONTENT_MISMATCH");
+    const pending = actor.skillRelease;
+    if (
+      !pending ||
+      pending.kind !== "skill.cancel" ||
+      (action.kind === "skill.cancel" && action.skillId === undefined)
+    )
+      {actor.skillRelease = action;}
+    return { code: "OK" };
   }
-  return { damage, mobCount: count, range: skillNumber(info.range) };
+  if (action.kind === "skill.cancel") actor.skills.cancelHold(action.skillId);
+  else actor.skills.release(action.skillId);
+  return { code: "OK" };
 }
 
-function physicalRectangle(actor, action, info) {
-  let rectangle = actor.combat.attacks[action]?.rectangle ?? null;
-  if (info.lt && info.rb) {
-    rectangle = {
-      left: info.lt.x,
-      top: info.lt.y,
-      right: info.rb.x,
-      bottom: info.rb.y,
-    };
-  }
-  if (!rectangle) throw protocolError("CONTENT_MISMATCH");
-  return rectangle;
+/** Called once after physics, before actor combat. Shared controllers own their exact clocks. */
+function skillClockBlocked(actor) {
+  return !actor.skills ||
+    actor.state !== "active" ||
+    actor.retiring ||
+    actor.deliveryError ||
+    actor.skillPreparing ||
+    actor.pending ||
+    actor.skillTask ||
+    actor.skillField?.hasPendingIncoming;
 }
 
-function prepareCastAction(actor, skill, info) {
-  const action =
-    typeof info.action === "string" ? info.action : (skill.actions[0] ?? null);
-  if (action === null) return { action: null, duration: 0 };
-  const frames = actor.actionPoses[action];
-  if (!frames?.length || frames.length > 4096) {
-    throw protocolError("CONTENT_MISMATCH");
+export function advanceActorSkills(world, actor, ms = 30) {
+  if (skillClockBlocked(actor)) return;
+  if (actor.skillRelease) {
+    const release = actor.skillRelease;
+    actor.skillRelease = null;
+    releaseSkill(world, actor, release);
+    if (actor.skillTask) return;
   }
-  let duration = 0;
-  for (const frame of frames) {
-    if (!Number.isSafeInteger(frame.delay) || frame.delay <= 0) {
-      throw protocolError("CONTENT_MISMATCH");
+  actor.skills.utilityController.input(actor.input);
+  const hp = actor.profile.hp;
+  actor.skills.step(ms);
+  syncActorEffects(actor, world);
+  if (hp > 0 && actor.profile.hp === 0 && !actor.skillField.dead)
+    {death(world, actor);}
+}
+
+export async function flushPickpocket(world, actor) {
+  if (actor.skillField.rewardJobs.size) return;
+  const plan = actor.skillDrops.takePickpocketPlan();
+  if (!plan) return;
+  const operation = combatOperation(actor, "combat.pickpocket");
+  try {
+    const receipt = await world.participants.commitProduced(
+      actor,
+      operation,
+      () => [actor.id],
+      () => ({
+        value: { kind: "combat.pickpocket", pickpocketPlanId: plan.id },
+        grantEntitlements: plan.grantEntitlements,
+      }),
+    );
+    commitPickpocketDrops(world, actor, plan, receipt);
+  } finally {
+    releaseSkillDrops(plan);
+  }
+}
+
+export async function settleActorSkills(actor) {
+  const failures = [];
+  for (;;) {
+    const jobs = acceptedSkillJobs(actor);
+    if (jobs.size) {
+      for (const result of await Promise.allSettled(jobs)) {
+        if (result.status === "rejected") failures.push(result.reason);
+      }
+      continue;
     }
-    duration += frame.delay;
+    if (actor.skillDrops?.pickpocketPlan) {
+      try {
+        await flushPickpocket(actor.skills.hooks.world, actor);
+      } catch (error) {
+        failures.push(error);
+      }
+      continue;
+    }
+    break;
   }
-  return { action, duration };
+  if (actor.skillField?.incomingFailure)
+    {failures.push(actor.skillField.incomingFailure);}
+  if (failures.length)
+    {throw new AggregateError(failures, "Accepted skill outcomes failed");}
+}
+
+function acceptedSkillJobs(actor) {
+  const jobs = new Set(actor.skillField?.rewardJobs ?? []);
+  if (actor.skillTask) jobs.add(actor.skillTask);
+  if (actor.skillField?.incomingTask) jobs.add(actor.skillField.incomingTask);
+  return jobs;
+}
+
+export function disposeActorSkills(actor, logout = false) {
+  actor.skillGeneration++;
+  actor.skillRelease = null;
+  actor.skills?.combatController.onDeath();
+  actor.skills?.utilityController.interruptChakra();
+  if (!logout) return;
+  actor.skills?.onDeath();
+  actor.skills?.destroy();
+  actor.skillField?.destroy();
+  actor.skillField?.scene.avatarOwner.resource.destroy();
+  actor.skillDrops?.destroy();
+  actor.skills = null;
+  actor.profile.onlineState.effects.length = 0;
+  actor.profile.onlineState.cooldowns = {};
+}
+
+/** Destination runtime is fully prepared against a detached server draft before travel commits. */
+export async function prepareSkillTravel(world, actor, destination) {
+  await settleActorSkills(actor);
+  return await prepareRuntimeCandidate(world, actor, destination);
+}
+
+async function prepareRuntimeCandidate(world, actor, destination) {
+  const candidate = {
+    ...actor,
+    field: destination.field,
+    simulation: destination.simulation,
+    profile: structuredClone(destination.profile ?? actor.profile),
+    skills: null,
+    skillField: null,
+    skillDrops: null,
+    skillTask: null,
+    skillPreparing: false,
+    skillExecuting: false,
+    pending: false,
+    bound: false,
+    skillTravelCandidate: true,
+    world,
+  };
+  prepareActorCombat(world, candidate);
+  await prepareActorSkills(world, candidate, null);
+  return candidate;
+}
+
+/** No asset loading or persistent mutation occurs here; the durable profile is already installed. */
+export function bindSkillTravel(actor, candidate) {
+  const previous = actor.skills;
+  const priorField = actor.skillField;
+  const priorDrops = actor.skillDrops;
+  const skills = candidate.skills;
+  if (previous) {
+    skills.unsubscribe();
+    skills.store = previous.store;
+    skills.unsubscribe = skills.store.subscribe(skills.onChange);
+  }
+  for (const key of [
+    "skills",
+    "skillField",
+    "skillDrops",
+    "hitboxes",
+    "combat",
+    "attackState",
+    "combatPresentation",
+    "skillAvatarKey",
+    "skillLearnedKey",
+  ])
+    {actor[key] = candidate[key];}
+  skills.store.rebind(actor);
+  skills.hooks.rebind(actor);
+  skills.hooks.actor = actor;
+  skills.resources.actor = actor;
+  actor.skillField.actor = actor;
+  actor.skillField.store = skills.store;
+  actor.skillField.hooks.rebind(actor);
+  for (const [id, state] of skills.combatController.targets.states) {
+    const shared = (state.mob.controllerState ??= state);
+    skills.combatController.targets.states.set(id, shared);
+  }
+  actor.skillDrops.actor = actor;
+  actor.skillGeneration++;
+  actor.skillRelease = null;
+  actor.skillExecuting = true;
+  if (previous) skills.inherit(previous);
+  actor.temporaryStats = skills.effects;
+  skills.refresh();
+  actor.skillField.presentActor(0);
+  skills.present(0);
+  actor.skillField.projectActor();
+  actor.skillExecuting = false;
+  candidate.bound = true;
+  previous?.scene.avatarOwner.resource.destroy();
+  priorDrops?.destroy();
+  previous?.destroy();
+  priorField?.destroy();
+}
+
+export function releaseSkillTravel(candidate) {
+  if (!candidate || candidate.bound) return;
+  candidate.skills?.destroy();
+  candidate.skillField?.destroy();
+  if (!candidate.avatarTransferred)
+    {candidate.skills?.scene.avatarOwner.resource.destroy();}
+  candidate.skillDrops?.destroy();
+}
+
+function profileResourceKeys(profile) {
+  return {
+    skillAvatarKey: JSON.stringify([
+      profile.gender,
+      profile.appearance,
+      profile.equipment
+        .map((entry) => [entry.slot, entry.id])
+        .sort((a, b) => a[0] - b[0]),
+    ]),
+    skillLearnedKey: JSON.stringify([profile.job, profile.skills]),
+  };
+}
+
+/** Called inside the participant mutator, after the draft change and before durable commitment. */
+export async function prepareProfileSkills(world, actor, profile) {
+  if (!actor.skills) return null;
+  const keys = profileResourceKeys(profile);
+  if (
+    keys.skillAvatarKey === actor.skillAvatarKey &&
+    keys.skillLearnedKey === actor.skillLearnedKey
+  )
+    {return null;}
+  return await prepareRuntimeCandidate(world, actor, {
+    field: actor.field,
+    simulation: { ...actor.simulation },
+    profile,
+  });
+}
+
+/** Preserve the original live combat/controllers; refresh their original metadata after profile publication. */
+export async function synchronizeActorSkills(world, actor, prepared = null) {
+  const system = actor.skills;
+  if (!system || actor.skillPreparing) {
+    releaseSkillTravel(prepared);
+    return;
+  }
+  const keys = profileResourceKeys(actor.profile);
+  const avatarChanged = keys.skillAvatarKey !== actor.skillAvatarKey;
+  const learnedChanged = keys.skillLearnedKey !== actor.skillLearnedKey;
+  const executing = actor.skillExecuting;
+  actor.skillExecuting = true;
+  let previous = null;
+  try {
+    if (avatarChanged)
+      {previous = await replaceAuthorityAvatar(world, actor, prepared);}
+    system.refresh();
+    if (avatarChanged || learnedChanged) await system.prepare();
+    rebuildActorEffects(actor, world);
+    system.utilityController.pets.presentation.step(0);
+    actor.skillField.presentActor(0);
+    system.present(0);
+    actor.skillField.projectActor();
+    Object.assign(actor, keys);
+  } finally {
+    previous?.animation.container.destroy();
+    previous?.resource.destroy();
+    actor.skillExecuting = executing;
+    releaseSkillTravel(prepared);
+  }
+}
+
+async function replaceAuthorityAvatar(world, actor, prepared) {
+  const system = actor.skills;
+  const visuals = new AvatarVisuals(
+    {
+      loadVisual: (descriptor, services, signal) =>
+        system.resources.loadVisual(descriptor, signal),
+    },
+    world.content.catalog,
+  );
+  const resource =
+    prepared?.skills.scene.avatarOwner.resource ??
+    (await visuals.prepare(actor.profile));
+  const animation = system.resources.createAnimation(
+    resource.entity,
+    resource.textures,
+  );
+  let combat;
+  try {
+    combat = actor.skillField.prepareCombatReplacement(
+      animation.avatar.combat,
+      animation,
+    );
+  } catch (error) {
+    animation.container.destroy();
+    if (!prepared) resource.destroy();
+    throw error;
+  }
+  const scene = system.scene;
+  const previous = {
+    animation: scene.actor,
+    resource: scene.avatarOwner.resource,
+  };
+  animation.container.renderable = previous.animation.container.renderable;
+  scene.actor = animation;
+  scene.avatarOwner.resource = resource;
+  actor.skillField.replaceCombat(animation.avatar.combat, combat);
+  actor.combat = animation.avatar.combat;
+  if (prepared) prepared.avatarTransferred = true;
+  return previous;
 }

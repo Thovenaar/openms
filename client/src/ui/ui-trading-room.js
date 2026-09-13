@@ -202,11 +202,17 @@ function createChat(panel) {
   panel.listen(input, "blur", () => panel.owner.hooks.clearInput());
 }
 
-function sendMessage(panel) {
+async function sendMessage(panel) {
   const chat = panel.tradeChat;
-  const outcome = panel.trade.sendChat(panel.tradeSide, chat.input.value);
-  if (outcome.ok) chat.input.value = "";
-  else showOutcome(panel, outcome);
+  const text = chat.input.value;
+  try {
+    const outcome = await panel.trade.sendChat(panel.tradeSide, text);
+    if (panel.disposed) return;
+    if (outcome.ok && chat.input.value === text) chat.input.value = "";
+    else if (!outcome.ok) showOutcome(panel, outcome);
+  } catch (error) {
+    panel.owner.report(error);
+  }
 }
 
 function refreshChat(panel, snapshot) {
@@ -226,7 +232,9 @@ function refreshChat(panel, snapshot) {
     chat.log.scrollTop = chat.scroll.position;
   }
   chat.input.disabled =
-    snapshot.state !== "open" || snapshot.chatSupported === false;
+    snapshot.state !== "open" ||
+    snapshot.chatSupported === false ||
+    snapshot.chatPending === true;
   panel.tradeSend.setDisabled(chat.input.disabled);
   if (chat.input.disabled && document.activeElement === chat.input) {
     chat.input.blur();
@@ -379,7 +387,8 @@ async function runTradeAction(panel, action) {
 function showOutcome(panel, result) {
   if (
     !result ||
-    (result.code === "trade-cancelled" && result.side === panel.tradeSide)
+    ((result.code === "trade-cancelled" || result.code === "trade-declined") &&
+      result.side === panel.tradeSide)
   ) {
     return;
   }
@@ -395,7 +404,7 @@ function showOutcome(panel, result) {
 }
 
 /** 007c221d selects these original pool strings only after the terminal room result. */
-function tradeOutcomePresentation(result, side) {
+export function tradeOutcomePresentation(result, side) {
   if (result.code === "trade-completed") {
     const received = result.netReceived[side];
     return received > 0
@@ -411,7 +420,9 @@ function tradeOutcomePresentation(result, side) {
   if (result.code === "trade-cancelled" || result.code === "trade-declined") {
     return {
       stringId: 0x196,
-      text: "Trade cancelled.\r\nby the other character.",
+      text: result.side === null
+        ? result.reason ?? "The trade is no longer available."
+        : "Trade cancelled.\r\nby the other character.",
     };
   }
   if (result.code === "unique-item") {

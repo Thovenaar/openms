@@ -55,7 +55,7 @@ export class SkillSystem {
     this.effects = new TemporaryStats();
     this.transferredEffects = false;
     this.derivedStats = this.effects.derived;
-    this.resources = new SkillResources(scene, hooks);
+    this.resources = hooks.resources ?? new SkillResources(scene, hooks);
     this.growthValue = { hp: 0, mp: 0 };
     this.resourceRank = this.resourceRank.bind(this);
     this.onChange = this.refresh.bind(this);
@@ -412,18 +412,18 @@ export class SkillSystem {
   }
 
   /** Cosmic TakeDamageHandler253..263: MP shortfall falls through to HP, never negates damage. */
-  absorbDamage(amount) {
+  absorbDamage(amount, profile = this.store.profile, outcome = null) {
     if (!Number.isSafeInteger(amount) || amount < 0) {
       throw new Error("Invalid incoming damage");
     }
-    if (this.destroyed || this.store.profileTransactionPending) return amount;
-    const profile = this.store.profile;
+    if (this.destroyed || (!outcome && this.store.profileTransactionPending))
+      {return amount;}
     if (profile.hp <= 0) return amount;
     const percent = this.derivedStats.magicGuard;
     const spent = Math.min(profile.mp, Math.trunc((amount * percent) / 100));
     if (spent > 0) {
       profile.mp -= spent;
-      this.store.markDirty();
+      if (!outcome) this.store.markDirty();
     }
     return amount - spent;
   }

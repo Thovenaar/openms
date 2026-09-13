@@ -61,6 +61,11 @@ export class SocialContext {
     return this.get(this.payload.targetId);
   }
 
+  /** Offline presence is a loaded saved map; server contexts replace this explicit port with live field ownership. */
+  sameField(leftId, rightId) {
+    return this.get(leftId).location.mapId === this.get(rightId).location.mapId;
+  }
+
   uid() {
     // Request nonce stays stable across preflight and the synchronous draft transform.
     return `${this.payload.requestId}_${this.sequence++}`;

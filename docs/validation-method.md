@@ -14,6 +14,49 @@ Comprehensive smoke/end-to-end runs, `scenario all`, full extraction, world-orac
 
 Documentation/configuration-only work needs no new tests, screenshots, timing reports or `validation.md` entry. Report the narrow check performed and any relevant limitation briefly. If a check fails, investigate that failure without expanding into unrelated checks.
 
+### Shorten the loop
+
+- Prove one end-to-end vertical slice first: native input → transaction → recipient update → reconnect.
+- Work in smaller, file-disjoint batches with fixed interfaces, and run cheap validation immediately after each batch stabilizes.
+- Extend the existing validation tooling with a single domain-scoped command covering changed-file checks, import/contract validation, and a real authority smoke scenario.
+- Reuse the extraction receipt, servers, and isolated browser contexts, rebuilding assets only when their recipe changes. Rebuild source bundles and restart source-pinned servers when their identities change; do not accept stale-runtime evidence or share mutable game sessions.
+
+The biggest opportunity is earlier executable feedback and less speculative integration—not more agents. Start with the smallest executable slice, fix its observed failure, and expand only after it works through reconnect. Keep the domain command inside the existing tooling and the validation scope above; it must not silently invoke full extraction or comprehensive acceptance.
+
+#### Immediate online iteration sequence
+
+1. **Fix one contract and name the batch files.** Keep the native intent, admitted request/receipt, recipient publication and reconnect-restored state explicit. For a social slice, a real friend invitation and acceptance must reach the other authenticated player and survive reconnect; a handler existing or a sender-only success is insufficient. Finish that slice before wiring unrelated windows/domains. Delegate only independent, file-disjoint work with those interfaces already fixed.
+2. **Get executable feedback before acquiring runtime resources.** Run Prettier `--check` and ESLint `--max-warnings 0` on the explicit changed JavaScript files, then the affected existing contract tests. Check imports with a nonpublishing Bun build (`write:false`), reusing `onlineBuildGraph` from `client/tools/online-build-graph.js`; this resolves transitive imports and refuses the forbidden offline-authority modules. A build does not prove receipt semantics or gameplay. Stop at the first failing stage; do not proceed into extraction or browser work. Apply any needed formatting once, before compiling the served bundle.
+3. **Admit one matching runtime generation.** Compare workspace/served source, rules and catalog identities before login. Reuse the already-running online authority and proxy when they match. If stale, rebuild/restart only the owners required by the matrix below, once after the batch stabilizes. Use existing generated assets; never route an online-only change through offline release integrity/compression.
+4. **Run only the domain's native authority scenario.** Borrow the retained browser and use a separate isolated context/account per participant. Reuse each participant's context within the scenario, including reconnect; never share mutable sessions across unrelated cases. Drive real native input and observe receipts, both recipients and recovered state, rather than mutating the inspection API. Load scenario modules in a fresh Bun process so retained imports cannot replay obsolete tooling.
+5. **Keep one bounded report, then stop.** Record selected files/case, identities, receipt/revision evidence, recipient/reconnect observations, failure stage and separate check/identity/acquisition/readiness/action/teardown timings. Capture an image only for appearance or failure context. No unrelated login-layout tour, `scenario all`, broad test suite or concurrency benchmark.
+
+#### Domain command to implement first
+
+The proposed entry is `bun tools/openms.js check online-social --files <batch files> --url <existing online origin> --browserWSEndpoint <retained browser>`. **This command does not exist yet.** It is the next tooling change, not an instruction that can currently be run.
+
+Extend the existing `tools/openms.js` dispatcher, scenario descriptors and `client/tools/scenarios/` ownership rather than creating another validation framework:
+
+- A closed domain descriptor selects the affected files/dependencies, existing contract tests, import entrypoints and exactly one real authority scenario. Reject an unknown domain or missing scope; do not silently select every case. Follow the existing descriptor/recipe conventions.
+- Execute changed-file checks → nonpublishing import/contract checks → identity/reuse admission → native input/transaction/recipient/reconnect. A check failure must exit nonzero before touching servers, extracting assets or opening a game session.
+- Reuse `native-evidence.js` timings and failure reporting. Distinguish any explicitly requested checks-only result from an authority-scenario pass; do not report completion from compilation alone.
+- Runtime and browser resources have explicit ownership. Borrowed servers/browser processes stay alive; only owned contexts/fixtures are retired. Keep receipt validation and immutable-content integrity guards; no file-exists shortcut.
+
+Until that command exists, use the same ordered, scoped checks directly. The [measured findings](validation.md#iteration-loop-investigation) show these primitives are already cheap; consolidating them and fixing their order is the first opportunity, not a large orchestration rewrite.
+
+#### Current invalidation and reuse constraints
+
+| Change | Required work under the current identities |
+| --- | --- |
+| Docs/comments with no executable change | Review instructions/links; no extraction, server restart or browser run. |
+| Scenario/validation tool JavaScript only | Fresh scenario process; currently rebuild/restart the frontend because `sourceIdentity()` includes all `client/tools/**/*.js`. No backend restart solely for that tool edit. |
+| Browser runtime JavaScript, including presentation | Rebuild/restart both frontend and backend: `rulesIdentity()` currently hashes all `client/src/**/*.js`. Reuse extracted assets unless a transitive extraction recipe also changed. |
+| Server/shared authority implementation | Restart the backend and rebuild/restart the frontend pinned to its rules hash. Recheck extraction recipes if the edit also affects conversion. |
+| Browser CSS/shell | Rebuild/restart the frontend; no backend restart for a CSS/shell-only edit and no asset conversion. |
+| Original/reference inputs or transitive extraction recipe | Use the existing receipt decision and incremental extraction only when invalidated; record its preflight once. Missing/corrupt publication still requires verification/repair. |
+
+Those broad source hashes are **current constraints, not the desired design**. Separating scenario identity from runtime identity, and deriving authority identity from its complete resolved dependency closure plus explicit SQL/content/configuration inputs, can avoid unnecessary restarts. Do not simply drop directories from hashing: imported client kernels and dynamic/file-read dependencies must remain covered. Implement the fail-fast domain check first; retain current stale-build refusals until the narrower identities are proved.
+
 ## Run the current client
 
 For an explicit world/physics release gate, extract original inputs and start the development server:
@@ -55,7 +98,11 @@ bun tools/openms.js scenario --rerun artifacts/native-window/window-map-travel/i
 
 The names are `world-tour-return`, `claw-close-skill`, `window-map-travel`, `diagnostic-replay`, `inspection-errors`, `same-map-teleport`, `npc-talk-menu` and `social-invitations`. `list`/`--list` prints schema-v1 descriptors (`name`, `recipe`, `mapIds`, `dependencies`) without launching Chrome. `all` or no names selects every case; named positional arguments select only those cases, rejecting duplicates and unknown names.
 
-The online login and console surface is a separate module, `client/tools/scenarios/online-login-console.js` (`runOnlineLoginConsole({browser, url, output, accounts, password})`), because it needs the online dev server, a developer and a player account, and an existing browser; it opens its own pages and never launches Chromium. It checks the recovered creation choices, the carousel portrait pixels, live login and field PCM, and all five console sections in both authority modes, writing `report.json` plus captures into its output directory. An explicitly requested full online acceptance run must also cover original mushroom loading during startup/field preparation, prepared native windows, World default and persisted-section migration, same-field travel, death-dialog revival and explicit logout/relogin. Retained historical six-section runs are not evidence for these current contracts.
+The online login and console surface is a separate module, `client/tools/scenarios/online-login-console.js`. For native login-only changes, use `runNativeLoginPresentation({browser, url, output, account, password, register})` with a disposable account and an existing browser. It opens an isolated BrowserContext, optionally registers the account, signs out and back in with valid credentials, checks the recovered name/appearance phases and live avatar raster, creates four characters, visits both three-slot roster pages, cancels deletion, replays the camera and exercises controls at800×600. It deletes only its named fixture characters and preserves pre-existing characters; credentials are not written to the report. It records source/catalog identity, phase timings, observations and captures, then closes its context without closing the borrowed browser. This does not enter a field or establish original-Windows pixel parity.
+
+The broader `runOnlineLoginConsole({browser, url, output, accounts, password})` also needs developer/player accounts and covers login/field PCM and all five console sections in both authority modes. An explicitly requested full online acceptance run must additionally cover original mushroom loading during startup/field preparation, prepared native windows, World default and persisted-section migration, same-field travel, death-dialog revival and explicit logout/relogin. Retained historical six-section/carousel runs are not evidence for the current native layout.
+
+Finish edits and scoped formatting before starting the online build. The current conservative server rules identity includes `client/src/**/*.js` as well as shared rules, so a client-source change requires restarting **both backend and online frontend** before browser verification; a stale backend is correctly refused as `CONTENT_MISMATCH`. Browser-only edits still do not require asset extraction. Run an updated scenario module in a fresh Bun process when borrowing a retained browser, so a cached module import cannot silently replay older validation code.
 
 Options are `--url` (default `http://127.0.0.1:3100`), `--output` (default `artifacts/native-scenarios`), `--chrome` (default installed macOS Chrome path above), `--browserWSEndpoint`, `--headed`, `--rerun`, `--concurrency` (integer1–4, default1) and `--list`. The bounded concurrent runner shares one browser process, **not a game session**: every case owns a fresh BrowserContext, profile, IndexedDB, service worker/CacheStorage and output directory. CDP focus emulation keeps isolated foreground input alive; do not run competing performance measurements concurrently. All workers drain before teardown, and reports retain selection order. Borrowed browsers are disconnected, not closed; owned browsers close in `finally`.
 

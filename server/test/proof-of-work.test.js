@@ -161,7 +161,7 @@ test("same-origin browser challenge GET needs its cookie but not an Origin heade
   const body = {
     name: "example",
     password: "example-password",
-    csrfToken: bootstrap.loginToken,
+    csrfToken: challenge.loginToken,
     challengeId: challenge.challengeId,
     nonce: solve(challenge),
   };
@@ -175,4 +175,66 @@ test("same-origin browser challenge GET needs its cookie but not an Origin heade
       "127.0.0.1",
     ),
   ).toThrow("NOT_ALLOWED");
+});
+
+test("a challenge binds login CSRF to the shared cookie after concurrent bootstraps", async () => {
+  const config = {
+    origin: "http://127.0.0.1:3102",
+    powBits: 8,
+    maxSessions: 4,
+    sessionMs: 60000,
+  };
+  const password = "example-password";
+  const account = {
+    id: "account",
+    role: "player",
+    passwordHash: await Bun.password.hash(password),
+  };
+  const auth = new SessionAuthority(config, {
+    async accountByName(name) {
+      return name === "example" ? account : null;
+    },
+  });
+  // Both initial requests leave without a cookie; the later response owns the cookie jar.
+  const initial = new Request(`${config.origin}/api/v1/config`);
+  const firstTab = auth.bootstrap(initial);
+  const secondTab = auth.bootstrap(initial);
+  const cookie = secondTab.cookie.split(";")[0];
+  const challengeRequest = new Request(`${config.origin}/api/v1/challenge`, {
+    headers: { Cookie: cookie },
+  });
+  const loginRequest = new Request(`${config.origin}/api/v1/session`, {
+    method: "POST",
+    headers: { Cookie: cookie, Origin: config.origin },
+  });
+  const stale = auth.challenge(challengeRequest, "127.0.0.1");
+  const body = {
+    name: "example",
+    password,
+    csrfToken: firstTab.loginToken,
+    challengeId: stale.challengeId,
+    nonce: solve(stale),
+  };
+  await expect(auth.login(loginRequest, body, "127.0.0.1")).rejects.toThrow(
+    "NOT_ALLOWED",
+  );
+  body.csrfToken = stale.loginToken;
+  await expect(auth.login(loginRequest, body, "127.0.0.1")).rejects.toThrow(
+    "POW_INVALID",
+  );
+  const fresh = auth.challenge(challengeRequest, "127.0.0.1");
+  const result = await auth.login(
+    loginRequest,
+    {
+      ...body,
+      csrfToken: fresh.loginToken,
+      challengeId: fresh.challengeId,
+      nonce: solve(fresh),
+    },
+    "127.0.0.1",
+  );
+  const authenticated = new Request(`${config.origin}/api/v1/characters`, {
+    headers: { Cookie: result.cookie.split(";")[0] },
+  });
+  expect(auth.session(authenticated).accountId).toBe(account.id);
 });

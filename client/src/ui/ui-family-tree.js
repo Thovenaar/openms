@@ -305,9 +305,10 @@ async function severRelationship(state, selectedId) {
       maxLength: 12,
     });
     if (name === null) return { ok: false, code: "cancelled" };
-    member = state.tree.members.find(
-      (entry) => entry.name.toLowerCase() === name.trim().toLowerCase(),
-    );
+    const target = await state.social.resolveTarget(name);
+    if (state.panel.disposed) return { ok: false, code: "cancelled" };
+    if (!target.ok) return target;
+    member = state.tree.members.find((entry) => entry.id === target.targetId);
   }
   if (!ownsRoot(state) || !member) {
     return {

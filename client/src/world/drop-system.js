@@ -25,23 +25,13 @@ import {
   fadeDisappearingDrop,
 } from "./drop-motion.js";
 
-/** Rates/ownership/limits are declared offline policy, not original Nexon server rules. */
-export const DROP_POLICY = Object.freeze({
-  authority: "Cosmic-server-reference/local-offline-policy",
-  capacity: 256,
-  maximumRows: 256,
-  lifetimeMs: 180000,
-  minimumMesoDrop: 10,
-  maximumMesoDrop: 50000,
-  pickupX: 40,
-  pickupY: 60,
-  categorySlots: 96,
-  mesoLimit: 2147483647,
-  spread: 25,
-  defaultStackLimit: 100,
-  ownership:
-    "local character only; transient field drops expire and do not survive map replacement",
-});
+import {
+  DROP_POLICY,
+  rollDropRows,
+  placeDrop,
+  explosionEligible,
+  selectExplosionDrops,
+} from "./drop-rules.js";
 
 function dropSlot() {
   return {
@@ -96,7 +86,7 @@ function validPoint(point) {
   );
 }
 
-function validateRow(row, items) {
+export function validateDropRow(row, items) {
   if (
     ![row.itemId, row.minimum, row.maximum, row.questId, row.chance].every(
       Number.isSafeInteger,
@@ -132,7 +122,7 @@ function dropTables(data, items) {
       if (row.status !== "supported") {
         throw new Error("Invalid drop row status");
       }
-      validateRow(row, items);
+      validateDropRow(row, items);
       rows.push(row);
     }
     result.set(Number(id), rows);
@@ -309,103 +299,30 @@ export class DropSystem {
     this.lastResult = null;
   }
 
-  randomUnit() {
-    const sample = this.random();
-    if (!Number.isFinite(sample) || sample < 0 || sample >= 1) {
-      throw new Error("Drop random source outside [0,1)");
-    }
-    return sample;
-  }
-
-  /** Cosmic MapleMap666..669: card rate changes drop probability, not meso quantity.
-   * Local rows retain their packaged channel-rate policy; multiply using Java float rounding. */
-  dropChance(row, showdown = 1) {
-    const rate = this.hooks.cardRate?.(row.itemId) ?? 1;
-    const family = this.hooks.familyRate?.() ?? 1;
-    if (
-      !Number.isFinite(rate) ||
-      rate < 1 ||
-      !Number.isFinite(family) ||
-      family < 1 ||
-      family > 2
-    ) {
-      throw new Error("Invalid admitted monster-card drop rate");
-    }
-    const chance = Math.fround(
-      Math.fround(Math.fround(row.chance) * Math.fround(rate)) *
-        Math.fround(family) *
-        Math.fround(showdown),
-    );
-    return Math.trunc(Math.min(chance, 0x7fffffff));
-  }
-
   roll(rows, showdown = 1) {
-    let count = 0;
-    const mesoUp = this.hooks.mesoUp?.() || 100;
-    for (const row of rows) {
-      if (row.questId && this.store.profile.quests[row.questId]?.state !== 1) {
-        continue;
-      }
-      const chance = this.dropChance(row, showdown);
-      if (Math.floor(this.randomUnit() * 999999) >= chance) continue;
-      const span = row.maximum - row.minimum;
-      let quantity =
-        row.minimum + (span ? Math.floor(this.randomUnit() * span) : 0);
-      if (!row.itemId) quantity = Math.trunc((quantity * mesoUp) / 100);
-      count = this.appendRoll(row, quantity, count);
-      if (count < 0) return -1;
-    }
-    return count;
+    return rollDropRows(
+      rows,
+      {
+        profile: this.store.profile,
+        items: this.items,
+        rates: this.hooks,
+        random: this.random,
+      },
+      { rolls: this.rolls, quantities: this.quantities, count: 0 },
+      showdown,
+    );
   }
 
-  appendRoll(row, quantity, count) {
-    const limit =
-      Math.floor(row.itemId / 10000) === 238
-        ? 1
-        : row.itemId
-          ? itemStackLimit(this.items[row.itemId])
-          : DROP_POLICY.mesoLimit;
-    while (quantity > 0 && count < DROP_POLICY.maximumRows) {
-      this.rolls[count] = row;
-      this.quantities[count++] = Math.min(quantity, limit);
-      quantity -= Math.min(quantity, limit);
-    }
-    return quantity > 0 ? -1 : count;
-  }
-
-  /** Native server-reference spread uses 25px; slope placement uses original footholds. */
   place(point, mob, index) {
-    const order = index + 1;
-    const offset =
-      order % 2 === 0
-        ? DROP_POLICY.spread * Math.floor((order + 1) / 2)
-        : -DROP_POLICY.spread * Math.floor(order / 2);
-    point.x = mob.x + offset;
-    point.y = Infinity;
-    point.foothold = null;
-    for (const segment of this.footholds) {
-      if (
-        segment.x2 <= segment.x1 ||
-        point.x < segment.x1 ||
-        point.x > segment.x2
-      ) {
-        continue;
-      }
-      const y =
-        segment.y1 +
-        ((point.x - segment.x1) * (segment.y2 - segment.y1)) /
-          (segment.x2 - segment.x1);
-      if (y >= mob.y - 85 && y < point.y) {
-        point.y = y;
-        point.foothold = segment;
-      }
-    }
-    if (Number.isFinite(point.y)) return true;
-    if (index === 0) return false;
-    point.x = this.positions[0].x;
-    point.y = this.positions[0].y;
-    point.foothold = this.positions[0].foothold;
-    return Number.isFinite(point.y);
+    return placeDrop(
+      point,
+      mob,
+      {
+        footholds: this.footholds,
+        first: this.positions[0],
+      },
+      index,
+    );
   }
 
   spawn(mob) {
@@ -1009,39 +926,11 @@ export class DropSystem {
     ) {
       return 0;
     }
-    let count = 0;
-    for (const slot of this.slots) {
-      if (!this.explosionEligible(slot, rectangle)) continue;
-      if (count === limit && slot.quantity >= output[count - 1].quantity) {
-        continue;
-      }
-      let index = Math.min(count, limit - 1);
-      while (index > 0 && slot.quantity < output[index - 1].quantity) {
-        output[index] = output[index - 1];
-        index--;
-      }
-      output[index] = slot;
-      if (count < limit) count++;
-    }
-    return count;
+    return selectExplosionDrops(this.slots, rectangle, output, limit);
   }
 
   explosionEligible(slot, rectangle) {
-    if (
-      !slot.active ||
-      slot.reserved ||
-      slot.itemId ||
-      slot.state !== "grounded" ||
-      slot.disappearing
-    ) {
-      return false;
-    }
-    return !(
-      slot.x < rectangle.left ||
-      slot.x > rectangle.right ||
-      slot.y < rectangle.top ||
-      slot.y > rectangle.bottom
-    );
+    return explosionEligible(slot, rectangle);
   }
 
   consumeExplosion(slots, count) {

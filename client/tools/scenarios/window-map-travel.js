@@ -118,7 +118,7 @@ export default {
     "client/src/ui/**/*.js",
     "client/src/input/**/*.js",
     "client/src/npc/**/*.js",
-    "client/src/world/field-transition.js",
+    "client/src/rendering/field-transition.js",
   ],
   fixture: tourFixture,
   run,

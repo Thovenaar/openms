@@ -95,7 +95,8 @@ export function layoutCashShop(panel, service) {
     if (gift && !panel.cashDialog) cashGiftReceipt(panel, gift);
   };
   panel.cashKey = (event) => cashKey(panel, event);
-  panel.cashOpenGift = (sn, recipient) => cashGiftDialog(panel, sn, recipient);
+  panel.cashOpenGift = (sn, recipient, targetId) =>
+    cashGiftDialog(panel, sn, recipient, targetId);
   panel.cashUpdate = (ms) => panel.cashPreview.update(ms);
   panel.canClose = () =>
     !service.pending && !service.store.profileTransactionPending;

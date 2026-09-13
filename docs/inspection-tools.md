@@ -18,6 +18,17 @@ The header and sidebar are browser development tools, not reconstructed native M
 
 The design follows [NN/G progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/) and the GOV.UK guidance for [details](https://design-system.service.gov.uk/components/details/) and [select](https://design-system.service.gov.uk/components/select/): keep frequent controls visible, give secondary groups descriptive labels, and use a small set of independent tasks instead of a wizard or deeply nested settings tree. These are external-tool design choices, not reconstructed MapleStory chrome.
 
+## Login presentation
+
+The online console remains reachable during account entry, registration, character selection and creation. **World → Login scene · animation and transitions** shows the current stage, source/catalog identity, camera, elapsed animation time, roster/page state and transition progress. Its readout is bounded and scrollable; it contains neither passwords nor hashcash proofs.
+
+- **Pause animation** stops only the login presentation clock.
+- **Step30ms** advances that paused clock by exactly30ms.
+- **Replay transition** repeats the last native camera transition without changing authentication, the roster or character data.
+- **Refresh** and **Sign out** appear with character selection, outside the original book artwork. Progress remains in the inspection readout rather than a bare status line over the scene.
+
+These controls require no developer role because they cannot mutate a field. Scene-dependent world controls remain disabled before field entry; online gameplay mutations retain their authenticated server/GM requirements.
+
 ## Character editing and presets
 
 Open **Character**. Identity and HP/MP use a two-column form, with full-width name/job fields. Editing job or level does not perform a job advancement or grant automatic points/skills. Offline the editor uses the validated local profile authority; online it is available only to an authorized GM developer session, which commits every edit as an audited server development request.

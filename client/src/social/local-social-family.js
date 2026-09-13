@@ -326,9 +326,7 @@ function rateTargets(context, state) {
   }
   if (!state.entitlement.party) return [context.actorId];
   const party = context.group("party");
-  return party.members.filter(
-    (id) => context.get(id).location.mapId === context.get().location.mapId,
-  );
+  return party.members.filter((id) => context.sameField(id, context.actorId));
 }
 
 function familyEntitlement(context) {

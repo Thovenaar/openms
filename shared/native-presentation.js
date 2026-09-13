@@ -1,7 +1,6 @@
 import {
   array,
   boolean,
-  enumeration,
   number,
   record,
   string,
@@ -18,6 +17,11 @@ import {
 import { validateSkillMacros } from "../client/src/profile/profile-domains.js";
 import { GAME_OPTION_FIELDS } from "../client/src/profile/profile-game-options.js";
 import { createCharacterStats } from "../client/src/character/character-stats.js";
+import { socialPresentationSchema } from "./social-protocol.js";
+import {
+  NARRATIVE_PROJECTION_FIELDS,
+  narrativeObjectiveSchema,
+} from "./narrative-protocol.js";
 
 export const NATIVE_CHUNK_SIZE = 12000;
 export const NATIVE_MAX_BYTES = 768 * 1024;
@@ -86,12 +90,6 @@ const capabilitySchema = record(
     ].map((key) => [key, boolean]),
   ),
 );
-const objectiveSchema = record({
-  kind: enumeration("item", "kill"),
-  templateId: u32,
-  current: u32,
-  required: u32,
-});
 const questSchema = record({
   id: u32,
   state: number(0, 2),
@@ -103,8 +101,14 @@ const questSchema = record({
   tracker: boolean,
   giveUp: boolean,
   noticeAcknowledged: boolean,
-  objectives: array(objectiveSchema, 128),
+  objectives: array(narrativeObjectiveSchema, 128),
 });
+const domainProjectionFields = {
+  social: socialPresentationSchema,
+  ...NARRATIVE_PROJECTION_FIELDS,
+};
+const domainProjectionKeys = Object.keys(domainProjectionFields);
+const domainProjectionEntries = Object.entries(domainProjectionFields);
 
 /** Decode one complete bounded server projection, using the canonical pure profile validator. */
 export function decodeNativePresentation(source, eventSchema) {
@@ -128,6 +132,7 @@ export function decodeNativePresentation(source, eventSchema) {
     "interactions",
     "revisions",
     "paused",
+    ...domainProjectionKeys,
   ]);
   validateProfile(value.profile);
   validate(value.stats, statsSchema);
@@ -138,6 +143,9 @@ export function decodeNativePresentation(source, eventSchema) {
     array(questSchema, 4096, 0, (entry) => entry?.id),
     524288,
   );
+  for (const [key, schema] of domainProjectionEntries) {
+    validate(value[key], schema, 524288);
+  }
   validate(value.interactions, array(eventSchema, 64), 100000);
   validate(
     value.revisions,

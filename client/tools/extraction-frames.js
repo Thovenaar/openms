@@ -9,6 +9,17 @@ export function frameDelay(node, source) {
   return delay;
 }
 
+/** 006431e3: nonnegative repeat selects a frame index; -1/-2 start one-shot playback. */
+function retainRepeat(node, frames, source) {
+  const repeat = value(node, "repeat", undefined);
+  if (repeat === undefined) return frames;
+  if (!Number.isSafeInteger(repeat) || repeat < -2 || repeat >= frames.length) {
+    throw new Error(`Invalid animation repeat at ${source}`);
+  }
+  frames[0].repeat = repeat;
+  return frames;
+}
+
 /** Build original frame records using the caller's real decoded-canvas part loader. */
 export async function originalFrames(node, part, nodePath) {
   node = resolveNode(node);
@@ -24,7 +35,7 @@ export async function originalFrames(node, part, nodePath) {
       frame.parts[0].opacity = a0 / 255;
       frame.alphaEnd = (end < 0 ? a0 : end) / 255;
     }
-    return [frame];
+    return retainRepeat(node, [frame], nodePath(node));
   }
   const result = [];
   let carriedAlpha = 255;
@@ -48,5 +59,5 @@ export async function originalFrames(node, part, nodePath) {
     carriedAlpha = a1;
   }
   if (!result.length) throw new Error(`No canvas frames at ${nodePath(node)}`);
-  return result;
+  return retainRepeat(node, result, nodePath(node));
 }

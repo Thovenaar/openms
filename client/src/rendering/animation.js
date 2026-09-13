@@ -1,5 +1,11 @@
 import { Container, Sprite } from "pixi.js";
 import { EquipmentEffects } from "../items/equipment-effects.js";
+import {
+  compileAction,
+  timedFrame,
+  advanceActionClock,
+  seekActionClock,
+} from "./animation-timing.js";
 
 // 0092ff77..009300f4: rotating parent at feet-20, child(-10,0), period2000.
 const GHOST_PERIOD_MS = 2000;
@@ -12,65 +18,9 @@ function vectorPixel(value) {
 }
 
 /** @typedef {{texture:string,x:number,y:number,z:number,flip?:boolean,opacity?:number,expression?:string,expressionStart?:number,expressionEnd?:number,expressionLoopMs?:number,expressionDuration?:number}} Part */
-/** @typedef {{delay:number,parts:Part[],alphaEnd?:number,sourceSize?:{width:number,height:number},rotate?:number,flip?:boolean,moveX?:number,moveY?:number,alias?:boolean,preAction?:boolean,poseAction?:string,poseIndex?:number}} Frame */
+/** @typedef {{delay:number,parts:Part[],alphaEnd?:number,repeat?:number,sourceSize?:{width:number,height:number},rotate?:number,flip?:boolean,moveX?:number,moveY?:number,alias?:boolean,preAction?:boolean,poseAction?:string,poseIndex?:number}} Frame */
 /** @typedef {{type:number,rx:number,ry:number,cx:number,cy:number,canvas:{width:number,height:number,scale:number}}} Background */
 /** @typedef {{id:string,order:number,kind:string,x:number,y:number,z:number,visible:boolean,flip:boolean,opacity:number,action:string,actions:Record<string,Frame[]>,background?:Background}} Entity */
-
-/** Compile frame boundaries and stable draw order once, outside the render loop.
- * @param {Frame[]} frames
- */
-function compileAction(frames, textures) {
-  let duration = 0;
-  let preActionMs = 0;
-  let hasPreAction = false;
-  let alias = false;
-  const ends = new Float64Array(frames.length);
-  const parts = frames.map((frame, index) => {
-    duration += frame.delay;
-    if (frame.preAction) preActionMs += frame.delay;
-    hasPreAction ||= Boolean(frame.preAction);
-    alias ||= Boolean(frame.alias);
-    ends[index] = duration;
-    return frame.parts.slice().sort((a, b) => a.z - b.z);
-  });
-  const geometry = frames.map((frame, index) =>
-    frameGeometry(frame, parts[index], textures),
-  );
-  const release = alias ? preActionMs : duration - frames.at(-1).delay;
-  return {
-    ends,
-    parts,
-    duration,
-    frames,
-    geometry,
-    release,
-    preActionMs,
-    hasPreAction,
-  };
-}
-
-/** Logical frame geometry preserves the original canvas period across atlas tiles. */
-function frameGeometry(frame, parts, textures) {
-  let left = Infinity,
-    top = Infinity,
-    right = -Infinity,
-    bottom = -Infinity;
-  for (const part of parts) {
-    const texture = textures.get(part.texture);
-    left = Math.min(left, part.x);
-    top = Math.min(top, part.y);
-    right = Math.max(right, part.x + texture.width);
-    bottom = Math.max(bottom, part.y + texture.height);
-  }
-  return {
-    x: left,
-    y: top,
-    width: right - left,
-    height: bottom - top,
-    periodWidth: frame.sourceSize?.width ?? right - left,
-    periodHeight: frame.sourceSize?.height ?? bottom - top,
-  };
-}
 
 function repetitionType(type) {
   if (type < 4) return type;
@@ -173,10 +123,12 @@ export class EntityAnimation {
   }
 
   /** Repeating the same name/mode is idempotent unless a pooled lease restarts it.
+   * Omitted playback honors original repeat; explicit consumer modes override it.
    * @param {string} name @param {'loop'|'once'} [playback] @param {boolean} [restart] */
-  setAction(name, playback = "loop", restart = false) {
+  setAction(name, playback, restart = false) {
     const next = this.actions.get(name);
     if (!next) throw new Error(`Unknown action ${name} for ${this.id}`);
+    if (playback === undefined) playback = next.repeat < 0 ? "once" : "loop";
     if (playback !== "loop" && playback !== "once") {
       throw new Error(`Unknown animation playback ${playback}`);
     }
@@ -248,68 +200,25 @@ export class EntityAnimation {
   /** Player callers supply only the simulation's executed quantum.
    * @param {number} ms */
   advance(ms) {
-    if (
-      !Number.isFinite(ms) ||
-      ms < 0 ||
-      !Number.isFinite(this.elapsedMs + ms)
-    ) {
-      throw new Error("Invalid animation elapsed milliseconds");
-    }
-    this.elapsedMs += ms;
+    const advanced = advanceActionClock(this, ms);
     this.advanceExpression(ms);
     this.applyDeathMotion();
     this.equipmentEffects?.advance(ms);
-    const current = this.current;
-    if (current.duration === 0 || this.completed) return;
-    // 004522a6: stationary climb consumes the remaining delay but holds the
-    // current authored frame at expiry; movement resumes without a phase reset.
-    if (this.holdFrame) {
-      this.actionTimeMs = Math.min(
-        current.ends[this.frame],
-        this.actionTimeMs + ms,
-      );
-      return;
-    }
-    if (this.playback === "once") {
-      this.actionTimeMs = Math.min(current.duration, this.actionTimeMs + ms);
-      this.completed = this.actionTimeMs === current.duration;
-    } else {
-      this.actionTimeMs =
-        (this.actionTimeMs + (ms % current.duration)) % current.duration;
-    }
-    this.selectTimedFrame();
+    if (advanced) this.selectTimedFrame();
   }
 
   /** Seek an authoritative action clock without exposing mutable frame bookkeeping.
    * Resuming a completed one-shot at an earlier time clears completion.
    * @param {number} ms Elapsed milliseconds since the current action began. */
   seek(ms) {
-    if (!Number.isFinite(ms) || ms < 0) {
-      throw new Error("Invalid animation seek milliseconds");
-    }
-    const duration = this.current.duration;
-    this.elapsedMs = ms;
-    this.completed = this.playback === "once" && ms >= duration;
-    this.actionTimeMs =
-      duration === 0
-        ? 0
-        : this.playback === "once"
-          ? Math.min(ms, duration)
-          : ms % duration;
+    seekActionClock(this, ms);
     this.selectTimedFrame();
     this.applyDeathMotion();
   }
 
   selectTimedFrame() {
-    const current = this.current;
-    let low = 0;
-    let high = current.ends.length - 1;
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      if (this.actionTimeMs < current.ends[middle]) high = middle;
-      else low = middle + 1;
-    }
-    if (low !== this.frame) this.applyFrame(low);
+    const frame = timedFrame(this.current, this.actionTimeMs);
+    if (frame !== this.frame) this.applyFrame(frame);
     this.applyAlpha();
   }
 

@@ -50,6 +50,7 @@ function appendMobObjectives(rows, quests, record, profile) {
     const label = quests.catalog.strings.mob[mob.id] ?? `#o${mob.id}#`;
     rows.push({
       kind: "mob",
+      templateId: mob.id,
       label,
       text: `${label}: ${actual}/${mob.count}`,
       current: actual,
@@ -74,6 +75,7 @@ function appendItemObjectives(rows, quests, record, profile) {
     const label = quests.catalog.strings.item[item.id] ?? `#t${item.id}#`;
     rows.push({
       kind: "item",
+      templateId: item.id,
       label,
       text: `${label}: ${actual}/${Math.abs(item.count)}`,
       current: actual,
@@ -91,6 +93,7 @@ function appendQuestObjectives(rows, quests, record, profile) {
     const label = quests.catalog.records[quest.id]?.name ?? `#u${quest.id}#`;
     rows.push({
       kind: "quest",
+      templateId: quest.id,
       label,
       text: label,
       current: profile.quests[quest.id]?.state ?? 0,

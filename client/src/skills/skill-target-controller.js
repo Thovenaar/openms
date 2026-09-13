@@ -18,8 +18,10 @@ import {
   setMobAction,
   MOB_POLICY,
 } from "../combat/offline-mobs.js";
-import { EntityAnimation } from "../rendering/animation.js";
-import { loadVisualBundle } from "../rendering/visual-resources.js";
+import {
+  createSkillAnimation,
+  loadSkillVisual,
+} from "./skill-runtime-ports.js";
 
 const MAX_FORMS = 32;
 const FORM_OPTIONS = Object.freeze({
@@ -97,13 +99,14 @@ export class SkillTargetController {
       (MOB_POLICY.walkPixelsPerSecondAtSpeedZero * (100 + descriptor.speed)) /
       100;
     this.formAbort = new AbortController();
-    this.formOwner = await loadVisualBundle(
+    this.formOwner = await loadSkillVisual(
+      this.system,
       descriptor.bundle,
-      this.system.hooks.services,
       this.formAbort.signal,
     );
     for (let index = 0; index < MAX_FORMS; index++) {
-      const animation = new EntityAnimation(
+      const animation = createSkillAnimation(
+        this.system,
         this.formOwner.manifest.entities[0],
         this.formOwner.textures,
       );
@@ -120,7 +123,7 @@ export class SkillTargetController {
     this.field = field;
     this.mobs = field.worldSkills().mobs;
     for (const mob of this.mobs) {
-      const state = {
+      let state = {
         mob,
         receivedMs: 0,
         deaths: mob.deaths,
@@ -133,6 +136,7 @@ export class SkillTargetController {
         movementType: mob.movementType,
         flight: mob.flight,
       };
+      state = this.system.hooks.targetState?.(mob, state) ?? state;
       mob.skillStatus.doomInfo =
         this.system.fullCatalog.ui.skillCombat?.targets?.doom?.info ?? null;
       this.states.set(mob, state);
@@ -260,7 +264,7 @@ export class SkillTargetController {
     return target;
   }
 
-  attack(mob, target, action = null) {
+  attack(mob, target, action = null, outcome = null) {
     if (!hasMobStatus(mob, "inert") || !hypnotizeTarget(mob, target)) {
       return null;
     }
@@ -272,7 +276,13 @@ export class SkillTargetController {
     ) {
       return null;
     }
-    state.receivedMs = HYPNOTIZE_HIT_MS;
+    if (outcome) {
+      const generation = target.deaths;
+      outcome.effects.push(() => {
+        if (target.deaths === generation && target.alive)
+          {state.receivedMs = HYPNOTIZE_HIT_MS;}
+      });
+    } else state.receivedMs = HYPNOTIZE_HIT_MS;
     return hypnotizeDamage(
       mob.skillStatus.projected,
       target.skillStatus.projected,
@@ -293,6 +303,8 @@ export class SkillTargetController {
   step(ms) {
     for (const state of this.stateList) {
       const mob = state.mob;
+      if (this.system.hooks.controlsMob && !this.system.hooks.controlsMob(mob))
+        {continue;}
       if (state.deaths !== mob.deaths) {
         state.receivedMs = 0;
         state.deaths = mob.deaths;
@@ -430,7 +442,14 @@ export class SkillTargetController {
   destroy() {
     this.cancel();
     this.formAbort?.abort();
-    for (const state of this.stateList) if (state.body) this.endForm(state);
+    for (const state of this.stateList) {
+      if (
+        state.body &&
+        (!this.system.hooks.controlsMob ||
+          this.system.hooks.controlsMob(state.mob))
+      )
+        {this.endForm(state);}
+    }
     if (this.doomSequence) {
       for (const slot of this.doomSequence.slots) {
         this.system.scene.removeWorldContainer(slot.animation.container);

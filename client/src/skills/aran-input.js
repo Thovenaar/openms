@@ -60,12 +60,14 @@ export class AranInput {
     this.second = 0;
     this.firstExpiry = 0;
     this.secondExpiry = 0;
+    this.pending = null;
   }
 
   clear() {
     this.stage = 0;
     this.held = false;
     this.first = this.second = 0;
+    this.pending = null;
   }
 
   enabled() {
@@ -181,18 +183,43 @@ export class AranInput {
 
   /** Returns true only when atomic skill admission starts a real authored action. */
   advance() {
-    if (this.field.phase !== "idle") return false;
+    if (this.field.phase !== "idle" || this.pending) return false;
     for (let index = 0; index < 2 && this.first; index++) {
       if (this.clock >= this.firstExpiry) {
         this.shift();
         continue;
       }
-      const id = this.field.hooks.resolveSkillId?.(this.first) ?? this.first;
-      const result = this.field.hooks.activateSkill?.(id);
-      if (!result?.ok) return false;
-      this.shift();
-      return true;
+      return this.activateFirst();
     }
+    return false;
+  }
+
+  activateFirst() {
+    const id = this.field.hooks.resolveSkillId?.(this.first) ?? this.first;
+    const result = this.field.hooks.activateSkill?.(id);
+    if (result?.then) return this.awaitActivation(result);
+    if (!result?.ok) return false;
+    this.shift();
+    return true;
+  }
+
+  awaitActivation(result) {
+    const first = this.first,
+      expiry = this.firstExpiry;
+    this.pending = result;
+    result
+      .then((admission) => {
+        if (
+          this.pending === result &&
+          admission?.ok &&
+          this.first === first &&
+          this.firstExpiry === expiry
+        )
+          {this.shift();}
+      })
+      .finally(() => {
+        if (this.pending === result) this.pending = null;
+      });
     return false;
   }
 

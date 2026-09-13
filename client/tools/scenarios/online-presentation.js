@@ -252,11 +252,11 @@ async function login(session, credentials) {
     waitUntil: "domcontentloaded",
     timeout: TIMEOUT,
   });
-  await page.waitForSelector(".online-login .maple95-window", {
+  await page.waitForSelector(".online-login .online-login-window", {
     visible: true,
   });
   await page.waitForSelector('.online-login [name="name"]', { visible: true });
-  await capture(session, "login-win95");
+  await capture(session, "login-original");
   await page.type('.online-login [name="name"]', credentials.account);
   await page.type('.online-login [name="password"]', credentials.password);
   await page.click(".online-login-submit");
@@ -272,17 +272,18 @@ async function login(session, credentials) {
         card.getBoundingClientRect().width > 0 &&
         enter &&
         !enter.disabled &&
-        stage.querySelectorAll(".online-login-dot").length > 0
+        !stage.closest(".online-login-body").inert &&
+        stage.querySelectorAll(".online-login-card:not(:disabled)").length > 0
       );
     },
     { timeout: TIMEOUT },
   );
-  await page.click(".online-login-dot");
-  await capture(session, "login-character-spotlight");
+  await page.click('.online-login-card[aria-pressed="true"]');
+  await capture(session, "login-character-roster");
   await clickLabel(page, "Enter the world", ".online-login");
   await ready(page);
   session.report.checks.push(
-    "Win95 sign-in submitted through hashcash-gated account flow; server-owned spotlight character selected by mouse and entered",
+    "Original Login.img sign-in submitted through hashcash-gated account flow; server-owned character selected by mouse and entered",
   );
   await capture(session, "field-native-hud");
 }

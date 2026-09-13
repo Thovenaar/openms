@@ -35,6 +35,31 @@ export function cashCurrency(currency) {
   }
 }
 
+/** Cosmic action0x06; native004ba419 caps ordinary bags at96. Mutates a detached draft only. */
+export function expandCashInventory(profile, { type, currency }) {
+  cashCurrency(currency);
+  if (!Number.isInteger(type) || type < 1 || type > 4) {
+    throw profileError(
+      "cash-inventory-type",
+      "Select an ordinary inventory category.",
+    );
+  }
+  if (profile.inventorySlots[type - 1] + 4 > 96) {
+    throw profileError(
+      "inventory-cap",
+      "This inventory cannot be expanded beyond 96 slots.",
+    );
+  }
+  if (profile.cash.balances[currency] < 4000) {
+    throw profileError(
+      "cash-insufficient",
+      "You do not have enough funds for this expansion.",
+    );
+  }
+  profile.inventorySlots[type - 1] += 4;
+  profile.cash.balances[currency] -= 4000;
+}
+
 function templateOf(catalog, id) {
   const template = catalog.ui.items[id];
   if (!template?.descriptor || template.id !== id) {

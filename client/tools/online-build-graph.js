@@ -17,7 +17,6 @@ const FORBIDDEN = new Set([
   "src/world/drop-system.js",
   "src/world/reactor-system.js",
   "src/world/pickup-effects.js",
-  "src/world/field-transition.js",
   "src/npc/npc-interactions.js",
   "src/npc/npc-shop.js",
   "src/npc/npc-storage.js",

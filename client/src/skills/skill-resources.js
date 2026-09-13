@@ -1,5 +1,8 @@
-import { EntityAnimation } from "../rendering/animation.js";
-import { loadVisualBundle } from "../rendering/visual-resources.js";
+import {
+  createSkillAnimation,
+  loadSkillVisual,
+} from "./skill-runtime-ports.js";
+
 import { check } from "../rendering/stream-network.js";
 
 const MAX_PREPARED = 534;
@@ -148,9 +151,9 @@ export class SkillResources {
     if (record.visuals.size >= MAX_SEQUENCES) {
       throw new Error("Skill sequence budget exceeded");
     }
-    const owner = await loadVisualBundle(
+    const owner = await loadSkillVisual(
+      this,
       descriptor.bundle,
-      this.hooks.services,
       this.controller.signal,
     );
     if (record.disposed || this.controller.signal.aborted) {
@@ -361,7 +364,8 @@ export class SkillResources {
 
   growSlots(sequence, count) {
     for (let i = sequence.slots.length; i < count; i++) {
-      const animation = new EntityAnimation(
+      const animation = createSkillAnimation(
+        this,
         sequence.owner.manifest.entities[0],
         sequence.owner.textures,
       );

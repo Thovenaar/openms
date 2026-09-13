@@ -317,8 +317,8 @@ class FieldSystems {
       interruptChakra: () => this.skills.utilityController.interruptChakra(),
       targetFor: (mob, target) =>
         this.skills.worldController.targetFor(mob, target),
-      interceptContact: (mob, action) =>
-        this.skills.worldController.interceptContact(mob, action),
+      interceptContact: (mob, action, outcome) =>
+        this.skills.worldController.interceptContact(mob, action, outcome),
       protects: (x, y) => this.skills.worldController.protects(x, y),
       damageForm: (amount) => this.skills.worldController.damageForm(amount),
       absorbDamage: this.skills.absorbDamage.bind(this.skills),

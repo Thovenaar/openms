@@ -31,11 +31,8 @@ function configuredOrigin(environment, development) {
   ) {
     throw new Error("Production requires an explicit HTTPS OPENMS_ORIGIN");
   }
-  if (
-    development &&
-    !["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname)
-  ) {
-    throw new Error("Development origin must be loopback");
+  if (development && !["http:", "https:"].includes(origin.protocol)) {
+    throw new Error("Development OPENMS_ORIGIN must use HTTP or HTTPS");
   }
   return origin.origin;
 }
@@ -48,10 +45,16 @@ function proofBits(value) {
   return Math.max(POW_MIN_BITS, Math.min(POW_MAX_BITS, bits));
 }
 
-/** HTTP is allowed only for explicit loopback development; production needs TLS origin. */
+/** Explicit development mode allows HTTP origins; production requires HTTPS. */
 export function serverConfig(environment = loadEnvironment("server")) {
   const development = environment.OPENMS_MODE === "development";
   const origin = configuredOrigin(environment, development);
+  const hostname = environment.OPENMS_HOST ?? "127.0.0.1";
+  if (typeof hostname !== "string" || !hostname.trim()) {
+    throw new Error(
+      "OPENMS_HOST must be a non-empty bind hostname or IP address",
+    );
+  }
   if (!environment.DATABASE_URL) {
     throw new Error(
       "DATABASE_URL must point to PostgreSQL; no in-memory economy fallback",
@@ -69,9 +72,7 @@ export function serverConfig(environment = loadEnvironment("server")) {
   return Object.freeze({
     development,
     origin,
-    hostname: development
-      ? "127.0.0.1"
-      : (environment.OPENMS_HOST ?? "127.0.0.1"),
+    hostname,
     port: port(environment.OPENMS_PORT, 3200),
     databaseUrl: environment.DATABASE_URL,
     contentRoot:

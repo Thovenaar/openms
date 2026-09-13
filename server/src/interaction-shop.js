@@ -71,10 +71,12 @@ export async function executeShop(actor, message, world) {
     !action.itemId || !actor.itemLocks?.has(action.itemId),
     "CHARACTER_BUSY",
   );
-  const receipt = await world.database.commit(
+  const receipt = await world.participants.commit(
     actor,
     operationFor(message),
-    (draft) => {
+    [actor.id],
+    async (profiles) => {
+      const draft = profiles.get(actor.id);
       currentNpc(world, actor, session);
       requireInteraction(
         actor.shop === session && session.id === action.shopSession,
@@ -82,7 +84,18 @@ export async function executeShop(actor, message, world) {
       );
       const quote = shopQuote(draft, world.content.items, session, action);
       applyShopQuote(draft, quote);
-      return { value: { shopSession: session.id, action: quote.kind } };
+      return {
+        value: {
+          kind: "shop.transaction",
+          shopSession: session.id,
+          action: quote.kind,
+          itemId: quote.itemId,
+          uid: quote.uid,
+          count: quote.units,
+          amount: quote.amount,
+          currency: quote.currency,
+        },
+      };
     },
   );
   if (receipt.status === "committed") {

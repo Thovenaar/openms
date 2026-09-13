@@ -1,5 +1,6 @@
 import { LifeSystem } from "../world/life-system.js";
 import { NpcWorldPresentation } from "../npc/npc-world-presentation.js";
+import { GameplayEffects } from "../audio/gameplay-effects.js";
 import {
   portalRevealContains,
   updatePortalGraphics,
@@ -41,14 +42,45 @@ export class SceneLife {
         desired: false,
       }),
     );
+    this.reactors = owner.scene.manifest.reactors.placements.map(
+      (placement) => ({
+        placement,
+        animation: null,
+        entity: null,
+      }),
+    );
+    this.tutorials = null;
+    this.teleports = new GameplayEffects(owner.services);
   }
 
   async prepare() {
     await this.world.prepare(this.owner.catalog, this.owner.controller.signal);
+    await this.teleports.prepare(
+      this.owner.catalog.audiovisual,
+      this.owner.controller.signal,
+      ["Teleport"],
+    );
+    const names = new Set();
+    for (const record of this.owner.scene.manifest.portalPresentation.records) {
+      for (const branch of record.tutorialProgram?.branches ?? [])
+        {names.add(branch.path);}
+    }
+    if (names.size) {
+      this.tutorials = new GameplayEffects(this.owner.services);
+      await this.tutorials.prepare(
+        this.owner.catalog.audiovisual,
+        this.owner.controller.signal,
+        [...names],
+      );
+    }
+    this.updateReactors(0);
   }
 
   update(elapsed) {
     this.life.update(elapsed);
+    this.updateReactors(elapsed);
+    this.tutorials?.update(elapsed);
+    this.teleports.update(elapsed);
     let reveal = null;
     for (let index = this.portals.length - 1; index >= 0; index--) {
       const record = this.portals[index];
@@ -62,6 +94,53 @@ export class SceneLife {
     }
     for (const record of this.portals) {
       updatePortalGraphics(this.owner.scene, record, reveal === record);
+    }
+  }
+
+  /** Authored sprites remain region owned; the server owns every state and its resumable clock. */
+  updateReactors(elapsed) {
+    for (const record of this.reactors) {
+      const animation = this.owner.scene.byId.get(record.placement.entityId);
+      const entity =
+        this.owner.reactorEntities?.get(record.placement.id) ?? null;
+      if (!animation) {
+        record.animation = null;
+        continue;
+      }
+      animation.gameplayOwned = true;
+      const state = entity?.reactor;
+      animation.container.visible = Boolean(state?.visible);
+      if (!state?.action) {
+        record.animation = animation;
+        record.entity = entity;
+        continue;
+      }
+      if (record.entity !== entity || record.animation !== animation) {
+        animation.setAction(state.action, state.repeat ? "loop" : "once");
+        animation.seek(state.elapsedMs);
+        record.entity = entity;
+        record.animation = animation;
+      } else animation.advance(elapsed);
+    }
+  }
+
+  showTutorial(path) {
+    if (!this.tutorials)
+      {throw new Error("Original tutorial artwork was not prepared");}
+    this.tutorials.play(path, this.owner.scene);
+  }
+
+  /** Fixed world endpoints share native pooled effects; another player's teleport never cancels them. */
+  showTeleport(source, destination) {
+    const scene = this.owner.scene;
+    for (const point of [source, destination]) {
+      this.teleports.play("Teleport", {
+        presentation: point,
+        addWorldContainer: (container, layer) =>
+          scene.addWorldContainer(container, layer),
+        removeWorldContainer: (container) =>
+          scene.removeWorldContainer(container),
+      });
     }
   }
 
@@ -81,5 +160,9 @@ export class SceneLife {
   destroy() {
     this.life.destroy();
     for (const record of this.portals) record.animation = null;
+    this.tutorials?.destroy();
+    this.tutorials = null;
+    this.teleports.destroy();
+    for (const record of this.reactors) record.animation = null;
   }
 }

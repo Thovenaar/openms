@@ -11,23 +11,17 @@ import { LoginBackdrop } from "./login-backdrop.js";
 import { OnlineDialogs } from "./dialogs.js";
 
 const MAX_CHARACTERS = 64;
+// 00605975 visits i + page*3; 00606ba9 positions all three avatars together.
+const CHARACTERS_PER_PAGE = 3;
 const MAX_NONCE = 64 * 1024 * 1024;
 const POW_YIELD_HASHES = 512;
 const ACCOUNT_NAME_PATTERN = /^[A-Za-z0-9_-]{3,16}$/;
 const CHARACTER_NAME_PATTERN = /^[A-Za-z0-9]{4,13}$/;
 const MIN_PASSWORD = 8;
 const MAX_PASSWORD = 256;
-// Dice policy: four stats, each 4..13, totalling the packaged baseline 25 points.
 const STAT_KEYS = ["str", "dex", "int", "luk"];
-const STAT_MINIMUM = 4;
-const STAT_MAXIMUM = 13;
-const STAT_TOTAL = 25;
-const DICE_TICKS = 10;
-const DICE_TICK_MS = 60;
-/** Original create-screen rows in MakeCharInfo.img category order. Gender is its own
- * original surface and the four apparel rows are the packet's always-present gear. */
+/** 00618026 paints the eight Info choices first, followed by gender (row8). */
 const CREATE_ROWS = [
-  ["gender", "Gender"],
   ["face", "Face"],
   ["hairBase", "Hair"],
   ["hairColor", "Hair colour"],
@@ -36,6 +30,7 @@ const CREATE_ROWS = [
   ["bottom", "Bottom"],
   ["shoes", "Shoes"],
   ["weapon", "Weapon"],
+  ["gender", "Gender"],
 ];
 /** Apparel the original create packet always carried, in its transmitted order. */
 const CREATE_GEAR = ["top", "bottom", "shoes", "weapon"];
@@ -104,19 +99,6 @@ function optionTitle(field) {
   return CREATE_ROWS.find(([name]) => name === field)?.[1] ?? field;
 }
 
-function rollStats(random = Math.random) {
-  const stats = Object.fromEntries(STAT_KEYS.map((key) => [key, STAT_MINIMUM]));
-  for (
-    let points = STAT_TOTAL - STAT_MINIMUM * STAT_KEYS.length;
-    points > 0;
-    points--
-  ) {
-    const open = STAT_KEYS.filter((key) => stats[key] < STAT_MAXIMUM);
-    stats[open[Math.floor(random() * open.length)]]++;
-  }
-  return stats;
-}
-
 function element(tag, className, text = "") {
   const node = document.createElement(tag);
   node.className = className;
@@ -162,7 +144,11 @@ async function solveProofOfWork(challenge, { signal, onProgress }) {
       await crypto.subtle.digest("SHA-256", encoder.encode(message)),
     );
     if (satisfiesProofOfWork(digest, challenge.bits)) {
-      return { challengeId: challenge.challengeId, nonce: String(nonce) };
+      return {
+        challengeId: challenge.challengeId,
+        nonce: String(nonce),
+        csrfToken: challenge.loginToken,
+      };
     }
     if (nonce % POW_YIELD_HASHES !== 0) continue;
     if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
@@ -174,7 +160,7 @@ async function solveProofOfWork(challenge, { signal, onProgress }) {
   throw new Error("The proof-of-work challenge was not solved in time");
 }
 
-/** Custom Win95 account and character selection surface; the server stays authoritative. */
+/** Original login artwork over accessible account controls; the server stays authoritative. */
 export class OnlineLogin {
   constructor({ app, services, transport, hooks, audio = null }) {
     this.app = app;
@@ -187,14 +173,15 @@ export class OnlineLogin {
     this.prepared = false;
     this.visible = true;
     this.entered = false;
+    this.presentationPaused = false;
     this.generation = 0;
-    this.mode = "signin";
     this.characters = [];
+    this.previews = [];
     this.selected = 0;
     this.stage = "account";
+    this.creationPhase = "name";
     this.draft = {
       name: "",
-      stats: rollStats(),
       gender: 0,
       skin: 0,
       face: 0,
@@ -205,23 +192,19 @@ export class OnlineLogin {
       shoes: 0,
       weapon: 0,
     };
-    this.diceTimer = null;
     this.listeners = [];
     this.controller = new AbortController();
-    this.previewLayer = new Container({ label: "online-login-preview" });
     this.host = element("section", "online-login");
     this.host.setAttribute("aria-label", "Online MapleStory sign in");
-    this.window = element("div", "maple95-window online-login-window");
-    const titlebar = element("header", "maple95-titlebar");
-    titlebar.append(element("span", "maple95-title", "MapleStory"));
-    this.window.append(titlebar);
-    const body = element("div", "maple95-body");
+    this.window = element("div", "online-login-window");
+    const body = element("div", "online-login-body");
     this.buildAccountStage(body);
     this.buildCharacterStage(body);
     this.buildCreateStage(body);
     this.window.append(body);
     this.host.append(this.window);
-    app.canvas.parentElement.append(this.host);
+    this.buildRegistration();
+    document.querySelector("#viewport").append(this.host);
     this.dialogs = new OnlineDialogs(this.host);
     this.resize(app.screen.width, app.screen.height);
     this.installCues();
@@ -229,21 +212,12 @@ export class OnlineLogin {
     this.renderStage();
   }
 
-  /** Progress and notices belong to the stage that produced them; failures open a dialog. */
-  activeStatus() {
-    if (this.stage === "create") return this.createStatus;
-    if (this.stage === "characters") return this.characterStatus;
-    return this.accountStatus;
-  }
-
+  /** Native scene progress stays in inspection; registration owns its framed status. */
   setStatus(text = "") {
-    for (const node of [
-      this.accountStatus,
-      this.characterStatus,
-      this.createStatus,
-    ]) {
-      if (node) node.textContent = node === this.activeStatus() ? text : "";
-    }
+    this.statusText = text;
+    this.registrationStatus.textContent = this.registrationOverlay.hidden
+      ? ""
+      : text;
   }
 
   /** Original UI cues: every button answers hover and activation through the one audio
@@ -281,42 +255,26 @@ export class OnlineLogin {
 
   buildAccountStage(body) {
     const stage = element("div", "online-login-account");
-    const tabs = element("nav", "maple95-tabs");
-    tabs.setAttribute("role", "tablist");
-    this.signInTab = element("button", "maple95-tab", "Sign in");
-    this.signUpTab = element("button", "maple95-tab", "Create account");
-    for (const [tab, mode] of [
-      [this.signInTab, "signin"],
-      [this.signUpTab, "signup"],
-    ]) {
-      tab.type = "button";
-      tab.setAttribute("role", "tab");
-      this.listen(tab, "click", () => this.selectMode(mode));
-      tabs.append(tab);
-    }
-    stage.append(tabs);
+    this.signUpTab = element("button", "online-login-register", "Register");
+    this.signUpTab.type = "button";
+    this.signUpTab.setAttribute("aria-haspopup", "dialog");
+    this.listen(this.signUpTab, "click", () => this.openRegistration());
+    stage.append(this.signUpTab);
     const form = element("form", "online-login-form");
     form.autocomplete = "on";
     this.name = textInput("name", "Account name", 16);
     this.password = passwordInput("password", "Password", "current-password");
-    this.confirm = passwordInput("confirm", "Confirm password", "new-password");
-    this.confirmRow = field("Confirm password", this.confirm);
     form.append(
       field("Account name", this.name),
       field("Password", this.password),
-      this.confirmRow,
     );
     this.submitButton = element(
       "button",
-      "maple95-button primary online-login-submit",
+      "online-login-button primary online-login-submit",
       "Sign in",
     );
     this.submitButton.type = "submit";
     form.append(this.submitButton);
-    this.accountStatus = element("p", "online-login-status", "");
-    this.accountStatus.setAttribute("role", "status");
-    this.accountStatus.setAttribute("aria-live", "polite");
-    form.append(this.accountStatus);
     this.listen(form, "submit", (event) => {
       event.preventDefault();
       this.submit().catch((error) => this.report(error));
@@ -324,84 +282,336 @@ export class OnlineLogin {
     this.listen(form, "keydown", (event) => event.stopPropagation());
     this.accountStage = stage;
     stage.append(form);
+    this.buildAccountTools(stage);
     body.append(stage);
+  }
+
+  /** 0062054a positions these controls relative to Title's world(10,-80) window. */
+  buildAccountTools(stage) {
+    this.accountButtons = [];
+    for (const [action, label, path, x, y] of [
+      ["home", "Homepage", "Title/BtHomePage", 524, 348],
+      ["quit", "Quit", "Title/BtQuit", 624, 348],
+    ]) {
+      const button = element(
+        "button",
+        "online-login-button online-login-account-tool",
+        label,
+      );
+      button.type = "button";
+      button.style.left = `${x}px`;
+      button.style.top = `${y}px`;
+      this.listen(button, "click", () => this.accountAction(action));
+      this.accountButtons.push({ button, path });
+      stage.append(button);
+    }
+  }
+
+  accountAction(action) {
+    if (this.pending) return;
+    if (action === "home") window.location.assign("https://docs.openms.dev");
+    else if (action === "quit") window.location.assign("about:blank");
+  }
+
+  buildRegistration() {
+    this.registrationOverlay = element("div", "online-registration-overlay");
+    this.registrationOverlay.hidden = true;
+    this.registrationWindow = element(
+      "section",
+      "online-registration inspection-chrome",
+    );
+    this.registrationWindow.tabIndex = -1;
+    this.registrationWindow.setAttribute("role", "dialog");
+    this.registrationWindow.setAttribute("aria-modal", "true");
+    this.registrationWindow.setAttribute("aria-label", "Create account");
+    const titlebar = element("header", "online-registration-titlebar");
+    this.registrationClose = element(
+      "button",
+      "online-registration-close",
+      "×",
+    );
+    this.registrationClose.type = "button";
+    this.registrationClose.setAttribute("aria-label", "Close registration");
+    titlebar.append(
+      element("span", "online-registration-title", "Create account"),
+      this.registrationClose,
+    );
+    const form = this.buildRegistrationForm();
+    this.registrationWindow.append(titlebar, form);
+    this.registrationOverlay.append(this.registrationWindow);
+    this.host.append(this.registrationOverlay);
+    for (const button of [this.registrationClose, this.registrationCancel]) {
+      this.listen(button, "click", () => this.closeRegistration());
+    }
+    this.listen(form, "submit", (event) => {
+      event.preventDefault();
+      this.submit(true).catch((error) => this.report(error));
+    });
+    this.listen(
+      document,
+      "keydown",
+      (event) => this.onRegistrationKey(event),
+      true,
+    );
+    this.listen(document, "focusin", (event) => {
+      if (
+        this.registrationOverlay.hidden ||
+        this.dialogs?.open ||
+        this.registrationWindow.contains(event.target)
+      ) {
+        return;
+      }
+      (this.pending ? this.registrationWindow : this.registrationName).focus();
+    });
+  }
+
+  buildRegistrationForm() {
+    const form = element("form", "online-registration-form");
+    form.autocomplete = "on";
+    this.registrationName = textInput("registration-name", "Account name", 16);
+    this.registrationPassword = passwordInput(
+      "registration-password",
+      "Password",
+      "new-password",
+    );
+    this.registrationConfirm = passwordInput(
+      "registration-confirm",
+      "Confirm password",
+      "new-password",
+    );
+    const instructions = element(
+      "p",
+      "online-registration-instructions",
+      "Account names use 3–16 letters, digits, underscore or hyphen. Passwords use 8–256 characters.",
+    );
+    form.append(
+      instructions,
+      field("Account name", this.registrationName),
+      field("Password", this.registrationPassword),
+      field("Confirm password", this.registrationConfirm),
+    );
+    this.registrationStatus = element("p", "online-registration-status");
+    this.registrationStatus.setAttribute("role", "status");
+    this.registrationStatus.setAttribute("aria-live", "polite");
+    this.registrationSubmit = element(
+      "button",
+      "online-registration-submit",
+      "Create account",
+    );
+    this.registrationSubmit.type = "submit";
+    this.registrationCancel = element(
+      "button",
+      "online-registration-cancel",
+      "Cancel",
+    );
+    this.registrationCancel.type = "button";
+    const actions = element("div", "online-registration-actions");
+    actions.append(this.registrationSubmit, this.registrationCancel);
+    form.append(this.registrationStatus, actions);
+    return form;
+  }
+
+  openRegistration() {
+    if (
+      this.pending ||
+      this.destroyed ||
+      this.accountStage.hidden ||
+      this.dialogs.open ||
+      !this.registrationOverlay.hidden
+    ) {
+      return;
+    }
+    this.registrationPreviousFocus = document.activeElement;
+    this.registrationOverlay.hidden = false;
+    this.window.inert = true;
+    this.setStatus("Choose an account name and password.");
+    this.registrationName.focus();
+  }
+
+  closeRegistration() {
+    if (this.pending || this.destroyed || this.dialogs.open) return;
+    const previousFocus = this.registrationPreviousFocus;
+    this.resetRegistration();
+    this.setStatus("Sign in with your server account.");
+    if (previousFocus?.isConnected) previousFocus.focus();
+    else this.signUpTab.focus();
+  }
+
+  /** Internal completion/reset also closes the popup while auth is still unwinding. */
+  resetRegistration() {
+    this.registrationOverlay.hidden = true;
+    this.window.inert = false;
+    this.registrationName.value = "";
+    this.registrationPassword.value = "";
+    this.registrationConfirm.value = "";
+    this.registrationStatus.textContent = "";
+    this.registrationPreviousFocus = null;
+  }
+
+  onRegistrationKey(event) {
+    if (this.registrationOverlay.hidden || this.dialogs.open) return;
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.closeRegistration();
+    } else if (event.key === "Tab") {
+      const controls = [
+        this.registrationClose,
+        this.registrationName,
+        this.registrationPassword,
+        this.registrationConfirm,
+        this.registrationSubmit,
+        this.registrationCancel,
+      ].filter((control) => !control.disabled);
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (!first) {
+        event.preventDefault();
+        this.registrationWindow.focus();
+      } else if (!controls.includes(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
+  clearSecrets() {
+    this.password.value = "";
+    this.registrationPassword.value = "";
+    this.registrationConfirm.value = "";
   }
 
   buildCharacterStage(body) {
     const stage = element("div", "online-login-characters");
     stage.hidden = true;
-    stage.append(element("h2", "online-login-heading", "Select a character"));
-    stage.append(this.buildSpotlight());
-    this.dots = element("div", "online-login-dots");
-    this.dots.setAttribute("role", "tablist");
-    this.dots.setAttribute("aria-label", "Characters");
-    stage.append(this.dots, this.buildCharacterActions());
+    this.roster = element("div", "online-login-roster");
+    this.roster.setAttribute("role", "group");
+    this.roster.setAttribute("aria-label", "Characters");
+    this.rosterSlots = [];
+    for (let index = 0; index < CHARACTERS_PER_PAGE; index++) {
+      this.rosterSlots.push(this.buildRosterSlot(index));
+    }
+    this.characterDetail = this.buildCharacterInfo();
+    stage.append(
+      this.roster,
+      this.characterDetail,
+      this.buildRosterPages(),
+      this.buildCharacterActions(),
+    );
     this.characterStage = stage;
     body.append(stage);
     this.listen(this.host, "keydown", (event) => this.onKey(event));
   }
 
-  buildSpotlight() {
-    const spotlight = element("div", "online-login-spotlight");
+  buildRosterSlot(index) {
+    const button = element("button", "online-login-card");
+    button.type = "button";
+    button.style.left = `${120 + index * 125}px`;
+    const portrait = element("div", "online-login-portrait");
+    portrait.setAttribute("aria-hidden", "true");
+    const name = element("span", "online-login-character-name");
+    button.append(portrait, name);
+    this.roster.append(button);
+    const slot = {
+      button,
+      portrait,
+      name,
+      index,
+      character: null,
+      preview: null,
+    };
+    this.listen(button, "click", () => this.selectCharacter(slot.index));
+    this.listen(button, "dblclick", () => {
+      this.selectCharacter(slot.index);
+      this.enter().catch((error) => this.report(error));
+    });
+    return slot;
+  }
+
+  buildRosterPages() {
+    const pages = element("div", "online-login-pages");
     this.previous = element(
       "button",
-      "maple95-button online-login-previous",
-      "◀",
+      "online-login-button online-login-previous",
+      "Previous page",
     );
-    this.next = element("button", "maple95-button online-login-next", "▶");
-    for (const [button, delta, label] of [
-      [this.previous, -1, "Previous character"],
-      [this.next, 1, "Next character"],
+    this.next = element(
+      "button",
+      "online-login-button online-login-next",
+      "Next page",
+    );
+    for (const [button, delta] of [
+      [this.previous, -1],
+      [this.next, 1],
     ]) {
       button.type = "button";
-      button.setAttribute("aria-label", label);
-      this.listen(button, "click", () => this.step(delta));
+      this.listen(button, "click", () => this.changePage(delta));
+      pages.append(button);
     }
-    this.card = element("div", "online-login-card");
-    this.card.setAttribute("role", "group");
-    this.card.setAttribute("aria-label", "Selected character");
-    this.portrait = element("div", "online-login-portrait");
-    this.portrait.setAttribute("aria-hidden", "true");
-    this.portraitMark = element("span", "online-login-mark", "★");
-    this.portrait.append(this.portraitMark);
-    this.characterName = element("p", "online-login-character-name", "—");
-    this.characterDetail = element("p", "online-login-character-detail");
-    this.characterSlot = element("p", "online-login-character-slot");
-    this.card.append(
-      this.portrait,
-      this.characterName,
-      this.characterDetail,
-      this.characterSlot,
-    );
-    spotlight.append(this.previous, this.card, this.next);
-    return spotlight;
+    return pages;
+  }
+
+  buildCharacterInfo() {
+    const detail = element("div", "online-login-character-detail");
+    detail.append(element("span", "online-login-info-ranking", "Unavailable"));
+    this.characterInfo = {};
+    for (const key of ["job", "level", "fame", ...STAT_KEYS]) {
+      const value = element("span", `online-login-info-${key}`);
+      this.characterInfo[key] = value;
+      detail.append(value);
+    }
+    return detail;
+  }
+
+  renderCharacterInfo(character) {
+    this.characterDetail.hidden = !character;
+    if (!character) return;
+    const values = {
+      job: JOB_LABELS[character.job] ?? `Job ${character.job}`,
+      level: character.level,
+      fame: character.fame,
+      ...character.stats,
+    };
+    for (const [key, field] of Object.entries(this.characterInfo)) {
+      if (key !== "job" && !Number.isSafeInteger(values[key])) {
+        throw new Error(`Character summary is missing ${key}`);
+      }
+      field.textContent = String(values[key]);
+      field.setAttribute("aria-label", `${key}: ${values[key]}`);
+    }
   }
 
   buildCharacterActions() {
     const actions = element("div", "online-login-actions");
     this.enterButton = element(
       "button",
-      "maple95-button primary online-login-enter",
+      "online-login-button primary online-login-enter",
       "Enter the world",
     );
     this.createButton = element(
       "button",
-      "maple95-button online-login-new",
+      "online-login-button online-login-new",
       "Create character",
     );
     this.refreshButton = element(
       "button",
-      "maple95-button online-login-refresh",
+      "online-login-button online-login-refresh",
       "Refresh",
     );
     this.signOutButton = element(
       "button",
-      "maple95-button online-login-signout",
+      "online-login-button online-login-signout",
       "Sign out",
     );
     this.deleteButton = element(
       "button",
-      "maple95-button online-login-delete",
+      "online-login-button online-login-delete",
       "Delete character",
     );
     for (const button of [
@@ -427,10 +637,6 @@ export class OnlineLogin {
     this.listen(this.deleteButton, "click", () =>
       this.deleteSelected().catch((error) => this.report(error)),
     );
-    this.characterStatus = element("p", "online-login-status", "");
-    this.characterStatus.setAttribute("role", "status");
-    this.characterStatus.setAttribute("aria-live", "polite");
-    actions.after(this.characterStatus);
     return actions;
   }
 
@@ -473,12 +679,10 @@ export class OnlineLogin {
     }
   }
 
-  /** One screen: roll the dice, choose gender, basic gear and a name, then create. */
+  /** Native Explorer route: name window, then the appearance window in the same scene. */
   buildCreateStage(body) {
     const stage = element("div", "online-login-create");
     stage.hidden = true;
-    stage.append(element("h2", "online-login-heading", "Create a character"));
-    stage.append(this.buildRollStep());
     const layout = element("div", "online-login-create-layout");
     const look = element("div", "online-login-look");
     this.createPreviewElement = element("div", "online-login-preview");
@@ -486,17 +690,18 @@ export class OnlineLogin {
     this.createPreviewElement.setAttribute("aria-label", "Character preview");
     this.previewNote = element("p", "online-login-note", "");
     look.append(this.createPreviewElement, this.previewNote);
-    layout.append(look, this.buildCreateOptions());
+    this.createOptions = this.buildCreateOptions();
+    layout.append(look, this.createOptions);
     stage.append(layout, this.buildNameStep());
     const actions = element("div", "online-login-actions");
     this.backButton = element(
       "button",
-      "maple95-button online-login-back",
+      "online-login-button online-login-back",
       "Back",
     );
     this.submitCreate = element(
       "button",
-      "maple95-button primary online-login-create-submit",
+      "online-login-button primary online-login-create-submit",
       "Create",
     );
     for (const button of [this.backButton, this.submitCreate]) {
@@ -507,44 +712,9 @@ export class OnlineLogin {
     this.listen(this.submitCreate, "click", () =>
       this.createCharacter().catch((error) => this.report(error)),
     );
-    this.createStatus = element("p", "online-login-status", "");
-    this.createStatus.setAttribute("role", "status");
-    this.createStatus.setAttribute("aria-live", "polite");
-    actions.after(this.createStatus);
     stage.append(actions);
     this.createStage = stage;
     body.append(stage);
-  }
-
-  buildRollStep() {
-    const step = element("div", "online-login-roll");
-    const stats = element("div", "online-login-stats");
-    this.statOutputs = {};
-    for (const key of STAT_KEYS) {
-      const box = element("div", "online-login-stat");
-      const output = element(
-        "output",
-        "online-login-stat-value",
-        String(STAT_MINIMUM),
-      );
-      this.statOutputs[key] = output;
-      box.append(
-        element("span", "online-login-stat-label", key.toUpperCase()),
-        output,
-      );
-      stats.append(box);
-    }
-    this.statTotal = element("output", "online-login-stat-total", "");
-    this.rollButton = element(
-      "button",
-      "maple95-button online-login-roll-button",
-      "Roll",
-    );
-    this.rollButton.type = "button";
-    this.listen(this.rollButton, "click", () => this.rollDice());
-    step.append(stats, this.statTotal, this.rollButton);
-    this.rollStep = step;
-    return step;
   }
 
   buildCreateOptions() {
@@ -554,18 +724,21 @@ export class OnlineLogin {
       const row = element("div", "online-login-option");
       const previous = element(
         "button",
-        "maple95-button online-login-option-previous",
+        "online-login-button online-login-option-previous",
         "◀",
       );
       const value = element("output", "online-login-option-value", "—");
       const next = element(
         "button",
-        "maple95-button online-login-option-next",
+        "online-login-button online-login-option-next",
         "▶",
       );
       for (const button of [previous, next]) {
         button.type = "button";
-        button.setAttribute("aria-label", `${label} choice`);
+        button.setAttribute(
+          "aria-label",
+          `${button === previous ? "Previous" : "Next"} ${label.toLowerCase()}`,
+        );
       }
       this.listen(previous, "click", () => this.cycleOption(field, -1));
       this.listen(next, "click", () => this.cycleOption(field, 1));
@@ -588,7 +761,7 @@ export class OnlineLogin {
     this.nameNote = element(
       "p",
       "online-login-note",
-      "Names use 4 to 13 letters or digits and must be free on this account.",
+      "4 to 13 letters or digits.",
     );
     step.append(
       field("Character name", this.characterNameInput),
@@ -607,56 +780,24 @@ export class OnlineLogin {
       return;
     }
     this.stage = "create";
+    this.creationPhase = "name";
     this.draft.name = "";
-    this.draft.stats = rollStats();
+    this.characterNameInput.value = "";
     this.draft.gender = 0;
     this.adoptCreateDefaults();
     this.renderStage();
     this.renderCreate();
-    this.rollDice();
     this.refreshCreatePreview();
     this.characterNameInput.focus();
   }
 
   stepBack() {
     if (this.pending || this.destroyed) return;
-    if (this.characters.length) {
-      this.draft.name = this.characterNameInput.value;
-      this.showCharacters(this.characters);
-      return;
-    }
-    this.setStatus(
-      "Roll the dice, choose a look and name your first character.",
-    );
-  }
-
-  rollDice() {
-    if (this.pending || this.destroyed || this.rollTimer) return;
-    this.draft.stats = rollStats();
-    let ticks = DICE_TICKS;
-    this.rollButton.disabled = true;
-    this.rollStep.classList.add("rolling");
-    this.rollTimer = setInterval(() => {
-      ticks--;
-      if (ticks > 0) {
-        this.renderStats(rollStats());
-        return;
-      }
-      clearInterval(this.rollTimer);
-      this.rollTimer = null;
-      this.rollStep.classList.remove("rolling");
-      this.rollButton.disabled = this.pending;
-      this.renderStats(this.draft.stats);
-    }, DICE_TICK_MS);
-  }
-
-  renderStats(stats) {
-    let total = 0;
-    for (const key of STAT_KEYS) {
-      this.statOutputs[key].textContent = String(stats[key]);
-      total += stats[key];
-    }
-    this.statTotal.textContent = `Total ${total} of ${STAT_TOTAL}`;
+    if (this.creationPhase === "appearance") {
+      this.creationPhase = "name";
+      this.renderCreate();
+      this.characterNameInput.focus();
+    } else this.showCharacters(this.characters);
   }
 
   /** Recovered original new-character choices; there is no catalog-wide fallback,
@@ -771,6 +912,13 @@ export class OnlineLogin {
   }
 
   renderCreate() {
+    const naming = this.creationPhase === "name";
+    this.createStage.dataset.phase = this.creationPhase;
+    this.nameStep.hidden = !naming;
+    this.createOptions.hidden = naming;
+    this.submitCreate.setAttribute("aria-label", naming ? "Next" : "Create");
+    this.submitCreate.title = naming ? "Next" : "Create";
+    this.backdrop?.renderCreate();
     // The catalog streams after the account form is usable, so the create screen
     // renders a preparing state instead of failing the sign-in path.
     if (!this.prepared) {
@@ -781,7 +929,7 @@ export class OnlineLogin {
       }
       this.previewNote.textContent =
         "Reading the original starting choices from the server content…";
-      this.backButton.hidden = !this.characters.length;
+      this.backButton.hidden = false;
       this.submitCreate.disabled = true;
       return;
     }
@@ -794,7 +942,7 @@ export class OnlineLogin {
     this.publishOptions();
     const set = this.createSet();
     this.previewNote.textContent = `${set.face.length} faces, ${set.hairBase.length} hairs with ${set.hairColor.length} colours and ${set.skin.length} skin tones are the original starting choices.`;
-    this.backButton.hidden = !this.characters.length;
+    this.backButton.hidden = false;
     this.submitCreate.disabled = this.pending;
   }
 
@@ -815,11 +963,10 @@ export class OnlineLogin {
     profile.equipment = CREATE_GEAR.map((field) => this.draft[field]).map(
       (id) => ({ id, slot: this.equipSlot(id) }),
     );
-    Object.assign(profile, this.draft.stats);
     return profile;
   }
 
-  /** The carousel portrait composes the character's own appearance and equipped items.
+  /** Each roster portrait composes its character's own appearance and equipped items.
    * A summary without them is a server contract violation: showing a default look instead
    * would present a character the player cannot play. */
   characterProfile(character) {
@@ -858,46 +1005,31 @@ export class OnlineLogin {
   /** One composed-avatar plane per surface; each owns one prepared animation at a time.
    * The plane scans its root's children at the host origin, so the root itself is never
    * transformed: a nested view carries the preview scale and placement. */
-  previewSlot(name, element, maxScale) {
+  previewSlot(name, element) {
     const root = new Container({ label: `online-login-preview-${name}` });
     const view = new Container({ label: `online-login-preview-view-${name}` });
     root.addChild(view);
-    return {
+    const slot = {
       name,
       element,
       root,
       view,
-      maxScale,
       plane: new UIRasterPlane(root, element),
       prepared: null,
       controller: null,
       generation: 0,
     };
+    this.previews.push(slot);
+    return slot;
   }
 
-  previewSlots() {
-    return [this.createSlot, this.cardSlot].filter(Boolean);
-  }
-
-  /** Centre the composed avatar above the surface floor, bounded by the element box. */
-  placePreview(slot, prepared) {
-    const bounds = prepared.bounds;
-    const height = Math.max(1, bounds.bottom - bounds.top);
-    const width = Math.max(1, bounds.right - bounds.left);
-    const scale = Math.max(
-      0.6,
-      Math.min(
-        slot.maxScale,
-        slot.element.clientWidth / (width + 16),
-        (slot.element.clientHeight - 10) / height,
-      ),
-    );
-    slot.view.scale.set(scale);
+  /** Composed avatars use original pixels around feet (0,0), never their hair bounds. */
+  placePreview(slot) {
+    slot.view.scale.set(1);
     slot.view.position.set(
-      (slot.element.clientWidth - (bounds.left + bounds.right) * scale) / 2,
-      slot.element.clientHeight - bounds.bottom * scale - 5,
+      slot.element.clientWidth / 2,
+      slot.element.clientHeight,
     );
-    if (slot === this.cardSlot) this.portraitMark.hidden = true;
   }
 
   async showPreview(slot, profile, clear = false) {
@@ -916,7 +1048,7 @@ export class OnlineLogin {
         signal: controller.signal,
       });
     } catch (error) {
-      this.previewFailure(slot, error);
+      if (generation === slot.generation) this.previewFailure(slot, error);
       return;
     }
     if (this.destroyed || generation !== slot.generation) {
@@ -927,20 +1059,23 @@ export class OnlineLogin {
     slot.prepared = prepared;
     slot.view.removeChildren();
     slot.view.addChild(prepared.root);
-    this.placePreview(slot, prepared);
+    this.placePreview(slot);
   }
 
-  /** Empty one portrait and restore its placeholder mark. */
+  /** Empty a retired portrait; its name never describes another character's pixels. */
   clearPreview(slot) {
+    if (!slot) return;
     slot.prepared?.destroy();
     slot.prepared = null;
     slot.view.removeChildren();
-    if (slot === this.cardSlot) this.portraitMark.hidden = false;
+    const ratio = window.devicePixelRatio || 1;
+    slot.plane.sync(ratio, ratio);
   }
 
   /** A cancelled compose is silent; a real failure is stated where the player can see it. */
   previewFailure(slot, error) {
     if (error?.name === "AbortError" || this.destroyed) return;
+    this.hooks.report(error);
     this.clearPreview(slot);
     if (slot === this.createSlot) {
       this.previewNote.textContent =
@@ -960,6 +1095,10 @@ export class OnlineLogin {
       this.notify("Character names use 4 to 13 letters or digits.");
       return;
     }
+    if (this.pending || this.destroyed) return;
+    if (this.creationPhase === "name") return this.acceptName(name);
+    // The server's existing bootstrap policy remains authoritative; v83 has no dice UI.
+    const { str, dex, int, luk } = this.draftProfile();
     const generation = ++this.generation;
     this.setPending(true, `Creating ${name}…`);
     try {
@@ -969,7 +1108,10 @@ export class OnlineLogin {
         skin: this.draft.skin,
         face: this.draft.face,
         hair: this.draftHair(),
-        ...this.draft.stats,
+        str,
+        dex,
+        int,
+        luk,
         ...this.gearPayload(),
       });
       if (this.destroyed || generation !== this.generation) return;
@@ -985,6 +1127,33 @@ export class OnlineLogin {
     }
   }
 
+  /** Use the existing account-roster authority for name checks; creation rechecks atomically. */
+  async acceptName(name) {
+    const generation = ++this.generation;
+    this.setPending(true, "Checking the character name…");
+    try {
+      const characters = await this.transport.listCharacters();
+      if (this.cancelled(generation)) return;
+      if (characters.some((character) => character.name === name)) {
+        throw Object.assign(new Error("Name already used"), {
+          code: "NAME_TAKEN",
+        });
+      }
+      this.draft.name = name;
+      this.creationPhase = "appearance";
+      this.renderCreate();
+      this.setStatus("");
+      this.refreshCreatePreview();
+    } catch (error) {
+      if (!this.cancelled(generation)) this.reportCreationFailure(error);
+    } finally {
+      if (!this.cancelled(generation)) {
+        this.setPending(false);
+        this.focusStage();
+      }
+    }
+  }
+
   /** The original create packet always carried top, bottom, shoes and weapon. */
   gearPayload() {
     const payload = {};
@@ -993,14 +1162,12 @@ export class OnlineLogin {
   }
 
   acceptCreated(created) {
-    this.stage = "characters";
-    this.characters = this.transport.characters?.slice(0, MAX_CHARACTERS) ?? [];
+    const characters = this.transport.characters;
     this.selected = Math.max(
       0,
-      this.characters.findIndex((character) => character.id === created.id),
+      characters.findIndex((character) => character.id === created.id),
     );
-    this.selecting = this.characters.length > 0;
-    this.renderStage();
+    this.showCharacters(characters);
     this.setStatus(`${created.name} is ready. Enter the world when you are.`);
     this.enterButton.focus();
   }
@@ -1018,43 +1185,43 @@ export class OnlineLogin {
     if (signal?.aborted) return;
     this.catalog = catalog;
     this.visuals = new AvatarVisuals(this.services, catalog);
-    this.createSlot = this.previewSlot(
-      "create",
-      this.createPreviewElement,
-      2.4,
-    );
-    this.cardSlot = this.previewSlot("card", this.portrait, 1.9);
+    this.createSlot = this.previewSlot("create", this.createPreviewElement);
+    for (const slot of this.rosterSlots) {
+      slot.preview = this.previewSlot(`character-${slot.index}`, slot.portrait);
+    }
+    await this.startBackdrop(signal);
+    if (this.destroyed || signal?.aborted) return;
     this.prepared = true;
     this.adoptCreateDefaults();
-    this.renderStats(this.draft.stats);
     this.renderCreate();
     this.playTitleBgm();
-    this.startBackdrop(signal);
     this.setStatus(
-      this.mode === "signup"
+      !this.registrationOverlay.hidden
         ? "Choose an account name and password."
         : "Sign in with your server account.",
     );
     this.renderStage();
-    this.name?.focus();
+    if (!this.dialogs.open && !this.pending) {
+      (this.registrationOverlay.hidden
+        ? this.name
+        : this.registrationName
+      ).focus();
+    }
   }
 
-  /** The account window never waits for scenery; an unavailable map is skipped and reported. */
-  startBackdrop(signal) {
+  /** Login scenery and UI share the packaged, hash-verified visual resource pipeline. */
+  async startBackdrop(signal) {
     if (this.destroyed || this.backdrop) return;
-    const backdrop = new LoginBackdrop({
-      app: this.app,
-      services: this.services,
-      catalog: this.catalog,
-      network: this.services.network,
-      onError: (error) => this.hooks.report(error),
-    });
+    const backdrop = new LoginBackdrop(this);
     this.backdrop = backdrop;
-    backdrop.prepare(signal).catch((error) => {
-      if (error?.name === "AbortError" || this.destroyed) return;
-      this.hooks.report(error);
+    try {
+      await backdrop.prepare(signal ?? this.controller.signal);
+      if (!this.destroyed) backdrop.showStage(this.host.dataset.stage);
+    } catch (error) {
+      backdrop.destroy();
       if (this.backdrop === backdrop) this.backdrop = null;
-    });
+      throw error;
+    }
   }
 
   /** The field owns the canvas once the character is in; falling back re-creates the scenery. */
@@ -1063,18 +1230,7 @@ export class OnlineLogin {
     this.backdrop = null;
   }
 
-  selectMode(mode) {
-    if (this.pending || this.mode === mode || this.accountStage.hidden) return;
-    this.mode = mode;
-    this.setStatus(
-      mode === "signup"
-        ? "Choose an account name and password."
-        : "Sign in with your server account.",
-    );
-    this.renderStage();
-  }
-
-  /** Stage visibility and tab state derive from the active stage plus the character list. */
+  /** Stage visibility derives from the active stage plus the character list. */
   renderStage() {
     const changed = this.renderedStage !== this.stage;
     this.renderedStage = this.stage;
@@ -1090,17 +1246,7 @@ export class OnlineLogin {
       : selecting
         ? "characters"
         : "account";
-    this.signInTab.setAttribute(
-      "aria-selected",
-      String(this.mode === "signin"),
-    );
-    this.signUpTab.setAttribute(
-      "aria-selected",
-      String(this.mode === "signup"),
-    );
-    const signup = this.mode === "signup";
-    this.confirmRow.hidden = !signup;
-    this.submitButton.textContent = signup ? "Create account" : "Sign in";
+    this.backdrop?.showStage(this.host.dataset.stage);
     if (creating) {
       this.host.setAttribute(
         "aria-label",
@@ -1112,15 +1258,17 @@ export class OnlineLogin {
         "aria-label",
         "Online MapleStory character selection",
       );
-      this.renderCarousel();
+      this.renderRoster();
     } else {
       this.host.setAttribute("aria-label", "Online MapleStory sign in");
     }
   }
 
-  validate() {
-    const name = this.name.value.trim();
-    const password = this.password.value;
+  validate(signup) {
+    const nameInput = signup ? this.registrationName : this.name;
+    const passwordInput = signup ? this.registrationPassword : this.password;
+    const name = nameInput.value.trim();
+    const password = passwordInput.value;
     if (!ACCOUNT_NAME_PATTERN.test(name)) {
       throw localError(
         "Account names use 3 to 16 letters, digits, underscore or hyphen.",
@@ -1131,28 +1279,46 @@ export class OnlineLogin {
         `Passwords use ${MIN_PASSWORD} to ${MAX_PASSWORD} characters; this one has ${password.length}.`,
       );
     }
-    if (this.mode === "signup" && password !== this.confirm.value) {
-      throw new Error("The confirmation password does not match.");
+    if (signup && password !== this.registrationConfirm.value) {
+      throw localError("The confirmation password does not match.");
     }
     return { name, password };
   }
 
-  async submit() {
-    if (this.pending || this.destroyed) return;
-    const credentials = this.validate();
+  async submit(signup = false) {
+    if (
+      this.pending ||
+      this.destroyed ||
+      this.dialogs.open ||
+      this.accountStage.hidden ||
+      signup === this.registrationOverlay.hidden
+    ) {
+      return;
+    }
+    const credentials = this.validate(signup);
     const generation = ++this.generation;
     this.setPending(true, "Requesting a proof-of-work challenge…");
     try {
       const proof = await this.mineProof();
       if (this.cancelled(generation)) return;
-      const characters = await this.authorize(credentials, proof);
+      const characters = await this.authorize(credentials, proof, signup);
       if (this.cancelled(generation)) return;
       this.acceptCharacters(characters);
     } catch (error) {
       if (!this.cancelled(generation)) this.report(error);
     } finally {
-      if (!this.cancelled(generation)) this.setPending(false);
+      credentials.password = "";
+      this.clearSecrets();
+      if (!this.cancelled(generation)) {
+        this.finishSubmission();
+      }
     }
+  }
+
+  finishSubmission() {
+    this.setPending(false);
+    if (this.dialogs.open || this.stage !== "characters") return;
+    (this.characters.length ? this.enterButton : this.createButton).focus();
   }
 
   /** Every awaited step checks this so a stale attempt never publishes over a newer one. */
@@ -1175,104 +1341,160 @@ export class OnlineLogin {
     });
   }
 
-  async authorize(credentials, proof) {
-    this.setStatus(
-      this.mode === "signup" ? "Creating the account…" : "Signing in…",
-    );
-    return this.mode === "signup"
+  async authorize(credentials, proof, signup) {
+    this.setStatus(signup ? "Creating the account…" : "Signing in…");
+    return signup
       ? this.transport.register({ ...credentials, proof })
       : this.transport.login({ ...credentials, proof });
   }
 
   acceptCharacters(characters) {
-    this.password.value = "";
-    this.confirm.value = "";
-    if (!characters.length) {
-      // A fresh account creates its first character instead of dead-ending.
-      this.characters = [];
-      this.selecting = false;
-      this.showCreate();
-      this.setStatus(
-        "No characters yet. Roll the dice, choose a look and name your first character.",
-      );
-      return;
-    }
+    this.clearSecrets();
+    this.resetRegistration();
     this.showCharacters(characters);
+    if (!characters.length) {
+      this.setStatus("No characters yet. Create your first character.");
+    }
   }
 
   showCharacters(characters) {
-    this.characters = characters.slice(0, MAX_CHARACTERS);
-    this.selected = Math.min(this.selected, this.characters.length - 1);
+    if (!Array.isArray(characters) || characters.length > MAX_CHARACTERS) {
+      throw new Error("Server character roster exceeds its admitted bound");
+    }
+    this.characters = characters.slice();
+    this.selected = Math.max(
+      0,
+      Math.min(this.selected, this.characters.length - 1),
+    );
     this.selecting = true;
     this.stage = "characters";
     this.renderStage();
-    this.enterButton.focus();
+    this.focusStage();
+  }
+
+  /** Native controls take focus on arrival; inspecting the scene must not steal tool focus. */
+  focusStage() {
+    const active = document.activeElement;
+    if (
+      this.pending ||
+      this.dialogs.open ||
+      !this.registrationOverlay.hidden ||
+      (active !== document.body && !this.host.contains(active))
+    ) {
+      return;
+    }
+    if (this.stage === "account") this.name.focus();
+    else if (this.stage === "create") {
+      const target =
+        this.creationPhase === "name"
+          ? this.characterNameInput
+          : this.optionRows.face.previous;
+      target.focus();
+    } else {
+      (this.characters.length ? this.enterButton : this.createButton).focus();
+    }
   }
 
   step(delta) {
     if (this.pending || this.characters.length === 0) return;
     const count = this.characters.length;
     this.selected = (this.selected + delta + count) % count;
-    this.renderCarousel();
+    this.renderRoster();
   }
 
   selectCharacter(index) {
-    if (this.pending || index === this.selected) return;
+    if (this.pending || !this.characters[index] || index === this.selected) {
+      return;
+    }
     this.selected = index;
-    this.renderCarousel();
+    this.renderRoster();
   }
 
-  renderCarousel() {
-    const character = this.characters[this.selected];
-    if (!character) return;
-    const job = JOB_LABELS[character.job] ?? `Job ${character.job}`;
-    this.characterName.textContent = character.name;
-    this.characterDetail.textContent = `Level ${character.level} · ${job}`;
-    this.characterSlot.textContent = `Character ${this.selected + 1} of ${this.characters.length}`;
-    this.renderPortrait(character);
-    const single = this.characters.length < 2;
-    this.previous.disabled = single || this.pending;
-    this.next.disabled = single || this.pending;
-    this.dots.replaceChildren();
-    for (let index = 0; index < this.characters.length; index++) {
-      const dot = element(
-        "button",
-        "online-login-dot",
-        index === this.selected ? "●" : "○",
-      );
-      dot.type = "button";
-      dot.setAttribute("role", "tab");
-      dot.setAttribute("aria-selected", String(index === this.selected));
-      dot.setAttribute(
-        "aria-label",
-        `Character ${index + 1}: ${this.characters[index].name}`,
-      );
-      this.listen(dot, "click", () => this.selectCharacter(index));
-      this.dots.append(dot);
+  changePage(delta) {
+    if (this.pending || !this.characters.length) return;
+    const page = Math.floor(this.selected / CHARACTERS_PER_PAGE) + delta;
+    const pages = Math.ceil(this.characters.length / CHARACTERS_PER_PAGE);
+    if (page < 0 || page >= pages) return;
+    this.selected = page * CHARACTERS_PER_PAGE;
+    this.renderRoster();
+  }
+
+  /** Exactly three native slots; every server character is reachable by page or keys. */
+  renderRoster() {
+    const page = Math.floor(this.selected / CHARACTERS_PER_PAGE);
+    const pages = Math.max(
+      1,
+      Math.ceil(this.characters.length / CHARACTERS_PER_PAGE),
+    );
+    this.renderCharacterInfo(this.characters[this.selected]);
+    this.roster.setAttribute(
+      "aria-label",
+      `Characters, page ${page + 1} of ${pages}`,
+    );
+    this.previous.disabled = this.pending || page === 0;
+    this.next.disabled = this.pending || page + 1 >= pages;
+    for (let index = 0; index < this.rosterSlots.length; index++) {
+      const absolute = page * CHARACTERS_PER_PAGE + index;
+      this.renderRosterSlot(this.rosterSlots[index], absolute);
     }
+    this.backdrop?.renderRoster();
+  }
+
+  renderRosterSlot(slot, index) {
+    const character = this.characters[index] ?? null;
+    slot.index = index;
+    slot.button.disabled = this.pending || !character;
+    slot.button.setAttribute(
+      "aria-pressed",
+      String(Boolean(character) && index === this.selected),
+    );
+    slot.button.setAttribute(
+      "aria-label",
+      character
+        ? `Character ${index + 1}: ${character.name}`
+        : `Empty character slot ${index + 1}`,
+    );
+    slot.name.textContent = character?.name ?? "";
+    if (!slot.preview) return;
+    if (slot.character === character && slot.preview.prepared) return;
+    slot.character = character;
+    slot.preview.controller?.abort();
+    slot.preview.generation++;
+    this.clearPreview(slot.preview);
+    if (character) this.renderPortrait(slot.preview, character);
   }
 
   /** A summary that cannot compose is reported and left empty, never defaulted. */
-  renderPortrait(character) {
+  renderPortrait(preview, character) {
     let profile;
     try {
       profile = this.characterProfile(character);
     } catch (error) {
-      this.clearPreview(this.cardSlot);
+      this.clearPreview(preview);
       this.notify(
         "This character's look could not be read from the server. Sign in again.",
       );
       this.hooks.report(error);
       return;
     }
-    this.showPreview(this.cardSlot, profile, true).catch((error) =>
+    this.showPreview(preview, profile, true).catch((error) =>
       this.report(error),
     );
   }
 
-  /** Carousel keys enter the world; the creation screen keys create or step back. */
+  keyboardBlocked() {
+    return (
+      this.pending ||
+      this.dialogs.open ||
+      !this.registrationOverlay.hidden ||
+      this.window.querySelector(".online-login-body").inert
+    );
+  }
+
+  /** Roster keys select across pages; Enter always uses the selected server identity. */
   onKey(event) {
-    if (this.pending) return;
+    if (this.keyboardBlocked()) return;
+    if (event.key === "Enter" && event.target.closest("button")) return;
     if (this.stage === "create" && !this.createStage.hidden) {
       if (event.key === "Enter") {
         this.createCharacter().catch((error) => this.report(error));
@@ -1300,19 +1522,12 @@ export class OnlineLogin {
     try {
       const characters = await this.transport.listCharacters();
       if (this.destroyed || generation !== this.generation) return;
-      if (!characters.length) {
-        this.selecting = false;
-        this.characters = [];
-        this.showCreate();
-        this.setStatus(
-          "No characters yet. Roll the dice, choose a look and name your first character.",
-        );
-        return;
-      }
-      this.characters = characters.slice(0, MAX_CHARACTERS);
-      this.selected = Math.min(this.selected, this.characters.length - 1);
-      this.renderCarousel();
-      this.setStatus("Choose a character, then enter the authoritative field.");
+      this.showCharacters(characters);
+      this.setStatus(
+        characters.length
+          ? "Choose a character, then enter the authoritative field."
+          : "No characters yet. Create your first character.",
+      );
     } catch (error) {
       if (!this.destroyed && generation === this.generation) this.report(error);
     } finally {
@@ -1379,44 +1594,54 @@ export class OnlineLogin {
     this.selected = 0;
     this.selecting = false;
     this.stage = "account";
-    this.password.value = "";
-    this.confirm.value = "";
+    this.clearSecrets();
+    this.resetRegistration();
     this.releasePreview();
     this.renderStage();
   }
 
   setPending(pending, message) {
     this.pending = pending;
-    this.host.setAttribute("aria-busy", String(pending));
+    this.host.setAttribute("aria-busy", String(pending || this.dialogs.open));
+    this.setRegistrationPending(pending);
     if (message) this.setStatus(message);
     for (const control of [
       this.name,
       this.password,
-      this.confirm,
+      this.signUpTab,
+      this.registrationName,
+      this.registrationPassword,
+      this.registrationConfirm,
+      this.registrationSubmit,
+      this.registrationCancel,
+      this.registrationClose,
       this.submitButton,
       this.characterNameInput,
       this.submitCreate,
     ]) {
       control.disabled = pending;
     }
+    for (const { button } of this.accountButtons) button.disabled = pending;
+    for (const control of [this.enterButton, this.deleteButton]) {
+      control.disabled = pending || !this.characters.length || !this.prepared;
+    }
     for (const control of [
-      this.enterButton,
       this.createButton,
       this.refreshButton,
       this.signOutButton,
-      this.deleteButton,
-      this.previous,
-      this.next,
     ]) {
-      control.disabled = pending || !this.characters.length || !this.prepared;
+      control.disabled = pending || !this.prepared;
     }
-    if (this.characters.length) {
-      const single = this.characters.length < 2;
-      this.previous.disabled = this.next.disabled = pending || single;
-    }
-    this.rollButton.disabled = pending || this.rollTimer !== null;
+    this.renderRoster();
     this.backButton.disabled = pending;
     this.renderCreate();
+  }
+
+  setRegistrationPending(pending) {
+    this.registrationWindow.setAttribute("aria-busy", String(pending));
+    if (pending && !this.registrationOverlay.hidden && !this.dialogs.open) {
+      this.registrationWindow.focus();
+    }
   }
 
   status(value) {
@@ -1425,8 +1650,8 @@ export class OnlineLogin {
       if (!this.visible) return;
       this.visible = false;
       this.host.hidden = true;
-      this.password.value = "";
-      this.confirm.value = "";
+      this.clearSecrets();
+      this.resetRegistration();
       this.stopBackdrop();
       this.entered = true;
       this.hooks.entered?.();
@@ -1438,7 +1663,9 @@ export class OnlineLogin {
     this.host.hidden = false;
     if (wasHidden || value.code === "SIGNED_OUT") this.selectionReset();
     if (wasHidden) {
-      this.startBackdrop(this.controller.signal);
+      this.startBackdrop(this.controller.signal).catch((error) =>
+        this.report(error),
+      );
       this.playTitleBgm();
     }
     if (value.code === "SIGNED_OUT") {
@@ -1462,31 +1689,65 @@ export class OnlineLogin {
     this.width = width;
     this.height = height;
     this.host.dataset.viewport = width < 900 ? "compact" : "wide";
+    const scale = Math.min(1, width / 800, height / 600);
+    this.window.style.transform = `translate(-50%, -50%) scale(${scale})`;
   }
 
   /** Each composed preview plane redraws only when its sprite tree changed. */
   draw(elapsedMs) {
-    this.backdrop?.update(elapsedMs);
+    if (!this.visible || this.destroyed) return;
+    this.advancePresentation(this.presentationPaused ? 0 : elapsedMs);
+  }
+
+  /** Advance only login artwork, never the authenticated game simulation. */
+  stepPresentation(ms) {
+    if (!this.presentationPaused || !this.visible || !this.backdrop) return;
+    this.advancePresentation(ms);
+  }
+
+  advancePresentation(ms) {
+    this.backdrop?.update(ms);
     const ratio = window.devicePixelRatio || 1;
-    for (const slot of this.previewSlots()) {
-      if (!slot.prepared) continue;
-      slot.prepared.update(elapsedMs);
+    const creating = this.stage === "create";
+    for (const slot of this.previews) {
+      if (!slot.prepared || slot.element.hidden) continue;
+      if ((slot === this.createSlot) !== creating) continue;
+      slot.prepared.update(ms);
       slot.plane.sync(ratio, ratio);
     }
   }
 
+  /** Read-only diagnostics never include passwords or proof material. */
+  snapshot() {
+    return {
+      visible: this.visible,
+      stage: this.host.dataset.stage,
+      status: this.statusText,
+      paused: this.presentationPaused,
+      artwork: Boolean(this.backdrop?.ready),
+      catalogBuildId: this.catalog?.buildId ?? null,
+      characters: this.characters.length,
+      page: Math.floor(this.selected / CHARACTERS_PER_PAGE),
+      selected: this.selected,
+      creationPhase: this.creationPhase,
+      portraits: this.previews.reduce(
+        (count, slot) => count + Number(Boolean(slot.prepared)),
+        0,
+      ),
+      ...this.backdrop?.snapshot(),
+    };
+  }
+
   releasePreview() {
-    for (const slot of this.previewSlots()) {
+    for (const slot of this.previews) {
       slot.controller?.abort();
       slot.controller = null;
-      slot.prepared?.destroy();
-      slot.prepared = null;
-      slot.view.removeChildren();
+      this.clearPreview(slot);
       slot.generation++;
     }
   }
 
-  /** Windows 95 style modal for anything the player must acknowledge. */
+  /** Original login modal artwork frames messages that require acknowledgement. */
   notify(text) {
     this.dialogs
       .message({ title: "MapleStory", text, ok: "OK" })
@@ -1510,16 +1771,16 @@ export class OnlineLogin {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.clearSecrets();
+    this.resetRegistration();
     this.controller.abort();
     this.generation++;
-    clearInterval(this.rollTimer);
-    this.rollTimer = null;
     this.releasePreview();
     this.stopBackdrop();
     this.dialogs?.destroy();
-    for (const slot of this.previewSlots()) {
-      slot.plane.canvas.remove();
-      slot.root.destroy({ children: false });
+    for (const slot of this.previews) {
+      slot.plane.destroy();
+      slot.root.destroy({ children: true });
     }
     for (const { target, type, handler, capture } of this.listeners) {
       target.removeEventListener(type, handler, { capture });

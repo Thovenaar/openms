@@ -23,6 +23,11 @@ const NATIVE_ELEMENT = {
   p: 7,
 };
 
+export function incomingElementCode(element) {
+  const code = typeof element === "string" ? NATIVE_ELEMENT[element] : element;
+  return Number.isInteger(code) && code >= 1 && code <= 7 ? code : 0;
+}
+
 /** Native receive branch + Cosmic TakeDamageHandler207..278. No vital/inventory owner here. */
 export class SkillDefenses {
   constructor(field) {
@@ -33,15 +38,17 @@ export class SkillDefenses {
     this.pendingAmount = 0;
   }
 
-  reduce(amount, mob, magic, contact) {
+  reduce(amount, mob, { magic, contact, outcome = null }) {
     if (amount <= 0) return amount;
     const field = this.field;
     const temporary = field.hooks.derivedStats?.() ?? null;
     if (temporary?.divineBody) return 0;
-    if (this.evade(mob, magic, contact)) return 0;
+    if (this.evade(mob, magic, contact, outcome)) return 0;
     amount = this.mitigate(amount, mob, magic, temporary);
-    if (contact) amount = this.powerGuard(amount, mob, temporary?.powerGuard);
-    if (magic) this.manaReflection(amount, mob, temporary?.manaReflection);
+    if (contact)
+      {amount = this.powerGuard(amount, mob, temporary?.powerGuard, outcome);}
+    if (magic)
+      {this.manaReflection(amount, mob, temporary?.manaReflection, outcome);}
     return amount;
   }
 
@@ -70,7 +77,7 @@ export class SkillDefenses {
     return amount;
   }
 
-  powerGuard(amount, mob, percent) {
+  powerGuard(amount, mob, percent, outcome = null) {
     if (!percent) return amount;
     const reflected = Math.min(
       Math.trunc(mob.maxHP / 10),
@@ -80,11 +87,12 @@ export class SkillDefenses {
       mob,
       reflected,
       this.field.hooks.skillLevel?.(1101007) ? 1101007 : 1201007,
+      outcome,
     );
     return amount - reflected;
   }
 
-  manaReflection(amount, mob, id) {
+  manaReflection(amount, mob, id, outcome = null) {
     if (!id || mob.template.info.boss) return;
     const field = this.field;
     const info = learnedCombatInfo(field.hooks, id);
@@ -96,11 +104,12 @@ export class SkillDefenses {
           Math.trunc((amount * skillNumber(info.x)) / 100),
         ),
         id,
+        outcome,
       );
     }
   }
 
-  evade(mob, magic, contact) {
+  evade(mob, magic, contact, outcome = null) {
     const field = this.field;
     for (const id of SHIFTER) {
       const info = learnedCombatInfo(field.hooks, id);
@@ -113,18 +122,18 @@ export class SkillDefenses {
       }
     }
     if (magic || !contact || !field.hooks.items) return false;
-    if (!this.hasShield()) return false;
-    return this.guardianEvade(mob);
+    if (!this.hasShield(outcome?.profile)) return false;
+    return this.guardianEvade(mob, outcome);
   }
 
-  hasShield() {
-    for (const item of this.field.store.profile.equipment) {
+  hasShield(profile = this.field.store.profile) {
+    for (const item of profile.equipment) {
       if (item.slot === -10 && Math.trunc(item.id / 10000) === 109) return true;
     }
     return false;
   }
 
-  guardianEvade(mob) {
+  guardianEvade(mob, outcome = null) {
     const field = this.field;
     for (const id of GUARDIAN) {
       const info = learnedCombatInfo(field.hooks, id);
@@ -137,22 +146,45 @@ export class SkillDefenses {
         continue;
       }
       if (!mob.template.info.boss) {
-        this.statusEffect.duration = skillNumber(info.time) * 1000;
-        this.statusEffect.source = id;
-        setMobStatus(mob, "stun", 1, this.statusEffect);
+        const effect = { duration: skillNumber(info.time) * 1000, source: id };
+        if (outcome) {
+          outcome.rejectContact = true;
+          outcome.effects.push(() => {
+            const target = field.hooks.resolveIncomingSource
+              ? field.hooks.resolveIncomingSource(mob)
+              : mob;
+            if (target) setMobStatus(target, "stun", 1, effect);
+          });
+        } else setMobStatus(mob, "stun", 1, effect);
       }
       return true;
     }
     return false;
   }
 
-  reflect(mob, amount, id) {
+  reflect(mob, amount, id, outcome = null) {
+    if (outcome) {
+      outcome.reflection = { mob, amount, hit: { ...this.hit, skillId: id } };
+      return;
+    }
     this.pendingTarget = mob;
     this.pendingAmount = amount;
     this.hit.skillId = id;
   }
 
-  flushReflection() {
+  flushReflection(outcome = null) {
+    if (outcome) {
+      const reflection = outcome.reflection;
+      outcome.reflection = null;
+      if (!reflection || reflection.amount <= 0) return;
+      const target = this.field.hooks.resolveIncomingSource
+        ? this.field.hooks.resolveIncomingSource(reflection.mob)
+        : reflection.mob;
+      if (!target) return;
+      this.field.damageTarget(target, reflection.amount, reflection.hit);
+      this.field.hooks.onSkillProc?.(reflection.hit.skillId, target);
+      return;
+    }
     if (!this.pendingTarget || this.pendingAmount <= 0) return;
     this.field.damageTarget(this.pendingTarget, this.pendingAmount, this.hit);
     this.field.hooks.onSkillProc?.(this.hit.skillId, this.pendingTarget);
@@ -162,8 +194,7 @@ export class SkillDefenses {
 
   elementResistance(amount, element) {
     //00765a34 accepts only explicit element1..7. Untyped magic gets no resistance.
-    const code =
-      typeof element === "string" ? NATIVE_ELEMENT[element] : element;
+    const code = incomingElementCode(element);
     if (!Number.isInteger(code) || code < 1 || code > 7) return amount;
     for (const id of RESISTANCE) {
       if (!resistsElement(id, code)) continue;
@@ -180,8 +211,7 @@ export class SkillDefenses {
 
   /** 0095fa8b: element-qualified percentage, signed division before subtraction. */
   itemDefense(amount, element) {
-    const code =
-      typeof element === "string" ? NATIVE_ELEMENT[element] : element;
+    const code = incomingElementCode(element);
     const temporary = this.field.hooks.derivedStats?.();
     if (
       amount <= 0 ||
@@ -195,14 +225,17 @@ export class SkillDefenses {
     return amount - Math.trunc((amount * temporary.defenseAttPercent) / 100);
   }
 
-  absorbMeso(amount) {
+  absorbMeso(amount, profile = this.field.store.profile, outcome = null) {
     if (this.field.hooks.derivedStats?.().magicGuard) return amount;
     const value = this.field.hooks.derivedStats?.().mesoGuard;
     if (!value || amount <= 0) return amount;
-    const profile = this.field.store.profile;
     const remaining = Math.round(amount / 2);
     const meso = Math.trunc((remaining * value) / 100);
-    if (profile.meso < meso) this.field.hooks.cancelSkillFamily?.("meso-guard");
+    if (profile.meso < meso) {
+      const cancel = () => this.field.hooks.cancelSkillFamily?.("meso-guard");
+      if (outcome) outcome.effects.push(cancel);
+      else cancel();
+    }
     profile.meso = Math.max(0, profile.meso - meso);
     return remaining;
   }

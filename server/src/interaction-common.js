@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { protocolError } from "../../shared/protocol.js";
 import { admitActor } from "./action-rules.js";
+import { admitVirtualNpc } from "./interaction-npc-lease.js";
 
 // Versioned online development policies, not recovered native-server constants.
 export const INTERACTION_LIMITS = Object.freeze({
@@ -49,37 +50,48 @@ export function publishInteraction(world, actor, event) {
   world.publish(actor, { type: "event", fieldEpoch: actor.field.epoch, event });
 }
 
-/** Retain only active lease views, never replay scripts or their effects on resync. */
+/** Retain current leases and one terminal trade outcome; never replay script effects. */
 function retainInteraction(actor, event) {
   actor.nativeInteractions ??= new Map();
   const views = actor.nativeInteractions;
   if (event.kind === "dialogue.closed") {
     views.delete("dialogue");
-    views.delete("quest.offer");
     views.delete("shop");
+    views.delete("storage");
   } else if (event.kind === "trade") {
-    if (["committed", "cancelled"].includes(event.state)) views.delete("trade");
-    else views.set("trade", [event]);
+    views.set("trade", [event]);
   } else if (event.kind === "shop") {
     if (event.part === 0) {
       views.set("shop", []);
       views.delete("dialogue");
-      views.delete("quest.offer");
     }
     views.get("shop").push(event);
-  } else if (event.kind === "dialogue" || event.kind === "quest.offer") {
-    views.set(event.kind, [event]);
-    if (event.kind === "dialogue") {
-      views.delete("quest.offer");
-      views.delete("shop");
-    }
+  } else if (event.kind === "dialogue") {
+    views.set("dialogue", [event]);
+    views.delete("shop");
+    views.delete("storage");
+  } else if (event.kind === "storage") {
+    views.set("storage", [event]);
+    views.delete("dialogue");
+    views.delete("shop");
+  } else if (event.kind === "storage.closed") {
+    views.delete("storage");
   }
 }
 
 export function closeConversation(actor, world) {
-  const id = actor.conversation?.id ?? actor.shop?.id;
+  const storageId = actor.storage?.lease.id;
+  const id = actor.conversation?.id ?? actor.shop?.id ?? storageId;
   actor.conversation = null;
   actor.shop = null;
+  actor.storage = null;
+  actor.nativeInteractions?.delete("storage");
+  if (storageId) {
+    publishInteraction(world, actor, {
+      kind: "storage.closed",
+      storageSession: storageId,
+    });
+  }
   if (id) {
     publishInteraction(world, actor, {
       kind: "dialogue.closed",
@@ -103,7 +115,9 @@ export function currentNpc(world, actor, lease, transitioning = false) {
       !actor.tradeId,
     "CHARACTER_BUSY",
   );
-  return world.npc(actor, lease.npcId);
+  return lease.source
+    ? admitVirtualNpc(world, actor, lease)
+    : world.npc(actor, lease.npcId);
 }
 
 export function freshLease(actor, npc) {

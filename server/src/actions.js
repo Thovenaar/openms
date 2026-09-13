@@ -7,47 +7,21 @@ import {
   executeDrop,
   executePickup,
 } from "./action-inventory.js";
-import { executeCharacter, rebuildActorEffects } from "./action-character.js";
+import { executeCharacter } from "./action-character.js";
 import { admitActor, operationFor, reject, ruleError } from "./action-rules.js";
 
-const EPHEMERAL_ACTIONS = new Set([
-  "npc.open",
-  "npc.answer",
-  "trade.invite",
-  "trade.answer",
-  "trade.offer",
-  "trade.cancel",
-  "chat.send",
-]);
-const MAX_EPHEMERAL_RECEIPTS = 4096;
-// These handlers mutate durable domains but do not publish their own replacement views.
-const LOCAL_SNAPSHOT_ACTIONS = new Set([
-  "inventory.move",
-  "inventory.gather",
-  "equipment.equip",
-  "equipment.unequip",
-  "item.use",
-  "equipment.scroll",
-  "item.drop",
-  "mesos.drop",
-  "drop.pickup",
-  "stats.allocate",
-  "skills.allocate",
-  "buff.cancel",
-  "settings.save",
-  "key-bindings.save",
-  "skill-macros.save",
-  "quest.track",
-  "quest.notice",
-]);
+import { actionEphemeral } from "../../shared/protocol.js";
+import { COMMERCE_ACTION_ROWS } from "../../shared/commerce-protocol.js";
+import { NARRATIVE_ACTION_ROWS } from "../../shared/narrative-protocol.js";
+import { executeWorldAction } from "./field-world-actions.js";
+import { offerReactor } from "./field-reactors.js";
+import { releaseSkill } from "./field-skills.js";
 
-/** A replay returns its original receipt but always reconciles against current authority. */
-function publishReceipt(actor, world, receipt) {
-  if (receipt.status === "committed") {
-    world.publish(actor, { type: "snapshot-request" });
-  }
-  return receipt;
-}
+const DOMAIN_INTERACTIONS = new Set(
+  ["npc.open", "quest.accept", "quest.claim", "quest.abandon", "trade.invite",
+    ...[...COMMERCE_ACTION_ROWS, ...NARRATIVE_ACTION_ROWS].map(([kind]) => kind)],
+);
+const MAX_EPHEMERAL_RECEIPTS = 4096;
 
 /** Class-1 outcomes belong to one play session, including its reconnect grace. */
 function ephemeralReceipts(actor) {
@@ -86,12 +60,14 @@ function dispatchCharacter(actor, message, world, operation) {
       );
     case "skill.cast":
       return world.cast(actor, message.action, operation);
-    case "npc.open":
-    case "quest.accept":
-    case "quest.claim":
-    case "quest.abandon":
-    case "trade.invite":
-      return executeInteraction(actor, message, world);
+    case "skill.door":
+      return world.useSkillDoor(actor, operation);
+    case "expression.use":
+    case "expression.cash":
+    case "seat.toggle":
+      return executeWorldAction(actor, message, world);
+    case "reactor.offer":
+      return offerReactor(actor, message, world);
     default:
       return dispatchCharacterMutation(actor, message, world, operation);
   }
@@ -144,6 +120,9 @@ function dispatchInventoryMutation(actor, message, world, operation) {
 }
 
 function dispatch(actor, message, world, operation) {
+  if (DOMAIN_INTERACTIONS.has(message.action.kind)) {
+    return executeInteraction(actor, message, world);
+  }
   switch (operation.domain) {
     case "character":
       return dispatchCharacter(actor, message, world, operation);
@@ -160,21 +139,47 @@ function dispatch(actor, message, world, operation) {
 }
 
 /** Receipt lookups must finish before reserving the actor or checking session capacity. */
-function admitOperationSlot(actor, receipts, ephemeral) {
-  if (actor.pending) {
+function admitOperationSlot(actor, world, entry) {
+  if (
+    actor.retiring ||
+    actor.deliveryError ||
+    world.participants.busy(actor)
+  ) {
     reject("SERVER_BUSY", "Another character operation is in flight.");
   }
-  if (ephemeral && receipts.size >= MAX_EPHEMERAL_RECEIPTS) {
-    reject(
-      "SERVER_BUSY",
-      "The play-session ephemeral receipt capacity is exhausted.",
-    );
+  if (entry.ephemeral && entry.receipts.size >= MAX_EPHEMERAL_RECEIPTS) {
+    reject("SERVER_BUSY", "The play-session receipt capacity is exhausted.");
   }
   actor.pending = true;
+  actor.pendingOperation = entry.operation.operationId;
+  actor.pendingOwner = actor.id;
 }
 
-/** One authority entry: durable duplicate lookup precedes all transient domain admission. */
-export async function executeAction(actor, message, world) {
+function physicalSkillControl(action) {
+  return action.kind === "skill.release" || action.kind === "skill.cancel";
+}
+
+function admitSkillControl(actor, message, world, entry) {
+  admitActor(actor, world, message.fieldEpoch);
+  if (entry.receipts.size >= MAX_EPHEMERAL_RECEIPTS) {
+    releaseSkill(world, actor, { ...message.action, kind: "skill.cancel" });
+    reject("SERVER_BUSY", "The play-session receipt capacity is exhausted.");
+  }
+  const result = releaseSkill(world, actor, message.action);
+  const receipt = {
+    status: "committed",
+    code: result.code,
+    domainRevision: actor.revision,
+    transactionId: null,
+  };
+  entry.receipts.set(entry.operation.operationId, {
+    digest: entry.operation.digest,
+    receipt,
+  });
+  return { receipt, replayed: false };
+}
+
+async function prepareAction(actor, message, world) {
   const operation = operationFor(message);
   if (["conversation", "trade", "invitation"].includes(operation.domain)) {
     operation.domainRevision = currentInteractionRevision(
@@ -185,40 +190,75 @@ export async function executeAction(actor, message, world) {
   }
   const receipts = ephemeralReceipts(actor);
   const cached = cachedReceipt(receipts, operation);
-  if (cached) return publishReceipt(actor, world, cached);
-  const previous = await world.database.receipt(actor, operation);
-  if (previous) return publishReceipt(actor, world, previous);
-  const settled = cachedReceipt(receipts, operation);
-  if (settled) return publishReceipt(actor, world, settled);
-  const ephemeral = EPHEMERAL_ACTIONS.has(message.action.kind);
-  admitOperationSlot(actor, receipts, ephemeral);
+  if (cached) return { receipt: cached, replayed: true };
+  const previous = physicalSkillControl(message.action)
+    ? null
+    : await world.database.receipt(actor, operation);
+  if (previous) return { receipt: previous, replayed: true };
+  if (
+    !actor.connection ||
+    actor.connection.data.closed ||
+    actor.connection.data.epoch !== message.connectionEpoch
+  )
+    {reject(
+      "STALE_CONNECTION",
+      "The original command connection is no longer current.",
+    );}
+  if (!actor.connection.data.ready)
+    {reject("NOT_ALLOWED", "The field is not ready.");}
+  const entry = {
+    operation,
+    receipts,
+    ephemeral: actionEphemeral(message.action),
+  };
+  if (physicalSkillControl(message.action)) {
+    return admitSkillControl(actor, message, world, entry);
+  }
+  admitOperationSlot(actor, world, entry);
+  return entry;
+}
+
+/** Preserve wire edge order, but release the admission queue before any durable debit waits. */
+function queueAdmission(actor, work) {
+  actor.commandAdmission ??= Promise.resolve();
+  const admission = actor.commandAdmission.then(work, work);
+  actor.commandAdmission = admission.then(
+    () => {},
+    () => {},
+  );
+  return admission;
+}
+
+/** One authority entry: durable duplicate lookup precedes all transient domain admission. */
+export async function executeAction(actor, message, world) {
+  const entry = await queueAdmission(actor, () =>
+    prepareAction(actor, message, world),
+  );
+  if (entry.receipt) {
+    return world.participants.reconcile(actor, entry.receipt, entry.replayed);
+  }
+  const { operation, receipts, ephemeral } = entry;
   try {
     admitActor(actor, world, message.fieldEpoch);
     const receipt = await dispatch(actor, message, world, operation);
-    if (
-      receipt.status === "committed" &&
-      (message.action.kind === "item.use" ||
-        message.action.kind === "buff.cancel")
-    ) {
-      rebuildActorEffects(actor, world);
-    }
     if (ephemeral && receipt.transactionId === null) {
       receipts.set(operation.operationId, {
         digest: operation.digest,
         receipt,
       });
     }
-    return LOCAL_SNAPSHOT_ACTIONS.has(message.action.kind)
-      ? publishReceipt(actor, world, receipt)
-      : receipt;
+    return await world.participants.reconcile(actor, receipt);
   } catch (error) {
     const failure = ruleError(error);
     // Rejections are receipts too; no mutated draft is ever installed on this path.
     const receipt = await world.database.commit(actor, operation, () => ({
       code: failure.code,
     }));
-    return publishReceipt(actor, world, receipt);
+    return await world.participants.reconcile(actor, receipt);
   } finally {
     actor.pending = false;
+    actor.pendingOperation = null;
+    actor.pendingOwner = null;
+    world.participants.signalIdle();
   }
 }

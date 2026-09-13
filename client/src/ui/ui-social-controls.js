@@ -142,17 +142,10 @@ export async function requestText(state, action, options, payload = {}) {
 export async function requestTarget(state, action, text) {
   const name = await socialPrompt(state, { kind: "text", text, maxLength: 12 });
   if (name === null) return { ok: false, code: "cancelled" };
-  const target = state.social
-    .participants()
-    .find((member) => member.name.toLowerCase() === name.trim().toLowerCase());
-  if (!target) {
-    return {
-      ok: false,
-      code: "character-not-loaded",
-      reason: `No local character named ${name} is loaded. Create or load a saved character in Local simulation controls.`,
-    };
-  }
-  return state.social.execute(action, { targetId: target.id });
+  const target = await state.social.resolveTarget(name);
+  if (state.panel.disposed) return { ok: false, code: "cancelled" };
+  if (!target.ok) return target;
+  return state.social.execute(action, { targetId: target.targetId });
 }
 
 export async function confirmSocial(state, action, text, payload = {}) {

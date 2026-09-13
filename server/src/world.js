@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { PROTOCOL, protocolError } from "../../shared/protocol.js";
 import {
   createHeldInput,
@@ -9,7 +9,6 @@ import {
 import { createSimulation } from "../../client/src/physics/simulation.js";
 import { nearestSavedArrival } from "../../client/src/world/field-arrival.js";
 import { npcRectangle } from "../../client/src/world/life-geometry-numeric.js";
-import { physicalTargetError } from "../../client/src/combat/physical-damage.js";
 import { executeAction } from "./actions.js";
 import { operationFor } from "./action-rules.js";
 import { rebuildActorEffects, expireActorEffects } from "./action-character.js";
@@ -27,17 +26,48 @@ import {
   dropEntity,
   snapshotParts,
 } from "./field-views.js";
-import { advanceDrops, createFieldDrop } from "./field-drops.js";
+import {
+  advanceDrops,
+  createFieldDrop,
+  MAX_FIELD_DROPS,
+} from "./field-drops.js";
 import {
   transitionActor,
-  portalContact,
+  automaticPortalCandidate,
+  markAutomaticPortalAttempt,
+  travelParticipants,
   prepareLogout,
 } from "./field-transition.js";
 import { developActor, prepareMonsterSpawns } from "./field-development.js";
-import { castSkill } from "./field-skills.js";
+import {
+  castSkill,
+  prepareActorSkills,
+  settleActorSkills,
+  disposeActorSkills,
+  releaseSkill,
+} from "./field-skills.js";
 import { sweepInteractions, releaseInteractions } from "./interactions.js";
 import { updateSkillMovement } from "../../client/src/physics/skill-movement.js";
 import { projectCharacterStats } from "../../client/src/character/character-stats.js";
+import { Participants } from "./participants.js";
+import { prepareSocial, destroySocial } from "./social-presentation.js";
+import { openStorage } from "./interaction-storage.js";
+import { openPortalNpc } from "./interaction-npc.js";
+import { refreshPickupConditions } from "./drop-conditions.js";
+import {
+  prepareActorWorldActions,
+  beforeWorldPhysics,
+  clearActorSeat,
+} from "./field-world-actions.js";
+import {
+  createFieldReactors,
+  advanceReactors,
+  reactorEntities,
+  canStrikeReactor,
+  strikeReactor,
+  settleFieldReactors,
+  destroyFieldReactors,
+} from "./field-reactors.js";
 
 const MAX_FIELDS = 128;
 const MAX_ACTORS = 128;
@@ -48,6 +78,7 @@ const NEUTRAL = Object.freeze({
   jump: false,
   attack: false,
 });
+const CANCEL_SKILLS = Object.freeze({ kind: "skill.cancel" });
 
 function prepareNpcs(manifest) {
   const npcs = new Map();
@@ -73,34 +104,6 @@ function prepareNpcs(manifest) {
   return npcs;
 }
 
-function admitMobAttacks(mob) {
-  for (const attack of mob.attacks) {
-    if (
-      !attack.supported ||
-      attack.properties.disease ||
-      (attack.properties.magic === 1 &&
-        !Number.isSafeInteger(mob.template.info.MADamage))
-    ) {
-      throw protocolError("CONTENT_MISMATCH");
-    }
-  }
-}
-
-function admitFieldMobs(manifest, mobs) {
-  for (const mob of mobs) {
-    if (!mob.active) continue;
-    if (
-      physicalTargetError(mob.skillStatus.projected) ||
-      (mob.template.info.bodyAttack === 1 &&
-        (!manifest.combat?.standardPDD ||
-          !Number.isSafeInteger(mob.template.info.PADamage)))
-    ) {
-      throw protocolError("CONTENT_MISMATCH");
-    }
-    admitMobAttacks(mob);
-  }
-}
-
 function consumeActorInput(actor) {
   const sample = actor.inputQueue.get(actor.field.tick);
   actor.input.jumpPressed = false;
@@ -115,30 +118,17 @@ function consumeActorInput(actor) {
   }
 }
 
-function applyPendingDamage(world, actor) {
-  if (actor.pending || (!actor.pendingDamage && !actor.pendingMpDamage)) return;
-  actor.profile.hp = Math.max(0, actor.profile.hp - actor.pendingDamage);
-  actor.profile.mp = Math.max(
-    0,
-    actor.profile.mp - (actor.pendingMpDamage ?? 0),
-  );
-  actor.pendingDamage = 0;
-  actor.pendingMpDamage = 0;
-  actor.simulation.movementLocked =
-    actor.profile.hp <= 0 ||
-    actor.attackState.active ||
-    actor.state !== "active";
-  world.publish(actor, { type: "snapshot-request" });
-}
-
-function attackHeldInput(world, actor) {
-  if (!actor.input.attack || actor.attackState.active || actor.pending) return;
-  try {
-    world.attack(actor);
-  } catch (error) {
-    actor.admission =
-      error.code ?? "unsupported-content: basic attack unavailable";
-  }
+function activationOperation(actor) {
+  return {
+    operationId: randomUUID(),
+    digest: createHash("sha256")
+      .update(`quest.activate:${actor.playSession}`)
+      .digest("hex"),
+    expectedRevision: actor.revision,
+    domain: "character",
+    kind: "quest.activate",
+    fieldEpoch: actor.field.epoch,
+  };
 }
 
 /** One process owns field clocks. No packet or socket lifetime advances world time. */
@@ -151,6 +141,8 @@ export class OnlineWorld {
     this.actors = new Map();
     this.fields = new Map();
     this.fieldLoads = new Map();
+    this.participants = new Participants(this);
+    this.familyRates = true;
     this.now = Date.now();
     this.lastNow = null;
     this.debt = -PROTOCOL.TICK_MS * PROTOCOL.INPUT_BUFFER_TICKS;
@@ -181,7 +173,6 @@ export class OnlineWorld {
     const arrival = nearestSavedArrival(manifest, { x: 0, y: 0, facing: 1 });
     const simulation = createSimulation(manifest.physics, arrival);
     const mobs = createFieldMobs(manifest, simulation);
-    admitFieldMobs(manifest, mobs);
     const field = {
       id: randomUUID(),
       mapId: Number(manifest.id),
@@ -201,7 +192,16 @@ export class OnlineWorld {
       fault: null,
       published: new Set(),
     };
-    if (field.mobs.length + field.npcs.size + MAX_ACTORS + 128 > 2048) {
+    await createFieldReactors(this, field);
+    if (
+      field.mobs.length +
+        field.npcs.size +
+        field.reactors.records.length +
+        MAX_ACTORS +
+        MAX_FIELD_DROPS >
+      2048
+    ) {
+      destroyFieldReactors(field);
       throw protocolError("SERVER_BUSY");
     }
     this.fields.set(key, field);
@@ -209,7 +209,11 @@ export class OnlineWorld {
   }
 
   assertJoiningSession(actor) {
-    if (actor.session?.revoked || actor.retiring) {
+    if (
+      actor.session?.revoked ||
+      actor.session?.expiresAt <= Date.now() ||
+      actor.retiring
+    ) {
       throw protocolError("SESSION_EXPIRED");
     }
   }
@@ -228,27 +232,15 @@ export class OnlineWorld {
       actor.realm,
     );
     this.assertJoiningSession(actor);
-    if (field.characters.size >= MAX_ACTORS) throw protocolError("SERVER_BUSY");
-    actor.arrival = nearestSavedArrival(field.manifest, actor.profile.location);
-    actor.simulation = createSimulation(field.physics, actor.arrival);
-    actor.field = field;
-    actor.input = createHeldInput();
-    actor.inputQueue = new Map();
-    actor.inputSeq = 0;
-    actor.ackInputSeq = null;
-    actor.lastInputTick = field.tick;
-    actor.state = "active";
-    actor.pending = false;
-    actor.pendingDamage = 0;
-    actor.developmentReceipts = new Map();
-    actor.playSession ??= randomUUID();
-    actor.portalUntil = 0;
-    actor.actionStartTick = field.tick;
-    actor.lastCheckpoint = this.now;
-    actor.admission = "OK";
+    if (field.characters.size + (field.travelReservations ?? 0) >= MAX_ACTORS) {
+      throw protocolError("SERVER_BUSY");
+    }
+    this.prepareEntry(actor, field);
     await prepareActorPoses(this, actor);
     prepareActorCombat(this, actor);
     rebuildActorEffects(actor, this);
+    await prepareActorSkills(this, actor);
+    await prepareActorWorldActions(this, actor);
     await this.database.bindField(actor, {
       instanceId: field.id,
       fieldEpoch: field.epoch,
@@ -257,16 +249,55 @@ export class OnlineWorld {
     this.assertJoiningSession(actor);
     this.actors.set(actor.id, actor);
     field.characters.set(actor.id, actor);
+    if (actor.profile.settings.questTracker.auto) {
+      const activation = await this.participants.commit(
+        actor,
+        activationOperation(actor),
+        [actor.id],
+        () => ({}),
+      );
+      if (activation.status !== "committed")
+        {throw protocolError(activation.code);}
+      if (actor.deliveryError) throw actor.deliveryError;
+    }
+    await prepareSocial(actor, this);
+    this.assertJoiningSession(actor);
     this.invalidateField(field);
     return actor;
+  }
+
+  prepareEntry(actor, field) {
+    actor.arrival = nearestSavedArrival(field.manifest, actor.profile.location);
+    actor.simulation = createSimulation(field.physics, actor.arrival);
+    actor.field = field;
+    actor.input = createHeldInput();
+    actor.inputQueue = new Map();
+    actor.inputSeq = 0;
+    actor.ackInputSeq = null;
+    actor.lastInputTick = field.tick;
+    actor.state = "preparing";
+    actor.pending = false;
+    actor.pendingOperation = null;
+    actor.pendingOwner = null;
+    actor.questTrackerExclusions = new Set();
+    actor.developmentReceipts = new Map();
+    actor.playSession ??= randomUUID();
+    actor.portalUntil = 0;
+    actor.actionStartTick = field.tick;
+    actor.lastCheckpoint = this.now;
+    actor.admission = "OK";
   }
 
   leave(actor) {
     actor.state = "retired";
     releaseInteractions(actor, this);
+    clearActorSeat(actor);
+    destroySocial(actor);
+    if (actor.skills) disposeActorSkills(actor, true);
     actor.field?.characters.delete(actor.id);
     this.actors.delete(actor.id);
     this.neutralize(actor);
+    this.participants.signalIdle();
     if (actor.field) this.invalidateField(actor.field);
   }
 
@@ -276,6 +307,7 @@ export class OnlineWorld {
     actor.input.jumpPressed = false;
     actor.input.attackPressed = false;
     actor.inputQueue.clear();
+    if (actor.skills) releaseSkill(this, actor, CANCEL_SKILLS);
   }
 
   input(actor, message) {
@@ -316,14 +348,8 @@ export class OnlineWorld {
     return await executeAction(actor, message, this);
   }
 
-  async develop(actor, request) {
-    if (actor.pending) throw protocolError("SERVER_BUSY");
-    actor.pending = true;
-    try {
-      return await developActor(this, actor, request);
-    } finally {
-      actor.pending = false;
-    }
+  develop(actor, request) {
+    return developActor(this, actor, request);
   }
 
   step(now) {
@@ -363,7 +389,9 @@ export class OnlineWorld {
     for (const actor of field.characters.values()) this.moveActor(actor);
     advanceCombat(this, field);
     advanceDrops(this, field);
+    advanceReactors(this, field, PROTOCOL.TICK_MS);
     for (const actor of field.characters.values()) {
+      if (actor.state !== "active" || actor.retiring) continue;
       this.publish(actor, {
         type: "motion",
         fieldEpoch: field.epoch,
@@ -378,20 +406,20 @@ export class OnlineWorld {
   }
 
   moveActor(actor) {
+    if (actor.state !== "active" || actor.retiring || actor.deliveryError)
+      {return;}
     consumeActorInput(actor);
     if (actor.state !== "active" || actor.profile.hp <= 0) {
       this.neutralize(actor);
     }
+    if (actor.skillField.hasPendingIncoming) return;
     if (expireActorEffects(actor, this)) {
       this.publish(actor, { type: "snapshot-request" });
     }
-    applyPendingDamage(this, actor);
-    if (this.now >= (actor.castUntil ?? 0)) actor.castAction = null;
+    beforeWorldPhysics(this, actor);
+    refreshPickupConditions(actor);
     actor.simulation.movementLocked =
-      actor.profile.hp <= actor.pendingDamage ||
-      actor.attackState.active ||
-      actor.state !== "active" ||
-      this.now < (actor.castUntil ?? 0);
+      actor.profile.hp <= 0 || actor.skillField.blocksMovement;
     projectCharacterStats(actor.profile, actor.statHooks, actor.stats);
     updateSkillMovement(actor.simulation, actor.stats);
     const previous = actor.simulation.action;
@@ -399,19 +427,35 @@ export class OnlineWorld {
     if (previous !== actor.simulation.action) {
       actor.actionStartTick = actor.field.tick;
     }
-    attackHeldInput(this, actor);
     actor.profile.location.x = actor.simulation.x;
     actor.profile.location.y = actor.simulation.y;
     actor.profile.location.facing = actor.simulation.facing;
   }
 
   checkpoint(actor) {
-    if (actor.pending || this.now - actor.lastCheckpoint < 1000) return;
+    if (
+      actor.retiring ||
+      actor.state !== "active" ||
+      actor.pending ||
+      actor.skillTask ||
+      actor.skillField?.hasPendingIncoming ||
+      this.participants.producedPending(actor.id) ||
+      this.now - actor.lastCheckpoint < 1000
+    )
+      {return;}
     actor.lastCheckpoint = this.now;
     actor.pending = true;
+    actor.pendingOperation = null;
+    actor.pendingOwner = null;
+    const dirty = actor.runtimeDirty;
+    actor.runtimeDirty = false;
     this.database
       .checkpoint(actor)
+      .then(() => {
+        if (dirty) return this.participants.deliver([actor.id]);
+      })
       .catch((error) => {
+        actor.runtimeDirty ||= dirty;
         actor.field.fault = error.code ?? "checkpoint-failed";
         this.publish(actor, {
           type: "closing",
@@ -421,37 +465,40 @@ export class OnlineWorld {
       })
       .finally(() => {
         actor.pending = false;
+        this.participants.signalIdle();
       });
   }
 
   automaticPortal(actor) {
     if (
-      actor.pending ||
-      actor.state !== "active" ||
-      actor.profile.hp <= 0 ||
-      this.now < actor.portalUntil
-    ) {
-      return;
-    }
-    for (const portal of actor.field.manifest.physics.portals) {
-      if (portal.type !== 3 || !portalContact(actor, portal)) continue;
-      const message = {
-        fieldEpoch: actor.field.epoch,
-        operationId: randomUUID(),
-        expectedRevision: actor.revision,
-        action: { kind: "portal.enter", portalId: portal.id },
-      };
-      actor.pending = true;
-      this.transition(actor, { portalId: portal.id }, operationFor(message))
-        .catch((error) => {
-          actor.admission = error.code ?? "TRANSITION_FAILED";
-          actor.portalUntil = this.now + 500;
-        })
-        .finally(() => {
-          actor.pending = false;
-        });
-      return;
-    }
+      actor.retiring ||
+      actor.deliveryError ||
+      this.participants.busy(actor)
+    )
+      {return;}
+    const portal = automaticPortalCandidate(actor);
+    if (!portal) return;
+    markAutomaticPortalAttempt(actor, portal);
+    const message = {
+      fieldEpoch: actor.field.epoch,
+      operationId: randomUUID(),
+      expectedRevision: actor.revision,
+      action: { kind: "portal.enter", portalId: portal.id },
+    };
+    actor.pending = true;
+    actor.pendingOperation = message.operationId;
+    actor.pendingOwner = actor.id;
+    this.transition(actor, { portalId: portal.id }, operationFor(message))
+      .catch((error) => {
+        actor.admission = error.code ?? "TRANSITION_FAILED";
+        actor.portalUntil = this.now + 500;
+      })
+      .finally(() => {
+        actor.pending = false;
+        actor.pendingOperation = null;
+        actor.pendingOwner = null;
+        this.participants.signalIdle();
+      });
   }
 
   entities(actor) {
@@ -468,6 +515,7 @@ export class OnlineWorld {
     for (const drop of actor.field.drops.values()) {
       result.push(dropEntity(drop));
     }
+    result.push(...reactorEntities(actor.field));
     return result;
   }
 
@@ -517,13 +565,67 @@ export class OnlineWorld {
     return snapshotParts(this, actor);
   }
   prepareLogout(actor) {
+    if (actor.skills) disposeActorSkills(actor, true);
+    rebuildActorEffects(actor, this);
     return prepareLogout(this, actor);
+  }
+  deliveryFailed(actor, error) {
+    if (actor.deliveryError) return;
+    actor.deliveryError = error;
+    console.error(
+      "Committed character delivery failed:",
+      actor.id,
+      error.message,
+    );
+    actor.connection?.close(1011, "SERVER_BUSY");
   }
   attack(actor) {
     return beginAttack(this, actor);
   }
   transition(actor, destination, operation) {
     return transitionActor(this, actor, destination, operation);
+  }
+  clearActorSeat(actor) {
+    clearActorSeat(actor);
+  }
+  travelParticipants(actor, message, spec) {
+    return travelParticipants(this, actor, message, spec);
+  }
+  openStorage(actor, lease, npcTemplateId) {
+    return openStorage(actor, this, lease, npcTemplateId);
+  }
+  openPortalNpc(actor, portal) {
+    return openPortalNpc(actor, portal, this);
+  }
+  canStrikeReactor(actor, geometry) {
+    return canStrikeReactor(this, actor, geometry);
+  }
+  strikeReactor(actor, geometry) {
+    return strikeReactor(this, actor, geometry);
+  }
+  useSkillDoor(actor, operation) {
+    actor.skillDoorOperation = operation;
+    actor.skillDoorTravel = null;
+    try {
+      if (!actor.skills.worldController.useDoor())
+        {throw protocolError("NOT_ALLOWED");}
+      return actor.skillDoorTravel;
+    } finally {
+      actor.skillDoorOperation = null;
+      actor.skillDoorTravel = null;
+    }
+  }
+  async travelSkillDoor(actor, destination) {
+    if (!actor.skillDoorOperation) throw protocolError("NOT_ALLOWED");
+    const travel = this.transition(
+      actor,
+      destination,
+      actor.skillDoorOperation,
+    );
+    actor.skillDoorTravel = travel;
+    const receipt = await travel;
+    if (receipt.status !== "committed") throw protocolError(receipt.code);
+    return true;
   }
   createDrop(actor, request) {
     return createFieldDrop(this, actor, request);
@@ -540,10 +642,21 @@ export class OnlineWorld {
     return await castSkill(this, actor, action, operation);
   }
 
-  close() {
+  async close() {
+    for (const actor of this.actors.values()) {
+      actor.retiring = true;
+      actor.settling = true;
+      this.neutralize(actor);
+    }
+    await Promise.all(
+      [...this.actors.values()].map((actor) => settleActorSkills(actor)),
+    );
+    await Promise.all(
+      [...this.fields.values()].map((field) => settleFieldReactors(field)),
+    );
     this.closed = true;
-    for (const actor of this.actors.values()) this.neutralize(actor);
-    this.actors.clear();
+    for (const actor of this.actors.values()) this.leave(actor);
+    for (const field of this.fields.values()) destroyFieldReactors(field);
     this.fields.clear();
   }
 }

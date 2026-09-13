@@ -209,19 +209,12 @@ function resolveMarketReturn(saved) {
   };
 }
 
-/** AbstractPlayerInteraction.getMarketPortalId + MapleMap.findMarketPortal.
- * The stored nearest portal is not used by the authored return script. */
-export function selectMarketReturnPortal(physics) {
-  const portals = physics.portals;
-  if (!Array.isArray(portals) || portals.length > MAX_PORTALS) {
-    throw new Error("Invalid market destination portals");
-  }
-  const raw = physics.map.$portalProperties ?? {};
-  const spawns = [];
+/** Authored market scripts take priority over every collected fallback spawn. */
+function scanMarketReturnPortals(portals, raw, spawns) {
   for (const portal of portals) {
     const script = raw[String(portal.id)]?.script;
     if (typeof script === "string" && script.includes("market")) {
-      return portal.id;
+      return portal;
     }
     if (
       portal.type >= 0 &&
@@ -231,10 +224,24 @@ export function selectMarketReturnPortal(physics) {
       spawns.push(portal.id);
     }
   }
+  return null;
+}
+
+/** AbstractPlayerInteraction.getMarketPortalId + MapleMap.findMarketPortal.
+ * The stored nearest portal is not used by the authored return script. */
+export function selectMarketReturnPortal(physics, random = Math.random) {
+  const portals = physics.portals;
+  if (!Array.isArray(portals) || portals.length > MAX_PORTALS) {
+    throw new Error("Invalid market destination portals");
+  }
+  const raw = physics.map.$portalProperties ?? {};
+  const spawns = [];
+  const market = scanMarketReturnPortals(portals, raw, spawns);
+  if (market) return market.id;
   if (!spawns.length) {
     throw new Error("Market destination has no player spawnpoint");
   }
-  return spawns[Math.floor(Math.random() * spawns.length)];
+  return spawns[Math.floor(random() * spawns.length)];
 }
 
 /** Preserve unsupported records rather than silently redirecting or running WZ scripts. */

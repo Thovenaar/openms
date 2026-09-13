@@ -12,12 +12,14 @@ import {
   revalidateOffer,
   applyTradeItems,
   applyTradeMesos,
+  admitTradeMesoProposal,
+  tradeReceivedTotal,
+  tradeConfirmation,
 } from "./local-trade-rules.js";
 
 const MAX_LISTENERS = 32;
 const MAX_CHAT_LINES = 256; // Bounded browser transcript retention, not a native protocol limit.
 const CHAT_LENGTH = 256; // Original edit control construction sets +0x50 to 0x100.
-const LOW_LEVEL_MESO_LIMIT = 1000000; // Cosmic Trade.completeTrade, levels below15.
 const TERMINAL = new Set(["completed", "cancelled", "declined", "failed"]);
 
 /** One owner per local simulation lifetime; never reconstruct this authority for each room.
@@ -60,14 +62,11 @@ export class LocalTradeSession {
 
   admit(stores, profiles, mesos) {
     for (let side = 0; side < 2; side++) {
-      if (profiles[side].level >= 15) continue;
-      const total = (this.received.get(stores[side]) ?? 0) + mesos[1 - side];
-      if (total > LOW_LEVEL_MESO_LIMIT) {
-        throw profileError(
-          "trade-low-level-limit",
-          "Characters under level 15 may not receive more than 1 million mesos in this local character session.",
-        );
-      }
+      tradeReceivedTotal(
+        profiles[side].level,
+        this.received.get(stores[side]) ?? 0,
+        mesos[1 - side],
+      );
     }
   }
 
@@ -76,7 +75,11 @@ export class LocalTradeSession {
       if (profiles[side].level < 15) {
         this.received.set(
           stores[side],
-          (this.received.get(stores[side]) ?? 0) + mesos[1 - side],
+          tradeReceivedTotal(
+            profiles[side].level,
+            this.received.get(stores[side]) ?? 0,
+            mesos[1 - side],
+          ),
         );
       }
     }
@@ -275,16 +278,7 @@ export class LocalTrade {
       this._editable(side);
       const available = this.stores[side].profile.meso - this.mesos[side];
       tradeInteger(amount, 1, available, "mesos");
-      // 007c38f9..007c391e: native levels1..15 limit each admitted mesos proposal.
-      if (
-        this.stores[side].profile.level <= 15 &&
-        amount > LOW_LEVEL_MESO_LIMIT
-      ) {
-        throw profileError(
-          "trade-low-level-offer",
-          "Players that are Level 15 and below may only trade 1 million mesos at a time.",
-        );
-      }
+      admitTradeMesoProposal(this.stores[side].profile.level, amount);
       this.mesos[side] += amount;
       this._notify();
       return { ok: true };
@@ -339,21 +333,9 @@ export class LocalTrade {
   async confirm(side) {
     try {
       this._editable(side);
-      const bound = this.offers[1 - side].some(
-        (offer) =>
-          offer &&
-          offer.item.flags &
-            (Math.floor(offer.item.id / 1000000) === 1 ? 0x10 : 0x02),
-      );
       return await this._prompt(
         side,
-        {
-          kind: "confirm",
-          stringId: bound ? 0x1236 : 0x19d,
-          text: bound
-            ? "Some items you are trying to barter\r\ncannot be traded once received.\r\nWould you still like to proceed?"
-            : "Are you sure you want to trade?",
-        },
+        tradeConfirmation(this.offers[1 - side].map((offer) => offer?.item)),
         () => this._lock(side),
       );
     } catch (error) {

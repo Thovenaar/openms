@@ -47,6 +47,7 @@ let ui = null;
 let login = null;
 let inspection = null;
 let input = null;
+let boundBindings = null;
 let actions = null;
 let overlay = null;
 let observer = null;
@@ -90,6 +91,7 @@ function report(error) {
 
 function recordCommand(value) {
   inspection?.record("command", value);
+  if (transport.pendingTravel) clearInput();
 }
 
 function sendInput(sample) {
@@ -107,7 +109,13 @@ function clearInput() {
   input?.clear();
 }
 function isFieldBlocked() {
-  return destroyed || installing || transport.status !== "active";
+  return (
+    destroyed ||
+    installing ||
+    transport.status !== "active" ||
+    transport.pendingTravel > 0 ||
+    Boolean(ui?.transitions.blocksInput)
+  );
 }
 function isBlocked() {
   return isFieldBlocked() || Boolean(ui?.ui.blocksGameplay());
@@ -115,6 +123,15 @@ function isBlocked() {
 
 function status(value) {
   if (destroyed) return;
+  if (value.code === "SIGNED_OUT") {
+    current?.destroy();
+    current = null;
+    prediction.clear();
+    input?.setBindings(null);
+    boundBindings = null;
+    ui?.ui.setScene(null);
+    ui?.audio.setScene(null);
+  }
   login?.status(value);
   ui?.status(value);
   inspection?.status(value);
@@ -138,10 +155,16 @@ function event(message) {
 function transition(message) {
   clearInput();
   inspection?.record("transition", message);
+  ui?.transitions.transition(message).catch(report);
 }
 function state(message) {
   const owner = current;
-  owner?.changes(message).catch((error) => failedScene(error, owner));
+  owner
+    ?.changes(message)
+    .then(() => {
+      if (owner === current) return ui.observeEntities(transport.model);
+    })
+    .catch((error) => failedScene(error, owner));
 }
 function failedScene(error, owner) {
   if (owner !== current || error?.name === "AbortError" || destroyed) return;
@@ -153,12 +176,13 @@ function failedScene(error, owner) {
 /** Stage the authoritative field before replacing any visible field or native-window owner. */
 async function install(snapshot) {
   const token = ++generation;
-  const loadingOwner = loading.begin(
-    "Preparing field, avatar and game interface…",
-  );
+  const loadingOwner = ui.transitions.active
+    ? null
+    : loading.begin("Preparing field, avatar and game interface…");
   installing = true;
   try {
-    if (current?.fieldEpoch === snapshot.fieldEpoch) {
+    const staged = await ui.transitions.take(snapshot);
+    if (!staged && current?.fieldEpoch === snapshot.fieldEpoch) {
       await current.queue;
       await current.replace(snapshot);
       installPrediction(current, snapshot);
@@ -166,7 +190,7 @@ async function install(snapshot) {
       return;
     }
     clearInput();
-    const candidate = await prepareScene(snapshot);
+    const candidate = staged ?? (await prepareScene(snapshot));
     if (token !== generation || destroyed) {
       candidate.destroy();
       throw new DOMException("Scene replacement superseded", "AbortError");
@@ -177,6 +201,7 @@ async function install(snapshot) {
     app.stage.addChildAt(candidate.scene.container, 0);
     try {
       await publishNative(snapshot);
+      ui.transitions.installed(snapshot.fieldEpoch);
       previous?.destroy();
     } catch (error) {
       current = previous;
@@ -186,7 +211,7 @@ async function install(snapshot) {
     resize();
     app.canvas.focus();
   } finally {
-    loading.end(loadingOwner);
+    if (loadingOwner) loading.end(loadingOwner);
     if (token === generation) installing = false;
   }
 }
@@ -223,12 +248,19 @@ function installPrediction(candidate, snapshot) {
     ),
     snapshot.serverTick,
   );
+  prediction.simulation.movementLocked = Boolean(
+    snapshot.self.entity.seat ||
+    snapshot.self.entity.combatState?.movementLocked,
+  );
   candidate.syncPrediction(prediction, false);
 }
 
 async function publishNative(snapshot) {
   await ui.update(snapshot);
-  input.setBindings(ui.bindings);
+  if (boundBindings !== ui.bindings) {
+    input.setBindings(ui.bindings);
+    boundBindings = ui.bindings;
+  }
   inspection.update(snapshot);
   await current?.setNativePresentation(ui.quests);
 }
@@ -237,7 +269,9 @@ async function publishNative(snapshot) {
 function portal() {
   if (!current || isBlocked()) return;
   const self = transport.model?.self.entity;
-  if (!self) return;
+  if (!self || self.foothold === null || prediction.simulation?.movementLocked)
+    {return;}
+  if (ui.skillVisuals.enterDoor()) return;
   const selected = entryPortal(
     current.scene.manifest.physics.portals ?? [],
     self.position,
@@ -245,30 +279,31 @@ function portal() {
   if (selected) intent({ kind: "portal.enter", portalId: Number(selected.id) });
 }
 
-const ENTRY_TYPES = [1, 2, 4, 5, 7, 8, 10, 11];
-
-/** Nearest portal whose original contact rectangle contains the player's feet. */
+/** Original reverse-authored first match; automatic portal intent remains server-owned. */
 function entryPortal(portals, position) {
-  let selected = null;
-  let distance = Infinity;
-  for (const portal of portals) {
-    if (!ENTRY_TYPES.includes(portal.type)) continue;
-    if (!portalEntryContains(portal, position)) continue;
-    const dx = portal.x - position.x;
-    const dy = portal.y - position.y;
-    const next = dx * dx + dy * dy;
-    if (next < distance) {
-      selected = portal;
-      distance = next;
+  for (let index = portals.length - 1; index >= 0; index--) {
+    const portal = portals[index];
+    if (
+      portal.type !== 0 &&
+      portal.type !== 6 &&
+      portalEntryContains(portal, position)
+    ) {
+      return portal;
     }
   }
-  return selected;
+  return null;
 }
 
 /** Only the authenticated predictor's fixed scheduler advances movement, never RAF. */
 function advance() {
   if (destroyed || transport.status !== "active" || document.hidden) return;
   try {
+    if (prediction.simulation) {
+      const self = transport.model.self.entity;
+      prediction.simulation.movementLocked = Boolean(
+        self.seat || self.combatState?.movementLocked,
+      );
+    }
     if (input.state.upPressed && !isBlocked()) portal();
     const steps = prediction.advance(
       performance.now(),
@@ -317,6 +352,7 @@ function snapshot() {
     schemaVersion: 2,
     sourceBuildId: import.meta.MAPLE_SOURCE_ID,
     buildId: catalog?.buildId ?? null,
+    login: login?.snapshot() ?? null,
     maps: catalog ? Object.keys(catalog.maps) : [],
     ...snapshotField(scene),
     ...snapshotSession(),
@@ -452,6 +488,7 @@ function initializeInterfaces() {
       scene: () => current,
       systems: () => ui,
       catalog: () => catalog,
+      login: () => login,
       snapshot,
       api,
       report,

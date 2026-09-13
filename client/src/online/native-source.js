@@ -53,5 +53,6 @@ export function nativeOutcome(receipt) {
         : (receipt?.code ??
           "Operation outcome is unknown; reconnect to recover it."),
     receipt,
+    value: receipt?.value,
   };
 }

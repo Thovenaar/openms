@@ -79,6 +79,10 @@ async function rebuildDevelopment(state) {
 
 /** One owned server; optional synchronous progress keeps programmatic callers quiet. */
 export async function startDevServer(options = {}) {
+  const hostname = options.hostname ?? clientEnvironment.HOST ?? "127.0.0.1";
+  if (typeof hostname !== "string" || !hostname.trim()) {
+    throw new Error("HOST must be a non-empty hostname or IP address");
+  }
   const port = Number(options.port ?? clientEnvironment.PORT ?? 3100);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PORT must be an integer from 1 to 65535");
@@ -92,7 +96,7 @@ export async function startDevServer(options = {}) {
   await rebuildDevelopment(state);
   const listeningAt = performance.now();
   const server = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname,
     port,
     fetch: (request) => state.resources.fetch(request),
   });

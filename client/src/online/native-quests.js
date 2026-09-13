@@ -105,17 +105,21 @@ export class NativeQuests {
   objectives(record) {
     return (this.view(record.id)?.objectives ?? []).map((row) => {
       const label =
-        this.catalog.strings[row.kind === "kill" ? "mob" : "item"][
-          row.templateId
-        ] ?? String(row.templateId);
-      const done = row.current >= row.required;
+        row.kind === "quest"
+          ? (this.catalog.records[row.templateId]?.name ??
+            String(row.templateId))
+          : (this.catalog.strings[row.kind === "kill" ? "mob" : "item"][
+              row.templateId
+            ] ?? String(row.templateId));
       return {
         ...row,
         label,
         count: row.current,
         total: row.required,
-        done,
-        text: `${label}: ${row.current}/${row.required}`,
+        text:
+          row.kind === "quest"
+            ? label
+            : `${label}: ${row.current}/${Math.abs(row.required)}`,
       };
     });
   }
@@ -165,6 +169,7 @@ export class NativeQuests {
       settings.questTracker.auto = !settings.questTracker.auto;
     } else if (action === "open" || action === "close") {
       settings.questTracker.open = action === "open";
+      if (action === "close") settings.questTracker.ids = [];
     } else return unsupported(`quest tracker action ${action}`);
     return this.owner.request({ kind: "settings.save", settings });
   }
@@ -192,5 +197,41 @@ export class NativeQuests {
   }
   acknowledgeReady(id) {
     return this.owner.request({ kind: "quest.notice", questId: id });
+  }
+  medalEntries() {
+    return this.owner.state.presentation.medals;
+  }
+  medalChallenge(id) {
+    return this.owner.request({
+      kind: "medal.open",
+      questId: Number(id),
+      stage: 0,
+    });
+  }
+  medalClaim(id) {
+    return this.owner.request({
+      kind: "medal.open",
+      questId: Number(id),
+      stage: 1,
+    });
+  }
+  medalForfeit(id, confirmed = false) {
+    if (!confirmed) {
+      return Promise.resolve({
+        ok: false,
+        code: "confirmation",
+        reason: "Give up this medal challenge?",
+      });
+    }
+    return this.owner.request({ kind: "medal.forfeit", questId: Number(id) });
+  }
+  equipMedal(uid) {
+    const item = this.owner.inventory.item(uid);
+    if (Math.floor(item.id / 10000) !== 114) {
+      return Promise.resolve({ ok: false, reason: "Select an owned medal." });
+    }
+    return item.slot < 0
+      ? this.owner.inventory.unequip({ uid })
+      : this.owner.inventory.equip({ uid });
   }
 }

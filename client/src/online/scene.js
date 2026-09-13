@@ -21,6 +21,9 @@ import { currencyEntity, itemEntity } from "../world/drop-artwork.js";
 import { SceneEvents } from "./scene-events.js";
 import { SceneDrops } from "./scene-drops.js";
 import { SceneLife } from "./scene-life.js";
+import { observeWorldCharacter } from "./native-world-actions.js";
+import { createMobNameLabel } from "../combat/offline-mob-renderer.js";
+import { weaponActionAnimationMs } from "../combat/weapon-usage.js";
 const MAX_ENTITIES = 4096;
 /** Server entity publications land every third field tick (server/src/world.js); peers,
  * mobs and drops are chases over that interval, not per-tick motion. */
@@ -47,6 +50,7 @@ export class OnlineScene {
     this.npcs = new Map();
     this.npcByPlacement = new Map();
     this.lifeEntities = new Map();
+    this.reactorEntities = new Map();
     this.native = null;
     this.lifePromise = null;
     this.footholds = new Map(
@@ -104,6 +108,8 @@ export class OnlineScene {
     }
     for (const id of this.views.keys()) if (!ids.has(id)) this.remove(id);
     for (const id of this.npcs.keys()) if (!ids.has(id)) this.remove(id);
+    for (const entity of this.reactorEntities.values())
+      {if (!ids.has(entity.id)) this.remove(entity.id);}
   }
   changes(message) {
     this.tick = message.serverTick;
@@ -118,6 +124,10 @@ export class OnlineScene {
   async upsert(entity) {
     this.controller.signal.throwIfAborted();
     if (entity.kind === "npc") return this.upsertNpc(entity);
+    if (entity.kind === "reactor") {
+      this.reactorEntities.set(entity.reactor.placementId, entity);
+      return;
+    }
     let view = this.views.get(entity.id);
     const identity = JSON.stringify([
       entity.kind,
@@ -159,15 +169,9 @@ export class OnlineScene {
     view.fromX = view.drawX;
     view.fromY = view.drawY;
     view.received = performance.now();
+    view.observedAge = 0;
     view.entity = entity;
-    const foothold = this.footholds.get(entity.foothold);
-    if (foothold) {
-      this.scene.setEntityDepth(
-        view.animation,
-        (entity.kind === "drop" ? 29999 : 29997) +
-          (foothold.layer * 3000 - foothold.group) * 10,
-      );
-    }
+    this.updateViewDepth(view);
     if (entity.id === this.selfId) {
       this.scene.actor = view.animation;
       this.presentation.x = entity.position.x;
@@ -176,11 +180,66 @@ export class OnlineScene {
       this.presentation.action = animationName(entity.action);
     }
     this.pose(view, entity.position.x, entity.position.y);
+    this.seekObservedAction(view);
+    this.observeAppearance(view);
+    this.native?.life.refresh();
+  }
+  updateViewDepth(view) {
+    const entity = view.entity;
+    const foothold = this.footholds.get(entity.foothold);
+    if (entity.kind === "mob") {
+      this.scene.setEntityDepth(
+        view.animation,
+        entity.mobState?.movementType === 3
+          ? 270100
+          : foothold
+            ? 29991 + (foothold.layer * 3000 - foothold.group) * 10
+            : 239991,
+      );
+    } else if (foothold) {
+      this.scene.setEntityDepth(
+        view.animation,
+        (entity.kind === "drop" ? 29999 : 29997) +
+          (foothold.layer * 3000 - foothold.group) * 10,
+      );
+    }
+  }
+  seekObservedAction(view) {
+    const entity = view.entity;
     view.animation.seek(
       entity.dropMotion?.age ??
-        Math.max(0, this.tick - entity.actionStartTick) * 30,
+        entity.mobState?.elapsedMs ??
+        entity.combatState?.elapsedMs ??
+        Math.max(0, this.tick - entity.actionStartTick) * PROTOCOL.TICK_MS,
     );
-    this.native?.life.refresh();
+  }
+  observeAppearance(view) {
+    const entity = view.entity;
+    if (entity.kind === "player") {
+      observeWorldCharacter(view, entity, Date.now());
+    }
+    view.animation.setTint(entity.combatState?.tint ?? 0xffffff);
+    view.animation.container.alpha = entity.mobState?.opacity ?? 1;
+    if (entity.mobState) {
+      view.animation.container.visible = entity.mobState.bodyVisible;
+      if (view.mobName) view.mobName.visible = entity.mobState.nameVisible;
+    }
+    this.observeCombatExpression(view);
+  }
+  observeCombatExpression(view) {
+    const entity = view.entity;
+    const combat = entity.combatState;
+    if (combat?.expressionMs > 0) {
+      const startedAt = this.tick * PROTOCOL.TICK_MS + combat.expressionMs;
+      if (
+        view.combatExpression !== combat.expression ||
+        view.combatExpressionEnd !== startedAt
+      ) {
+        view.animation.setExpression(combat.expression, combat.expressionMs);
+        view.combatExpression = combat.expression;
+        view.combatExpressionEnd = startedAt;
+      }
+    }
   }
   bindEntity(view) {
     const { entity, animation } = view;
@@ -194,6 +253,15 @@ export class OnlineScene {
       };
       view.name = new PlayerName(scene, { profile: entity.appearance });
       view.name.step(this.app.renderer.resolution);
+    }
+    if (entity.kind === "mob") {
+      const name = this.catalog.monsters[entity.templateId]?.name;
+      if (typeof name !== "string")
+        {throw new Error("Original monster name is not packaged.");}
+      view.mobName = createMobNameLabel(name);
+      view.mobName.position.set(0, 4);
+      animation.container.addChild(view.mobName);
+      this.scene.registerPresentationContainer(view.mobName);
     }
     if (entity.kind === "npc" || entity.kind === "drop") {
       animation.container.eventMode = "static";
@@ -397,16 +465,26 @@ export class OnlineScene {
     animation.container.scale.x =
       entity.kind !== "drop" && entity.facing > 0 ? -1 : 1;
     if (view.name) view.name.step(this.app.renderer.resolution);
+    if (view.mobName) view.mobName.scale.x = animation.container.scale.x;
+    animation.setAction(this.poseAction(view), this.posePlayback(entity));
+  }
+  poseAction(view) {
+    const { entity, animation } = view;
+    if (entity.kind === "drop") return "default";
     const action = animationName(entity.action);
-    animation.setAction(
-      entity.kind === "drop"
-        ? "default"
-        : action === "stand1"
-          ? (animation.avatar?.standAction ?? action)
-          : action === "walk1"
-            ? (animation.avatar?.walkAction ?? action)
-            : action,
-    );
+    if (action === "stand1") return animation.avatar?.standAction ?? action;
+    if (action === "walk1") return animation.avatar?.walkAction ?? action;
+    return action;
+  }
+  posePlayback(entity) {
+    return (entity.combatState && entity.combatState.phase !== "idle") ||
+      (entity.mobState &&
+        (entity.mobState.hp === 0 ||
+          entity.mobState.phase === "spawning" ||
+          entity.mobState.phase === "hit" ||
+          entity.mobState.phase === "attack"))
+      ? "once"
+      : "loop";
   }
   /** Borrow predictor state through getter-only fields; never step a field here. */
   syncPrediction(prediction, active) {
@@ -430,6 +508,12 @@ export class OnlineScene {
   }
   /** Quest markers, nameplates and portal artwork observe the server presentation only. */
   setNativePresentation(quests) {
+    if (this.lifeQuests !== quests) {
+      this.native?.destroy();
+      this.native = null;
+      this.lifePromise = null;
+      this.lifeQuests = quests;
+    }
     this.lifePromise ??= this.createLife(quests);
     return this.lifePromise;
   }
@@ -442,7 +526,7 @@ export class OnlineScene {
       if (this.controller.signal.aborted) return null;
       throw error;
     }
-    if (this.controller.signal.aborted) {
+    if (this.controller.signal.aborted || this.lifeQuests !== quests) {
       native.destroy();
       return null;
     }
@@ -454,9 +538,22 @@ export class OnlineScene {
     return this.native?.isInteractive(x, y) ?? false;
   }
   event(message) {
-    if (message.fieldEpoch !== this.fieldEpoch) return Promise.resolve();
+    if (!message.event || message.fieldEpoch !== this.fieldEpoch)
+      {return Promise.resolve();}
     this.queue = this.queue.then(() => this.events.event(message));
     return this.queue;
+  }
+  relocateObserved(event) {
+    const view = this.views.get(event.actorId);
+    if (!view) return;
+    view.fromX = view.drawX = event.destination.x;
+    view.fromY = view.drawY = event.destination.y;
+    view.received = performance.now();
+    view.animation.setPosition(event.destination.x, event.destination.y);
+    if (event.actorId === this.selfId) {
+      this.presentation.x = this.selfPose.x = event.destination.x;
+      this.presentation.y = this.selfPose.y = event.destination.y;
+    }
   }
   resize(width, height) {
     this.scene.viewport.width = width;
@@ -507,10 +604,24 @@ export class OnlineScene {
     this.drawScenery(elapsed, active);
   }
   drawView(view, now, elapsed, active) {
+    const simulation = this.interpolateView(view, now);
+    if (view.entity.id === this.selfId) this.drawSelfPose(view, simulation);
+    if (active) this.advanceView(view, elapsed);
+    if (view.mobName) {
+      view.mobName.visible =
+        view.entity.mobState.nameVisible &&
+        view.observedAge < view.entity.mobState.nameRemainingMs;
+    }
+    if (view.entity.kind === "drop")
+      this.drops.observe(view, view.drawX, view.drawY);
+  }
+  interpolateView(view, now) {
     const self = view.entity.id === this.selfId;
-    const prediction = self ? this.drawPrediction : null;
+    const prediction =
+      self && !view.entity.seat && !view.entity.combatState?.movementLocked
+        ? this.drawPrediction
+        : null;
     const simulation = prediction?.simulation ?? null;
-    const fraction = Math.min(1, (now - view.received) / ENTITY_PUBLISH_MS);
     let x;
     let y;
     if (simulation) {
@@ -518,15 +629,28 @@ export class OnlineScene {
       x = this.selfPose.x;
       y = this.selfPose.y;
     } else {
+      const fraction = Math.min(1, (now - view.received) / ENTITY_PUBLISH_MS);
       x = view.fromX + (view.entity.position.x - view.fromX) * fraction;
       y = view.fromY + (view.entity.position.y - view.fromY) * fraction;
       this.pose(view, x, y);
     }
     view.drawX = x;
     view.drawY = y;
-    if (self) this.drawSelfPose(view, simulation);
-    if (active) view.animation.advance(elapsed);
-    if (view.entity.kind === "drop") this.drops.observe(view, x, y);
+    return simulation;
+  }
+  advanceView(view, elapsed) {
+    view.observedAge += elapsed;
+    view.animation.advance(elapsed);
+    const combat = view.entity.combatState;
+    if (combat?.phase === "attack" && combat.attackSpeed !== null) {
+      view.animation.seek(
+        weaponActionAnimationMs(
+          view.animation.current,
+          combat.attackSpeed,
+          combat.phaseMs + view.observedAge,
+        ),
+      );
+    }
   }
   drawSelfPose(view, simulation) {
     this.presentation.x = view.drawX;
@@ -536,7 +660,9 @@ export class OnlineScene {
       : view.entity.facing;
     const action = animationName(view.entity.action);
     this.presentation.action =
-      simulation && MOVEMENT_ACTIONS.has(action) ? simulation.action : action;
+      simulation && !view.entity.seat && MOVEMENT_ACTIONS.has(action)
+        ? simulation.action
+        : action;
     if (simulation) {
       this.scene.updateActor(this.presentation);
       view.name?.step(this.app.renderer.resolution);
@@ -602,6 +728,12 @@ export class OnlineScene {
     return { x: x - this.scene.camera.x, y: y - this.scene.camera.y };
   }
   remove(id) {
+    for (const [placementId, entity] of this.reactorEntities) {
+      if (entity.id === id) {
+        this.reactorEntities.delete(placementId);
+        return;
+      }
+    }
     if (this.npcs.has(id)) {
       this.releaseNpc(id);
       this.npcs.delete(id);
@@ -615,6 +747,10 @@ export class OnlineScene {
     }
     this.scene.removeDynamicEntity(id);
     view.name?.destroy();
+    if (view.mobName) {
+      this.scene.unregisterPresentationContainer(view.mobName);
+      view.mobName.destroy();
+    }
     if (this.scene.actor === view.animation) this.scene.actor = null;
     view.owner.destroy();
     this.views.delete(id);
@@ -628,6 +764,7 @@ export class OnlineScene {
     this.native = null;
     for (const id of this.views.keys()) this.remove(id);
     for (const id of this.npcs.keys()) this.remove(id);
+    this.reactorEntities.clear();
     this.scene.destroy();
   }
 }

@@ -46,7 +46,7 @@ import {
   revivalMap,
   revivalArrival,
 } from "./character/revival.js";
-import { FieldTransition } from "./world/field-transition.js";
+import { FieldTransition } from "./rendering/field-transition.js";
 import { prepareFieldAvatar } from "./character/field-avatar.js";
 import { prepareFamilyTravel } from "./social/family-travel.js";
 import {

@@ -1,409 +1,499 @@
 .online-login {
-  --login-face: #c0c0c0;
-  --login-panel: #fff;
-  --login-text: #101010;
-  --login-muted: #3b3b3b;
-  --login-border: #808080;
-  --login-accent: #000080;
-  --login-caption: linear-gradient(90deg, #000080, #1084d0);
-  --login-raised: inset 1px 1px #fff, inset -1px -1px #404040;
-  --login-sunken: inset 1px 1px #808080, inset -1px -1px #fff;
-  color-scheme: light;
   position: absolute;
   inset: 0;
-  z-index: 6;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  color: var(--login-text);
+  z-index: 30;
+  overflow: hidden;
+  color: #362b20;
   font:
-    13px/1.45 "MS Sans Serif",
-    Tahoma,
+    12px Arial,
     sans-serif;
-}
-/* Scenery sits in the canvas; this vignette keeps the window and its text readable over it. */
-.online-login::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    ellipse at 50% 45%,
-    rgba(0, 0, 0, 0.15) 0%,
-    rgba(0, 0, 0, 0.45) 72%,
-    rgba(0, 0, 0, 0.6) 100%
-  );
-}
-.online-login > .maple95-window {
-  position: relative;
+  background: #101820;
 }
 .online-login[hidden],
-.online-login [hidden] {
+.online-login [hidden],
+#login-inspection [hidden] {
   display: none !important;
 }
-.maple95-window {
-  width: min(520px, 100%);
-  padding: 3px;
-  background: var(--login-face);
-  box-shadow:
-    var(--login-raised),
-    0 0 0 1px #000;
+.online-login-window {
+  position: absolute;
+  width: 800px;
+  height: 600px;
+  left: 50%;
+  top: 50%;
+  isolation: isolate;
+  transform-origin: center;
 }
-.maple95-titlebar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 3px 4px 3px 6px;
-  background: var(--login-caption);
-  color: #fff;
-  font-weight: 700;
-}
-.maple95-title {
-  letter-spacing: 0.02em;
-}
-.maple95-body {
-  display: grid;
-  gap: 10px;
-  padding: 10px;
-}
-.maple95-tabs {
-  display: flex;
-  gap: 2px;
-  align-items: flex-end;
-}
-.maple95-tab {
+.online-login-body {
   position: relative;
-  bottom: -1px;
-  padding: 4px 12px 5px;
+  z-index: 3;
+  width: 800px;
+  height: 600px;
+}
+.online-login-artwork {
+  pointer-events: none !important;
+  image-rendering: pixelated;
+}
+.online-login-artwork canvas {
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+.online-login-scenery {
+  position: absolute;
+  inset: 0;
+  width: 800px;
+  height: 600px;
+  overflow: hidden;
+}
+.online-login-button,
+.online-login-register {
+  position: relative;
   border: 0;
-  background: var(--login-face);
-  box-shadow:
-    inset 1px 1px #fff,
-    inset -1px 0 #404040;
+  padding: 0;
+  background: transparent;
   color: inherit;
   font: inherit;
   cursor: pointer;
 }
-.maple95-tab[aria-selected="true"] {
-  padding: 5px 14px 6px;
-  font-weight: 700;
-  z-index: 1;
+.online-login-skinned {
+  color: transparent;
+  font-size: 0;
+  vertical-align: middle;
 }
-.online-login-form {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  background: var(--login-face);
-  box-shadow:
-    inset 1px 1px #fff,
-    inset -1px -1px #404040;
+.online-login-skinned > .online-login-artwork {
+  text-align: left;
 }
-.online-login-row {
-  display: grid;
-  grid-template-columns: 132px minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-}
-.online-login-label {
-  color: var(--login-text);
-}
-.online-login input {
-  min-width: 0;
-  padding: 3px 4px;
-  border: 0;
-  background: var(--login-panel);
-  box-shadow:
-    var(--login-sunken),
-    0 0 0 1px #000;
-  color: var(--login-text);
-  font: inherit;
-}
-.online-login input:disabled {
-  background: var(--login-face);
-  color: var(--login-muted);
-}
-.maple95-button {
-  min-height: 23px;
-  padding: 3px 12px;
-  border: 0;
-  background: var(--login-face);
-  box-shadow:
-    var(--login-raised),
-    0 0 0 1px #000;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.maple95-button.primary {
-  font-weight: 700;
-}
-.maple95-button:active:not(:disabled) {
-  box-shadow:
-    inset 1px 1px #404040,
-    inset -1px -1px #fff,
-    0 0 0 1px #000;
-  padding: 4px 11px 2px 13px;
-}
-.maple95-button:disabled {
-  color: var(--login-border);
-  text-shadow: 1px 1px #fff;
+.online-login button:disabled {
   cursor: default;
 }
 .online-login :focus-visible {
-  outline: 1px dotted #000;
+  outline: 2px solid #156da5;
   outline-offset: 2px;
 }
-.online-login-submit {
-  justify-self: start;
-  margin-top: 4px;
+.online-login input {
+  box-sizing: border-box;
+  width: 165px;
+  height: 23px;
+  border: 1px solid #a28964;
+  border-radius: 2px;
+  background: #fffdf4;
+  color: #31291e;
+  padding: 2px 5px;
+  font:
+    12px Arial,
+    sans-serif;
 }
-.online-login-characters {
+.online-login input:disabled {
+  color: #777;
+}
+.online-login-account,
+.online-login-characters,
+.online-login-create {
+  position: absolute;
+  inset: 0;
+}
+.online-login-register {
+  position: absolute;
+  left: 424px;
+  top: 350px;
+}
+.online-login-form {
+  position: absolute;
+  left: 410px;
+  top: 228px;
+  width: 330px;
+  height: 64px;
+}
+.online-login-account-tool {
+  position: absolute;
+}
+.online-login-row {
   display: grid;
+  grid-template-columns: 100px 165px;
+  align-items: center;
+  gap: 5px;
+  min-height: 31px;
+}
+.online-login-account .online-login-row {
+  position: absolute;
+  display: block;
+  left: 67px;
+  top: 12px;
+  min-height: 0;
+}
+.online-login-account .online-login-row:nth-child(2) {
+  top: 40px;
+}
+.online-login-account input {
+  width: 132px;
+  height: 15px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: #fff;
+  line-height: 15px;
+}
+.online-login-account input[type="password"] {
+  width: 120px;
+}
+.online-login-account .online-login-label {
+  display: none;
+}
+.online-login-submit {
+  position: absolute;
+  left: 213px;
+  top: -5px;
+}
+.online-registration-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+}
+.online-registration {
+  width: 420px;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: 3px;
+  border: 1px solid var(--console-frame);
+  box-shadow:
+    var(--console-shadow),
+    3px 3px 0 #0005;
+}
+.online-registration-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 26px;
+  padding: 2px 3px 2px 6px;
+  color: var(--console-on-accent);
+  background: var(--console-caption);
+  font-weight: bold;
+}
+.online-registration .online-registration-close {
+  width: 22px;
+  min-height: 20px;
+  height: 20px;
+  padding: 0;
+  font:
+    bold 17px/16px Arial,
+    sans-serif;
+}
+.online-registration-form {
+  padding: 8px 15px 14px;
+}
+.online-registration-instructions {
+  margin: 0 0 14px;
+  font-size: 12px;
+}
+.online-registration .online-login-row {
+  grid-template-columns: 122px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+.online-registration.inspection-chrome input {
+  height: 28px;
+  min-height: 28px;
+  min-width: 0;
+  border-radius: 0;
+  box-shadow:
+    inset 1px 1px #404040,
+    inset -1px -1px #fff;
+}
+.online-registration-status {
+  min-height: 36px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.online-registration-actions {
+  display: flex;
+  justify-content: flex-end;
   gap: 10px;
 }
-.online-login-heading {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 700;
+.online-registration-actions button {
+  min-width: 94px;
 }
-.online-login-spotlight {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) 32px;
-  gap: 8px;
-  align-items: center;
-  padding: 10px 8px;
-  background: radial-gradient(
-    circle at 50% 30%,
-    #fff 0%,
-    #d8d8d8 55%,
-    #b0b0b0 100%
-  );
-  box-shadow: var(--login-sunken);
+.online-registration :focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
 }
-.online-login-previous,
-.online-login-next {
-  padding: 3px 0;
+.online-login-roster {
+  position: absolute;
+  left: 110px;
+  top: 270px;
+  width: 600px;
+  height: 126px;
 }
 .online-login-card {
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  padding: 10px 8px;
-  background: var(--login-face);
-  box-shadow:
-    var(--login-raised),
-    0 0 0 1px #000;
+  position: absolute;
+  top: 0;
+  width: 100px;
+  height: 126px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
   text-align: center;
 }
 .online-login-portrait {
   position: relative;
-  display: grid;
-  place-items: center;
-  width: 96px;
-  height: 124px;
-  background: linear-gradient(#dfe7ef, #b9c6d4);
-  box-shadow: var(--login-sunken);
-  overflow: hidden;
+  height: 100px;
+  width: 100px;
+  overflow: visible;
 }
-.online-login-mark {
-  color: #ffd54a;
-  font-size: 28px;
-  line-height: 1;
+.online-login-portrait canvas,
+.online-login-preview canvas {
+  image-rendering: pixelated;
 }
 .online-login-character-name {
-  margin: 4px 0 0;
-  font-size: 15px;
-  font-weight: 700;
-}
-.online-login-character-detail,
-.online-login-character-slot {
+  position: absolute;
+  top: 102px;
+  left: 55px;
+  width: max-content;
+  max-width: 198px;
+  transform: translateX(-50%);
+  overflow: hidden;
+  white-space: nowrap;
   margin: 0;
-  color: var(--login-muted);
+  font-size: 12px;
+  line-height: 15px;
 }
-.online-login-dots {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  justify-content: center;
+.online-login-character-detail {
+  position: absolute;
+  top: 160px;
+  left: 180px;
+  width: 183px;
+  height: 115px;
+  font-size: 11px;
 }
-.online-login-dot {
-  min-width: 20px;
-  padding: 0 2px;
-  border: 0;
-  background: transparent;
-  color: var(--login-accent);
-  font: inherit;
-  cursor: pointer;
+.online-login-character-detail > span {
+  position: absolute;
+  width: 54px;
+  line-height: 18px;
+}
+.online-login-character-detail > .online-login-info-job {
+  top: 0;
+  left: 37px;
+  width: 146px;
+}
+.online-login-info-level {
+  top: 19px;
+  left: 37px;
+}
+.online-login-info-fame {
+  top: 19px;
+  left: 126px;
+}
+.online-login-info-str {
+  top: 37px;
+  left: 37px;
+}
+.online-login-info-int {
+  top: 37px;
+  left: 126px;
+}
+.online-login-info-dex {
+  top: 55px;
+  left: 37px;
+}
+.online-login-info-luk {
+  top: 55px;
+  left: 126px;
+}
+.online-login-character-detail > .online-login-info-ranking {
+  top: 100px;
+  left: 0;
+  width: 183px;
+}
+.online-login-previous {
+  position: absolute;
+  left: 97px;
+  top: 256px;
+}
+.online-login-next {
+  position: absolute;
+  left: 545px;
+  top: 258px;
 }
 .online-login-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.online-login-status {
-  margin: 0;
-  min-height: 16px;
-  color: var(--login-muted);
-  font-size: 12px;
-}
-.online-login-actions + .online-login-status {
-  padding-left: 2px;
-}
-.online-login-delete {
-  margin-left: auto;
-}
-/* One modal dialog at a time, framed like a Windows 95 message box. */
-.online-dialog-overlay {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 12px;
-  background: rgb(0 0 0 / 18%);
+  pointer-events: none;
 }
-.online-dialog {
-  position: relative;
-  width: min(360px, 100%);
-  box-shadow:
-    var(--login-raised),
-    0 0 0 1px #000,
-    0 6px 18px rgb(0 0 0 / 35%);
+.online-login-actions > button {
+  position: absolute;
+  pointer-events: auto;
 }
-.maple95-dialog-close {
-  width: 18px;
-  height: 16px;
-  padding: 0;
-  border: 0;
-  background: var(--login-face);
-  box-shadow:
-    inset 1px 1px #fff,
-    inset -1px -1px #404040;
-  color: var(--login-text);
-  font: inherit;
-  line-height: 1;
-  cursor: pointer;
+.online-login-enter {
+  left: 604px;
+  top: 147px;
 }
-.online-dialog-text {
-  margin: 0;
-  min-height: 34px;
-  color: var(--login-text);
+.online-login-new {
+  left: 604px;
+  top: 185px;
 }
-.online-dialog-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding-top: 8px;
-}
-.online-login[data-viewport="compact"] .online-login-row {
-  grid-template-columns: minmax(0, 1fr);
-}
-.online-login-create {
-  display: grid;
-  gap: 10px;
+.online-login-delete {
+  left: 604px;
+  top: 234px;
 }
 .online-login-create-layout {
-  display: grid;
-  grid-template-columns: 156px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
-.online-login-roll {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 10px;
-  align-items: center;
-}
-.online-login-roll .online-login-stats {
-  grid-column: 1;
-}
-.online-login-roll .online-login-stat-total {
-  grid-column: 1;
-}
-.online-login-roll-button {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  min-width: 76px;
-  min-height: 40px;
-}
-.online-login-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-}
-.online-login-stat {
-  display: grid;
-  gap: 2px;
-  justify-items: center;
-  padding: 6px 4px;
-  background: var(--login-panel);
-  box-shadow: var(--login-sunken);
-}
-.online-login-stat-label {
-  color: var(--login-muted);
-  font-size: 12px;
-}
-.online-login-stat-value {
-  font-size: 20px;
-  font-weight: 700;
-}
-.online-login-roll.rolling .online-login-stat-value {
-  color: var(--login-accent);
-}
-.online-login-stat-total {
-  margin-top: 6px;
-  display: block;
-  color: var(--login-muted);
+.online-login-look,
+.online-login-options {
+  pointer-events: auto;
 }
 .online-login-look {
-  display: grid;
-  gap: 6px;
-  align-content: start;
+  position: absolute;
+  left: 450px;
+  top: 239px;
+  width: 100px;
 }
 .online-login-preview {
   position: relative;
-  width: 148px;
-  height: 182px;
-  background: linear-gradient(#dfe7ef, #b9c6d4);
-  box-shadow: var(--login-sunken);
-  overflow: hidden;
+  width: 100px;
+  height: 100px;
+  overflow: visible;
 }
-.online-login-preview canvas {
-  position: absolute;
-  pointer-events: none;
+.online-login-look .online-login-note {
+  display: none;
 }
 .online-login-options {
-  display: grid;
-  gap: 6px;
+  position: absolute;
+  left: 520px;
+  top: 200px;
+  width: 200px;
 }
 .online-login-option {
-  display: grid;
-  grid-template-columns: 66px 24px minmax(0, 1fr) 24px;
-  gap: 4px;
-  align-items: center;
+  position: relative;
+  height: 18px;
+  font-size: 11px;
 }
-.online-login-option button {
-  min-height: 21px;
-  padding: 1px 0;
+.online-login-option .online-login-label {
+  display: none;
 }
 .online-login-option-value {
-  padding: 3px 6px;
-  background: var(--login-panel);
-  box-shadow: var(--login-sunken);
+  position: absolute;
+  left: 72px;
+  top: 2px;
+  width: 112px;
+  line-height: 15px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.online-login-option button {
+  position: absolute;
+  top: 1px;
+  width: 15px;
+}
+.online-login-option-previous {
+  left: 57px;
+}
+.online-login-option-next {
+  left: 185px;
+}
+.online-login-name-step {
+  position: absolute;
+  left: 545px;
+  top: 203px;
+  width: 120px;
+}
+.online-login-name-step input {
+  width: 120px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   text-align: center;
 }
-.online-login-note {
-  margin: 0;
-  grid-column: 1 / -1;
-  color: var(--login-muted);
-  font-size: 12px;
-}
-.online-login-name-step .online-login-row {
-  grid-template-columns: 132px minmax(0, 1fr);
-}
+.online-login-name-step .online-login-label,
 .online-login-name-step .online-login-note {
-  margin-top: 6px;
+  display: none;
 }
-.online-login[data-viewport="compact"] .online-login-look {
-  grid-template-columns: minmax(0, 1fr);
+.online-login-note {
+  font-size: 10px;
+  line-height: 14px;
+}
+.online-login-create .online-login-back {
+  left: 610px;
+  top: 273px;
+}
+.online-login-create-submit {
+  left: 536px;
+  top: 273px;
+}
+.online-login-create[data-phase="appearance"] .online-login-back {
+  left: 620px;
+  top: 425px;
+}
+.online-login-create[data-phase="appearance"] .online-login-create-submit {
+  left: 546px;
+  top: 425px;
+}
+.online-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: #0005;
+}
+.online-dialog {
+  position: relative;
+  width: 362px;
+  height: 219px;
+  isolation: isolate;
+}
+.online-dialog > .online-login-artwork {
+  z-index: 0;
+}
+.online-dialog-titlebar,
+.online-dialog-body {
+  position: absolute;
+  z-index: 1;
+}
+.online-dialog-body {
+  inset: 0;
+}
+.online-dialog-titlebar {
+  left: 110px;
+  right: 30px;
+  top: 30px;
+  text-align: left;
+  font-weight: bold;
+}
+.online-dialog-text {
+  position: absolute;
+  left: 110px;
+  right: 30px;
+  top: 56px;
+  margin: 0;
+  height: 72px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 18px;
+}
+.online-dialog-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 158px;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+#login-inspection pre {
+  max-height: 220px;
+  overflow: auto;
 }

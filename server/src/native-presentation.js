@@ -9,6 +9,9 @@ import {
   checkConditions,
 } from "../../client/src/quests/quest-rules.js";
 import { progressQuestViews } from "./interaction-quest.js";
+import { socialPresentation } from "./social-presentation.js";
+import { nativeMedalViews } from "./interaction-quest-system.js";
+import { storageProjection } from "./interaction-storage.js";
 
 const CAPABILITIES = Object.freeze({
   settings: true,
@@ -20,13 +23,13 @@ const CAPABILITIES = Object.freeze({
   quests: true,
   shop: true,
   trade: true,
-  tradeChat: false,
-  storage: false,
-  cashShop: false,
-  pets: false,
-  socialManagement: false,
-  medals: false,
-  guild: false,
+  tradeChat: true,
+  storage: true,
+  cashShop: true,
+  pets: true,
+  socialManagement: true,
+  medals: true,
+  guild: true,
   spouseChat: false,
 });
 
@@ -112,11 +115,16 @@ function noticeAcknowledged(profile, id) {
 
 function interactionLease(actor, world, kind) {
   if (kind === "trade") return world.interactions?.trades.get(actor.tradeId);
+  if (kind === "storage") return actor.storage?.lease;
   return kind === "shop" ? actor.shop : actor.conversation;
 }
 
 function matchesLease(event, lease) {
-  const id = event.conversationId ?? event.shopSession ?? event.tradeId;
+  const id =
+    event.conversationId ??
+    event.shopSession ??
+    event.storageSession ??
+    event.tradeId;
   const revision = event.step ?? event.revision;
   return id === lease.id && revision === (lease.step ?? lease.revision);
 }
@@ -125,12 +133,20 @@ function interactionViews(actor, world) {
   const events = [];
   const now = Date.now();
   for (const [kind, pages] of actor.nativeInteractions ?? []) {
+    if (kind === "trade" && pages.some((event) => event.result)) {
+      events.push(...pages.filter((event) => event.result));
+      continue;
+    }
     const lease = interactionLease(actor, world, kind);
     if (
       !lease ||
       lease.expiresAt <= now ||
       lease.fieldEpoch !== actor.field.epoch
     ) {
+      continue;
+    }
+    if (kind === "storage") {
+      events.push(storageProjection(actor));
       continue;
     }
     for (const event of pages) {
@@ -143,8 +159,6 @@ function interactionViews(actor, world) {
 function nativeProfile(actor) {
   const profile = structuredClone(actor.profile);
   delete profile.onlineState;
-  profile.hp = Math.max(0, profile.hp - actor.pendingDamage);
-  profile.mp = Math.max(0, profile.mp - (actor.pendingMpDamage ?? 0));
   profile.location = {
     mapId: String(actor.field.mapId).padStart(9, "0"),
     x: actor.simulation.x,
@@ -157,7 +171,10 @@ function nativeProfile(actor) {
 function interactionRevisions(interactions) {
   const trade = interactions.find((event) => event.kind === "trade");
   const dialogue = interactions.find(
-    (event) => event.kind === "dialogue" || event.kind === "shop",
+    (event) =>
+      event.kind === "dialogue" ||
+      event.kind === "shop" ||
+      event.kind === "storage",
   );
   return {
     conversation: dialogue?.step ?? dialogue?.revision ?? 0,
@@ -191,6 +208,8 @@ export function nativePresentationParts(actor, world) {
     stats: { ...actor.stats },
     capabilities: CAPABILITIES,
     quests: nativeQuestViews(actor, world),
+    social: socialPresentation(actor, world),
+    medals: nativeMedalViews(actor, world),
     interactions,
     revisions: interactionRevisions(interactions),
     paused: Boolean(actor.field.paused),

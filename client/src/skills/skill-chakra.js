@@ -64,6 +64,15 @@ export class SkillChakra {
   }
 
   complete() {
+    if (this.system.hooks.commitSkillPhase) {
+      return this.system.hooks.commitSkillPhase(this.skill, this.info, () =>
+        this.commitComplete(),
+      );
+    }
+    return this.commitComplete();
+  }
+
+  commitComplete() {
     const system = this.system;
     const skill = this.skill;
     const info = this.info;

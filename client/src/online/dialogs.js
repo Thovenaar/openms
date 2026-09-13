@@ -7,7 +7,7 @@ function element(tag, className, text = "") {
   return node;
 }
 
-/** Windows 95 style modal dialogs owned by one host element.
+/** Original login artwork frames modal dialogs owned by one host element.
  *
  * The login surface has no page-level alert(); every failure or confirmation opens a
  * modal window here. One dialog is visible at a time and extra messages wait in a
@@ -22,37 +22,35 @@ export class OnlineDialogs {
     this.current = null;
     this.overlay = element("div", "online-dialog-overlay");
     this.overlay.hidden = true;
-    this.window = element("div", "maple95-window online-dialog");
-    const titlebar = element("header", "maple95-titlebar");
-    this.title = element("span", "maple95-title", "");
-    this.close = element("button", "maple95-dialog-close", "×");
-    this.close.type = "button";
-    this.close.setAttribute("aria-label", "Close dialog");
-    titlebar.append(this.title, this.close);
-    this.body = element("div", "maple95-body");
+    this.window = element("div", "online-dialog");
+    this.window.setAttribute("role", "dialog");
+    this.window.setAttribute("aria-modal", "true");
+    const titlebar = element("header", "online-dialog-titlebar");
+    this.title = element("span", "online-dialog-title", "");
+    titlebar.append(this.title);
+    this.body = element("div", "online-dialog-body");
     this.text = element("p", "online-dialog-text", "");
     const actions = element("div", "online-dialog-actions");
     // Button fields stay distinct from the confirm()/message() methods they serve.
     this.cancelButton = element(
       "button",
-      "maple95-button online-dialog-cancel",
+      "online-login-button online-dialog-cancel",
       "Cancel",
     );
     this.confirmButton = element(
       "button",
-      "maple95-button primary online-dialog-confirm",
+      "online-login-button primary online-dialog-confirm",
       "OK",
     );
     for (const button of [this.cancelButton, this.confirmButton]) {
       button.type = "button";
     }
-    actions.append(this.cancelButton, this.confirmButton);
+    actions.append(this.confirmButton, this.cancelButton);
     this.body.append(this.text, actions);
     this.window.append(titlebar, this.body);
     this.overlay.append(this.window);
     host.append(this.overlay);
     const options = { signal: this.controller.signal };
-    this.close.addEventListener("click", () => this.settle(false), options);
     this.cancelButton.addEventListener(
       "click",
       () => this.settle(false),
@@ -94,9 +92,14 @@ export class OnlineDialogs {
     const request = this.queue.shift();
     this.current = request;
     this.title.textContent = request.title;
+    this.window.setAttribute("aria-label", request.title);
     this.text.textContent = request.text;
-    this.confirmButton.textContent = request.ok;
-    this.cancelButton.textContent = request.cancel ?? "";
+    this.confirmButton.firstChild.nodeValue = request.ok;
+    this.cancelButton.firstChild.nodeValue = request.cancel ?? "";
+    this.confirmButton.title = request.ok;
+    this.confirmButton.setAttribute("aria-label", request.ok);
+    this.cancelButton.title = request.cancel ?? "";
+    this.cancelButton.setAttribute("aria-label", request.cancel ?? "");
     this.cancelButton.hidden = request.cancel === null;
     this.previousFocus = document.activeElement;
     this.overlay.hidden = false;

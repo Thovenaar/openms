@@ -191,10 +191,12 @@ async function useEntitlement(state, entry) {
       maxLength: 12,
     });
     if (name === null) return { ok: false, code: "cancelled" };
+    const target = await state.social.resolveTarget(name);
+    if (state.panel.disposed) return { ok: false, code: "cancelled" };
+    if (!target.ok) return target;
     const member = state.view.family?.members.find(
       (member) =>
-        member.name.toLowerCase() === name.trim().toLowerCase() &&
-        member.id !== state.view.self.id,
+        member.id === target.targetId && member.id !== state.view.self.id,
     );
     if (!member) {
       return {

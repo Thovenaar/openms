@@ -6,6 +6,8 @@ import {
 import { opaqueId, RateLimit } from "./auth.js";
 import { Publications } from "./publication.js";
 import { currentInteractionRevision } from "./interactions.js";
+import { settleTransitionReady } from "./field-transition.js";
+import { settleActorSkills, disposeActorSkills } from "./field-skills.js";
 
 const HELLO_TIMEOUT_MS = 5000;
 const PING_INTERVAL_MS = 15_000;
@@ -178,14 +180,17 @@ export class GameplayGateway {
       this.characters.set(actor.id, actor);
       return actor;
     } catch (error) {
-      this.world.leave(actor);
       try {
         if (session.revoked) {
           await this.world.prepareLogout(actor);
           await this.database.checkpoint(actor);
         }
       } finally {
-        await this.database.releaseLease(actor);
+        try {
+          await this.database.releaseLease(actor);
+        } finally {
+          this.world.leave(actor);
+        }
       }
       throw error;
     }
@@ -200,7 +205,17 @@ export class GameplayGateway {
     ) {
       throw protocolError("CHARACTER_BUSY");
     }
-    if (actor.pending || actor.retiring || actor.renewing) {
+    if (
+      actor.deliveryError ||
+      actor.pending ||
+      actor.retiring ||
+      actor.renewing ||
+      actor.skillTask ||
+      actor.skillField?.hasPendingIncoming ||
+      actor.skillField?.rewardJobs.size ||
+      actor.skillDrops?.pickpocketPlan ||
+      this.world.participants.producedPending(actor.id)
+    ) {
       throw protocolError("SERVER_BUSY");
     }
     if (resume.lastEventSeq > actor.eventSeq) {
@@ -209,7 +224,15 @@ export class GameplayGateway {
     if (actor.connection) {
       this.publications.close(actor.connection, "STALE_CONNECTION");
     }
-    await this.database.rotateLease(actor);
+    actor.pending = true;
+    actor.pendingOperation = null;
+    actor.pendingOwner = null;
+    try {
+      await this.database.rotateLease(actor);
+    } finally {
+      actor.pending = false;
+      this.world.participants.signalIdle();
+    }
     return actor;
   }
 
@@ -303,6 +326,8 @@ export class GameplayGateway {
         return this.command(socket, message);
       case "ready":
         return this.ready(socket, message);
+      case "transition-ready":
+        return settleTransitionReady(this.world, socket.data.actor, message);
       case "ack":
         return this.publications.acknowledge(socket, message);
       case "resync":
@@ -320,7 +345,11 @@ export class GameplayGateway {
   }
 
   command(socket, message) {
-    if (!socket.data.commandRate.take()) throw protocolError("RATE_LIMITED");
+    const physical =
+      message.action.kind === "skill.release" ||
+      message.action.kind === "skill.cancel";
+    const rate = physical ? socket.data.controlRate : socket.data.commandRate;
+    if (!rate.take()) throw protocolError("RATE_LIMITED");
     if (socket.data.commandWork >= 32) throw protocolError("SERVER_BUSY");
     socket.data.commandWork++;
     const actor = socket.data.actor;
@@ -334,6 +363,7 @@ export class GameplayGateway {
           code: receipt.code,
           domainRevision: receipt.domainRevision,
           transactionId: receipt.transactionId ?? null,
+          value: receipt.value,
         });
       })
       .catch((error) => {
@@ -359,9 +389,17 @@ export class GameplayGateway {
     if (!socket.data.baselines.has(message.snapshotId)) {
       throw protocolError("INVALID_MESSAGE");
     }
+    const becameReady = !socket.data.ready;
     socket.data.ready = true;
     socket.data.ackSnapshotId = message.snapshotId;
     socket.data.transfer = null;
+    if (socket.data.actor.state === "preparing")
+      {socket.data.actor.state = "active";}
+    if (becameReady) {
+      this.world.participants
+        .publish([socket.data.actor.id])
+        .catch((error) => this.fail(socket, error));
+    }
   }
 
   resync(socket) {
@@ -396,6 +434,7 @@ export class GameplayGateway {
     if (actor?.connection !== socket) return;
     actor.connection = null;
     actor.disconnectedAt = Date.now();
+    this.world.neutralize(actor);
   }
 
   drain(socket) {
@@ -418,10 +457,7 @@ export class GameplayGateway {
   async logout(session) {
     const actor = this.accounts.get(session.accountId);
     if (actor?.sessionId === session.id) {
-      actor.retiring = true;
-      this.world.leave(actor);
-      actor.retirement ??= this.finishLogout(actor);
-      await actor.retirement;
+      await this.retire(actor);
     }
     // Admission can still be acquiring a lease or loading content when revoked.
     for (let attempt = 0; attempt < RETIRE_WAIT_ATTEMPTS; attempt++) {
@@ -429,16 +465,6 @@ export class GameplayGateway {
       await Bun.sleep(RETIRE_WAIT_MS);
     }
     if (this.joining.has(session.accountId)) throw protocolError("SERVER_BUSY");
-  }
-
-  async finishLogout(actor) {
-    for (let attempt = 0; attempt < RETIRE_WAIT_ATTEMPTS; attempt++) {
-      if (!actor.pending && !actor.renewing) break;
-      await Bun.sleep(RETIRE_WAIT_MS);
-    }
-    if (actor.pending || actor.renewing) throw protocolError("SERVER_BUSY");
-    await this.world.prepareLogout(actor);
-    await this.retire(actor);
   }
 
   maintain(now) {
@@ -477,18 +503,18 @@ export class GameplayGateway {
   }
 
   maintainActor(actor, now) {
-    if (actor.retiring) return;
     if (
-      actor.disconnectedAt !== null &&
-      now - actor.disconnectedAt >= this.config.reconnectMs &&
-      !actor.pending
+      !actor.retiring &&
+      (!this.auth.active(actor.session) ||
+        (actor.deliveryError && !actor.pending) ||
+        (actor.disconnectedAt !== null &&
+          now - actor.disconnectedAt >= this.config.reconnectMs))
     ) {
-      actor.retiring = true;
       this.retire(actor).catch((error) =>
         console.error("Character retirement failed:", error.message),
       );
-      return;
     }
+    if (actor.retiring && !actor.settling) return;
     if (!actor.renewing && now - actor.leaseRenewAt >= LEASE_RENEW_MS) {
       actor.renewing = true;
       this.database
@@ -498,26 +524,63 @@ export class GameplayGateway {
         })
         .catch((error) => {
           if (actor.connection) this.fail(actor.connection, error);
-          actor.retiring = true;
-          this.world.leave(actor);
-          this.accounts.delete(actor.accountId);
-          this.characters.delete(actor.id);
+          this.retire(actor).catch((failure) =>
+            console.error("Character retirement failed:", failure.message),
+          );
         })
         .finally(() => {
           actor.renewing = false;
+          this.world.participants.signalIdle();
         });
     }
   }
 
-  async retire(actor) {
+  retire(actor) {
+    if (actor.retirement) return actor.retirement;
+    actor.retiring = true;
+    actor.settling = true;
+    actor.state = "retiring";
+    this.world.neutralize(actor);
+    actor.transition?.ready?.(false);
+    if (actor.skills) disposeActorSkills(actor);
+    actor.retirement = this.finishRetirement(actor);
+    return actor.retirement;
+  }
+
+  async finishRetirement(actor) {
+    let failure;
     try {
+      await settleActorSkills(actor);
+    } catch (error) {
+      failure = error;
+    }
+    actor.settling = false;
+    try {
+      await this.world.participants.waitIdle(actor);
+      actor.pending = true;
+      actor.pendingOperation = null;
+      actor.pendingOwner = null;
+      await this.world.prepareLogout(actor);
       await this.database.checkpoint(actor);
     } finally {
-      this.world.leave(actor);
-      await this.database.releaseLease(actor);
-      this.accounts.delete(actor.accountId);
-      this.characters.delete(actor.id);
+      try {
+        await this.database.releaseLease(actor);
+      } finally {
+        actor.pending = false;
+        this.world.leave(actor);
+        this.accounts.delete(actor.accountId);
+        this.characters.delete(actor.id);
+        this.world.participants
+          .publish([actor.id])
+          .catch((error) =>
+            console.error(
+              "Character departure publication failed:",
+              error.message,
+            ),
+          );
+      }
     }
+    if (failure) throw failure;
   }
 
   async close() {

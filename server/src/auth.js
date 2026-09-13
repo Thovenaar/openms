@@ -271,6 +271,8 @@ export class SessionAuthority {
     nonce.expiresAt = challenge.expiresAt;
     return {
       ...challenge,
+      // Concurrent bootstrap responses can leave a tab holding another nonce's token.
+      loginToken: nonce.csrfToken,
       cookie: this.cookie("openms_login", nonce.id, POW_TTL_MS / 1000),
     };
   }

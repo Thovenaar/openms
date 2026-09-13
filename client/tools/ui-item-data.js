@@ -25,6 +25,8 @@ function requiredItems(context) {
     throw new Error("UI quest closure exceeds policy");
   }
   const ids = dropItemClosure(context.dropItemIds ?? []);
+  // ScrollHandler's White Scroll protection (equipment-enhancement.js) is an activation dependency, not a shop/drop reward.
+  ids.add(2340000);
   for (const values of [
     context.serverData.supportedItemIds,
     context.cashShop.itemIds,

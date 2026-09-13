@@ -170,7 +170,8 @@ async function signIn(target, { account, password }) {
         stage?.querySelector(".online-login-card") &&
         enter &&
         !enter.disabled &&
-        stage.querySelectorAll(".online-login-dot").length > 0,
+        !stage.closest(".online-login-body").inert &&
+        stage.querySelectorAll(".online-login-card:not(:disabled)").length > 0,
       );
     },
     { timeout: TIMEOUT },
@@ -190,7 +191,7 @@ async function enterWorld(target) {
       ),
     );
     if (characters) {
-      await target.click(".online-login-dot");
+      await target.click('.online-login-card[aria-pressed="true"]');
       await clickLabel(target, "Enter the world", ".online-login");
     }
     await delay(ENTER_RETRY_MS);

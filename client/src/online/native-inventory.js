@@ -1,5 +1,10 @@
 import { inventoryType } from "../items/inventory-model.js";
 import { unsupported } from "./native-source.js";
+import {
+  disappearingDrop,
+  itemDropWarning,
+} from "../items/inventory-action-rules.js";
+import { enhancementPlan } from "../items/equipment-enhancement.js";
 
 const TABS = [null, "equip", "use", "setup", "etc", "cash"];
 
@@ -23,8 +28,9 @@ export class NativeInventory {
     if (this.destroyed) {
       return Promise.resolve(unsupported("activation after teardown"));
     }
+    let item;
     if (typeof request === "number") {
-      const item = uid
+      item = uid
         ? this.item(uid)
         : this.owner.store.profile.inventory.find(
             (entry) => entry.id === request,
@@ -35,15 +41,28 @@ export class NativeInventory {
           reason: "No observed inventory instance is available.",
         });
       }
-      return this.owner.request({ kind: "item.use", itemId: item.uid });
+      request = { uid: item.uid };
+    } else item = this.item(request.uid);
+    if (Math.floor(item.id / 10000) === 516) {
+      return this.owner.worldActions.useCashExpression(item.id);
     }
-    const item = this.item(request.uid);
     if (item.slot < 0) return this.unequip(request);
     if (inventoryType(item.id) === 1) return this.equip(request);
     return this.owner.request({ kind: "item.use", itemId: item.uid });
   }
-  equip(request) {
+  async equip(request) {
     const item = this.item(request.uid);
+    if (
+      this.owner.catalog.ui.items[item.id]?.info.equipTradeBlock === 1 &&
+      !(item.flags & 8) &&
+      (await this.owner.ui.prompt({
+        kind: "confirm",
+        text: "You cannot trade this item after equipping.\r\n Do you still wish to equip?",
+        owner: this,
+      })) !== true
+    )
+      {return { ok: false, code: "cancelled" };}
+    if (this.destroyed) return unsupported("activation after teardown");
     const slot =
       request.slot ??
       this.owner.catalog.ui.avatar.entries[item.id]?.equippedSlots?.[0];
@@ -94,22 +113,63 @@ export class NativeInventory {
       to: { tab: TABS[request.type], slot: request.slot },
     });
   }
-  drop(request) {
+  async drop(request) {
+    const item = this.item(request.uid);
+    const template = this.owner.catalog.ui.items[item.id];
+    let discard;
+    try {
+      discard = disappearingDrop(item, template);
+    } catch (error) {
+      return { ok: false, reason: error.message };
+    }
+    if (
+      discard &&
+      (await this.owner.ui.prompt({
+        kind: "confirm",
+        text: itemDropWarning(item, template),
+        owner: this,
+      })) !== true
+    )
+      {return { ok: false, code: "cancelled" };}
+    if (this.destroyed) return unsupported("activation after teardown");
     return this.owner.request({
       kind: "item.drop",
       itemId: request.uid,
       quantity: request.count,
+      ...(discard ? { confirmedDiscard: true } : {}),
     });
   }
   gather(type) {
     return this.owner.request({ kind: "inventory.gather", tab: TABS[type] });
   }
-  enhance(request) {
-    return this.owner.request({
+  async enhance(request) {
+    let plan;
+    try {
+      plan = enhancementPlan(
+        this.owner.store.profile,
+        this.owner.catalog.ui.items,
+        request,
+      );
+    } catch (error) {
+      return { ok: false, reason: error.message };
+    }
+    const result = await this.owner.request({
       kind: "equipment.scroll",
       scrollId: request.scrollUid,
       equipmentId: request.equipUid,
+      ...(plan.white ? { protectionId: plan.white.uid } : {}),
     });
+    if (!result.ok) return result;
+    const value = result.receipt?.value;
+    if (value?.kind !== "equipment.enhancement") {
+      return {
+        ok: false,
+        code: "OUTCOME_UNKNOWN",
+        reason: "The server did not publish the enhancement outcome.",
+        receipt: result.receipt,
+      };
+    }
+    return { ...result, outcome: value.outcome };
   }
   destroy() {
     this.destroyed = true;

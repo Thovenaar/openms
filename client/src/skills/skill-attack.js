@@ -763,7 +763,8 @@ export class SkillAttack {
     context.luk = shot.luk;
     context.elementalBoost = learnedCombatInfo(this.field.hooks, 5220001);
     if (total > 0 || COMBAT_SKILLS.get(shot.skill.id)?.kind === "status") {
-      applySkillStatus(target, shot.skill, shot.info, context);
+      if (applySkillStatus(target, shot.skill, shot.info, context))
+        {this.field.hooks.onMobStatus?.(target, shot.skill.id);}
       shot.onHit?.(shot.skill.id, target);
       this.displaceImpact(shot);
       this.onPositiveHit(shot, total);
@@ -1078,7 +1079,8 @@ export class SkillAttack {
     this.context.summon = false;
     if (origin.kind === "area") {
       for (let index = 0; index < count; index++) {
-        applySkillStatus(this.targets[index], skill, info, this.context);
+        if (applySkillStatus(this.targets[index], skill, info, this.context))
+          {this.field.hooks.onMobStatus?.(this.targets[index], skill.id);}
       }
       return count;
     }

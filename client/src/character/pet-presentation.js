@@ -1,5 +1,7 @@
-import { EntityAnimation } from "../rendering/animation.js";
-import { loadVisualBundle } from "../rendering/visual-resources.js";
+import {
+  createSkillAnimation,
+  loadSkillVisual,
+} from "../skills/skill-runtime-ports.js";
 
 const PET_SLOTS = 3;
 const TRAIL_SIZE = 128;
@@ -30,47 +32,64 @@ export class PetPresentation {
     this.initialized = false;
   }
 
-  async prepare(itemUid) {
+  async prepare(itemUid, templateId = null) {
     const profile = this.system.store.profile;
     const item = profile.inventory.find((entry) => entry.uid === itemUid);
     if (!item) throw new Error("The owned pet item is unavailable");
+    const itemId = templateId ?? item.id;
     const previous = this.records.get(itemUid);
-    if (previous?.itemId === item.id) return;
+    if (previous?.itemId === itemId) return;
     this.releaseUnused(itemUid);
-    if (previous) {
-      previous.animation.container.destroy(DESTROY_DISPLAY);
-      previous.owner.destroy();
-      this.records.delete(itemUid);
-    }
+    if (this.abort.signal.aborted)
+      {throw new Error("Pet presentation is destroyed");}
     const descriptor =
-      this.system.fullCatalog.ui.skillUtility?.pets[item.id]?.bundle;
+      this.system.fullCatalog.ui.skillUtility?.pets[itemId]?.bundle;
     if (!descriptor) {
       throw new Error("Original pet animation bundle is unavailable");
     }
-    const owner = await loadVisualBundle(
+    const owner = await loadSkillVisual(
+      this.system,
       descriptor,
-      this.system.hooks.services,
       this.abort.signal,
     );
-    const animation = new EntityAnimation(
-      owner.manifest.entities[0],
-      owner.textures,
-    );
-    animation.container.visible = false;
-    this.system.scene.overlays.addChild(animation.container);
-    this.records.set(itemUid, {
-      owner,
-      animation,
-      itemId: item.id,
-      x: 0,
-      y: 0,
-    });
+    this.installPreparedPet(owner, itemUid, itemId);
+    if (previous) {
+      previous.animation.container.destroy(DESTROY_DISPLAY);
+      previous.owner.destroy();
+    }
+  }
+
+  installPreparedPet(owner, itemUid, itemId) {
+    let animation;
+    try {
+      if (this.abort.signal.aborted)
+        {throw new Error("Pet preparation was cancelled");}
+      const entity = owner.manifest.entities[0];
+      if (!entity?.actions.stand0 && !entity?.actions.stand1) {
+        throw new Error("Original pet standing animation is unavailable");
+      }
+      animation = createSkillAnimation(this.system, entity, owner.textures);
+      animation.container.visible = false;
+      this.system.scene.overlays.addChild(animation.container);
+      this.records.set(itemUid, {
+        owner,
+        animation,
+        itemId,
+        x: 0,
+        y: 0,
+      });
+    } catch (error) {
+      animation?.container.destroy(DESTROY_DISPLAY);
+      owner.destroy();
+      throw error;
+    }
   }
 
   async prepareSummoned() {
     for (const pet of this.system.store.profile.pets) {
       if (pet.summonedSlot !== null) await this.prepare(pet.itemUid);
     }
+    this.step(0);
   }
 
   releaseUnused(keepUid) {
@@ -95,6 +114,7 @@ export class PetPresentation {
   }
 
   step(ms) {
+    this.releaseUnused();
     if (!this.initialized) this.seedTrail();
     this.elapsed += ms;
     const steps = Math.floor(this.elapsed / PET_QUANTUM_MS);

@@ -13,6 +13,7 @@ import {
   claimCashGift,
   addCashItems,
   admitCashTransfer,
+  expandCashInventory,
 } from "./cash-commerce.js";
 
 export { CASH_CURRENCIES, CASH_POLICY } from "./cash-commerce.js";
@@ -265,23 +266,7 @@ export class CashShopService {
     }
     return this.transact(
       [this.store],
-      ([draft]) => {
-        cashCurrency(currency);
-        if (draft.inventorySlots[type - 1] + 4 > 96) {
-          throw profileError(
-            "inventory-cap",
-            "This inventory cannot be expanded beyond 96 slots.",
-          );
-        }
-        if (draft.cash.balances[currency] < 4000) {
-          throw profileError(
-            "cash-insufficient",
-            "You do not have enough funds for this expansion.",
-          );
-        }
-        draft.inventorySlots[type - 1] += 4;
-        draft.cash.balances[currency] -= 4000;
-      },
+      ([draft]) => expandCashInventory(draft, { type, currency }),
       { action: "expand-inventory", type },
     );
   }
@@ -369,6 +354,52 @@ export class CashShopService {
       recipients: ids.map((id) => this.giftRecipient(id)),
       message,
     };
+  }
+
+  /** Resolve every exact name before submitting a batch; ambiguity is never first-match selection. */
+  async resolveRecipients(names) {
+    if (!Array.isArray(names) || !names.length || names.length > 31) {
+      throw profileError(
+        "cash-recipient",
+        "Choose up to 31 different recipients.",
+      );
+    }
+    const participants = this.hooks.participants?.() ?? [];
+    if (participants.length > 32) {
+      throw profileError(
+        "cash-recipient",
+        "The recipient collection exceeds its bound.",
+      );
+    }
+    const result = [];
+    const seen = new Set();
+    for (const name of names) {
+      const recipient = this.resolveGiftRecipient(name, participants, seen);
+      result.push({ id: recipient.id, name: recipient.profile.name });
+    }
+    return result;
+  }
+
+  resolveGiftRecipient(name, participants, seen) {
+    if (typeof name !== "string" || !name.trim() || name.length > 64) {
+      throw profileError(
+        "cash-recipient",
+        "Enter each recipient name separated by a semicolon.",
+      );
+    }
+    const key = name.toLocaleLowerCase();
+    const matches = participants.filter(
+      (entry) => entry.name.toLocaleLowerCase() === key,
+    );
+    if (matches.length !== 1 || seen.has(matches[0].id)) {
+      throw profileError(
+        "cash-recipient",
+        "Each name must identify one different loaded character.",
+      );
+    }
+    const recipient = this.giftRecipient(matches[0].id);
+    seen.add(recipient.id);
+    return recipient;
   }
 
   giftRecipient(id) {

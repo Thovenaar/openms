@@ -115,6 +115,9 @@ export async function npcEnvironment(world, lease, references, route) {
     shops: references.shops,
     artwork,
     artworkMetadata,
-    storageAvailable: false,
+    storageAvailable:
+      typeof world.openStorage === "function" &&
+      Boolean(catalog.ui.npcPortraits[lease.npcTemplateId]?.storage) &&
+      Boolean(catalog.ui.bundles.Trunk),
   };
 }

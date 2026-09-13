@@ -1,13 +1,57 @@
 import { centerDrop } from "../world/drop-artwork.js";
 import { collectDrop, dropDrawY, DROP_MOTION } from "../world/drop-motion.js";
+import { DROP_POLICY } from "../world/drop-rules.js";
 
 const MAX_PICKUP_PRESENTATIONS = 4096;
+
+/** Native keyboard proposal uses grounded packet coordinates; the server reruns every admission. */
+export function nearestPickupDrop(entities, position, identity, now) {
+  let nearest = null;
+  let distance = Infinity;
+  for (const entity of entities) {
+    const info = entity.dropInfo;
+    const motion = entity.dropMotion;
+    if (
+      entity.kind !== "drop" ||
+      !info ||
+      motion?.state !== "grounded" ||
+      info.disappearing ||
+      info.expiresAt <= now
+    )
+      {continue;}
+    if (!pickupOwnerAllows(info, identity, now)) continue;
+    const dx = motion.groundX - position.x;
+    const dy = motion.groundY - position.y;
+    if (
+      Math.abs(dx) > DROP_POLICY.pickupX ||
+      Math.abs(dy) > DROP_POLICY.pickupY
+    )
+      {continue;}
+    const next = dx * dx + dy * dy;
+    if (next < distance) {
+      distance = next;
+      nearest = entity;
+    }
+  }
+  return nearest;
+}
+
+function pickupOwnerAllows(info, identity, now) {
+  return !(
+    info.ownerId &&
+    info.ownerId !== identity.id &&
+    info.ownerUntil > now &&
+    (!identity.partyId || info.ownerPartyId !== identity.partyId) &&
+    !identity.partyMembers?.includes(info.ownerId)
+  );
+}
 
 /** Retains display ownership after a server-confirmed pickup, never inventory ownership. */
 export class SceneDrops {
   constructor(owner) {
     this.owner = owner;
     this.pickups = new Map();
+    this.motion = { state: "waiting", groundY: 0, phaseAge: 0, y: 0 };
   }
 
   observe(view, x, y) {
@@ -16,10 +60,18 @@ export class SceneDrops {
     animation.container.visible = motion?.state !== "waiting";
     animation.container.rotation = motion?.rotation ?? 0;
     animation.container.alpha = motion?.alpha ?? 1;
-    animation.setPosition(x, y - centerDrop(animation));
+    animation.container.eventMode = view.entity.dropInfo?.disappearing
+      ? "none"
+      : "static";
+    this.motion.state = motion.state;
+    this.motion.groundY = motion.groundY;
+    this.motion.phaseAge = motion.phaseAge;
+    this.motion.y = y;
+    animation.setPosition(x, dropDrawY(this.motion, centerDrop(animation)));
   }
 
   pickup(event) {
+    if (this.pickups.has(event.dropId)) return;
     const view = this.owner.views.get(event.dropId);
     const target = this.owner.views.get(event.actorId);
     if (!view || !target || view.entity.kind !== "drop") return;
@@ -44,6 +96,10 @@ export class SceneDrops {
       y: event.position.y,
       alpha: 1,
     });
+  }
+
+  explode(event) {
+    for (const id of event.dropIds) this.owner.remove(id);
   }
 
   draw(elapsed) {

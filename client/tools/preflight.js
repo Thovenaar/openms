@@ -25,6 +25,7 @@ function createState(options, report) {
         "/Users/k/Development/tensorfish/Maplestory-Client",
     ),
     report,
+    options.progress,
   );
   const findings = preflightFindings(report);
   const validators = originalValidators(report, findings);
@@ -43,6 +44,7 @@ function createState(options, report) {
     findings,
     validators,
     report,
+    progress: options.progress,
     templateOwners: new Map(),
     lifeTemplates: new Set(),
   };
@@ -57,6 +59,7 @@ async function routes(state, options) {
   state.context.setOwner("shared");
   try {
     const converted = await convertServerData({
+      progress: options.progress,
       serverRoot:
         options.serverReference ??
         Bun.env.MAPLE_SERVER_REFERENCE ??
@@ -83,11 +86,13 @@ async function routes(state, options) {
 
 async function sharedWorld(state) {
   state.context.setOwner("shared");
+  state.progress?.("Preflight: validating shared avatar and map assets");
   const maps = state.findings.check(null, "avatar-maps", undefined, () =>
     avatarMaps(state.context),
   );
   for (const input of defaultAvatarInputs) {
     try {
+      state.progress?.(`Preflight: validating Character.wz:${input.path}`);
       state.context.image("Character", input.path);
       if (maps) await extractAvatarRecord(state.context, input, maps);
     } catch (error) {
@@ -156,17 +161,16 @@ export async function preflightAssets(options = {}) {
   };
   const state = createState(options, report);
   try {
+    options.progress?.(
+      "Preflight: scanning authorized server-reference routes",
+    );
     const seeds = selectedMapIds(options.maps);
     await routes(state, options);
+    options.progress?.("Preflight: scanning original map dependency closure");
     selectWorld(state, seeds, options.maps !== undefined);
     await sharedWorld(state);
-    for (const id of report.selection.ids) {
-      try {
-        await validateWorldMap(state, id);
-      } catch (error) {
-        state.findings.add(error);
-      }
-    }
+    await validateSelectedMaps(state);
+    options.progress?.("Preflight: finalizing source ownership and findings");
     finalizePreflight(state);
   } catch (error) {
     state.findings.add(error);
@@ -175,12 +179,36 @@ export async function preflightAssets(options = {}) {
   }
   report.elapsedMs = Math.round(performance.now() - started);
   if (options.report) {
+    options.progress?.(`Preflight: writing report ${resolve(options.report)}`);
     await Bun.write(
       resolve(options.report),
       `${JSON.stringify(report, null, 2)}\n`,
     );
   }
+  options.progress?.(
+    `Preflight ${report.status}: ${report.selection.ids.length} maps, ${report.failures.length} findings (${(report.elapsedMs / 1000).toFixed(2)}s)`,
+  );
   return report;
+}
+
+/** Validate each selected map independently; checked does not imply admissible. */
+async function validateSelectedMaps(state) {
+  const { report, progress } = state;
+  let completed = 0;
+  for (const id of report.selection.ids) {
+    progress?.(
+      `Preflight map ${completed + 1}/${report.selection.ids.length}: ${id}`,
+    );
+    try {
+      await validateWorldMap(state, id);
+    } catch (error) {
+      state.findings.add(error);
+    }
+    completed++;
+    progress?.(
+      `Preflight map ${completed}/${report.selection.ids.length} checked: ${id}; ${report.failures.length} findings so far`,
+    );
+  }
 }
 
 export function preflightOptions(args) {

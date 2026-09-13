@@ -332,8 +332,12 @@ async function deadLogout(page, tools) {
   await ready(page, DESTINATION);
   await deathFixture(page);
   const before = await observation(page);
-  // Reload leaves the dead actor in reconnect grace; carousel Sign out must retire it now.
+  // Reload leaves the dead actor in reconnect grace; the login tool's Sign out retires it.
   await page.reload({ waitUntil: "domcontentloaded", timeout: TIMEOUT });
+  if (await page.$eval("#gm-console", (node) => node.hidden)) {
+    await page.click("#console-toggle");
+  }
+  await openConsoleSection(page, "world");
   await page.waitForSelector(".online-login-signout", {
     visible: true,
     timeout: TIMEOUT,
@@ -353,7 +357,8 @@ async function deadLogout(page, tools) {
   await page.screenshot({ path: join(tools.output, "dead-logout-return.png") });
 }
 
-async function identities(url) {
+/** Shared online replay gate: served bytes and the compiled online source identity. */
+export async function onlineIdentity(url, mapIds = []) {
   const response = await fetch(new URL("/generated/catalog.json", url));
   if (!response.ok) throw new Error(`Catalog HTTP ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
@@ -365,8 +370,12 @@ async function identities(url) {
     throw new Error("Served catalog differs from workspace");
   }
   const catalog = JSON.parse(bytes.toString("utf8"));
-  if (!catalog.maps[DESTINATION] || !catalog.maps[TOWN]) {
-    throw new Error("Lifecycle maps are not packaged");
+  const maps = {};
+  for (const id of mapIds) {
+    if (!catalog.maps[id]) {
+      throw new Error(`Validation map ${id} is not packaged`);
+    }
+    maps[id] = catalog.maps[id];
   }
   const configResponse = await fetch(new URL("/api/v1/config", url));
   if (!configResponse.ok) {
@@ -382,7 +391,7 @@ async function identities(url) {
     sourceBuildId,
     catalogHash: digest(bytes),
     assetBuildId: catalog.buildId,
-    descriptor: catalog.maps[DESTINATION],
+    maps,
   };
 }
 
@@ -396,7 +405,7 @@ export async function runOnlineLifecycle({
 }) {
   await mkdir(output, { recursive: true });
   const started = performance.now();
-  const identity = await identities(url);
+  const identity = await onlineIdentity(url, [DESTINATION, TOWN]);
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const errors = [];
@@ -417,7 +426,7 @@ export async function runOnlineLifecycle({
     password,
     errors,
     report,
-    descriptor: identity.descriptor,
+    descriptor: identity.maps[DESTINATION],
   };
   page.on("pageerror", (error) => {
     if (errors.length < MAX_ERRORS) errors.push(String(error));

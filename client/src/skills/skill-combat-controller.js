@@ -245,6 +245,15 @@ export class SkillCombatController {
   }
 
   pulse(field) {
+    if (this.system.hooks.commitSkillPhase) {
+      return this.system.hooks.commitSkillPhase(this.held, this.info, () =>
+        this.commitPulse(field),
+      );
+    }
+    return this.commitPulse(field);
+  }
+
+  commitPulse(field) {
     const skill = this.held;
     const error =
       field.skillAttackError(skill, this.info) ??
@@ -285,9 +294,19 @@ export class SkillCombatController {
       this.cancelHold(id);
       return false;
     }
-    this.cancelHold(id, true);
+    const release = { skill, info, rank, age, field };
+    const publish = () => this.commitRelease(release);
+    if (this.system.hooks.commitSkillPhase) {
+      this.system.hooks.commitSkillPhase(skill, info, publish);
+      return true;
+    }
+    return publish();
+  }
+
+  commitRelease({ skill, info, rank, age, field }) {
+    this.cancelHold(skill.id, true);
     if (this.system.costs.consume(skill, info)) return false;
-    if (this.ballistics.handles(id)) {
+    if (this.ballistics.handles(skill.id)) {
       this.copyProjectile(field);
       this.system.publishCast(skill, info, rank);
       this.ballistics.release(skill, info, rank, age);

@@ -8,6 +8,58 @@ import { profileError } from "../profile/profile-validation.js";
 
 const MAX_PICKUP_QUANTITY = 32767;
 
+/** Shared online/offline source admission; no store, graphics, or profile mutation. */
+export function inspectPickupEffect(drop, items) {
+  if (
+    !Number.isInteger(drop.quantity) ||
+    drop.quantity < 1 ||
+    drop.quantity > MAX_PICKUP_QUANTITY ||
+    !drop.instance ||
+    drop.instance.id !== drop.itemId ||
+    drop.instance.count !== drop.quantity
+  ) {
+    throw profileError(
+      "invalid-pickup-effect",
+      "The original ground item instance is invalid.",
+    );
+  }
+  const effect = inspectItemSpec(items[drop.itemId]);
+  if (!effect.pickup) {
+    throw profileError(
+      "invalid-pickup-effect",
+      "This original item is not consume-on-pickup.",
+    );
+  }
+  if (effect.card && drop.quantity !== 1) {
+    throw profileError(
+      "invalid-card-drop",
+      "A monster card drop must contain one card.",
+    );
+  }
+  return effect;
+}
+
+/** Unsupported same-map party vital controllers remain explicit refusals on both authorities. */
+export function admitPickupEffect(effect, context) {
+  const matches = itemConditionsMatch(effect.conditions, context);
+  if (matches && effect.unavailable) {
+    throw profileError("pickup-effect-unavailable", effect.unavailable);
+  }
+  if (effect.values.party && context.partyHunting) {
+    throw profileError(
+      "pickup-party-unavailable",
+      "Original party pickup effects require a same-map multi-character vital transaction.",
+    );
+  }
+}
+
+/** Detached draft only; dormant conditions never apply recovery or unsupported partial effects. */
+export function applyPickupVitals(draft, effect, context) {
+  admitPickupEffect(effect, context);
+  if (itemConditionsMatch(effect.conditions, context))
+    {applyItemVitals(draft, effect.values);}
+}
+
 /** Field-owned adapter over SkillSystem.effects, never another buff engine.
  * owner={store,items,skills,view,isCurrent,conditionContext}; the context describes
  * authenticated same-map participants, not a social membership list or a mock party.
@@ -57,33 +109,7 @@ export class PickupEffects {
   }
 
   inspectDropEffect(drop) {
-    if (
-      !Number.isInteger(drop.quantity) ||
-      drop.quantity < 1 ||
-      drop.quantity > MAX_PICKUP_QUANTITY ||
-      !drop.instance ||
-      drop.instance.id !== drop.itemId ||
-      drop.instance.count !== drop.quantity
-    ) {
-      throw profileError(
-        "invalid-pickup-effect",
-        "The original ground item instance is invalid.",
-      );
-    }
-    const effect = inspectItemSpec(this.owner.items[drop.itemId]);
-    if (!effect.pickup) {
-      throw profileError(
-        "invalid-pickup-effect",
-        "This original item is not consume-on-pickup.",
-      );
-    }
-    if (effect.card && drop.quantity !== 1) {
-      throw profileError(
-        "invalid-card-drop",
-        "A monster card drop must contain one card.",
-      );
-    }
-    return effect;
+    return inspectPickupEffect(drop, this.owner.items);
   }
 
   async prepare(drop) {
@@ -119,19 +145,7 @@ export class PickupEffects {
   }
 
   effectAdmission(effect) {
-    const matches = itemConditionsMatch(
-      effect.conditions,
-      this.conditionContext,
-    );
-    if (matches && effect.unavailable) {
-      throw profileError("pickup-effect-unavailable", effect.unavailable);
-    }
-    if (effect.values.party && this.conditionContext.partyHunting) {
-      throw profileError(
-        "pickup-party-unavailable",
-        "Original party pickup effects require a same-map multi-character vital transaction.",
-      );
-    }
+    admitPickupEffect(effect, this.conditionContext);
   }
 
   async prepareTemporary(prepared) {
@@ -189,12 +203,7 @@ export class PickupEffects {
         "Prepared temporary authority is no longer reserved.",
       );
     }
-    this.effectAdmission(prepared.effect);
-    if (
-      itemConditionsMatch(prepared.effect.conditions, this.conditionContext)
-    ) {
-      applyItemVitals(draft, prepared.effect.values);
-    }
+    applyPickupVitals(draft, prepared.effect, this.conditionContext);
   }
 
   /** Durable-success boundary: only prepared state swaps; cannot load/allocate/call UI hooks. */

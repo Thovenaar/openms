@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { Texture } from "pixi.js";
 import { EntityAnimation } from "../src/rendering/animation.js";
 import { extractLife } from "../tools/life-data.js";
+import { originalFrames } from "../tools/extraction-frames.js";
 
 function entity(additional = {}) {
   return new EntityAnimation(
@@ -305,6 +306,85 @@ test("life extraction preserves rendered death alpha and resets it for another a
     expect(animation.sprites[0].alpha).toBe(0);
     animation.setAction("stand");
     expect(animation.sprites[0].alpha).toBe(1);
+  } finally {
+    animation.container.destroy({ children: true });
+  }
+});
+
+function extractAnimation(node) {
+  return originalFrames(
+    node,
+    async () => ({ texture: "pixel", x: 0, y: 0, z: 0 }),
+    () => "original-action-fixture",
+  );
+}
+
+test("authored nonrepeating fade holds its terminal canvas unless playback is explicitly overridden", async () => {
+  // Map.wz:Obj/login.img/Title/logo/0: repeat=-1; frame1 omits delay/a1.
+  const node = lifeProperties({ repeat: -1 });
+  node.children[0] = lifeCanvas(8000, { a0: 0, a1: 255 });
+  node.children[1] = lifeCanvas(120, { a0: 255 });
+  delete node.children[1].children.delay;
+  const animation = entity({ logo: await extractAnimation(node) });
+  try {
+    animation.setAction("logo");
+    animation.advance(4000);
+    expect(animation.sprites[0].alpha).toBe(127 / 255);
+    animation.advance(4000);
+    expect(animation.sprites[0].alpha).toBe(1);
+    animation.advance(120);
+    expect(animation.completed).toBe(true);
+    animation.setAction("logo");
+    animation.advance(8120);
+    expect(animation.sprites[0].alpha).toBe(1);
+    animation.seek(4000);
+    expect(animation.completed).toBe(false);
+    expect(animation.sprites[0].alpha).toBe(127 / 255);
+    animation.seek(16240);
+    expect(animation.sprites[0].alpha).toBe(1);
+    animation.setAction("logo", "loop");
+    animation.advance(8120);
+    expect(animation.completed).toBe(false);
+    expect(animation.sprites[0].alpha).toBe(0);
+  } finally {
+    animation.container.destroy({ children: true });
+  }
+});
+
+test("authored repeat suffix preserves fade-out and wrap continuity without replaying the intro", async () => {
+  // Title/effect/0's original 1500/1500/1000-ms alpha sequence, after a distinct
+  // synthetic intro, defends the native repeat-as-frame-index boundary.
+  const node = lifeProperties({ repeat: 1 });
+  node.children[0] = lifeCanvas(300, { a0: 64 });
+  node.children[1] = lifeCanvas(1500, { a0: 0, a1: 255 });
+  node.children[2] = lifeCanvas(1500, { a0: 255, a1: 0 });
+  node.children[3] = lifeCanvas(1000, { a0: 0 });
+  const animation = entity({ pulse: await extractAnimation(node) });
+  try {
+    animation.setAction("pulse");
+    expect(animation.sprites[0].alpha).toBe(64 / 255);
+    animation.advance(300);
+    expect(animation.sprites[0].alpha).toBe(0);
+    animation.advance(750);
+    expect(animation.sprites[0].alpha).toBe(127 / 255);
+    animation.advance(750);
+    expect(animation.sprites[0].alpha).toBe(1);
+    animation.advance(750);
+    expect(animation.sprites[0].alpha).toBe(128 / 255);
+    animation.advance(749);
+    expect(animation.sprites[0].alpha).toBe(1 / 255);
+    animation.advance(1);
+    expect(animation.sprites[0].alpha).toBe(0);
+    animation.advance(1000);
+    expect(animation.sprites[0].alpha).toBe(0);
+    animation.advance(750);
+    expect(animation.sprites[0].alpha).toBe(127 / 255);
+    animation.seek(6550);
+    expect(animation.sprites[0].alpha).toBe(128 / 255);
+    animation.setAction("pulse", "once");
+    animation.advance(10000);
+    expect(animation.completed).toBe(true);
+    expect(animation.sprites[0].alpha).toBe(0);
   } finally {
     animation.container.destroy({ children: true });
   }

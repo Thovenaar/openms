@@ -9,10 +9,50 @@ import { profileError } from "../profile/profile-validation.js";
 export const TRADE_MESO_LIMIT = 2147483647;
 // Ordinary EXE 007c39a0/007c20bc: 0x90 bytes, 0x10 per offer; not CashTradingRoom's five.
 export const TRADE_SLOTS = 9;
+export const LOW_LEVEL_MESO_LIMIT = 1000000;
+
+/** 007c38f9..007c391e limits each additive proposal for native levels 1..15. */
+export function admitTradeMesoProposal(level, amount) {
+  if (level <= 15 && amount > LOW_LEVEL_MESO_LIMIT) {
+    throw profileError(
+      "trade-low-level-offer",
+      "Players that are Level 15 and below may only trade 1 million mesos at a time.",
+    );
+  }
+}
+
+/** Cosmic Character.mesosTraded is gross received during a loaded-character lifetime. */
+export function tradeReceivedTotal(level, received, incoming) {
+  if (level >= 15) return received;
+  const total = received + incoming;
+  if (total > LOW_LEVEL_MESO_LIMIT) {
+    throw profileError(
+      "trade-low-level-limit",
+      "Characters under level 15 may not receive more than 1 million mesos in this character session.",
+    );
+  }
+  return total;
+}
 const LOCK = 0x01;
 const UNTRADEABLE = 0x08;
 const KARMA_EQUIP = 0x10;
 const KARMA_USE = 0x02;
+
+/** Native 007c39a0 confirmation warns when receiving a one-trade karma instance. */
+export function tradeConfirmation(items) {
+  const bound = items.some(
+    (item) =>
+      item &&
+      item.flags & (inventoryType(item.id) === 1 ? KARMA_EQUIP : KARMA_USE),
+  );
+  return {
+    kind: "confirm",
+    stringId: bound ? 0x1236 : 0x19d,
+    text: bound
+      ? "Some items you are trying to barter\r\ncannot be traded once received.\r\nWould you still like to proceed?"
+      : "Are you sure you want to trade?",
+  };
+}
 
 /** Authorized Cosmic SERVER Trade.getFee; fee is deducted from received mesos. */
 export function tradeFee(mesos) {

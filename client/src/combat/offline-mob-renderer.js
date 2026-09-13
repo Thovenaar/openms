@@ -3,10 +3,26 @@ import { EntityAnimation } from "../rendering/animation.js";
 import { VisualTextures } from "../rendering/visual-resources.js";
 import { entities } from "../rendering/stream-validation.js";
 import { check } from "../rendering/stream-network.js";
-import { mobFlipped } from "./offline-mobs.js";
+import { mobFlipped } from "./mob-movement-metadata.js";
 
 const MAX_PENDING_TEMPLATES = 2;
 const PREFETCH_VIEWPORTS = 0.5;
+
+export function createMobNameLabel(name) {
+  const label = new Text({
+    text: name ?? "",
+    style: {
+      fontFamily: "sans-serif",
+      fontSize: 12,
+      fill: 0xffffa0,
+      align: "center",
+      stroke: { color: 0x15202b, width: 3 },
+    },
+  });
+  label.anchor.set(0.5, 0);
+  label.eventMode = "none";
+  return label;
+}
 
 /** Gameplay lives in mobs; this owner may discard/reacquire only presentation. */
 export class OfflineMobRenderer {
@@ -193,18 +209,7 @@ export class OfflineMobRenderer {
       const presentation = new EntityAnimation(source, slot.resources.textures);
       presentation.gameplayOwned = true;
       mob.presentation = presentation;
-      const label = new Text({
-        text: mob.template.name ?? "",
-        style: {
-          fontFamily: "sans-serif",
-          fontSize: 12,
-          fill: 0xffffa0,
-          align: "center",
-          stroke: { color: 0x15202b, width: 3 },
-        },
-      });
-      label.anchor.set(0.5, 0);
-      label.eventMode = "none";
+      const label = createMobNameLabel(mob.template.name);
       presentation.container.addChild(label);
       mob.nameLabel = label;
       this.synchronizeMob(mob);

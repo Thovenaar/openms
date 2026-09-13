@@ -236,18 +236,11 @@ async function sendMessage(state) {
   let outcome;
   const invite = text.match(/^\/invite\s+(.+)$/i);
   if (invite) {
-    const target = state.social
-      .participants()
-      .find((member) => member.name.toLowerCase() === invite[1].toLowerCase());
-    if (!target) {
-      return {
-        ok: false,
-        code: "character-not-loaded",
-        reason: "This character is not loaded in the local simulation.",
-      };
-    }
+    const target = await state.social.resolveTarget(invite[1]);
+    if (state.panel.disposed) return { ok: false, code: "cancelled" };
+    if (!target.ok) return target;
     outcome = await state.social.execute("messenger.invite", {
-      targetId: target.id,
+      targetId: target.targetId,
     });
   } else outcome = await state.social.execute("messenger.send", { text });
   if (outcome.ok && !state.panel.disposed) {

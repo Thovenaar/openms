@@ -1,10 +1,20 @@
-import { profileError, validateProfile } from "./profile-validation.js";
-import { domainKeys, domainInteger } from "./profile-domain-validation.js";
+import {
+  profileError,
+  validateCharacterUids,
+  validateProfile,
+} from "./profile-validation.js";
+import {
+  domainId,
+  domainKeys,
+  domainInteger,
+} from "./profile-domain-validation.js";
+import { createCash } from "./profile-domains.js";
 
 // Cosmic Storage.java:74,114: four initial account/world slots, maximum48.
-export function createAccountStorage() {
+export function createAccountStorage(accountId = "local") {
+  domainId(accountId, "account storage identity");
   return {
-    id: "local",
+    id: accountId,
     schemaVersion: 1,
     revision: 0,
     slots: 4,
@@ -14,13 +24,19 @@ export function createAccountStorage() {
 }
 
 /** Storage has its own account row, independent of the character schema version. */
-export function validateAccountStorage(value, profile, templates) {
+export function validateAccountStorage(
+  value,
+  profile,
+  templates,
+  accountId = "local",
+) {
+  domainId(accountId, "account storage identity");
   domainKeys(
     value,
     ["id", "schemaVersion", "revision", "slots", "meso", "items"],
     "account storage",
   );
-  if (value.id !== "local" || value.schemaVersion !== 1) {
+  if (value.id !== accountId || value.schemaVersion !== 1) {
     throw profileError("corrupt-storage", "Unsupported saved account storage.");
   }
   domainInteger(value.revision, 0, Number.MAX_SAFE_INTEGER, "storage revision");
@@ -37,19 +53,10 @@ export function validateAccountStorage(value, profile, templates) {
   projection.inventory = structuredClone(value.items);
   projection.equipment = [];
   projection.pets = [];
+  projection.cash = createCash();
   projection.inventorySlots = [48, 48, 48, 48, 48];
   validateProfile(projection, templates);
-  const owned = new Set();
-  for (const entry of profile.inventory) owned.add(entry.uid);
-  for (const entry of profile.equipment) owned.add(entry.uid);
-  for (const entry of value.items) {
-    if (owned.has(entry.uid)) {
-      throw profileError(
-        "duplicate-item-uid",
-        "An item cannot belong to both character and storage.",
-      );
-    }
-  }
+  validateCharacterUids([profile, projection]);
   return value;
 }
 

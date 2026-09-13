@@ -1,4 +1,4 @@
-import { EntityAnimation } from "../rendering/animation.js";
+import { createSkillAnimation } from "./skill-runtime-ports.js";
 
 const COMBO_IDS = Object.freeze([1111002, 11111001]);
 const ADVANCED_IDS = Object.freeze([1120003, 11110005]);
@@ -45,7 +45,8 @@ export class SkillComboPresentation {
       if (!frame || !info) {
         throw new Error("Missing original combo state canvas");
       }
-      const animation = new EntityAnimation(
+      const animation = createSkillAnimation(
+        this.system,
         {
           id: `combo:${id}:${index}`,
           kind: "effect",

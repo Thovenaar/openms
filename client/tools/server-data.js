@@ -13,6 +13,7 @@ const MAX_SQL_FILES = 128;
 const MAX_TOTAL_BYTES = 64000000;
 const MAX_SCRIPT_BYTES = 1000000;
 const MAX_TOTAL_ROWS = 200000;
+const SCRIPT_PROGRESS_INTERVAL = 100;
 const DOMAINS = Object.freeze({
   shops: ["shops", "shopitems"],
   drops: ["drop_data", "drop_data_global", "reactordrops"],
@@ -76,16 +77,18 @@ async function sourcePaths(root, directory, extension) {
   return paths.sort();
 }
 
-async function readSqlInventory(root) {
+async function readSqlInventory(root, progress) {
   const files = [],
     parsed = [];
   let bytes = 0;
   for (const directory of ["tables", "data"]) {
+    progress?.(`Server reference: scanning ${DB_ROOT}/${directory}`);
     const paths = await sourcePaths(root, `${DB_ROOT}/${directory}`, ".sql");
     if (paths.length + files.length > MAX_SQL_FILES) {
       throw new Error("SQL file limit");
     }
     for (const source of paths) {
+      progress?.(`Server reference: reading and parsing SQL ${source}`);
       const file = await sourceFile(root, source, MAX_SQL_BYTES);
       bytes += file.bytes;
       if (bytes > MAX_TOTAL_BYTES) throw new Error("SQL aggregate byte limit");
@@ -162,12 +165,19 @@ function scriptDefaultTalk(source, defaultTalkForNpc) {
   return defaultTalkForNpc(Number(id));
 }
 
-async function scriptInventory(
-  root,
-  defaultTalkForNpc,
-  staticConfig,
-  originalQuestIds,
-) {
+/** Script compilation requires lossless UTF-8, unlike byte-only inventory. */
+async function scriptFile(root, source) {
+  const file = await sourceFile(root, source, MAX_SCRIPT_BYTES);
+  if (hash(Buffer.from(file.text, "utf8")) !== file.sha256) {
+    throw new Error(
+      `NPC source must round-trip original UTF-8 bytes: ${source}`,
+    );
+  }
+  return file;
+}
+
+async function scriptInventory(root, options, staticConfig) {
+  options.progress?.("Server reference: scanning script paths");
   const paths = await sourcePaths(root, "scripts", ".js");
   const files = [],
     compilations = [],
@@ -175,14 +185,14 @@ async function scriptInventory(
   const portalPrograms = Object.create(null);
   let bytes = 0;
   for (const source of paths) {
-    const file = await sourceFile(root, source, MAX_SCRIPT_BYTES);
-    bytes += file.bytes;
-    if (bytes > MAX_TOTAL_BYTES) throw new Error("Script aggregate byte limit");
-    if (hash(Buffer.from(file.text, "utf8")) !== file.sha256) {
-      throw new Error(
-        `NPC source must round-trip original UTF-8 bytes: ${source}`,
+    if (files.length % SCRIPT_PROGRESS_INTERVAL === 0) {
+      options.progress?.(
+        `Server reference: reading/compiling script ${files.length + 1}/${paths.length}: ${source}`,
       );
     }
+    const file = await scriptFile(root, source);
+    bytes += file.bytes;
+    if (bytes > MAX_TOTAL_BYTES) throw new Error("Script aggregate byte limit");
     const parts = source.split("/");
     const category = parts.length > 2 ? parts[1] : "root";
     categories[category] = (categories[category] ?? 0) + 1;
@@ -192,9 +202,9 @@ async function scriptInventory(
         text: file.text,
         path: source,
         sha256: file.sha256,
-        defaultTalk: scriptDefaultTalk(source, defaultTalkForNpc),
+        defaultTalk: scriptDefaultTalk(source, options.defaultTalkForNpc),
         staticConfig,
-        originalQuestIds,
+        originalQuestIds: options.originalQuestIds,
       });
       compilations.push(compilation);
       record.sourceText = file.text;
@@ -211,6 +221,7 @@ async function scriptInventory(
     }
     files.push(record);
   }
+  options.progress?.(`Server reference: ${files.length} scripts inventoried`);
   return {
     status:
       "npc-complete-source-compiler; verified-tutorial-portals; other-categories-inventoried",
@@ -367,19 +378,18 @@ async function npcRuntimePolicy(root) {
 /** Convert authorized reference files. No source JavaScript or SQL is executed. */
 export async function convertServerData(options = {}) {
   const root = serverReferenceRoot(options.serverRoot);
+  options.progress?.(`Server reference: reading runtime policy from ${root}`);
   const policy = await npcRuntimePolicy(root);
-  const inventory = await readSqlInventory(root);
+  const inventory = await readSqlInventory(root, options.progress);
+  options.progress?.("Server reference: collecting SQL tables");
   const tables = collectTables(inventory);
-  const scripts = await scriptInventory(
-    root,
-    options.defaultTalkForNpc,
-    policy.staticConfig,
-    options.originalQuestIds,
-  );
+  const scripts = await scriptInventory(root, options, policy.staticConfig);
   const datasets = Object.create(null);
   for (const [name, names] of Object.entries(DOMAINS)) {
+    options.progress?.(`Server reference: converting ${name} tables`);
     datasets[name] = domainData(name, names, inventory, tables);
   }
+  options.progress?.("Server reference: compiling NPC routes");
   Object.assign(
     datasets.shops,
     compileNpcRoutes(datasets.shops.tables, scripts.compilations),

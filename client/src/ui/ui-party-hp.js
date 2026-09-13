@@ -178,12 +178,14 @@ function hideRow(row) {
   row.present = false;
 }
 
-function refreshRow(state, row, member, location) {
-  const { panel, fontHeight } = state;
-  // Native009716ed resolves a field user, not a party-list online bit. Local policy uses loaded saved map identity.
+function updateRowHealth(state, row, member, mapId) {
+  // Native009716ed resolves a field user; offline loaded peers and online presence share this projection.
   const present =
+    member.online === true &&
+    member.hp !== null &&
+    member.maxHp !== null &&
     Boolean(state.social.getParticipant(member.id)) &&
-    member.mapId === location.mapId;
+    member.mapId === mapId;
   const hp = member.hp,
     maxHp = member.maxHp;
   const validHealth = validPartyHealth(hp, maxHp);
@@ -193,12 +195,18 @@ function refreshRow(state, row, member, location) {
   const extent = present
     ? Math.min(GAUGE_WIDTH, Math.floor((GAUGE_WIDTH * hp) / maxHp))
     : 0;
-  const y = 5 + (fontHeight + 5) * location.index;
   row.id = member.id;
   row.hp = validHealth ? hp : null;
   row.maxHp = validHealth ? maxHp : null;
   row.extent = extent;
   row.present = present;
+}
+
+function refreshRow(state, row, member, location) {
+  updateRowHealth(state, row, member, location.mapId);
+  const { panel, fontHeight } = state;
+  const { hp, maxHp, present } = row;
+  const y = 5 + (fontHeight + 5) * location.index;
   row.name.hidden = false;
   row.name.textContent = member.name;
   row.name.style.top = `${y}px`;

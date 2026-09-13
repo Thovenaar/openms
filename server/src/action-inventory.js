@@ -15,15 +15,23 @@ import {
   applyEnhancement,
   enhancementPlan,
 } from "../../client/src/items/equipment-enhancement.js";
-import {
-  DROP_POLICY,
-  creditDrop,
-  debitMesos,
-} from "../../client/src/world/drop-system.js";
-import { isPickupItem } from "../../client/src/items/item-effects.js";
+import { creditDrop, debitMesos } from "../../client/src/world/drop-system.js";
+import { DROP_POLICY } from "../../client/src/world/drop-rules.js";
 import { LEGENDARY_SPIRIT_SKILLS } from "../../client/src/skills/skill-utility-rules.js";
 import { profileSkillLevel } from "../../client/src/skills/skill-allocation-rules.js";
-import { MAX_FIELD_DROPS, dropGround } from "./field-drops.js";
+import {
+  MAX_FIELD_DROPS,
+  dropGround,
+  prepareFieldDrop,
+  publishFieldDrop,
+  ownsDrop,
+} from "./field-drops.js";
+import {
+  preparePickupEffect,
+  applyPickupEffect,
+  publishPickupEffect,
+  releasePickupEffect,
+} from "./pickup-effects.js";
 import {
   admitActor,
   availableMesos,
@@ -33,6 +41,8 @@ import {
   createServerRandom,
 } from "./action-rules.js";
 import { useItem } from "./action-character.js";
+
+import { executePetUse } from "./action-pets.js";
 
 const TABS = ["equip", "use", "setup", "etc", "cash"];
 
@@ -129,6 +139,7 @@ function scroll(profile, action, context) {
     );
   }
   return {
+    kind: "equipment.enhancement",
     outcome: applyEnhancement(profile, context.items, request, context.random),
   };
 }
@@ -157,6 +168,14 @@ function mutateInventory(profile, action, context) {
 
 /** Every mutator reruns inventory, location, lock and active-field admission on its isolated draft. */
 export async function executeInventory(actor, message, world, operation) {
+  if (message.action.kind === "item.use") {
+    const item = actor.profile.inventory.find(
+      (entry) => entry.uid === message.action.itemId,
+    );
+    if (item && Math.floor(item.id / 10000) === 500) {
+      return executePetUse(actor, message, world, operation);
+    }
+  }
   const context = {
     actor,
     now: world.now,
@@ -164,34 +183,42 @@ export async function executeInventory(actor, message, world, operation) {
     world,
     random: createServerRandom(),
   };
-  return world.database.commit(actor, operation, (profile) => {
-    try {
-      admitActor(actor, world, message.fieldEpoch);
-      context.now = world.now;
-      const result = mutateInventory(profile, message.action, context);
-      availableMesos(profile, actor);
-      return result;
-    } catch (error) {
-      throw ruleError(error);
-    }
-  });
+  return world.participants.commit(
+    actor,
+    operation,
+    [actor.id],
+    async (profiles) => {
+      const profile = profiles.get(actor.id);
+      try {
+        admitActor(actor, world, message.fieldEpoch);
+        context.now = world.now;
+        const result = mutateInventory(profile, message.action, context);
+        availableMesos(profile, actor);
+        return result;
+      } catch (error) {
+        throw ruleError(error);
+      }
+    },
+  );
 }
 
 function createDropDebit(profile, action, context) {
   if (action.kind === "mesos.drop") {
     debitMesos(profile, action.amount);
     availableMesos(profile, context.actor);
-    return { mesos: action.amount };
+    return { mesos: action.amount, disappearing: false };
   }
   const item = ownedItem(profile, context.actor, action.itemId, context.now);
   const template = originalItem(context.items, item.id);
-  if (disappearingDrop(item, template)) {
+  const disappearing = disappearingDrop(item, template);
+  if (disappearing && action.confirmedDiscard !== true) {
     reject(
       "NOT_ALLOWED",
-      "Restricted or quest-protected items cannot become online ground drops.",
+      "Discard requires the original irreversible-item confirmation.",
     );
   }
   return {
+    disappearing,
     item: debitItemDrop(profile, context.items, {
       uid: item.uid,
       count: action.quantity,
@@ -201,44 +228,70 @@ function createDropDebit(profile, action, context) {
   };
 }
 
-/** Reserve field capacity first; publish only a committed debit, once per durable receipt. */
+async function commitDropDebit(profile, context) {
+  const { actor, message, world, id, source, ground } = context;
+  admitActor(actor, world, message.fieldEpoch);
+  context.now = world.now;
+  const debit = createDropDebit(profile, message.action, context);
+  context.prepared = prepareFieldDrop(world, actor, {
+    ...debit,
+    id,
+    source,
+    ground,
+    createdAt: context.now,
+    durableEntitlement: !debit.disappearing,
+  });
+  return {
+    value: {
+      kind: "drop.dispatched",
+      dropId: id,
+      itemId: debit.item?.id ?? 0,
+      quantity: debit.item?.count ?? debit.mesos,
+      disappearing: debit.disappearing,
+    },
+    grantEntitlements: debit.disappearing ? [] : [{ id, kind: "drop" }],
+  };
+}
+
+/** Reserve capacity, commit debit, then publish exactly that prepared receipt; discard grants nothing. */
 export async function executeDrop(actor, message, world, operation) {
   const field = actor.field;
   if (field.drops.size + field.dropReservations >= MAX_FIELD_DROPS) {
     reject("SERVER_BUSY", "The field drop capacity is reserved.");
   }
-  const id = crypto.randomUUID();
+  const source = { x: actor.simulation.x, y: actor.simulation.y };
   const context = {
     actor,
+    message,
+    world,
+    source,
+    id: crypto.randomUUID(),
     now: world.now,
     items: world.content.items,
     itemId: crypto.randomUUID(),
+    ground: dropGround(field, source),
+    prepared: null,
   };
-  const source = { x: actor.simulation.x, y: actor.simulation.y };
-  const ground = dropGround(field, source);
   field.dropReservations++;
   try {
-    const receipt = await world.database.commit(actor, operation, (profile) => {
-      try {
-        admitActor(actor, world, message.fieldEpoch);
-        context.now = world.now;
-        const value = createDropDebit(profile, message.action, context);
-        return {
-          value: {
-            ...value,
-            id,
-            ownerId: actor.id,
-            createdAt: context.now,
-            durableEntitlement: true,
-          },
-          grantEntitlements: [{ id, kind: "drop" }],
-        };
-      } catch (error) {
-        throw ruleError(error);
-      }
-    });
-    if (receipt.status === "committed" && receipt.value?.id === id) {
-      world.createDrop(actor, { ...receipt.value, source, ground });
+    const receipt = await world.participants.commit(
+      actor,
+      operation,
+      [actor.id],
+      async (profiles) => {
+        const profile = profiles.get(actor.id);
+        try {
+          return await commitDropDebit(profile, context);
+        } catch (error) {
+          throw ruleError(error);
+        }
+      },
+    );
+    if (
+      receipt.status === "committed" &&
+      receipt.value?.dropId === context.id
+    ) {
+      publishFieldDrop(field, context.prepared, world.now);
     }
     return receipt;
   } finally {
@@ -247,22 +300,18 @@ export async function executeDrop(actor, message, world, operation) {
 }
 
 function admitPickup(actor, drop, now) {
-  if (!drop || drop.expiresAt <= now) {
-    reject("NOT_FOUND", "The ground drop expired.");
+  if (!drop || drop.expiresAt <= now)
+    {reject("NOT_FOUND", "The ground drop expired.");}
+  if (drop.disappearing || !drop.durableEntitlement) {
+    reject("NOT_ALLOWED", "The drop has no recoverable entitlement.");
   }
-  if (drop.state !== "grounded") {
-    reject("NOT_ALLOWED", "The drop has not reached the ground.");
-  }
+  if (drop.state !== "grounded")
+    {reject("NOT_ALLOWED", "The drop has not reached the ground.");}
+  if (!ownsDrop(actor, drop, now))
+    {reject("NOT_ALLOWED", "The drop remains owned by another character.");}
   if (
-    drop.ownerId &&
-    drop.ownerId !== actor.id &&
-    (drop.ownerUntil === undefined || drop.ownerUntil > now)
-  ) {
-    reject("NOT_ALLOWED", "The drop remains owned by another character.");
-  }
-  if (
-    Math.abs(actor.simulation.x - drop.position.x) > DROP_POLICY.pickupX ||
-    Math.abs(actor.simulation.y - drop.position.y) > DROP_POLICY.pickupY
+    Math.abs(actor.simulation.x - drop.groundX) > DROP_POLICY.pickupX ||
+    Math.abs(actor.simulation.y - drop.groundY) > DROP_POLICY.pickupY
   ) {
     reject("NOT_IN_RANGE", "The server character is outside pickup geometry.");
   }
@@ -287,78 +336,141 @@ function admitPickupStacks(reserved) {
   }
 }
 
-function pickupCredit(profile, drop, items, actor) {
+function pickupCredit(profile, drop, context) {
+  const { actor, world, prepared, pickupId } = context;
   const itemId = drop.item?.id ?? 0;
-  if (
-    itemId &&
-    (isPickupItem(items[itemId]) || Math.floor(itemId / 10000) === 238)
-  ) {
-    reject(
-      "REQUIREMENTS_NOT_MET",
-      "Automatic pickup effects and card entitlements require their dedicated authoritative controller.",
-    );
-  }
   const reserved = reservedPickupStacks(profile, actor);
-  creditDrop(
-    profile,
-    {
-      itemId,
-      quantity: drop.item?.count ?? drop.mesos,
-      instance: drop.item,
-      questId: drop.questId ?? 0,
-    },
-    items,
-    null,
-  );
+  const card =
+    creditDrop(
+      profile,
+      {
+        itemId,
+        quantity: drop.item?.count ?? drop.mesos,
+        instance: drop.item,
+        questId: drop.questId ?? 0,
+      },
+      world.content.items,
+      world.content.catalog.ui.monsterBook,
+    ) ?? null;
+  const effect = applyPickupEffect(profile, actor, prepared, world.now);
   admitPickupStacks(reserved);
-  const result = { consumeEntitlements: [{ id: drop.id, kind: "drop" }] };
-  if (!drop.durableEntitlement) {
-    result.grantEntitlements = [{ id: drop.id, kind: "drop" }];
-  }
-  return result;
+  const value = {
+    kind: "drop.collected",
+    pickupId,
+    dropId: drop.id,
+    itemId,
+    quantity: drop.item?.count ?? drop.mesos,
+    card,
+    effect,
+  };
+  return {
+    value,
+    consumeEntitlements: [{ id: drop.id, kind: "drop" }],
+    events: pickupObservations(actor, value),
+  };
 }
 
-/** A field reservation and durable consumed entitlement protect distinct-operation pickup races. */
+function pickupObservations(actor, value) {
+  const identity = { actorId: actor.id, dropId: value.dropId };
+  const events = [];
+  if (value.card)
+    {events.push({
+      kind: "drop.card",
+      eventId: crypto.randomUUID(),
+      ...identity,
+      ...value.card,
+    });}
+  if (!value.card) {
+    events.push({
+      kind: "drop.gain",
+      eventId: crypto.randomUUID(),
+      ...identity,
+      itemId: value.itemId,
+      quantity: value.quantity,
+    });
+  }
+  if (
+    value.effect &&
+    (value.effect.hp || value.effect.mp || value.effect.effectId)
+  ) {
+    events.push({
+      kind: "drop.effect",
+      eventId: crypto.randomUUID(),
+      ...identity,
+      ...value.effect,
+    });
+  }
+  return events;
+}
+
+function publishPickup(world, actor, drop, receipt) {
+  const field = actor.field;
+  world.broadcast(field, {
+    type: "event",
+    fieldEpoch: field.epoch,
+    event: {
+      kind: "drop.pickup",
+      eventId: receipt.value.pickupId,
+      dropId: drop.id,
+      actorId: actor.id,
+      position: { x: drop.groundX, y: drop.groundY },
+      impactTick: field.tick,
+    },
+  });
+  for (const event of receipt.events) {
+    world.publish(actor, { type: "event", fieldEpoch: field.epoch, event });
+  }
+  field.drops.delete(drop.id);
+}
+
+/** Ground reservation and durable entitlement consumption fence both same-op replay and peer races. */
 export async function executePickup(actor, message, world, operation) {
   const field = actor.field;
   const drop = field.drops.get(message.action.dropId);
   admitPickup(actor, drop, world.now);
-  if (drop.reservation) {
-    reject("SERVER_BUSY", "The drop is already being collected.");
-  }
+  if (drop.reservation)
+    {reject("SERVER_BUSY", "The drop is already being collected.");}
   drop.reservation = operation.operationId;
+  const context = {
+    actor,
+    world,
+    prepared: null,
+    pickupId: crypto.randomUUID(),
+  };
   try {
-    const receipt = await world.database.commit(actor, operation, (profile) => {
-      try {
-        admitActor(actor, world, message.fieldEpoch);
-        if (
-          field.drops.get(drop.id) !== drop ||
-          drop.reservation !== operation.operationId
-        ) {
-          reject("NOT_FOUND", "The drop ownership changed.");
+    context.prepared = await preparePickupEffect(world, actor, drop);
+    const receipt = await world.participants.commit(
+      actor,
+      operation,
+      [actor.id],
+      async (profiles) => {
+        const profile = profiles.get(actor.id);
+        try {
+          admitActor(actor, world, message.fieldEpoch);
+          if (
+            field.drops.get(drop.id) !== drop ||
+            drop.reservation !== operation.operationId
+          ) {
+            reject("NOT_FOUND", "The drop ownership changed.");
+          }
+          admitPickup(actor, drop, world.now);
+          const result = pickupCredit(profile, drop, context);
+          return result;
+        } catch (error) {
+          throw ruleError(error);
         }
-        admitPickup(actor, drop, world.now);
-        return pickupCredit(profile, drop, world.content.items, actor);
-      } catch (error) {
-        throw ruleError(error);
-      }
-    });
-    if (receipt.status === "committed") {
-      world.broadcast(field, {
-        type: "event",
-        fieldEpoch: field.epoch,
-        event: {
-          kind: "drop.pickup",
-          dropId: drop.id,
-          actorId: actor.id,
-          position: { ...drop.position },
-          impactTick: field.tick,
-        },
-      });
-      field.drops.delete(drop.id);
+      },
+    );
+    if (
+      receipt.status === "committed" &&
+      receipt.value?.pickupId === context.pickupId
+    ) {
+      publishPickupEffect(context.prepared);
+      publishPickup(world, actor, drop, receipt);
     }
     return receipt;
   } finally {
+    releasePickupEffect(context.prepared);
     drop.reservation = null;
   }
 }

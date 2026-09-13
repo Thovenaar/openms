@@ -3,8 +3,24 @@ import { createHash } from "node:crypto";
 import { WzArchive } from "../src/assets/wz.js";
 import { parseImage } from "../src/assets/image.js";
 
+const SOURCE_PROGRESS_INTERVAL = 100;
+
+/** Retain original byte identity even when the subsequent IMG parse fails. */
+function readOriginalImage(reader, name, path, report) {
+  const key = `${name}.wz:${path}`;
+  report.sources[key] = {
+    archive: `${name}.wz`,
+    path,
+    sha256: createHash("sha256").update(reader.bytes).digest("hex"),
+    bytes: reader.bytes.length,
+  };
+  const node = parseImage(reader);
+  node.source = key;
+  return node;
+}
+
 /** Read-only original IMG ownership. Failed parsing is cached, never replaced by an empty tree. */
-export function preflightInputs(assets, report) {
+export function preflightInputs(assets, report, progress) {
   const archives = new Map(),
     images = new Map(),
     errors = new Map();
@@ -13,6 +29,7 @@ export function preflightInputs(assets, report) {
   let owner = null;
   function archive(name) {
     if (!archives.has(name)) {
+      progress?.(`Preflight: opening and indexing original ${name}.wz`);
       archives.set(name, new WzArchive(resolve(assets, `${name}.wz`)));
     }
     return archives.get(name);
@@ -28,15 +45,13 @@ export function preflightInputs(assets, report) {
     if (errors.has(key)) throw errors.get(key);
     if (images.has(key)) return images.get(key);
     try {
+      if ((images.size + errors.size) % SOURCE_PROGRESS_INTERVAL === 0) {
+        progress?.(
+          `Preflight: reading ${key} (${images.size} images parsed, ${errors.size} failed)`,
+        );
+      }
       const reader = archive(name).imageReader(path);
-      report.sources[key] = {
-        archive: `${name}.wz`,
-        path,
-        sha256: createHash("sha256").update(reader.bytes).digest("hex"),
-        bytes: reader.bytes.length,
-      };
-      const node = parseImage(reader);
-      node.source = key;
+      const node = readOriginalImage(reader, name, path, report);
       images.set(key, node);
       return node;
     } catch (cause) {

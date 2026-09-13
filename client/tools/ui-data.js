@@ -1,4 +1,5 @@
 import { at, resolveNode, value } from "../src/assets/image.js";
+import { originalFrames } from "./extraction-frames.js";
 import { extractItemSkillUI } from "./ui-item-data.js";
 import { extractNpcPortraits, extractDialogArtwork } from "./ui-npc-data.js";
 import { extractDropArtwork } from "./drop-data.js";
@@ -66,6 +67,19 @@ const BRANCH_EXTRAS = {
     { image: "GuildMark.img", branch: "", path: "GuildMark" },
   ],
 };
+// Native login scenery is UI.wz:MapLogin.img, not a selected playable map.
+// Controls retain their authored states; the scene is packaged separately below.
+const LOGIN_BRANCHES = [
+  "Title",
+  "Common/BtStart",
+  "Common/BtExit",
+  "Common/SoftKey/BtOK",
+  "Common/SoftKey/BtCancel",
+  "CharSelect",
+  "NewChar",
+  "Gender",
+  "Notice/backgrnd/2",
+];
 
 /** Each canvas is a static presentation entity. Delay=1 is a storage sentinel, never an original animation default. */
 async function canvasRecord(context, node, path, order) {
@@ -75,6 +89,14 @@ async function canvasRecord(context, node, path, order) {
     throw new Error(`Invalid UI delay: ${path}`);
   }
   const origin = value(node, "origin", { x: 0, y: 0 });
+  // Keep authored alpha ramps as well as origins. UISurface.stateImage restores
+  // each frame's real delay when these canvases are composed into an animation.
+  const [frame] = await originalFrames(
+    node,
+    (canvas) => context.part(canvas),
+    () => path,
+  );
+  frame.delay = 1;
   const entity = {
     id: path,
     kind: "ui",
@@ -86,7 +108,7 @@ async function canvasRecord(context, node, path, order) {
     flip: false,
     opacity: 1,
     action: "default",
-    actions: { default: [{ delay: 1, parts: [await context.part(node)] }] },
+    actions: { default: [frame] },
   };
   return {
     entity,
@@ -105,15 +127,18 @@ async function branchRoots(context, { imageName, branch, extras }) {
       typeof extra === "string"
         ? { image: imageName, branch: extra, path: extra }
         : extra;
+    const archive = input.archive ?? "UI";
     const extraRoot =
-      input.image === imageName ? root : await context.image("UI", input.image);
+      archive === "UI" && input.image === imageName
+        ? root
+        : await context.image(archive, input.image);
     stack.push({
       node: input.branch ? at(extraRoot, input.branch) : extraRoot,
       path: input.path,
       depth: 0,
     });
     sources.push(
-      `UI.wz:${input.image}${input.branch ? `/${input.branch}` : ""}`,
+      `${archive}.wz:${input.image}${input.branch ? `/${input.branch}` : ""}`,
     );
   }
   if (branch === "MiniMap") {
@@ -461,10 +486,38 @@ async function buttonHelp(context) {
   return help;
 }
 
+/** 00b2bc54 (string1306) selects the same tall field for every native login stage. */
+async function loginSceneBundle(context) {
+  context.progress?.(
+    "Shared UI: converting original UI.wz:MapLogin.img scenery",
+  );
+  const map = await context.image("UI", "MapLogin.img");
+  const entities = await context.scenery(map);
+  return context.bundle({
+    id: "ui:MapLogin.img",
+    entities,
+    metadata: {
+      source: "UI.wz:MapLogin.img",
+      sources: [
+        "UI.wz:MapLogin.img",
+        "Map.wz:Back/login.img",
+        "Map.wz:Obj/login.img",
+      ],
+    },
+  });
+}
+
 /** Shared controls keep every authored state, including enabled0/1/2 and disabled scroll artwork. */
 async function windowBundles(context) {
   const bundles = Object.create(null);
   bundles.StatusBar = await branchBundle(context, "StatusBar.img", "");
+  bundles.Login = await branchBundle(
+    context,
+    "Login.img",
+    "Common/frame",
+    LOGIN_BRANCHES,
+  );
+  bundles.LoginScene = await loginSceneBundle(context);
   bundles.Basic = await branchBundle(context, "Basic.img", "BtClose", [
     "BtCancel2",
     "BtClaim",

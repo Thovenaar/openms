@@ -65,6 +65,7 @@ export function publishQuestDialogue(actor, world, lease) {
     return;
   }
   requireInteraction(view.choices.length <= 128, "CONTENT_MISMATCH");
+  requireInteraction(view.rewardChoices.length <= 128, "CONTENT_MISMATCH");
   const contentId = storeDialogue(world, actor, lease, view.text);
   publishInteraction(world, actor, {
     kind: "dialogue",
@@ -72,8 +73,23 @@ export function publishQuestDialogue(actor, world, lease) {
     step: lease.step,
     npcId: lease.npcId,
     npcTemplateId: lease.npcTemplateId,
+    quest: {
+      questId: view.questId,
+      stage: view.stage,
+      mode: view.mode,
+      rewardChoices: view.rewardChoices.map(({ index, id, count }) => ({
+        index,
+        id,
+        count,
+      })),
+    },
     native: {
-      kind: view.choices.length ? "choice" : "say",
+      kind:
+        view.mode === "confirm" && view.stage === 0
+          ? "accept-decline"
+          : view.choices.length
+            ? "choice"
+            : "say",
       speaker: 0,
       prev: view.canPrevious,
       next: view.mode !== "confirm",
@@ -84,14 +100,6 @@ export function publishQuestDialogue(actor, world, lease) {
     input: view.choices.length ? "choice" : "next",
     minimum: null,
     maximum: null,
-  });
-  publishInteraction(world, actor, {
-    kind: "quest.offer",
-    conversationId: lease.id,
-    step: lease.step,
-    npcId: lease.npcId,
-    npcTemplateId: lease.npcTemplateId,
-    quests: lease.offers,
   });
 }
 

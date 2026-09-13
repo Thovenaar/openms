@@ -8,7 +8,6 @@ import {
 import { createMobs } from "../../client/src/combat/offline-mobs.js";
 import { createSimulation } from "../../client/src/physics/simulation.js";
 import { captureMotion, restoreMotion } from "../../shared/motion.js";
-import { refreshActorCombat } from "./field-combat.js";
 import {
   validateKeyBindings,
   validateProfile,
@@ -253,12 +252,19 @@ async function profileEdit(world, actor, action, operation) {
     profile,
     profileTransactionPending: false,
     async commitProfile(mutator) {
-      receipt = await world.database.commit(actor, operation, async (draft) => {
-        const onlineState = draft.onlineState;
-        delete draft.onlineState;
-        await mutator(draft);
-        draft.onlineState = onlineState;
-      });
+      receipt = await world.participants.commit(
+        actor,
+        operation,
+        [actor.id],
+        async (profiles) => {
+          const draft = profiles.get(actor.id);
+          const onlineState = draft.onlineState;
+          delete draft.onlineState;
+          await mutator(draft);
+          draft.onlineState = onlineState;
+        },
+      );
+      if (receipt.status !== "committed") throw protocolError(receipt.code);
     },
   };
   const editor = new CharacterDevelopment(store, world.content.catalog, {
@@ -285,30 +291,27 @@ async function presetEdit(world, actor, action, operation) {
     profile,
     profileTransactionPending: false,
     async commitProfile(mutator) {
-      receipt = await world.database.commit(actor, operation, async (draft) => {
-        const onlineState = draft.onlineState;
-        delete draft.onlineState;
-        await mutator(draft);
-        applyJobPresetLoadout(draft, world.content.catalog.ui, action.job);
-        validateProfile(draft, world.content.catalog.ui.items);
-        draft.onlineState = onlineState;
-      });
+      receipt = await world.participants.commit(
+        actor,
+        operation,
+        [actor.id],
+        async (profiles) => {
+          const draft = profiles.get(actor.id);
+          const onlineState = draft.onlineState;
+          delete draft.onlineState;
+          await mutator(draft);
+          applyJobPresetLoadout(draft, world.content.catalog.ui, action.job);
+          validateProfile(draft, world.content.catalog.ui.items);
+          draft.onlineState = onlineState;
+        },
+      );
+      if (receipt.status !== "committed") throw protocolError(receipt.code);
     },
   };
   const editor = new CharacterDevelopment(store, world.content.catalog, {
     random: world.random,
   });
   await editor.edit(patch);
-  return receipt;
-}
-
-async function editCharacter(world, actor, action, operation) {
-  const receipt =
-    action.kind === "preset"
-      ? await presetEdit(world, actor, action, operation)
-      : await profileEdit(world, actor, action, operation);
-  refreshActorCombat(world, actor);
-  world.publish(actor, { type: "snapshot-request" });
   return receipt;
 }
 
@@ -345,22 +348,52 @@ export async function developActor(world, actor, request) {
   const operation = operationFor(actor, request);
   const existing = actor.developmentReceipts.get(request.operationId);
   if (existing) {
-    if (existing.digest !== operation.digest) {
-      throw protocolError("OPERATION_CONFLICT");
-    }
+    if (existing.digest !== operation.digest)
+      {throw protocolError("OPERATION_CONFLICT");}
     return existing.receipt;
   }
   const previous = await world.database.receipt(actor, operation);
   if (previous) return previous;
-  if (actor.developmentReceipts.size >= 1024) {
-    throw protocolError("SERVER_BUSY");
+  reserveDevelopment(world, actor, request);
+  actor.pending = true;
+  actor.pendingOperation = operation.operationId;
+  actor.pendingOwner = actor.id;
+  try {
+    return await dispatchDevelopment(world, actor, action, operation);
+  } finally {
+    actor.pending = false;
+    actor.pendingOperation = null;
+    actor.pendingOwner = null;
+    world.participants.signalIdle();
   }
+}
+
+function reserveDevelopment(world, actor, request) {
+  admitDeveloper(world, actor);
+  if (
+    !actor.connection ||
+    actor.connection.data.closed ||
+    actor.connection.data.epoch !== request.connectionEpoch
+  )
+    {throw protocolError("STALE_CONNECTION");}
+  if (!actor.connection.data.ready) throw protocolError("NOT_ALLOWED");
+  if (
+    actor.retiring ||
+    actor.deliveryError ||
+    world.participants.busy(actor) ||
+    actor.developmentReceipts.size >= 1024
+  )
+    {throw protocolError("SERVER_BUSY");}
+}
+
+async function dispatchDevelopment(world, actor, action, operation) {
   if (action.kind === "map") {
     return world.transition(actor, { mapId: action.mapId }, operation);
   }
-  if (action.kind === "profile" || action.kind === "preset") {
-    return await editCharacter(world, actor, action, operation);
-  }
+  if (action.kind === "profile")
+    {return profileEdit(world, actor, action, operation);}
+  if (action.kind === "preset")
+    {return presetEdit(world, actor, action, operation);}
   admitSharedControl(world, actor);
   const prepared =
     action.kind === "spawn"
@@ -377,7 +410,7 @@ export async function developActor(world, actor, request) {
   if (receipt.status !== "committed") return receipt;
   applySharedControl(world, actor, action, prepared);
   world.invalidateField(actor.field);
-  actor.developmentReceipts.set(request.operationId, {
+  actor.developmentReceipts.set(operation.operationId, {
     digest: operation.digest,
     receipt,
   });
