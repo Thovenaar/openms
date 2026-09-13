@@ -45,19 +45,14 @@ Automation/bots, account abuse, denial of service and information leaks still re
 ## Ownership and shared code
 
 ```mermaid
-flowchart LR
-  UI[Browser input and UI] --> Port[Intent and observation interface]
-  Port --> Local[Offline authority]
-  Port --> Network[Online transport]
-  Network --> Gate[Authenticated bounded ingress]
-  Gate --> Field[Single-owner field simulation]
-  Field --> Rules[Shared pure rules]
-  Local --> Rules
-  Local --> IDB[IndexedDB offline save]
-  Field --> Economy[Transactional economy]
-  Economy --> DB[PostgreSQL and outbox]
-  Field --> View[Recipient-filtered observations]
-  View --> Network
+flowchart TD
+  Input[Browser input or intent] --> Gate[Session and intent checks]
+  Gate --> Field[Field simulation and shared rules]
+  Field --> Motion[Motion checkpoint]
+  Field --> DB[Durable action transaction]
+  DB --> Receipt[Receipt and state update]
+  Motion --> View[Recipient presentation]
+  Receipt --> View
 ```
 
 The online entry uses separate transport, prediction, read models and presentation. `InGameSystems`, `NativeInterfaces`, `OfflineField` and `ProfileStore` remain offline authority owners and are not instantiated as online controllers.
@@ -300,7 +295,7 @@ Restore validates reference IDs before installation. This is not arbitrary simul
 
 Prediction must wait for a complete matching-epoch checkpoint, restore tick N, retire acknowledged inputs and replay only the bounded suffix through the same 30ms kernel. Missing/invalid checkpoints or history overflow freeze prediction and request resync; reconstructing hidden state from XY is not a fallback. Mid-motion ground transitions, ladders, down-jump, swim/fly, modifiers and locks require differential replay proof before claiming zero-divergence reconciliation.
 
-Drawing is browser presentation policy and never authority: the browser presents the newest two kernel states interpolated between fixed-scheduler steps, anchored to when those steps actually ran, so scheduling jitter stretches one quantum instead of stalling the pose. A checkpoint restore reproduces states that were already presented and does not move that anchor. The presented pose is never an input to prediction, pacing, checkpoints or any server record. See [presented movement smoothness](../validation.md#presented-movement-smoothness) for the measured ratios.
+Drawing is browser presentation policy and never authority: the browser presents the newest two kernel states interpolated between fixed-scheduler steps, anchored to when those steps actually ran, so scheduling jitter stretches one quantum instead of stalling the pose. A checkpoint restore reproduces states that were already presented and does not move that anchor. The presented pose is never an input to prediction, pacing, checkpoints or any server record. See [presented movement smoothness](../archive/validation-history.md#presented-movement-smoothness) for the measured ratios.
 
 ### Example: a legal portal request
 

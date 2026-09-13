@@ -9,6 +9,15 @@ const MAX_EQUIPPED_ITEMS = 128;
 const ANTI_SLIP_FLAG = 0x02;
 const ANTI_SLIP_FRICTION = 10;
 
+/** Shared offline/server preparation before the 30 ms motion step.
+ * `derived` contains additive temporary stats, never displayed totals (base 100).
+ * Equipment, skill expiry and forms must rebuild from the original coefficients.
+ */
+export function updatePlayerMovement(sim, equipment, items, derived) {
+  updateEquipmentMovement(sim, equipment, items);
+  updateSkillMovement(sim, derived);
+}
+
 /** Apply cached SkillSystem additive secondary stats before advancing physics.
  * Null restores the unbuffed actor. Rebuild from original globals, never multiply
  * a prior buff: expiry, recast, profile replacement and death cannot compound.

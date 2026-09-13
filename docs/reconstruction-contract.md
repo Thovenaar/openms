@@ -1,82 +1,108 @@
-# Reconstruction integration contract
+# Shared integration contract
 
-Engineering interfaces below are our browser interchange, **not original WZ or original-client APIs**. Coding agents must read and follow [coding-style.md](coding-style.md). Original behavior requires address-bearing evidence; unresolved behavior is reported explicitly.
+Offline and online reuse original-data consumers and presentation. **The mode chooses the state owner.** The browser interchange formats below are project contracts, not original WZ or Nexon network APIs. Follow [coding style](coding-style.md) and [input provenance](inputs.md).
 
 ## Subsystem boundaries
 
-- Shared original decoding and packaging: `client/src/assets/`, `client/tools/extract.js`, `atlas.js`, `canvas-tiles.js`, `packaging.js`.
-- Streaming/rendering and integration: `main.js`, `animation.js`, `stream-*.js`, `visual-resources.js`, `ingame.js`, worker modules and browser controls.
-- Fixed-step motion: `client/src/physics/`; original option extraction in `client/tools/physics-data.js`. Field presentation must not introduce a second physics clock.
-- UI, portals, life, audio/effects: domain extractors and runtime modules documented in [ingame-ui.md](ingame-ui.md), [ingame-portals.md](ingame-portals.md), [ingame-life.md](ingame-life.md), [ingame-audiovisual.md](ingame-audiovisual.md).
-- Concurrent work must assign nonoverlapping file ownership and isolated Ghidra projects. Skip project validation while mutations overlap; the integration owner verifies the settled runtime.
-
-## Physics data
-
-`client/tools/physics-data.js` exports `readPhysicsData(map, physics)` where both arguments are existing parsed `WzNode` roots; `physics` is the original global physics IMG discovered by inventory. Return JSON-safe:
-
-```
-{ schemaVersion: 1, globals: { originalKey: scalar },
-  map: { originalInfoKey: scalar },
-  footholds: [{ id, layer, group, x1, y1, x2, y2, prev, next, properties }],
-  ladders: [{ id, x, y1, y2, ladder, uf, page, properties }],
-  portals: [{ id, x, y, name, type, targetMap, targetName }],
-  areas: [{ id, properties }], unsupported: [{ path, reason }] }
+```mermaid
+flowchart TD
+  Input[Native keyboard, pointer and UI] --> Mode{Play mode}
+  Mode -->|Offline| Local[Local gameplay authority]
+  Mode -->|Online| Intent[Closed input or intent]
+  Intent --> Server[Bun field and transaction authority]
+  Local --> Save[ProfileStore / IndexedDB]
+  Server --> DB[PostgreSQL commit and receipt]
+  Server --> Motion[Authoritative motion checkpoint]
+  Save --> View[Shared original-asset presentation]
+  DB --> View
+  Motion --> Prediction[Bounded client prediction]
+  Prediction --> View
 ```
 
-Keep original property names/scalars in globals/map/properties. Preserve unknown fields instead of guessing. Inventory communicates the original physics IMG path to packaging and motion owners. All map footholds are modest collision metadata and may arrive together; map artwork must stream by region.
+| Domain                           | Offline owner                                  | Online owner                                                  | Detailed contract                                          |
+| -------------------------------- | ---------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------- |
+| Input and movement               | `InGameSystems`, shared simulation             | `OnlineWorld`, shared simulation; browser predicts            | [Movement](movement-parity.md)                             |
+| Profile and inventory            | `ProfileStore`, atomic IndexedDB commits       | PostgreSQL transactions and participant publication           | [Saves](offline-saves.md) · [Protocol](server/protocol.md) |
+| Combat and skills                | `OfflineField`, `SkillSystem`                  | Server combat/skill phases using shared rules                 | [Combat](offline-combat.md) · [Skills](skills.md)          |
+| NPC and quest turns              | Local script/quest authority                   | Conversation leases and transactional rewards                 | [NPCs](ingame-life.md) · [Quests](ingame-quests.md)        |
+| Social and commerce              | Explicit local peers and atomic exchanges      | Authenticated participants, membership and receipts           | [Feature map](server/offline-parity.md)                    |
+| Rendering, UI and audio          | Persistent presentation owners                 | Same original-resource consumers with read-only online models | [UI](ingame-ui.md) · [Audio](ingame-audiovisual.md)        |
+| Artwork and offline installation | Shared asset caches; optional verified release | Immutable assets; no offline gameplay continuation            | [Delivery](asset-delivery.md) · [Streaming](streaming.md)  |
+
+The online build rejects imports of offline persistence and gameplay authority. `NativeProfileSource` publishes server snapshots and has no local save/commit API. Camera, menus, audio and UI drafts are local; economic or character outcomes require server authorization.
+
+## Character state
+
+The current profile is **schema 8**. It contains character stats, appearance, UID-bearing items/equipment, AP, ten SP pools, learned skills, quests, typed saved locations, settings/bindings, cash, pets/mount, Monster Book, macros and social domains. Valid v1–v7 saves migrate without granting progress. [Profile schemas](offline-profile.md#schema-8) and [save semantics](offline-saves.md) own the exact fields.
+
+Offline transactions validate an isolated draft, compare durable revision/generation and publish only after commit. Consumers reacquire the profile root after replacement. Pending transactions exclude competing gameplay mutations while rendering remains live. Online transactions use participant/account ownership, revision checks and idempotent receipts; reconnect obtains server state rather than merging browser progress.
 
 ## Motion and bounds
 
-`client/src/physics/simulation.js` exports:
+| Entry point                                            | Contract                                                                                          |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `createSimulation(world, {x,y})`                       | Validate immutable physics metadata; allocate reusable state.                                     |
+| `updatePlayerMovement(sim, equipment, items, derived)` | Rebuild from original coefficients, shoe metadata, active forms and **additive** temporary stats. |
+| `advanceSimulation(sim, input, elapsedMs, onStep?)`    | Offline bounded accumulation; execute fixed 30 ms steps and the per-step callback.                |
+| `stepMotion(sim, input)`                               | Server/prediction boundary: exactly one 30 ms step, no second accumulator.                        |
+| `captureMotion` / `restoreMotion`                      | Complete server-authored continuation state, including coefficients, contacts and held edges.     |
+| `snapshotSimulation`                                   | Allocate an observation outside the hot loop.                                                     |
 
-- `createSimulation(world, {x,y})`: validate world and initialize reusable state.
-- `advanceSimulation(sim, input, elapsedMs)`: mutate state using bounded, refresh-independent integration. Input is a reusable object with `left,right,up,down,jump,attack` held booleans and `jumpPressed` edge boolean. An accepted edge sets `input.jumpPressed=false`. Sim tracks held-key edges as needed.
-- `snapshotSimulation(sim)`: allocate an inspection snapshot outside the hot loop.
+Held movement/attack/jump inputs are separate from edges. No renderer or socket callback advances a second physics clock. Ambient presentation may use frame elapsed time; gameplay and player action clocks follow simulation ticks. Action overrides do not rewrite base locomotion state. [Avatar actions](avatar-actions.md) defines one-shot completion and frame ownership.
 
-Observable state: `x,y,vx,vy,state,footholdId,ladderId,facing,action,effectiveSettings,blocked,diagnostics`. State/action strings are documented by the motion owner. `blocked` names unsupported active behavior; no hidden fallback constants. Renderer uses supported avatar actions without claiming missing original artwork was reconstructed.
+The server retains projected display/combat statistics separately. **100% is a total, not a +100 bonus.** [Movement parity](movement-parity.md) records the repaired call boundary and regression proof.
 
-`client/src/physics/hitboxes.js` exports `createHitboxState()` and `updateHitboxes(output, sim, context)`; update mutates reusable rectangle slots. Context contains `action,frame,elapsedMs,attacking`. Each shape has `active,left,top,right,bottom,verified,evidence`; output has `body,attack,damage` and explicit unknown/unsupported status. Do not use sprite rectangles for body/attack/damage bounds. The hitbox owner documents recovered state dependencies and any necessary extra original data.
+Body, attack and damage bounds come from recovered geometry consumers, not sprite extents. `createHitboxState` allocates reusable shapes; `updateHitboxes` mutates them. Shape validity and known activation timing are distinct. See [hitboxes](hitboxes.md).
+
+## Physics data
+
+`readPhysicsData(map, physics)` in `client/tools/physics-data.js` consumes parsed original WZ nodes and publishes schema 1 metadata:
+
+| Field                         | Contents                                                     |
+| ----------------------------- | ------------------------------------------------------------ |
+| `globals`, `map`              | Original global and map-property names/scalars               |
+| `footholds`                   | IDs, layers/groups, endpoints, links and original properties |
+| `ladders`, `portals`, `areas` | Authored geometry and destination/area metadata              |
+| `unsupported`                 | Exact property paths and unresolved reasons                  |
+
+Preserve unknown properties and report unsupported active behavior. Footholds may load together as bounded collision metadata; artwork streams independently by region.
 
 ## Versioned asset streaming
 
-`/generated/catalog.json`:
+[Scene format](scene-contract.md) is the canonical schema reference; [streaming](streaming.md) owns residency, cancellation and replacement. This contract does not duplicate their JSON layouts.
 
-```
-{ schemaVersion: 2, buildId, defaultMap,
-  maps: { mapId: { url, sha256, bytes, neighbors: [mapId] } },
-  hitboxes: descriptor, ui: UiIndex, audiovisual: AudiovisualIndex }
-```
+| Resource      | Version and responsibility                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------- |
+| Catalog       | Schema 2; build identity, verified map descriptors and shared UI/audio/gameplay metadata     |
+| Map / region  | Schema 2; bounds, physics, entities, textures, atlas descriptors and region membership       |
+| Visual bundle | Schema 1; shared original textures, entities and metadata with an explicit `destroy()` owner |
 
-Per-map manifest:
+Descriptors retain SHA-256 and byte length. Atlas/region/map publication is deterministic and content-addressed. Transparent RGBA must round-trip exactly. `Entity.order` retains global extraction order across region arrivals; tiled canvases retain logical `sourceSize`, `sourceCanvas` and `sourceRect`. Animation delays, origins, alpha and layers keep their recovered meaning.
 
-```
-{ schemaVersion: 2, id, source, bounds, camera, physics, portalPresentation, life,
-  textures: { textureId: { atlas, x, y, width, height } },
-  atlases: { atlasId: { url, sha256, bytes, width, height } },
-  actors: [Entity],
-  regions: [{ id, bounds, url, sha256, bytes, atlases: [atlasId], always: boolean }],
-  evidence: [string] }
-```
-
-A region JSON is `{schemaVersion:2,id,entities:[Entity]}`. Entity/frame/part semantics are retained from [scene-contract.md](scene-contract.md), including original alpha, origin offsets, layering, and animation delays. `actors` contains the composed character; other entities belong to a single region, with spanning/repeating backgrounds in `always` regions. Texture IDs remain original decoded pixel identities. Atlas/region/map paths are content-addressed and deterministic, using shared global output directories for identical resources. Transparent RGBA pixels must round-trip exactly. Atlas limits/padding are documented browser engineering policies.
-
-The initial visible regions, always regions and actor atlas set are the critical load; distant artwork is not. Runtime loads nearby regions ahead, cancels obsolete demand, keeps current complete visual state during map replacement, and enforces explicit GPU/CPU/cache bounds. Regions only become visible atomically after their required atlas set is ready. Leaving a region releases its references; shared atlas resources remain while referenced. Catalog map neighbors drive bounded map-prefetch metadata; traversal beyond packaged maps is explicitly unavailable, not a broken request.
-
-Existing all-at-once scene loading is replaced, not retained as a second supported production path. Parent migrates validation tools to this version. Packaging keeps `bun tools/openms.js extract` as the entry point, accepts `--map` or `--maps` and the existing asset-path override. New profiles start in Mushroom Town (`000010000`) when packaged, otherwise the first explicitly selected map. Saved locations are unchanged. Additional original map selection is evidence-driven.
-
-## Integration amendments
-
-- Entities require `order`, the global extraction-array index before region partitioning; runtime tie ordering must not depend on fetch completion order.
-- Optional frame `sourceSize:{width,height}` retains an oversized original canvas's logical size after lossless tiling. Default background repeat periods use this size, not tile or atlas size. Tile parts preserve provenance through `sourceCanvas` and `sourceRect`.
-- Optional catalog `hitboxes` is an immutable resource descriptor for `extractHitboxReferences(image)` output: versioned, explicitly labeled geometry previews. Recovered geometry does not prove activation timing or damage application.
-- Hitbox context may include explicitly resolved `attack`, `damage` or `body` descriptors; supported families and required fields are defined in `client/tools/hitbox-data.js` and `docs/hitboxes.md`. Preview shapes report geometry validity separately from `activationKnown`/`damaging`.
+Only the visible/always regions and initial actor resources gate readiness. Publish regions atomically after required atlases are ready. Cancel obsolete demand, retain the last complete scene during replacement, and release shared resources by ownership. Do not create a second network or atlas cache.
 
 ## In-game ownership and input
 
-The shared extraction context is `{image,part,frames,bundle,output,mapIds}`. Domain extractors must use the existing WZ parser/lossless decoder and atlas publisher. Original missing timing requires a consumer-derived default or explicit unsupported status, not a convenient browser fallback.
+| Owner                      | Lifetime and obligation                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| `InGameSystems`            | Persistent UI/audio and the offline travel gate                                            |
+| `StreamScene.fieldSystems` | Field-local gameplay, portals, life and overlays                                           |
+| `loadVisualBundle` result  | Caller owns lifetime after load; destroy consumers before the shared resource owner        |
+| Input/editor/modal owner   | Consume applicable keys before field actions; release held input on loss of ownership      |
+| Transition owner           | Validate destination, retain the old complete scene on failure, invalidate stale callbacks |
 
-`loadVisualBundle(descriptor,{network,atlases},signal)` returns `{manifest,textures,destroy()}` with a schema-v1 bundle `{id,entities,metadata,textures,atlases}`. Its pending caller cancellation ends when loading succeeds; the returned owner controls resident lifetime. Instantiate consumers from the shared textures, destroy consumers before their resource owner, and never create a second atlas/network cache.
+Ordinary named portal arrival is `(x, y−10)`; authored return-map revival uses the same transition pipeline. Same-map travel preserves the recovered camera history. See [portal contracts](ingame-portals.md) for supported types and timing.
 
-`InGameSystems` owns persistent UI/audio; each `StreamScene.fieldSystems` owns portals/life. Portal Up handling runs before `advanceSimulation`; world animation advances before portal graphics and life overlays update. UI/audio update separately from paused physics. `input.upPressed` is a latched native-key edge consumed by portals, not a new force/integration input. Accepted ordinary grounded jumps increment the simulation's observable sequence for the local sound binding; no extra jump acceptance path is created.
+Original NPC `dc` rectangles drive pointer selection. Quest state is absent/not-started, active or completed; reward eligibility is rechecked at commit. Unsupported script calls/controllers stay unavailable. Development inspection never grants a normal player additional authority.
 
-Atomic portal replacement validates the packaged destination/named target, enters at `(x,y-10)`, retains the old scene on failure and invalidates stale callbacks. Pending replacement freezes gameplay authority. Ordinary confirmed revival uses that same pipeline with authored `returnMap`/portal0. NPC primary-button release and cursor share the original translated `dc` picker, not a guessed distance rule; missing scripts remain explicit. Inspector clicks are nondamaging. Audio/effect inspection cannot mutate the character; supported local progression may request original LevelUp artwork.
+## UI and viewport
+
+The original UI uses a logical **800 × 600** plane, bottom-centered where appropriate. Larger desktop viewports use documented browser adaptation. Original origins and frame placement remain part of the resource contract; browser fonts are not proven Windows raster parity. [UI](ingame-ui.md) and [login recovery](login-creation-recovery.md) own placement details.
+
+## Offline delivery
+
+Asset installation and saves are separate. The service worker stages and verifies a complete immutable release before activating readiness; active pinned assets are not ordinary evictable cache entries. Missing, corrupt, quota or network outcomes stay visible. Online `/api/` stays network-only, and online startup does not install this offline release service worker.
+
+## Change and verification
+
+Use the [smallest relevant check](validation-method.md#validation-scope). For online behavior, name the intent, authoritative result, recipient update and reconnect state. For diagrams and documentation, follow the [documentation guide](documentation-guide.md). Historical captures are indexed separately in [validation](validation.md).

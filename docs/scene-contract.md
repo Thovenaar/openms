@@ -1,6 +1,6 @@
 # Browser scene and inspection contract
 
-This is our versioned interchange, **not an original WZ format or original-client API**. Coding rules are in [coding-style.md](coding-style.md); subsystem schemas are in [reconstruction-contract.md](reconstruction-contract.md).
+This is our versioned interchange, **not an original WZ format or original-client API**. Coding rules are in [coding-style.md](coding-style.md); subsystem ownership is in [reconstruction-contract.md](reconstruction-contract.md).
 
 ## Bundles
 
@@ -46,7 +46,7 @@ Screen-space UI/audio survive map replacement. HUD artwork/gauges remain Pixi-re
 
 Field portal/life/gameplay/reactor/drop, skill, player-name, speech and combat-number owners belong to the candidate scene. Ordinary commits transfer the same character's skill timers before destroying the previous owner; temporary stores remain isolated. World overlays survive region refresh, not field replacement. Displays die before their leases, and failed/cancelled candidates cannot attach late resources. UI focus and ordinary canvas blur clear held gameplay input.
 
-`KeyBindings` survives field replacement with screen UI/profile ownership. Physical codes use one shared active map for HUD, carries, macros and native windows. KeyConfig is nonmodal; its Save changes? notice, isolated quick-key popup, UtilDlgEx, native transaction prompts and ordinary revival own modal admission. The outer binding draft previews live; nested OK only updates it, and parent Save/affirmative dirty-close is the durable boundary. Text focus captures input; pending modal loading also blocks gameplay before artwork appears. Schema5 persists committed bindings, AP/SP, learned records, instance inventory and the additional [local profile domains](offline-profile.md). Drafts, cursor/carry, chat history, preview poses and transient throttle timestamps are not saved.
+`KeyBindings` survives field replacement with screen UI/profile ownership. Physical codes use one shared active map for HUD, carries, macros and native windows. KeyConfig is nonmodal; its Save changes? notice, isolated quick-key popup, UtilDlgEx, native transaction prompts and ordinary revival own modal admission. The outer binding draft previews live; nested OK only updates it, and parent Save/affirmative dirty-close is the durable boundary. Text focus captures input; pending modal loading also blocks gameplay before artwork appears. Schema8 persists committed bindings, AP/SP, learned records, instance inventory and the additional [local profile domains](offline-profile.md). Drafts, cursor/carry, chat history, preview poses and transient throttle timestamps are not saved.
 
 Candidate initialization and subsequent updates use the same actor-pose synchronization: position, original left-authored facing, action and contact-dependent depth are correct before the first draw, even when the scene is paused. A paused reload does not wait for a simulation tick to correct the avatar.
 

@@ -1,6 +1,6 @@
 # JavaScript coding style
 
-**Required for every coding agent and every hand-written JavaScript change.** This is the authoritative policy; `AGENTS.md` only links here. Apply it to client code, Bun tools, tests, and future server code. Generated bundles and retained Ghidra decompilation are evidence/output, not hand-written implementation.
+**Required for every coding agent and every hand-written JavaScript change.** This is the authoritative policy; `AGENTS.md` only links here. Apply it to client code, Bun tools, tests, and server code. Generated bundles and retained Ghidra decompilation are evidence/output, not hand-written implementation.
 
 Adapted from Gerard J. Holzmann's [The Power of Ten (2006)](https://spinroot.com/gerard/pdf/P10.pdf), with the [requested overview](https://en.wikipedia.org/wiki/The_Power_of_10:_Rules_for_Developing_Safety-Critical_Code). These adaptations improve reviewability; they do not certify JavaScript or this game as safety-critical software.
 

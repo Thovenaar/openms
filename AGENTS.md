@@ -50,4 +50,4 @@ Keep static extraction reusable across sessions. `smoke` checks original/referen
 - [Browser markup](client/index.html) and [styles](client/style.css)
 - [Development server](client/tools/dev.js) and [browser validation](client/tools/validate.js)
 - [Regression tests](client/test/)
-- [Reserved server workspace](server/)
+- [Authoritative server workspace](server/)

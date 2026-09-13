@@ -48,7 +48,7 @@ import {
   releaseSkill,
 } from "./field-skills.js";
 import { sweepInteractions, releaseInteractions } from "./interactions.js";
-import { updateSkillMovement } from "../../client/src/physics/skill-movement.js";
+import { updatePlayerMovement } from "../../client/src/physics/skill-movement.js";
 import { projectCharacterStats } from "../../client/src/character/character-stats.js";
 import { Participants } from "./participants.js";
 import { prepareSocial, destroySocial } from "./social-presentation.js";
@@ -446,7 +446,12 @@ export class OnlineWorld {
     actor.simulation.movementLocked =
       actor.profile.hp <= 0 || actor.skillField.blocksMovement;
     projectCharacterStats(actor.profile, actor.statHooks, actor.stats);
-    updateSkillMovement(actor.simulation, actor.stats);
+    updatePlayerMovement(
+      actor.simulation,
+      actor.profile.equipment,
+      this.content.items,
+      actor.skills.derived(),
+    );
     const previous = actor.simulation.action;
     stepMotion(actor.simulation, actor.input);
     if (previous !== actor.simulation.action) {

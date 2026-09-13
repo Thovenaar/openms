@@ -1,32 +1,43 @@
-# Offline gameplay implementation and evidence checklist
+# Offline gameplay guide
 
-The earlier presentation-only boundary is replaced by playable **local offline authority**. This is not an original server implementation or a completed original-client fidelity claim. JavaScript/JSDoc/Bun and the existing bounded rendering/physics architecture remain the implementation contract.
-
-## Evidence boundary
-
-Original inputs are `/Users/k/Development/tensorfish/Maplestory-Client`: `Maplestory_UNPACKED.exe`, DLL and WZ files, including Quest.wz and Reactor.wz. No original C/C++ source, Nexon server scripts or original native gameplay recordings were supplied. Retained Ghidra decompilation/disassembly is binary evidence, not original source. The authorized `/Users/k/Development/tensorfish/Cosmic` is **server-reference code, not Nexon source**. Its SQL, companion data and scripts are inventoried separately; reference records do not authorize otherwise absent game controllers. No third-party client implementation or invented NPC script was substituted. See [coding style](coding-style.md), [authority contracts](offline-integration-contract.md), [server-data conversion](offline-data.md), and [Windows reference requests](windows-reference-captures.md).
-
-Current source contracts are [UI](ingame-ui.md), [combat](offline-combat.md), [drop motion](drop-motion.md), [skills](skills.md), [binding actions](offline-binding-actions.md), [portals/camera](ingame-portals.md), [gameplay text/effects](ingame-audiovisual.md#shared-gameplay-text-and-temporary-effects) and [schema4 saves](offline-saves.md). The [validation index](validation.md) owns final source identities, native replays and measurements. The [expanded report](ingame-validation/expanded/report.json) and subsequent [first-pass native gameplay diagnostic](native-ui-validation/gameplay/report.json) remain distinct recorded builds: the latter found four defects, not a final all-pass release. Earlier interaction,403-,387-,410-check and fidelity reports likewise remain scoped historical evidence.
+Offline play owns one local simulation and durable IndexedDB profile. Online uses the same presentation and shared rules with a different authority; see the [feature map](server/offline-parity.md). Original behavior, emulator rules and browser policies remain distinguished in each domain guide.
 
 ## Behavior checklist
 
-| Area | Implemented contract | Exercised evidence and limits |
-| --- | --- | --- |
-| HUD/UI/input | Original-resource windows, native editors, contextual tooltips, shared operational gates and original action bindings. | The [first-pass bindings](native-ui-validation/bindings/report.json) and [gameplay](native-ui-validation/gameplay/report.json) reports retain actual successes and failures. Their bound-item/editor findings are not silently converted to final passes from source changes. Browser text/layout remains policy. |
-| Movement/actions | Recovered30-ms locomotion; ordinary body/face actions, independent expressions, map seats, keyboard Talk and grounded-idle alert/brace. | Historical expanded expression/seat/Talk acceptance remains in its report. The later gameplay diagnostic observes real attack,5000-ms brace, independently continuing MP and delayed stationary HP eligibility. Inventory-chair/special transformation and x87/Windows parity remain unproved. |
-| Mobs/recoil | Stable local actors, bounded floor motion; separate HP, hit-deadline, pose and recoil admission. `pushed` gates reaction; ordinary130/400 and weapon-selected strong300/200 dynamics preserve an existing attack. | Historical Hector798/800 and Red Snail32 used the former deterministic equation. Later native Hector322 versus907 distinguishes below/above800 with the randomized generator. Exact-boundary, repeated-deadline, pending-impact and type2 coverage must be read from the relevant report, not inferred from pose artwork. Server AI and flying/special controllers remain unavailable. |
-| NPCs/quests | Original dc pointer and keyboard Talk geometry, finite-floor grounding, actor-owned names and authored local/Cosmic-reference quest/dialogue consumers. | [First-pass NPC/quest evidence](native-ui-validation/npc-quest/report.json) and older Cody/Nella transactions retain their exact scope. Catalog/syntax counts are not all-quest feasibility, conditional visibility or original network permission. |
-| Portals/camera | Named arrivals `(x,y−10)`;600-ms leaving/reveal, input released at commit; same-map320-ms Teleport without global fade, preserving recovered camera-filter history. | Historical field/failure tests cover their build. The later gameplay diagnostic traversed `hp01→hp01_1`, measured the actual Shape2D-derived damping and retained zero global opacity. It did not separately capture reciprocal travel or all four effect frames. Viewport extension remains browser policy. |
-| Combat/progression | Recovered supported one-handed-sword random generator, physical EVA, native receiver geometry, signed1500-ms protection,60-ms tint phases, ordinary±270/−270 impulse and learned Stance. | Later native contact hits were exactly1500 simulated ms apart; positive Stance resistance and an ordinary roll were observed. Incoming magnitude, AI and level progression remain local. The old200 impulse and fixed `/10` damage recipes are historical. |
-| Skills/effects |534 catalogued skills/71 books; classifier35 controllers (10 passive,21 timed buffs,4 sword entries), with actual cast dependencies independently checked. Shared skill/item source timers, original16-frame shadows, tooltip and native right-click cancellation. | Native Recovery/Nimble costs, timers and cancellation were exercised on the diagnostic build, which failed retired-raster clearing, responsive effect placement and `#c` tooltip rendering. Source corrections are implemented; final evidence must separately replay them. Catalogued/learned is not unconditional usable capability. |
-| Notices/speech/chat | Six retained native gameplay notice rows, immediate6000-ms linear alpha fade, admitted gain producers; separate bounded received chat history, original speech balloon and layered expanded editor. | Diagnostic real Blue Snail kills/pickups produced EXP0→12, mesos0→19, two items and a visibly empty notice canvas after fading. Native speech wrapping/expiry and focused expanded chat passed. This is not injected reward or fabricated All-chat delivery. |
-| Saves/items/drops | Atomic UID-bearing inventory/equipment; original drop flight/fall/rotation/700-ms moving-target pickup; native amount modal and reserved-slot debit. | [Inventory/trade diagnostic](native-ui-validation/inventory-trade/report.json) and older [expanded item report](ingame-validation/expanded/items/evidence.json) preserve exercised conservation/refusal/durability and their failures. Field drops remain transient; randomized equipment and network drop ownership are not implemented. |
-| Local multiplayer benefits | Consenting local roster/social transactions; personal/same-map-party family EXP/drop rates, six-descendant bonding, earned senior reputation and owned family travel consumers. | [Social diagnostic](native-ui-validation/social/report.json) exercised a seeded-reputation personal1.5× purchase/cancel/reload, not earned reputation, altered probability, party/bonding or expiration. Local peers are explicit simulation, not a connected Nexon server. |
-| Viewport/layers | Recovered world-depth equations and mutation ties, actor-owned attachments, independent field effects, isolated child/UI/modal stacking and top/right temporary-stat anchors. | [Viewport diagnostic](native-ui-validation/viewports/report.json) preserves its matrix and defects. Old world comparisons are not proof of later DOM/raster fixes; browser fonts and non800×600 adaptation remain policy. |
-| Offline delivery/performance | Immutable release closure, resumable staging, activation/pinning, separate saves and bounded resource owners. | Expanded18420-resource/356-map installation and server-stopped playback are historical measurements, not current release totals. Final measurements belong to [validation](validation.md). No universal60-FPS, all-browser or original Windows parity follows. |
-| Reactors/other entities | Original placements, state/event transitions, timeouts and accepted attack areas. Historical closure57 reactor maps/26 templates. | Retained native reactor cases prove only their selected hits/transitions. Script rewards, unsupported skill conditions, projectile/summon and special controller state are not fabricated from artwork. |
+| Area                              | Current contract                                                                                               | Read next                                                           |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Movement and action               | Recovered 30 ms kernel, original geometry and avatar actions                                                   | [Movement](movement-parity.md) · [Physics](physics-evidence.md)     |
+| Combat and progression            | Local HP/mob authority with recovered supported calculations and labeled reference rules                       | [Combat](offline-combat.md)                                         |
+| Skills and effects                | Learned admission, costs, cooldowns, shared timed effects; 485 source-capable / 49 unavailable classifications | [Skills](skills.md)                                                 |
+| NPCs and quests                   | Original target geometry, authored dialogue and bounded Cosmic-reference programs                              | [NPCs](ingame-life.md) · [Quests](ingame-quests.md)                 |
+| Items and drops                   | UID-bearing instances, atomic inventory/equipment changes, original motion and pickup                          | [Drop motion](drop-motion.md) · [Saves](offline-saves.md)           |
+| Portals and camera                | Named arrival, atomic scene replacement, recovered camera history                                              | [Portals](ingame-portals.md)                                        |
+| Character and inspection          | Schema 8, validated presets and isolated development experiments                                               | [Character](offline-profile.md) · [Inspection](inspection-tools.md) |
+| Social and commerce               | Explicit local peers and shared transaction rules; local peers are not network players                         | [UI](ingame-ui.md) · [Binding actions](offline-binding-actions.md)  |
+| Interface, audio and effects      | Original resource ownership, modal/focus rules and trusted audio unlock                                        | [UI](ingame-ui.md) · [Audio](ingame-audiovisual.md)                 |
+| Delivery                          | Verified immutable release installation, separate from character saves                                         | [Asset delivery](asset-delivery.md)                                 |
+| Reactors, pets and other entities | Supported owned controllers; script rewards and pet equipment remain limited                                   | [Entity families](ingame-entities.md)                               |
+
+## Operational clocks and ownership
+
+| Clock                                  | Duration / behavior                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------------------- |
+| Movement and player action integration | 30 ms per tick                                                                     |
+| Positive-hit protection                | 1500 ms; RGB phases every 60 ms                                                    |
+| Hit expression                         | Independent 1500 ms lifetime                                                       |
+| Alert/brace                            | 5000 ms; changes grounded idle and standing HP-recovery eligibility                |
+| Ordinary HP / MP recovery              | Independent 10000 ms accumulators; applicable modifiers follow recovered consumers |
+| Same-map Teleport artwork              | Four 80 ms frames; separate 600 ms travel recovery                                 |
+| Field brightness transition            | Separate 600 ms leaving/reveal clocks                                              |
+
+Death, transitions, modal/carry owners and pending transactions block competing new gameplay intent. Existing gravity/inertia may settle. Editors consume their own keys, composition and repeats. Presentation clocks do not create extra gameplay updates. See [integration ownership](reconstruction-contract.md).
 
 ## Offline first-job advancement correction
+
+The implemented Dark Lord beginner-to-thief route uses the authorized Cosmic script, its qualification/reward rules and atomic local publication. These are server-reference policies, not recovered Nexon rules. Unsupported advanced/custom quest dependencies fail before publication.
+
+<details>
+<summary>Exact source, transaction and retained replay evidence</summary>
 
 The bounded NPC compiler now admits the complete authored Dark Lord script
 `scripts/npc/1052001.js`, including its literal dialogue-state record, lazy branches
@@ -86,74 +97,12 @@ also completes the transaction, learns Nimble Body and cold-reloads after the
 actual delivery server is stopped. Its original destination and thief-artwork
 closure was warmed first; this is not a complete-release offline installation.
 Exact identities and qualification boundaries are retained in
-[integrated validation](validation.md#gameplay-corrections-and-authority-proposal).
+[integrated validation](archive/validation-history.md#exercised-gameplay-and-development-controls).
 
-## Operational clocks and ownership
+</details>
 
-Do not conflate the player clocks: positive-hit protection is1500ms, its two-tick RGB phases are60ms each, the hit facial expression has its own1500-ms lifetime, and the alert/brace deadline is5000ms. Brace substitutes only grounded idle artwork and resets standing HP-recovery progress, without stopping movement or MP recovery. Ordinary HP/MP recovery uses independent10000-ms accumulators; supported learned modifiers enter their recovered consumers. The safe-ground native diagnostic observed MP recovery by10050ms and the first post-brace HP recovery at15120ms, not an invented fixed delay after every hit.
+## Evidence boundary
 
-New field intent is blocked by death, transitions, CashShop, modal/carry ownership and pending transactions. Existing gravity/inertia is allowed to settle; it is not newly admitted input. ItemUse's repeated admission excludes its own pending operation but not other owners. Chat/native editors own Enter/Escape, composition and repeat handling rather than leaking these keys to field actions. Source presence does not prove blur/visibility/IME behavior on every platform; consult the source-identified binding replay.
+The [current validation index](validation.md) links scoped reports by source identity. [Earlier gameplay reports](archive/gameplay-history.md) retain old failures, controller counts and performance measurements as historical evidence. Their original measured builds are not silently updated by this guide.
 
-Same-map relocation preserves the camera's double-precision history and applies the recovered28px-deadband distance/time filter; it does not install a fixed-duration tween or reset to an immediate destination camera. The Teleport effect's four80-ms frames, same-map600-ms travel recovery, field600-ms brightness transitions and unresolved BGM crossfade are separate clocks.
-
-## Final frozen-build evidence
-
-The [final Family report](native-ui-validation/final/family/report.json) identifies source `eb84f90bc737325848d220c995dd11c6c3da05b12d97309c687cfde787036983` and catalog `273cc7e6d1835af5323ac6d26b270ab10094971ef63ccdfb9acdf0c8e7b942f1`. It exercises all11 entitlements with an explicitly seeded reputation budget; exact same-map party recipients, five/six-descendant bonding, native/peer consent and durability; real EXP gains and earned senior reputation; and+10 versus+5 actual same-template kills around a shortened purchased-effect expiry. It retains the duplicate-`sp` Henesys incoming-summon refusal rather than claiming an all-pass release. The initial HUD-level allegation was corrected by enlarged exact-pixel inspection: HUD31 agrees with the actual level31/EXP4 transition and senior reputation12→216. No statistical drop-rate ratio, full15/30-minute wait, actual midnight crossing or later fixed-source equivalence is asserted.
-
-The [final native gameplay report](native-ui-validation/final/gameplay/report.json) identifies the same source/catalog and reports no remaining failures in its assigned slice. It passes all four prior defects (top/right effects, retired raster clearing, formatted tooltip, bound potion); genuine kills/item pickup/notice fade; speech/expanded-editor layering; positive-hit protection/brace/recovery; Stance natural expiry with low-roll ordinary recontact;322/907 recoil admission and1112-damage retained `attack1`; reciprocal same-map frames0–3/retirement; and settled death-modal refusal/confirmed return-map revival. Exact799/800, repeated-hit refusal, strong type2, ladder/sentinel/nonpositive-hit paths, revival failure/auto-confirm, audio PCM and every-viewport coverage remain explicitly unexercised. The Family duplicate-name destination finding above is not erased by this gameplay slice's empty failure list.
-
-## Historical independent scenarios and replay evidence
-
-- [UI/movement worker](offline-validation/ui-movement/results.json): native windows, focus, viewport and locomotion scenarios, with retained screenshots.
-- [Combat/quest worker](offline-validation/combat-quests/evidence.json): native combat, 30-Pig quest, progression, death/recovery and persistence.
-- [Portal/reactor worker](offline-validation/portals-reactors/evidence.json): native route and reactor scenarios.
-- [Delivery worker](offline-validation/delivery/evidence.json): isolated browser installation/failure/update scenarios.
-- Main replays: [HUD clamp](offline-validation/main/clamp-after.json), [focused hotkey](offline-validation/main/hotkey-after.json), [Recover/reactor](offline-validation/main/recovery-reactor-after.json), [loading authority](offline-validation/main/loading-alive-after.json), [journal](offline-validation/main/journal-after.json), [quest detail](offline-validation/main/journal-detail-after.json), [delivery failure/retry/cancel](offline-validation/main/delivery-failures-after.json), and [normal update](offline-validation/main/delivery-update-after.json).
-- [Native durable-store evidence](offline-save-validation.json); [all-map refresh/manifest validation](offline-validation/refresh-invariance.json): 356 maps, 7,013 regions and 573 dynamic renderables.
-
-These artifacts precede the current correction. Their original failures remain findings, not final passes; superseded full-HP/sidebar/timer recovery is not current revival evidence. The old waiting-worker update warning is likewise historical; the retained activated-worker update and final-install records have no hash-warning error.
-
-## Original hit and Shroom correction milestone
-
-[Native proof](client-corrections-validation/hit-shroom.json), [sample trace](client-corrections-validation/hit-shroom-trace.json), and [original consumer provenance](ghidra-client-corrections/provenance.json) supersede the former guessed player hit response and the `mobType`/`noFlip` stationary classification.
-
-- Map104040000: all ten original Shrooms patrol authored contiguous floor links, with original move frames and no motion faults. Their `mobType=4` does not prevent grounded motion; `noFlip` affects mirroring only.
-- That historical milestone assigned±200/−200 to ordinary hits. The expanded recovery corrects this to±270/−270;200 belongs to a Power Guard branch. The retained1500-ms timer and60-ms RGB phases are unchanged.
-- Native samples show two accepted positive hits1500 simulated ms apart, both with (+200,−200) velocity and movement unlocked. Native pause captures retain both tint states during protection. Scoped lint and45 tests/298 assertions passed.
-- Damage equations, continuous patrol decisions and unrecovered special status/controller behavior remain local or unavailable. See [the exact hit contract](offline-combat.md#recovered-ordinary-player-hit-response).
-
-The following release/performance sections are the retained **earlier integration baseline**, not a new full-release measurement for this correction.
-
-## Historical final release and server-stopped proof
-
-- Build: `2a08e4020a9770693c2f5ec422eb3e333d92f82819596288fed537e89cddf455`.
-- Release: `71146c859aeae9a15148d5e91a4ec11947ffcc221bbd378441bcaea132018c94`.
-- **356 maps, 9,709 resources, 416,128,097 verified file bytes (396.9 MiB).**
-- Native [installation](offline-validation/main/final-release-install.json) and [activation](offline-validation/main/final-release-active.json) retain complete readiness and exact release pinning, with no installer/worker error or uncached content.
-- [Cold restart](offline-validation/main/final-server-stopped-restart.json): the origin process was stopped and isolated Chrome restarted with its retained profile. Installed shell/catalog/world resources return 200 through the service worker with zero network transfer. The sole failed resource-timing entry is the intentionally network-only release-update check. Its visible `Update check unavailable: Failed to fetch` is expected; installed readiness remains true, and runtime/physics faults and uncached lists remain clear.
-- [Final native offline play/save/reload](offline-validation/main/final-offline-portal-reload.json): `navigator.onLine=false`, Henesys→Maya's House at `(202,232)`, an eligible upward jump, native return to Henesys, Save locally and reload. The complete saved player projection matches after reload; release pin remains exact, with no gameplay fault or uncached resource. [Visible final surface](offline-validation/main/final-offline-portal-reload.png).
-
-## Historical loading, stalls and memory measurements
-
-Command: `bun run validate --duration 10 --maps 100000000,100000001,104040001,106010000,230030100,211040000 --output docs/offline-validation/performance`.
-
-[Summary](offline-validation/performance/summary.json) and [full report](offline-validation/performance/report.json): Chrome152, Apple M3 ANGLE/Metal, WebGL2, 1280×900, DPR1. Page-target emulation uses150-ms latency and1.5-Mbit/s download with empty initial cache; service-worker-originated requests are **not** throttled by that target.
-
-| Measurement                              | Observed                                                                                                                                |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Cold playable readiness                  | 23.514 s under the scoped emulation; maximum measured interval33.4 ms, one interval over33 ms, no long tasks                            |
-| Screenshot-free live movement            | 10.005 s /599 intervals; mean16.666 ms, p95/p99/max16.8 ms; no intervals over20 ms and no long tasks                                    |
-| Native offline combat                    | 10.291 s /617 intervals, two actual kills and EXP+8; mean16.666 ms, max16.8 ms, no intervals over20 ms or long tasks; used heap26.71 MB |
-| Six map replacement times                | 75.99, 91.17, 103.59, 198.99, 90.38 and89.54 ms; no measured replacement interval over20 ms, no long tasks                              |
-| Live used JS heap                        | 42.46 MB                                                                                                                                |
-| Largest sampled replacement heap         | 103.74 MB; sampled heap, not a process-wide peak or forced-GC leak claim                                                                |
-| Largest sampled replacement GPU estimate | 73.82 MB, below the192-MiB GPU budget                                                                                                   |
-| World oracle                             | Seven captures; zero pixels outside the unchanged four-level per-channel tolerance                                                      |
-
-The separate [combat measurement](offline-validation/performance/combat.json) uses the final installed release with origin stopped and network disabled. Native map selection, bounded observed-target approach and X presses exercise actual damaging attacks; snapshots observe rather than mutate authority. The measurement includes driver observation overhead and is not a process-wide peak-memory claim.
-
-[HTTP byte-identity smoke](offline-validation/main/http-encoding.json) shows catalog gzip reducing11,337,089 file bytes to1,979,464 wire bytes with unchanged SHA-256; `gzip;q=0` correctly returns identity encoding. Compression is bounded to16 MiB of precomputed server representations and does not alter release hashes. The benchmark's former center-click opened Regular Cab legitimately; [diagnosis](offline-validation/main/first-input-diagnosis.json) distinguishes that modal from an input bug. Half-pixel camera/vertex artifacts were fixed at whole-composition projection, not by weakening the oracle.
-
-## Publication milestone
-
-The retained earlier milestone includes local gameplay authority, original-data closure, durable saves, complete-release installation, integrated replay fixes, documentation and proof. Generated runtime artwork and original binaries remain outside source publication. Its35-test/131-assertion source gate, later387-check graphical milestone and [expanded report](ingame-validation/expanded/report.json) are historical. Use [validation](validation.md) for the final source identity, existing native replay artifacts, measurements and explicit remaining dependencies.
+The original input tree contains WZ archives and executables/DLLs, not original C/C++ source. Cosmic is an authorized server emulator reference; no third-party client implementation is used. [Input provenance](inputs.md) and [Windows reference gaps](windows-reference-captures.md) state the remaining boundaries.

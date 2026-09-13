@@ -33,3 +33,80 @@
 .VPSidebarItem .service-label span {
   overflow-wrap: anywhere;
 }
+
+:root {
+  --vp-c-brand-1: #287146;
+  --vp-c-brand-2: #358657;
+  --vp-c-brand-3: #287146;
+  --vp-c-brand-soft: rgba(45, 125, 78, 0.12);
+  --vp-sidebar-width: 292px;
+}
+
+.dark {
+  --vp-c-brand-1: #84d6a3;
+  --vp-c-brand-2: #6cc690;
+  --vp-c-brand-3: #287146;
+  --vp-c-brand-soft: rgba(111, 204, 150, 0.14);
+}
+
+.vp-doc p,
+.vp-doc li {
+  line-height: 1.75;
+}
+
+.vp-doc th {
+  white-space: nowrap;
+}
+
+.vp-doc td {
+  vertical-align: top;
+  min-width: 100px;
+  line-height: 1.6;
+}
+
+.vp-doc table {
+  font-size: 14px;
+}
+
+.vp-doc details {
+  margin: 20px 0;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.vp-doc summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.docs-diagram {
+  margin: 24px 0;
+  padding: 16px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+}
+
+.docs-diagram-image {
+  overflow-x: auto;
+}
+
+.docs-diagram svg {
+  display: block;
+  margin: auto;
+  max-width: 100%;
+  height: auto;
+}
+
+.docs-diagram details {
+  margin-bottom: 0;
+  border: 0;
+  padding: 8px 0 0;
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+}
+
+.docs-diagram pre {
+  overflow-x: auto;
+}

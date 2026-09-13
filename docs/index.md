@@ -1,44 +1,53 @@
-# openms.dev documentation
+---
+layout: home
+hero:
+  name: openms.dev
+  text: A MapleStory browser client
+  tagline: Original assets. Shared gameplay. Server-owned online state. Find the setup, contracts, and evidence behind the reconstruction.
+  actions:
+    - theme: brand
+      text: Run the client
+      link: /client/
+    - theme: alt
+      text: Set up multiplayer
+      link: /server/
+features:
+  - icon: 🎮
+    title: Play & develop
+    details: Offline and online entry points, controls, development accounts, and inspection tools.
+    link: /client/
+  - icon: 🧭
+    title: Understand the system
+    details: One movement kernel, explicit state owners, and the path from input to a durable result.
+    link: /client/reconstruction-contract
+  - icon: 🛡️
+    title: Check feature coverage
+    details: Which native features have online authority, where the code lives, and what remains unavailable.
+    link: /server/offline-parity
+  - icon: 🔎
+    title: Recover original behavior
+    details: WZ properties, executable consumers, Ghidra findings, and reproducible resource audits.
+    link: /client/original-resource-audit
+  - icon: ✅
+    title: Validate a change
+    details: Choose the smallest relevant check. Keep measured evidence separate from implementation claims.
+    link: /client/validation-method
+  - icon: 📚
+    title: Maintain these docs
+    details: Canonical pages, source links, diagrams, and the documentation audit command.
+    link: /client/documentation-guide
+---
 
-openms.dev reconstructs an original-asset browser client with JavaScript, JSDoc, Bun, and PixiJS. Documentation is organized by service: the offline/online **Client** and the authoritative Bun **Server**. Recovered behavior, development/reference rules, measured results, and missing capabilities remain explicitly distinguished.
+## Find the right guide
 
-## Client
+| I want to…                              | Start here                                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Run locally or fix a login problem      | [Client quick start](README.md) · [Server setup and troubleshooting](server/index.md#troubleshooting)                     |
+| Change a gameplay feature               | [Integration and ownership](reconstruction-contract.md) · [Feature map](server/offline-parity.md)                         |
+| Match the original appearance or motion | [UI recovery](login-creation-recovery.md) · [Movement](movement-parity.md) · [Resource audit](original-resource-audit.md) |
+| Inspect a character or map              | [Development inspection](inspection-tools.md) · [Agent interface](agent-interface.md)                                     |
+| Find a test, capture, or known gap      | [Validation results](validation.md) · [Historical reports](archive/index.md)                                              |
 
-[Open the client documentation](README.md) for independent offline setup (`bun run client:dev:offline`) and [online development](README.md#online-development) (`bun run client:dev:online`).
+## Evidence matters
 
-- **Architecture:** [subsystem contracts](reconstruction-contract.md), [scene and inspection APIs](scene-contract.md), [agent experiments](agent-interface.md), and [offline integration](offline-integration-contract.md).
-- **Assets and streaming:** [decoding evidence](asset-evidence.md), [fresh original resource/property audit](original-resource-audit.md), [inventory](ingame-inventory.md), [delivery](asset-delivery.md), and [streaming](streaming.md).
-- **Physics:** [motion evidence](physics-evidence.md), [options](physics-options.md), [refinements](physics-refinements.md), [geometry](hitboxes.md), and [avatar actions](avatar-actions.md).
-- **UI:** [login and creation recovery](login-creation-recovery.md), [in-game windows](ingame-ui.md), [NPC/Ability and development recovery](native-ui-authority-recovery.md), [binding actions](offline-binding-actions.md), and [audio/effects](ingame-audiovisual.md).
-- **Offline gameplay:** [scope and acceptance](offline-gameplay.md), [combat](offline-combat.md), [skills](skills.md), [quests](ingame-quests.md), [character development](offline-profile.md), [saves](offline-saves.md), and [portals](ingame-portals.md).
-- **Evidence and validation:** [original client findings](client-evidence.md), [Windows reference gaps](windows-reference-captures.md), [validation procedure](validation-method.md), and [measured results](validation.md).
-
-## Server
-
-[Open the server documentation](server/index.md) for workspace status, reference-data inputs, and authority boundaries.
-
-- **Workspace:** the private Bun server package and its current implementation status.
-- **Reference data:** the authorized Cosmic checkout and the client-side conversion tools that consume it.
-- **Authority boundaries:** online observations and intent-only commands stay separate from local peers and IndexedDB saves.
-- **Protocol:** [authoritative web protocol](server/protocol.md), with server-owned transitions, transactional economy and a separately authenticated development endpoint.
-
-Run `bun run server:dev` for the loopback server and `bun run client:dev:online` for the original-asset online browser. PostgreSQL and extracted content are required. See [setup and production gates](server/index.md); development/reference policies are not original-server fidelity or measured security guarantees.
-
-The [online/offline parity inventory](server/offline-parity.md) maps native features to server ownership and records NPC/quest verification. [Login recovery](login-creation-recovery.md) documents the selected-character spotlight, banner, creation layout and dice evidence.
-
-[Browser session ownership](browser-session.md) allows one game tab per shared browser storage origin, for both clients.
-
-## Project guidance
-
-Follow the [JavaScript coding style](coding-style.md) and [input provenance](inputs.md). Authoritative Markdown and raw evidence stay at their existing repository paths; the site publishes client pages under `/client/` and server pages under `/server/`. Repository-file links continue to target the actual Git remote. Historical captures, identities, and benchmark counts are not renamed or reinterpreted.
-
-## Run this site
-
-From the repository root:
-
-```sh
-bun install --frozen-lockfile
-bun run dev:docs
-```
-
-Offline and documentation development commands retain `dev:<service>[:mode]`; online entry points are `server:dev` and `client:dev:online`. For a documentation production build and local inspection, use `bun run docs:build`, then `bun run docs:preview`. The site is rooted in `docs/`; generated output and cache stay under `docs/.vitepress/`.
+Original WZ assets and executable consumers establish client behavior. The authorized Cosmic server reference supplies separately labeled server policies. Implemented code, classified assets, and exercised behavior are different claims; the guides name their boundaries. See [input provenance](inputs.md).

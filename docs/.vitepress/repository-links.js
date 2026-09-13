@@ -4,14 +4,16 @@ import { fileURLToPath } from "node:url";
 
 const docsRoot = fileURLToPath(new URL("../", import.meta.url));
 const repositoryRoot = resolve(docsRoot, "..");
-const repositoryUrl = "https://github.com/tensorfish/maple-mono";
+export const repositoryUrl = "https://github.com/tensorfish/openms";
 
 /** Publish client/server sections without moving retained Markdown or evidence.
  * @param {string} path Markdown path relative to docs/.
  */
 export function documentationRoute(path) {
   if (path === "README.md") return "client/index.md";
-  if (path === "index.md" || /^(client|server)\//.test(path)) return path;
+  if (path === "index.md" || /^(client|server|archive)\//.test(path)) {
+    return path;
+  }
   return `client/${path}`;
 }
 
@@ -50,6 +52,11 @@ function isInside(directory, target) {
  */
 function repositoryHref(href, source) {
   if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#|\?)/i.test(href)) return href;
+  if (typeof source !== "string") {
+    throw new Error(
+      "Relative repository links require the Markdown source path",
+    );
+  }
   const suffixIndex = href.search(/[?#]/);
   const pathname = suffixIndex < 0 ? href : href.slice(0, suffixIndex);
   const suffix = suffixIndex < 0 ? "" : href.slice(suffixIndex);
@@ -101,9 +108,6 @@ function targetHref(target, href, suffix) {
  */
 function adaptRepositoryLinks(state) {
   const source = state.env.realPath ?? state.env.path;
-  if (typeof source !== "string") {
-    throw new Error("Repository links require the Markdown source path");
-  }
   for (const block of state.tokens) {
     if (!block.children) continue;
     for (const token of block.children) {

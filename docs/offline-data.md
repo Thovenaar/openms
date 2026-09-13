@@ -89,7 +89,7 @@ Concrete shop data:
 
 ## Integration, payoff, and limits
 
-`client/tools/extract.js` imports `extractServerData` and publishes its result as `catalog.serverData`. The existing resource/release traversal follows these ordinary descriptors; no competing hash/publication convention is introduced. Consolidated extraction and complete-release installation now include all six reference resources. See [expanded acceptance](validation.md#current-expanded-fidelity-acceptance).
+`client/tools/extract.js` imports `extractServerData` and publishes its result as `catalog.serverData`. The existing resource/release traversal follows these ordinary descriptors; no competing hash/publication convention is introduced. Consolidated extraction and complete-release installation now include all six reference resources. See [expanded acceptance](archive/validation-history.md#current-expanded-fidelity-acceptance).
 
 Immediate payoff is the existing drop consumer: a provenance-checked, correctly located Cosmic drop source now uses a statement-aware parser, so commented tuples, unrelated six-column tables, malformed rows, and unsafe integer values cannot become drops. Its 22,157 full-source rows reproduce the domain drop table exactly; selected-map filtering and drop coverage remain in `drop-data.js`.
 

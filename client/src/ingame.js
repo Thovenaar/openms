@@ -20,10 +20,7 @@ import {
   CharacterBindings,
   EXPRESSION_NAMES,
 } from "./input/character-bindings.js";
-import {
-  updateEquipmentMovement,
-  updateSkillMovement,
-} from "./physics/skill-movement.js";
+import { updatePlayerMovement } from "./physics/skill-movement.js";
 import { NativeInterfaces, nativeInterfaceHooks } from "./ingame-interfaces.js";
 import { AvatarVisuals } from "./character/avatar-visuals.js";
 import {
@@ -381,12 +378,12 @@ class FieldSystems {
     this.reactors.refresh();
   }
   updateMovement() {
-    updateEquipmentMovement(
+    updatePlayerMovement(
       this.scene.simulation,
       this.gameplay.store.profile.equipment,
       this.owner.catalog.ui.items,
+      this.skills.derived(),
     );
-    updateSkillMovement(this.scene.simulation, this.skills.derived());
   }
   beforePhysics(input) {
     this.skills.utilityController.input(input);

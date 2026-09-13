@@ -1,31 +1,17 @@
-# Offline implementation contract
+---
+search: false
+---
 
-These are the current subsystem ownership and integration contracts. [coding-style.md](coding-style.md) governs implementation; [offline-gameplay.md](offline-gameplay.md) indexes behavior and retained evidence. Local policies are never asserted original server rules. The authorized server reference is Cosmic, not Nexon source. Strict lint and 128 tests / 751 assertions passed for the integrated source; the [current fidelity report](ingame-validation/fidelity/report.json) records actual browser observations and limits. Passing checks does not establish complete native fidelity.
+# Offline integration: consolidated contract
 
-## Character state
+The offline and online ownership descriptions are now maintained together in the [shared integration contract](reconstruction-contract.md). This replaces the outdated schema and skill-coverage snapshot formerly on this page.
 
-`ProfileStore` owns current `.profile`, synchronous `.markDirty()`, atomic `.commitProfile()`/`.commitKeyBindings()`, flush/reset/teardown and explicit failures. Schema 3 retains all character/inventory/equipment/quest/location/audio/binding domains and adds exactly ten SP pools, `{level, masterLevel, expiresAt}` learned records and chat preferences. Sequential v1→v2→v3 migration grants no points or skills. Atomic commits freeze the previous graph, validate an isolated draft and publish only after IndexedDB revision/generation compare-and-swap completion. Failure restores an equal mutable clone rather than publishing the candidate. Consumers reacquire the root after success or failure and exclude gameplay mutations while `profileTransactionPending`; rendering and inspection remain live. The native browser sidebar editor uses this same transaction, separately from normal Skill-window allocation. [Save semantics](offline-saves.md) and [development validation](offline-profile.md) are authoritative. The provisional beginner preset remains unchanged, with no starter consumables or learned ranks; KeyConfig's active draft is separate until Save.
-
-## Fixed clock and avatar
-
-`advanceSimulation(sim,input,ms,onStep?)` invokes optional `onStep(quantumMs)` after each executed 30-ms tick; Main updates local gameplay and player artwork per tick without a second physics accumulator. Input holds `attack` and `jump` booleans alongside existing edges. Ambient entities advance by RAF elapsed, excluding player and dynamic gameplay-owned mobs. `extractAvatar(context)` in `client/tools/avatar-data.js` uses the existing `{image,part}` decoder/converter context and returns `{actions,equipment}` with source-string equipment paths. Frame transforms require evidence and consistent renderer/validator/oracle handling. Starter weapon is Character/Weapon/01302000.img. One-shot API `setAction(name, playback='loop')` accepts `loop` or `once`; the same action/mode does not restart, `.completed` becomes true at the exact one-shot end, and `once` holds the last frame. Scene `updateActor(pose)` uses pose.action when supplied, otherwise simulation.action. Combat can override presentation action without rewriting base physics action.
-
-## Local gameplay authority
-
-`OfflineField(scene,store,hooks)` owns one local gameplay authority: prepared/demand-bounded mob artwork, one step per 30-ms physics quantum, action/movement-lock/death projection, state snapshots and teardown. Original rectangles—not pixel extents—supply hit geometry. Accepted hit/recovery/death hooks feed the sole presentation owners. Death opens the ordinary confirmation and authored return-map transition; no field-local full-restore API remains. Field `SkillSystem` supplies learned admission, costs, cooldowns and supported modifiers without a second damage engine. The catalog classifies 10 supported passive consumers, 4 self-stat buffs and 2 sword attacks among 534 numeric skills in 71 books; these are capability counts, not native-fidelity counts. Other controllers remain explicitly unavailable. Slash Blast's forward range extension requires a basic-rectangle target; self-buff overlap remains an explicit local policy. NPC previews never mutate gameplay; no loot tables or missing scripts are invented. [Combat](offline-combat.md) and [skills](skills.md) name exact policies and unsupported dependencies.
-
-## Quests
-
-`extractQuests(context)` in `quest-data.js` returns the full rule inventory and supported projections as `catalog.quests`. `QuestSystem(catalog.quests,store,hooks)` exposes `.forNpc(npcId)`, `.begin(questId,npcId)`, `.complete(questId,npcId)`, `.onKill(templateId)`, `.snapshot()` and dialogue presentation descriptors. Shared state uses the profile schema above: state 0 absent/not-started, 1 active, 2 completed. Completed-state checks prevent repeat rewards. Unsupported conditions/actions/scripts remain classified with exact reasons, rather than reducing extraction to a hardcoded quest ID. Hooks include `{onChange(),onEffect(name),hpGrowth(profile)}`; the learned HP-growth consumer does not replace the explicitly provisional base progression policy. `quest-ui.js` presents supported dialogue through the existing original UtilDlgEx surface.
-
-## UI and viewport
-
-`GameUI.setProfile(store,quests)` and `setBindings(service)` connect graphical HUD/window projections and shared active input. Original HUD gauges/numbers, Item/Equip/Stat/Skill icons, keyboard/palette, quick-slot popup, cursor and chat contracts are authoritative in [ingame-ui.md](ingame-ui.md). Local messages/diagnostics do not overlay original artwork or fake chat delivery. Quest descriptors remain consumed by quest-ui.js through integration hooks. Camera helper `followCamera(camera,pose,physics,viewport)` mutates top-left coordinates using original VR bounds and small-map midpoint; viewport is `{width,height}`. Beyond800×600 the generalized half-viewport clamp is browser policy. UI remains bottom-centered in a logical800×600 plane with matching DOM/raster downscaling.
-
-## Portals and other entities
-
-`portal-system.js` consumes original portal metadata and exposes unsupported dependencies rather than executing unavailable script strings. The persistent exported `PortalTravelGate` is passed as `hooks.travelGate` and owned by `InGameSystems`, with scene-independent monotonic admission/completion state. Main owns atomic travel and post-commit effects. Reactor rendering and supported local event transitions remain separate from unavailable script rewards, Morph and TamingMob controllers; data presence alone never grants runtime behavior. See [offline-gameplay.md](offline-gameplay.md) for the retained subsystem evidence and limits.
-
-## Offline delivery
-
-`dev.js`, `offline-delivery.js`, the public service worker and release-manifest tools own offline delivery. The dependency closure comes from the final catalog and bundled application. Main initializes the delivery sidebar through `initializeOfflineDelivery()`. Download stages a complete version, verifies resource hashes and bytes, then atomically publishes readiness so cached shell/catalog/assets form a consistent release. Missing content/quota/network/corruption errors remain visible; ordinary asset caching must not evict the pinned active release. The bounded closure walker traverses descriptors generically, including schema additions. Network-disabled acceptance and its historical boundaries are indexed in [offline-gameplay.md](offline-gameplay.md); implementation ownership is not proof of a new offline browser run.
+| Previous section           | Canonical reference                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Character state            | [State and schema](reconstruction-contract.md#character-state) · [Save transactions](offline-saves.md)             |
+| Fixed clock and avatar     | [Motion and bounds](reconstruction-contract.md#motion-and-bounds) · [Avatar actions](avatar-actions.md)            |
+| Local gameplay authority   | [Subsystem owners](reconstruction-contract.md#subsystem-boundaries) · [Feature coverage](server/offline-parity.md) |
+| Quests                     | [Quest contract](ingame-quests.md)                                                                                 |
+| UI and viewport            | [UI ownership](reconstruction-contract.md#ui-and-viewport)                                                         |
+| Portals and other entities | [Portal contract](ingame-portals.md) · [Entity families](ingame-entities.md)                                       |
+| Offline delivery           | [Delivery ownership](reconstruction-contract.md#offline-delivery)                                                  |
