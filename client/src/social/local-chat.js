@@ -1,3 +1,4 @@
+import { socialEqual } from "../profile/social-equality.js";
 import { PROFILE_LIMITS } from "../profile/profile-validation.js";
 import { SOCIAL_LIMITS } from "../profile/profile-social.js";
 import { memberIds, socialRequire } from "./local-social-context.js";
@@ -355,7 +356,7 @@ export class LocalChat {
     for (const id of ids) {
       const peerGroup = this._participant(id).profile.social[kind];
       socialRequire(
-        peerGroup && JSON.stringify(peerGroup) === JSON.stringify(group),
+        peerGroup && socialEqual(peerGroup, group),
         "chat-membership",
         `The saved ${kind} memberships disagree; nothing was delivered.`,
       );

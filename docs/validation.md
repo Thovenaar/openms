@@ -463,3 +463,9 @@ No render/loading bottleneck remained in the measured interval: persistent sprit
 ## Reference limitation
 
 **No original-client gameplay captures or original source were supplied, and the Windows executable was not run.** All pixel comparisons are against an independent compositor of decoded original assets, not original-client pixels. Full original avatar assembly, absolute camera attachment, camera-follow behavior and other limits remain explicitly listed in [README.md](README.md) and [client-evidence.md](client-evidence.md).
+
+## NPC, Ability and online development repairs (2026-09-13)
+
+[Recovery and provenance](native-ui-authority-recovery.md) records the original006d3392NPC menu order, WZ ScriptInfo labels,008c4c7fStat Details construction, large development payload refusal and PostgreSQL JSONB social-mirror comparison defect. The [feature inventory](server/offline-parity.md#september13-ui-and-authority-audit) covers the existing61online commands and45social operations while explicitly retaining incomplete original-content domains.
+
+The [focused native report](native-ui-validation/ui-authority-repairs/report.json) passes NPC heading/artwork/talk/cancel, beginner Details at800×600with attack range, a Corsair preset, buddy request/acceptance, a conjured drop observed by two isolated browser contexts, normal-player pickup and both reconnects. Native inputs produced committed receipts and recipient updates; no browser mutation API granted progress. The operator's database was not used for fixture writes. Both error journals were empty. Scoped Prettier/ESLint, a nonpublishing online import-boundary build and122tests/588assertions across15affected files passed. The retained report is not a whole-world, all-content or Windows-raster parity claim.

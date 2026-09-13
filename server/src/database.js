@@ -1,4 +1,5 @@
 import { SQL } from "bun";
+import { DEVELOPMENT_JSON } from "../../shared/development.js";
 import {
   PROFILE_LIMITS,
   validateProfile,
@@ -271,7 +272,8 @@ export class Database {
   }
   async auditDevelopment(entry) {
     if (
-      JSON.stringify(entry.action).length > 16384 ||
+      new TextEncoder().encode(JSON.stringify(entry.action)).length >
+        DEVELOPMENT_JSON.maxBytes ||
       !["requested", "committed", "rejected"].includes(entry.status)
     ) {
       throw failure("NOT_ALLOWED");

@@ -8,6 +8,7 @@ import {
   admitItem,
   selectedItem,
 } from "../../client/src/items/inventory-action-rules.js";
+import { SOCIAL_RULE_CODES } from "../../shared/social-feedback.js";
 
 /** Receipt identity includes the originally admitted field, never the actor's later destination. */
 export function operationFor(message) {
@@ -58,6 +59,9 @@ export function reject(code, reason) {
 /** Offline rule diagnostics stay server-side; only closed protocol codes cross the wire. */
 export function ruleError(error) {
   if (error.code !== "OK" && RESULT_CODES.includes(error.code)) return error;
+  if (Object.hasOwn(SOCIAL_RULE_CODES, error.code)) {
+    return protocolError(SOCIAL_RULE_CODES[error.code]);
+  }
   let code = "REQUIREMENTS_NOT_MET";
   if (
     ["inventory-full", "inventory-limit", "occupied-slot"].includes(error.code)

@@ -3,6 +3,7 @@ import { renderDialogArtwork } from "./ui-dialog-art.js";
 import { itemCount } from "../items/inventory-model.js";
 import { NativeDialogLayout } from "./ui-dialog-layout.js";
 import { NPC_MARKUP_TOKENS as TOKEN } from "../npc/npc-script-markup.js";
+import { NPC_MENU_HEADINGS, npcQuestGroup } from "../npc/npc-menu.js";
 
 const MAX_TEXT = 65536;
 const PAGE_SIZE = 24;
@@ -232,18 +233,17 @@ function renderMenu(view) {
     }
     return;
   }
-  // Original UtilDlgEx/list3, list0, list1 distinguish ready, active and available.
-  rows.sort((a, b) => menuGroup(a) - menuGroup(b));
+  rows.sort((a, b) => npcQuestGroup(a) - npcQuestGroup(b));
   const count = Math.ceil(rows.length / PAGE_SIZE);
   view.offset = Math.min(view.offset, Math.max(0, count - 1));
   const end = Math.min(rows.length, (view.offset + 1) * PAGE_SIZE);
   let group = null;
   for (let index = view.offset * PAGE_SIZE; index < end; index++) {
     const entry = rows[index];
-    const nextGroup = menuGroup(entry);
+    const nextGroup = npcQuestGroup(entry);
     if (nextGroup !== group) {
       group = nextGroup;
-      menuHeading(view, [3, 0, 1][group]);
+      menuHeading(view, NPC_MENU_HEADINGS[group]);
     }
     renderMenuEntry(view, entry.record);
   }
@@ -253,10 +253,6 @@ function renderMenu(view) {
     button.dataset.npcTalk = "true";
   }
   renderMenuPaging(view, count);
-}
-
-function menuGroup(entry) {
-  return entry.state === 0 ? 2 : entry.ready ? 0 : 1;
 }
 
 function menuHeading(view, index) {

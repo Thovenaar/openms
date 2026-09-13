@@ -6,6 +6,7 @@ import {
 import { getInteractionContent } from "./interactions.js";
 import { prepareCreatedCharacter } from "./character-creation.js";
 import { issueCreationRoll, admitCreationRoll } from "./creation-roll.js";
+import { DEVELOPMENT_JSON } from "../../shared/development.js";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_BODY_CHUNKS = 64;
@@ -37,7 +38,7 @@ function response(value, status = 200, cookie = null) {
   return new Response(JSON.stringify(value), { status, headers });
 }
 
-async function requestBody(request) {
+function admitBodyHeaders(request, maxBytes) {
   if (
     !/^application\/json(?:;\s*charset=utf-8)?$/i.test(
       request.headers.get("content-type") ?? "",
@@ -46,12 +47,16 @@ async function requestBody(request) {
     throw protocolError("INVALID_MESSAGE");
   }
   const length = request.headers.get("content-length");
-  if (length && (!/^\d+$/.test(length) || Number(length) > MAX_BODY_BYTES)) {
+  if (length && (!/^\d+$/.test(length) || Number(length) > maxBytes)) {
     throw protocolError("INVALID_MESSAGE");
   }
+}
+
+async function requestBody(request, limits = { maxBytes: MAX_BODY_BYTES }) {
+  admitBodyHeaders(request, limits.maxBytes);
   const reader = request.body?.getReader();
   if (!reader) throw protocolError("INVALID_MESSAGE");
-  const buffer = new Uint8Array(MAX_BODY_BYTES);
+  const buffer = new Uint8Array(limits.maxBytes);
   let size = 0;
   let finished = false;
   try {
@@ -63,9 +68,10 @@ async function requestBody(request) {
           new TextDecoder("utf-8", { fatal: true }).decode(
             buffer.subarray(0, size),
           ),
+          limits,
         );
       }
-      if (part.value.length > MAX_BODY_BYTES - size) {
+      if (part.value.length > limits.maxBytes - size) {
         throw protocolError("INVALID_MESSAGE");
       }
       buffer.set(part.value, size);
@@ -327,7 +333,7 @@ export class OnlineHttp {
   }
 
   async develop(request) {
-    const body = await requestBody(request);
+    const body = await requestBody(request, DEVELOPMENT_JSON);
     const actor = this.admitDevelopment(request, body);
     const audit = {
       accountId: actor.accountId,
@@ -340,15 +346,9 @@ export class OnlineHttp {
       status: "requested",
       code: "OK",
     });
+    let result;
     try {
-      const result = await this.gateway.world.develop(actor, body);
-      this.logDevelopment(actor, body, result);
-      await this.database.auditDevelopment({
-        ...audit,
-        status: result.status ?? "committed",
-        code: result.code ?? "OK",
-      });
-      return response({ ...result, operationId: body.operationId });
+      result = await this.gateway.world.develop(actor, body);
     } catch (error) {
       this.logDevelopment(actor, body, {
         status: "rejected",
@@ -367,6 +367,14 @@ export class OnlineHttp {
         transactionId: null,
       });
     }
+    // A failed post-commit audit must not manufacture a rejected transaction receipt.
+    this.logDevelopment(actor, body, result);
+    await this.database.auditDevelopment({
+      ...audit,
+      status: result.status ?? "committed",
+      code: result.code ?? "OK",
+    });
+    return response({ ...result, operationId: body.operationId });
   }
 
   logDevelopment(actor, body, result) {

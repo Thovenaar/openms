@@ -62,9 +62,11 @@ export function questOffers(actor, world, lease) {
     lease.npcTemplateId,
   );
   requireInteraction(entries.length <= MAX_OFFERS, "CONTENT_MISMATCH");
-  return entries.map(({ record, state }) => ({
+  return entries.map(({ record, state, ready }) => ({
     questId: record.id,
     action: state === 0 ? "accept" : "claim",
+    state,
+    ready,
   }));
 }
 

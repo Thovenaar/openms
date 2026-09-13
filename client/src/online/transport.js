@@ -69,7 +69,7 @@ async function request(path, method = "GET", body, headers = null) {
   for (let count = 0; count < 4096; count++) {
     const chunk = await reader.read();
     if (chunk.done) {
-      return decodeResponse(chunks, length, response.ok, body?.operationId);
+      return decodeResponse(chunks, length, response.status, body?.operationId);
     }
     length += chunk.value.byteLength;
     if (length > HTTP_BYTES) break;
@@ -79,7 +79,7 @@ async function request(path, method = "GET", body, headers = null) {
   throw failure("HTTP_BYTE_LIMIT");
 }
 
-function decodeResponse(chunks, length, ok, operationId) {
+function decodeResponse(chunks, length, status, operationId) {
   const bytes = new Uint8Array(length);
   let offset = 0;
   for (const chunk of chunks) {
@@ -94,10 +94,12 @@ function decodeResponse(chunks, length, ok, operationId) {
     operationId &&
     value.operationId === operationId &&
     value.status === "rejected";
-  if (!ok && !receipt) {
-    throw failure(
+  if ((status < 200 || status >= 300) && !receipt) {
+    const error = failure(
       typeof value.code === "string" ? value.code : "HTTP_REJECTED",
     );
+    error.httpStatus = status;
+    throw error;
   }
   return value;
 }
@@ -1033,7 +1035,7 @@ export class OnlineTransport {
       this.pending.set(operationId, {
         fields: { operationId, action: structuredClone(action) },
         development: true,
-        durable: ["map", "profile", "preset"].includes(action.kind),
+        durable: true,
         playSession: this.playSession,
         resolve,
         deadline: performance.now() + COMMAND_TIMEOUT_MS,
@@ -1072,6 +1074,14 @@ export class OnlineTransport {
       pending.recoverResolve?.(observed);
       this.callbacks.onEvent?.(observed);
     } catch (error) {
+      if (
+        !pending.unknown &&
+        error.httpStatus >= 400 &&
+        error.httpStatus < 500
+      ) {
+        this.rejectDevelopment(pending, error.code);
+        return;
+      }
       pending.unknown = true;
       pending.resolve(
         freezeView({
@@ -1087,6 +1097,18 @@ export class OnlineTransport {
     } finally {
       pending.inFlight = false;
     }
+  }
+
+  rejectDevelopment(pending, code) {
+    const result = freezeView({
+      status: "rejected",
+      code,
+      operationId: pending.fields.operationId,
+    });
+    this.pending.delete(pending.fields.operationId);
+    pending.resolve(result);
+    pending.recoverResolve?.(result);
+    this.callbacks.onEvent?.(result);
   }
 
   ack() {

@@ -3,6 +3,7 @@ import { NpcShop } from "./npc-shop.js";
 import { NpcStorage } from "./npc-storage.js";
 import { mountNpcDialogue } from "../ui/quest-ui.js";
 import { mountNpcScriptDialogue } from "./npc-script-ui.js";
+import { npcTalkLabel } from "./npc-menu.js";
 
 const MAX_ROUTES = 10000;
 const MAX_SHOP_ROWS = 200000;
@@ -172,7 +173,10 @@ export class NpcInteractions {
         this.record = {
           ...record,
           onTalk: route ? () => this.startRoute() : null,
-          talkLabel: record.functionName || record.name,
+          talkLabel: npcTalkLabel(
+            record,
+            this.owner.quests.catalog.npcScriptLabels,
+          ),
         };
         await this.owner.ui.showNpc(this.record);
       } else if (route) await this.runRoute(route);

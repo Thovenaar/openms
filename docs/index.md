@@ -9,7 +9,7 @@ openms.dev reconstructs an original-asset browser client with JavaScript, JSDoc,
 - **Architecture:** [subsystem contracts](reconstruction-contract.md), [scene and inspection APIs](scene-contract.md), [agent experiments](agent-interface.md), and [offline integration](offline-integration-contract.md).
 - **Assets and streaming:** [decoding evidence](asset-evidence.md), [inventory](ingame-inventory.md), [delivery](asset-delivery.md), and [streaming](streaming.md).
 - **Physics:** [motion evidence](physics-evidence.md), [options](physics-options.md), [refinements](physics-refinements.md), [geometry](hitboxes.md), and [avatar actions](avatar-actions.md).
-- **UI:** [login and creation recovery](login-creation-recovery.md), [in-game windows](ingame-ui.md), [binding actions](offline-binding-actions.md), and [audio/effects](ingame-audiovisual.md).
+- **UI:** [login and creation recovery](login-creation-recovery.md), [in-game windows](ingame-ui.md), [NPC/Ability and development recovery](native-ui-authority-recovery.md), [binding actions](offline-binding-actions.md), and [audio/effects](ingame-audiovisual.md).
 - **Offline gameplay:** [scope and acceptance](offline-gameplay.md), [combat](offline-combat.md), [skills](skills.md), [quests](ingame-quests.md), [character development](offline-profile.md), [saves](offline-saves.md), and [portals](ingame-portals.md).
 - **Evidence and validation:** [original client findings](client-evidence.md), [Windows reference gaps](windows-reference-captures.md), [validation procedure](validation-method.md), and [measured results](validation.md).
 

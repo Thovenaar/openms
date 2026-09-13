@@ -1,3 +1,4 @@
+import { socialEqual } from "../../client/src/profile/social-equality.js";
 import { CONTACT_ACTIONS } from "../../client/src/social/local-social-actions.js";
 import { GROUP_ACTIONS } from "../../client/src/social/local-social-groups.js";
 import { BOARD_ACTIONS } from "../../client/src/social/local-social-board.js";
@@ -7,6 +8,7 @@ import {
   SocialContext,
   socialRequire,
   admitContact,
+  admitInvitationPreference,
 } from "../../client/src/social/local-social-context.js";
 import { validateSocialCommit } from "../../client/src/profile/profile-social-transaction.js";
 import { admitActor, operationFor, ruleError } from "./action-rules.js";
@@ -34,8 +36,9 @@ function affectedGroups(kind, invitationKind) {
     selected === "guild" ||
     selected === "alliance" ||
     kind === "friend.block"
-  )
-    {return ["party", "guild", "alliance"];}
+  ) {
+    return ["party", "guild", "alliance"];
+  }
   if (selected === "family") return ["family", "party"];
   return GROUPS.includes(selected)
     ? [selected]
@@ -58,8 +61,9 @@ function foundingIds(world, actor) {
       !social.invitations.some(
         (entry) => entry.kind === "guild-create" && entry.toId === peer.id,
       )
-    )
-      {ids.push(peer.id);}
+    ) {
+      ids.push(peer.id);
+    }
   }
   requireInteraction(ids.length < MAX_COHORT, "SERVER_BUSY");
   return ids;
@@ -109,12 +113,16 @@ function sameLiveField(world, leftId, rightId) {
 
 function invitationPhysicalIds(actorId, invitation, drafts) {
   const ids = new Set();
-  if (["family", "guild-create", "alliance-create"].includes(invitation?.kind))
-    {ids.add(invitation.fromId);}
+  if (
+    ["family", "guild-create", "alliance-create"].includes(invitation?.kind)
+  ) {
+    ids.add(invitation.fromId);
+  }
   if (invitation?.kind === "guild-create") {
     for (const member of drafts.get(invitation.fromId).social.guild?.members ??
-      [])
-      {ids.add(member.id);}
+      []) {
+      ids.add(member.id);
+    }
     ids.add(actorId);
   }
   return ids;
@@ -193,12 +201,13 @@ function namedGroups(profiles) {
   for (const profile of profiles.values()) {
     for (const kind of ["guild", "alliance"]) {
       const group = profile.social[kind];
-      if (group)
-        {names.set(`${kind}:${group.id}`, {
+      if (group) {
+        names.set(`${kind}:${group.id}`, {
           kind,
           name: group.name.toLowerCase(),
           groupId: group.id,
-        });}
+        });
+      }
     }
   }
   return names;
@@ -223,23 +232,50 @@ function mutateSocial(drafts, actor, request, options) {
   options.admitPhysical(drafts);
   const ids = [...drafts.keys()];
   const originals = new Map();
-  for (const [id, profile] of drafts)
-    {originals.set(id, structuredClone(profile));}
+  for (const [id, profile] of drafts) {
+    originals.set(id, structuredClone(profile));
+  }
   const context = createContext(drafts, actor.id, request, options);
   if (request.kind === "messenger.send") {
     requireInteraction(
       (context.get().onlineState?.mutedUntil ?? 0) <= options.now,
       "NOT_ALLOWED",
     );
-    for (const id of context.group("messenger").members)
-      {if (id !== actor.id) admitContact(context, id);}
+    for (const id of context.group("messenger").members) {
+      if (id !== actor.id) admitContact(context, id);
+    }
   }
-  ACTIONS[request.kind](context);
+  applySocialAction(context);
   validateSocialCommit(ids, [...originals.values()], [...drafts.values()]);
   return {
     value: { kind: "social.result", action: request.kind, ...context.result },
     socialNames: socialNameChanges(originals, drafts),
   };
+}
+
+/** Repeating Add Buddy while its mirrored request is pending reuses that request. */
+function applySocialAction(context) {
+  const request = context.payload;
+  const previous =
+    request.kind === "friend.invite"
+      ? context
+          .get()
+          .social.invitations.find(
+            (entry) =>
+              entry.kind === "friend" &&
+              entry.fromId === context.actorId &&
+              entry.toId === request.targetId,
+          )
+      : null;
+  if (!previous) return ACTIONS[request.kind](context);
+  const target = admitContact(context, request.targetId);
+  admitInvitationPreference(context, "friend", request.targetId);
+  socialRequire(
+    target.social.invitations.some((entry) => socialEqual(entry, previous)),
+    "social-conflict",
+    "The buddy invitation participants disagree.",
+  );
+  context.result.invitationId = previous.id;
 }
 
 async function commitSocial(world, actor, message, state) {
@@ -285,12 +321,14 @@ export async function executeSocial(actor, message, world) {
       request,
       profiles.get(actor.id),
     );
-    if (travelRequest)
-      {travel = await prepareSocialTravel(world, actor, profiles, travelRequest);}
+    if (travelRequest) {
+      travel = await prepareSocialTravel(world, actor, profiles, travelRequest);
+    }
     const options = socialOptions(world, actor, request, travel);
     const preflight = new Map();
-    for (const [id, profile] of profiles)
-      {preflight.set(id, structuredClone(profile));}
+    for (const [id, profile] of profiles) {
+      preflight.set(id, structuredClone(profile));
+    }
     mutateSocial(preflight, actor, request, options);
     const receipt = await commitSocial(world, actor, message, {
       profiles,
@@ -299,21 +337,31 @@ export async function executeSocial(actor, message, world) {
       travelRequest,
     });
     if (receipt.status === "committed") {
-      for (const id of profiles.keys()) {
-        const peer = world.actors.get(id);
-        if (peer?.state === "active")
-          {publishInteraction(world, peer, {
-            kind: "social.changed",
-            actorId: actor.id,
-            action: request.kind,
-            revision: peer.socialRevision,
-          });}
-      }
+      publishSocialChange(world, actor, request, profiles);
     }
     return receipt;
   } catch (error) {
+    world.log?.("social.refused", {
+      character: actor.id,
+      action: message.action.request.kind,
+      rule: error.code,
+      reason: String(error.message).slice(0, 256),
+    });
     throw ruleError(error);
   } finally {
     travel?.release();
+  }
+}
+
+function publishSocialChange(world, actor, request, profiles) {
+  for (const id of profiles.keys()) {
+    const peer = world.actors.get(id);
+    if (peer?.state !== "active") continue;
+    publishInteraction(world, peer, {
+      kind: "social.changed",
+      actorId: actor.id,
+      action: request.kind,
+      revision: peer.socialRevision,
+    });
   }
 }

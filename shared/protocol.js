@@ -23,6 +23,7 @@ import {
   string,
 } from "./schema.js";
 import { decodeJson } from "./json.js";
+import { SOCIAL_MESSAGES } from "./social-feedback.js";
 import { animation, motionSchema } from "./motion-schema.js";
 import {
   settingsSchema,
@@ -113,6 +114,7 @@ export const PROTOCOL = Object.freeze({
 // wire decoding must share the same bounded budget for every legal action.
 const CLIENT_SCHEMA_MAX_NODES = 2048;
 export const RESULT_CODES = Object.freeze([
+  ...Object.keys(SOCIAL_MESSAGES),
   "OK",
   "INVALID_MESSAGE",
   "UNAUTHENTICATED",

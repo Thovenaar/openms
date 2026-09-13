@@ -123,6 +123,7 @@ export class OnlineUI {
       onError: (error) => this.report(error),
       onStatus: (text) => this.hooks.onStatus?.(text),
       onAction: (name) => this.activateBinding(name),
+      onCloseWindow: (name) => this.windowClosed(name),
       isOperationPending: () => !this.destroyed && this.pending > 0,
       isFieldBlocked: () => this.blocked(),
       windowCapability: (name) => this.windowCapability(name),
@@ -137,6 +138,9 @@ export class OnlineUI {
       createProfileControls: (owner) =>
         this.developer() ? new ProfileControls(owner) : profileEditorNotice(),
       onProfileEdit: (patch, options) => this.editProfile(patch, options),
+      onConjureItem: ({ itemId, quantity }) =>
+        this.develop({ kind: "conjure", itemId, quantity }),
+      onOfferTemplate: (id) => this.offerTemplate(id),
       profileEditSuccess: "Profile edits committed by the server.",
       onLearnSkill: (skillId) =>
         this.request({ kind: "skills.allocate", skillId, amount: 1 }),
@@ -162,6 +166,13 @@ export class OnlineUI {
       onRevive: () =>
         this.persist({ kind: "revive.request", method: "return" }),
     };
+  }
+  windowClosed(name) {
+    if (this.destroyed || this.ui.closingAll) return;
+    if (name === "PartyHP") {
+      this.ui.windows.get("UserList")?.localRefresh?.();
+    }
+    this.ui.profileControls?.refresh();
   }
   interactionHooks() {
     return {
@@ -360,8 +371,9 @@ export class OnlineUI {
     }
     if (this.shop && !ids.has(this.shop.event.shopSession)) this.closeShop();
     if (this.trade && !ids.has(this.trade.event.tradeId)) this.closeTrade();
-    if (this.storage && !ids.has(this.storage.event.storageSession))
-      {this.closeStorage();}
+    if (this.storage && !ids.has(this.storage.event.storageSession)) {
+      this.closeStorage();
+    }
   }
   async command(action, revision) {
     if (this.destroyed) throw new Error("Native online UI was destroyed.");
@@ -369,9 +381,7 @@ export class OnlineUI {
     try {
       const receipt = await this.transport.command(action, revision);
       if (receipt.status !== "committed") {
-        this.report(
-          receipt.code ?? "Operation outcome unknown; reconnect to recover it.",
-        );
+        this.report(nativeOutcome(receipt).reason);
       }
       return receipt;
     } finally {
@@ -417,13 +427,35 @@ export class OnlineUI {
             job: jobPreset,
             ...(patch && Object.keys(patch).length ? { patch } : {}),
           };
-    const result = await this.transport.develop(action);
-    if (result?.status !== "committed") {
-      throw new Error(
-        result?.code ?? "Developer operation outcome is unknown.",
-      );
+    return this.develop(action);
+  }
+  async develop(action) {
+    this.pending++;
+    try {
+      let receipt = await this.transport.develop(action);
+      if (receipt.status === "unknown") {
+        this.hooks.onStatus?.(
+          "Awaiting server confirmation. Reconnect to recover this operation.",
+        );
+        receipt = await this.transport.recover(receipt.operationId);
+      }
+      if (receipt.status !== "committed") throw new Error(receipt.code);
+      return nativeOutcome(receipt);
+    } finally {
+      this.pending--;
     }
-    return { ok: true, receipt: result };
+  }
+  offerTemplate(id) {
+    const item = this.store.profile?.inventory.find(
+      (entry) => entry.id === id && entry.count > 0,
+    );
+    if (!item) {
+      return {
+        accepted: false,
+        reason: "Pick up this item before offering it to a reactor.",
+      };
+    }
+    return this.worldActions.offer({ uid: item.uid, actorId: this.store.id });
   }
   portrait(surface, point) {
     const portrait = new NativeAvatarPortrait(surface, this.avatars, point);
@@ -486,8 +518,9 @@ export class OnlineUI {
   }
   activateBinding(name) {
     if (!this.store.profile) return false;
-    if (Object.hasOwn(USER_TABS, name))
-      {return this.activateUserTab(USER_TABS[name]);}
+    if (Object.hasOwn(USER_TABS, name)) {
+      return this.activateUserTab(USER_TABS[name]);
+    }
     if (name === "Sit" || name.startsWith("Expression:")) {
       if (this.blocked() || this.ui.blocksGameplay()) return false;
       return this.worldActions.activateBinding(name);
@@ -532,8 +565,9 @@ export class OnlineUI {
       this.ui
         .open("UserList")
         .then((opened) => {
-          if (opened && this.ui.windows.get("UserList") === opened)
-            {opened.selectLocalTab(index);}
+          if (opened && this.ui.windows.get("UserList") === opened) {
+            opened.selectLocalTab(index);
+          }
         })
         .catch((error) => this.report(error));
     }
@@ -670,12 +704,13 @@ export class OnlineUI {
   }
   chatEvent(event) {
     if (event.channel === "map") {
-      if (event.senderId !== this.store.id)
+      if (event.senderId !== this.store.id) {
         this.ui.chat.receive({
           source: "session",
           text: `${event.senderName}: ${event.text}`,
           time: performance.now(),
         });
+      }
     } else this.social.chat.receive(event);
   }
   async skillEvent(event) {
@@ -728,8 +763,9 @@ export class OnlineUI {
   async dropEvent(event) {
     switch (event.kind) {
       case "drop.pickup":
-        if (event.actorId === this.store.id)
+        if (event.actorId === this.store.id) {
           await this.audio.playSound("Game", "PickUpItem");
+        }
         return true;
       case "drop.gain":
         if (event.actorId === this.store.id) {
@@ -753,7 +789,7 @@ export class OnlineUI {
   recordCard(event) {
     if (event.actorId !== this.store.id) return;
     const name = this.catalog.ui.items[event.cardItemId]?.name;
-    if (event.full || name)
+    if (event.full || name) {
       this.ui.chat.receive({
         source: "gameplay",
         text: event.full
@@ -761,6 +797,7 @@ export class OnlineUI {
           : `[${name}] has been successfully recorded on the Monster Book.`,
         time: performance.now(),
       });
+    }
   }
   async interactionEvent(event) {
     switch (event.kind) {
@@ -780,8 +817,9 @@ export class OnlineUI {
         await this.publishStorage(event);
         return true;
       case "storage.closed":
-        if (this.storage?.event.storageSession === event.storageSession)
-          {this.closeStorage();}
+        if (this.storage?.event.storageSession === event.storageSession) {
+          this.closeStorage();
+        }
         return true;
       case "trade":
         await this.publishTrade(event);
@@ -830,7 +868,9 @@ export class OnlineUI {
       this.closeTrade();
       this.trade = new NativeTrade(this, event);
     }
-    if (this.trade.terminal) return this.publishTradeTerminal(event, existingRoom);
+    if (this.trade.terminal) {
+      return this.publishTradeTerminal(event, existingRoom);
+    }
     if (event.state === "invited" && event.participants[1] === this.store.id) {
       await this.ui.open("TradeInvitation");
     } else if (
@@ -876,8 +916,9 @@ export class OnlineUI {
     return this.cash;
   }
   async publishStorage(event) {
-    if (!event.account)
-      {throw new Error("The server account storage state is missing.");}
+    if (!event.account) {
+      throw new Error("The server account storage state is missing.");
+    }
     if (
       this.storage?.event.storageSession === event.storageSession &&
       !this.storage.closed
@@ -901,10 +942,12 @@ export class OnlineUI {
     for (const item of event.items) {
       if (item.amount > 0) this.ui.notices.publish({ kind: "item", ...item });
     }
-    if (event.mesos > 0)
-      {this.ui.notices.publish({ kind: "meso", amount: event.mesos });}
-    if (event.exp > 0)
-      {this.ui.notices.publish({ kind: "exp", amount: event.exp, white: true });}
+    if (event.mesos > 0) {
+      this.ui.notices.publish({ kind: "meso", amount: event.mesos });
+    }
+    if (event.exp > 0) {
+      this.ui.notices.publish({ kind: "exp", amount: event.exp, white: true });
+    }
     if (event.levels > 0) await this.audio.playGameplayEffect("LevelUp");
     if (event.questClear) await this.audio.playGameplayEffect("QuestClear");
   }
@@ -921,15 +964,16 @@ export class OnlineUI {
     if (event.weaponSfx) this.audio.onPlayerAttack(event.weaponSfx);
     else if (event.templateId !== null && event.action) {
       const actor = this.entities.find((entry) => entry.id === event.actorId);
-      if (actor)
-        {this.audio.onMobAttack(
+      if (actor) {
+        this.audio.onMobAttack(
           {
             ...actor.position,
             templateId: event.templateId,
             action: event.action,
           },
           this.scene.presentation,
-        );}
+        );
+      }
     }
   }
   impactAudio(event) {

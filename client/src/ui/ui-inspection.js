@@ -785,25 +785,29 @@ export class ProfileControls {
     inspectionElement("summary", "Save & recovery", recovery);
     inspectionElement(
       "p",
-      "Checkpoint saves the live character, not unapplied edits.",
+      this.owner.hooks.readOnlyProfile
+        ? "Applied changes are saved by the server. Use Revive when your character has died."
+        : "Checkpoint saves the live character, not unapplied edits.",
       recovery,
     ).className = "hint";
     const actions = inspectionElement("div", "", recovery);
     actions.className = "profile-actions";
     this.save = profileButton(actions, "Save checkpoint");
+    this.save.hidden = Boolean(this.owner.hooks.readOnlyProfile);
     this.recover = profileButton(actions, "Revive character");
     this.status = inspectionElement("p", "", recovery);
     this.status.setAttribute("role", "status");
     this.status.className = "hint";
     const advanced = inspectionElement("details", "", this.scroll);
     inspectionElement("summary", "Destructive actions", advanced);
+    advanced.hidden = Boolean(this.owner.hooks.readOnlyProfile);
     this.reset = profileButton(advanced, "Reset character…");
     const offering = inspectionElement("details", "", this.scroll);
     inspectionElement("summary", "Reactor testing", offering);
     this.offerCatalog = new ItemCatalogControls(
       offering,
       this.owner.index.items,
-      "Local reactor offering item",
+      "Reactor offering item",
     );
     this.items = this.offerCatalog.select;
     this.offer = profileButton(offering, "Offer nearby");
@@ -1624,7 +1628,7 @@ export class ProfileControls {
     this.feedback.textContent =
       result.reason ||
       (result.accepted
-        ? "Local offer accepted."
+        ? "Offer accepted."
         : "No matching nearby reactor requirement.");
   }
 
@@ -1642,12 +1646,14 @@ export class ProfileControls {
     this.offering = request;
     this.offer.disabled = true;
     try {
-      const result = await this.owner.hooks.onOfferItem(id);
+      const offer =
+        this.owner.hooks.onOfferTemplate ?? this.owner.hooks.onOfferItem;
+      const result = await offer(id);
       if (!this.owns(request)) return;
       this.showOfferingResult(result);
     } catch (error) {
       if (!this.owns(request)) return;
-      this.feedback.textContent = `Local offer failed: ${error.message}`;
+      this.feedback.textContent = `Offer failed: ${error.message}`;
       this.owner.report(error);
     } finally {
       if (this.owns(request)) {

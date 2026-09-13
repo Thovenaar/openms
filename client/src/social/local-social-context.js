@@ -1,3 +1,4 @@
+import { socialEqual } from "../profile/social-equality.js";
 import { profileError } from "../profile/profile-validation.js";
 import { SOCIAL_LIMITS } from "../profile/profile-social.js";
 
@@ -81,7 +82,7 @@ export class SocialContext {
     for (const id of memberIds(group)) {
       const other = this.get(id).social[kind];
       socialRequire(
-        other && JSON.stringify(other) === JSON.stringify(group),
+        other && socialEqual(other, group),
         "social-conflict",
         `The saved ${kind} participants disagree; no changes were made.`,
       );
@@ -176,7 +177,10 @@ export function invite(context, kind, targetId, group = null) {
   admitInvitationPreference(context, kind, targetId);
   socialRequire(
     !target.social.invitations.some(
-      (entry) => entry.kind === kind && entry.toId === targetId,
+      (entry) =>
+        entry.kind === kind &&
+        entry.toId === targetId &&
+        (kind !== "friend" || entry.fromId === context.actorId),
     ),
     "invitation-pending",
     "That character already has a pending invitation of this kind.",
@@ -216,12 +220,8 @@ export function pendingInvitation(context) {
   const sender = context.get(request.fromId),
     recipient = context.get(request.toId);
   socialRequire(
-    sender.social.invitations.some(
-      (entry) => JSON.stringify(entry) === JSON.stringify(request),
-    ) &&
-      recipient.social.invitations.some(
-        (entry) => JSON.stringify(entry) === JSON.stringify(request),
-      ),
+    sender.social.invitations.some((entry) => socialEqual(entry, request)) &&
+      recipient.social.invitations.some((entry) => socialEqual(entry, request)),
     "social-conflict",
     "The saved invitation participants disagree; no changes were made.",
   );

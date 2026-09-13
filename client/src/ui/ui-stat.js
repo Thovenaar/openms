@@ -1,6 +1,5 @@
 const AP_TARGETS = ["hp", "mp", "str", "dex", "int", "luk"];
 const AP_ROWS = [117, 135, 247, 265, 283, 301];
-const BEGINNER_JOBS = new Set([0, 1000, 2000, 2001]);
 // 008c2870 renders the actual calculated combat values over Stat/backgrnd2.
 const DETAIL_ROWS = [
   ["damage", 8],
@@ -25,7 +24,7 @@ export function layoutStatControls(panel) {
       }),
     );
   }
-  // 008c79f5 BtDetail control at124,324; 008c5531 settles the child at parent+(170,144).
+  //008c4c7f creates BtDetail at124,324 for every job/level;008c5531 places the child.
   panel.detailControl = panel.button("Stat/BtDetail", 124, 324, {
     label: "Detailed statistics",
     action: () => toggleStatDetail(panel),
@@ -33,13 +32,7 @@ export function layoutStatControls(panel) {
 }
 
 export function updateApControls(panel, profile) {
-  const beginner =
-    profile && profile.level < 11 && BEGINNER_JOBS.has(profile.job);
-  panel.detailControl.setVisible(!beginner);
-  if (beginner && panel.statDetail) {
-    panel.statDetail.destroy();
-    panel.statDetail = null;
-  }
+  panel.detailControl.setVisible(Boolean(profile));
   for (let i = 0; i < AP_TARGETS.length; i++) {
     const result = panel.owner.hooks.apAdmission?.(AP_TARGETS[i]);
     panel.statControls[i].setDisabled(
@@ -122,8 +115,10 @@ function toggleStatDetail(panel) {
 export function updateStatDetail(panel) {
   if (!panel.statDetail) return;
   const stats = panel.owner.hooks.characterStats?.();
+  const display = stats ? { ...stats } : null;
+  if (display) nativeStatDamage(display, display.mastery);
   for (const [key, element] of panel.statDetail.statValues) {
-    const value = statDetailValue(stats, key);
+    const value = statDetailValue(display, key);
     element.textContent =
       value === undefined || value === null ? "—" : String(value);
     element.setAttribute("aria-label", `${key}: ${value ?? "unavailable"}`);
@@ -144,3 +139,4 @@ function statDetailValue(stats, key) {
   }
   return value;
 }
+import { nativeStatDamage } from "./ui-stat-damage.js";

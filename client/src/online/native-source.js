@@ -1,3 +1,5 @@
+import { SOCIAL_MESSAGES } from "../../../shared/social-feedback.js";
+
 /** A read-only publication source. It deliberately has no save, flush or mutation methods. */
 export class NativeProfileSource {
   constructor(owner) {
@@ -50,7 +52,8 @@ export function nativeOutcome(receipt) {
     reason:
       receipt?.status === "committed"
         ? undefined
-        : (receipt?.code ??
+        : (SOCIAL_MESSAGES[receipt?.code] ??
+          receipt?.code ??
           "Operation outcome is unknown; reconnect to recover it."),
     receipt,
     value: receipt?.value,

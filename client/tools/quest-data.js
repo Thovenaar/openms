@@ -568,6 +568,20 @@ function stringNames(context) {
   return result;
 }
 
+/**006d3a65: original labels are keyed by NPC script name, not NPC identity/name. */
+function npcScriptLabels(context) {
+  const root = context.image("Etc", "ScriptInfo.img");
+  const entries = Object.entries(root.children);
+  if (entries.length > 8192) throw new Error("NPC script label limit exceeded");
+  const labels = Object.create(null);
+  for (const [name, node] of entries) {
+    if (typeof node.value === "string" && node.value.length <= 4096) {
+      labels[name] = node.value;
+    }
+  }
+  return labels;
+}
+
 /** One bounded original-name traversal; consumers share the published dictionaries. */
 function collectNames(root, result, property) {
   const queue = [root];
@@ -688,6 +702,7 @@ export function extractQuests(context) {
     inventory,
     fields,
     strings: stringNames(context),
+    npcScriptLabels: npcScriptLabels(context),
     categories: categoryLabels(context, "QuestCategory.img"),
     medalCategories: categoryLabels(context, "MedalQuestCategory.img"),
     content: packagedContent(context),

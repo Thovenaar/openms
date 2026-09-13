@@ -88,6 +88,8 @@ test("unfinished quests remain browsable but cannot grant a completion lease or 
   expect(questOffers(probe.actor, probe.world, probe.lease)).toContainEqual({
     questId: 1039,
     action: "claim",
+    state: 1,
+    ready: false,
   });
   startQuestDialogue(probe.actor, probe.world, probe.lease, 1039);
   expect(latest(probe)).toMatchObject({

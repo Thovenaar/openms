@@ -1,3 +1,4 @@
+import { socialEqual } from "../profile/social-equality.js";
 import { ProfileStore } from "../profile/profile-store.js";
 import { CharacterDevelopment } from "../character/character-development.js";
 import { grantItem, consumeItem } from "../items/inventory-model.js";
@@ -158,11 +159,10 @@ function validateRoster(stores) {
         "social-owner",
         `Saved ${kind} does not contain its owning local character.`,
       );
-      const encoded = JSON.stringify(group);
       for (const memberId of memberIds(group)) {
         const peer = stores.get(memberId);
         socialRequire(
-          peer && JSON.stringify(peer.profile.social[kind]) === encoded,
+          peer && socialEqual(peer.profile.social[kind], group),
           "social-conflict",
           `The saved ${kind} has missing or disagreeing local participants.`,
         );
@@ -178,8 +178,8 @@ function validateRoster(stores) {
       socialRequire(
         stores
           .get(peerId)
-          ?.profile.social.invitations.some(
-            (entry) => JSON.stringify(entry) === JSON.stringify(request),
+          ?.profile.social.invitations.some((entry) =>
+            socialEqual(entry, request),
           ),
         "social-conflict",
         "A saved invitation has a missing or disagreeing local participant.",
@@ -320,14 +320,16 @@ export class LocalSocial {
   }
 
   resolveTarget(name) {
-    if (!this._closed && this._stores.has(name))
-      {return { ok: true, targetId: name };}
+    if (!this._closed && this._stores.has(name)) {
+      return { ok: true, targetId: name };
+    }
     const normalized =
       typeof name === "string" ? name.trim().toLowerCase() : "";
     const matches = [];
     for (const [id, store] of this._stores) {
-      if (id === name || store.profile.name.toLowerCase() === normalized)
-        {matches.push(id);}
+      if (id === name || store.profile.name.toLowerCase() === normalized) {
+        matches.push(id);
+      }
     }
     if (this._closed || matches.length !== 1) {
       return {

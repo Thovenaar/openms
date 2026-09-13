@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { closedRecord, protocolError } from "../../shared/protocol.js";
+import { developmentCanonical } from "../../shared/development.js";
+import { conjureDevelopmentItem } from "./field-development-items.js";
 import { CharacterDevelopment } from "../../client/src/character/character-development.js";
 import {
   stageJobPreset,
@@ -163,6 +165,11 @@ export function developmentAction(action) {
     case "profile":
       admitProfileAction(action);
       break;
+    case "conjure":
+      closedRecord(action, ["kind", "itemId", "quantity"]);
+      integer(action.itemId, 1, 99999999);
+      integer(action.quantity, 1, 65535);
+      break;
     case "spawn":
       closedRecord(action, ["kind", "templateId", "count"]);
       integer(action.templateId, 1, 99999999);
@@ -213,25 +220,10 @@ function admitSharedControl(world, actor) {
 }
 
 function operationFor(actor, request) {
-  const keys = [
-    "kind",
-    "mapId",
-    "job",
-    "patch",
-    "templateId",
-    "count",
-    "paused",
-    "ticks",
-    "globals",
-    "map",
-    "fs",
-    ...PROFILE_FIELDS,
-    ...GLOBALS,
-  ].sort();
   return {
     operationId: request.operationId,
     digest: createHash("sha256")
-      .update(JSON.stringify(request.action, keys))
+      .update(developmentCanonical(request.action))
       .digest("hex"),
     expectedRevision: actor.revision,
     domain: "character",
@@ -394,6 +386,9 @@ async function dispatchDevelopment(world, actor, action, operation) {
   }
   if (action.kind === "preset") {
     return presetEdit(world, actor, action, operation);
+  }
+  if (action.kind === "conjure") {
+    return conjureDevelopmentItem(world, actor, action, operation);
   }
   admitSharedControl(world, actor);
   const prepared =

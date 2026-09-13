@@ -1,3 +1,4 @@
+import { socialEqual } from "./social-equality.js";
 import { domainInvalid } from "./profile-domain-validation.js";
 
 const GROUPS = Object.freeze([
@@ -24,7 +25,7 @@ export function validateSocialCommit(characterIds, originals, drafts) {
     const before = originals[index].social,
       after = drafts[index].social;
     for (const kind of GROUPS) {
-      if (JSON.stringify(before[kind]) === JSON.stringify(after[kind])) {
+      if (socialEqual(before[kind], after[kind])) {
         continue;
       }
       for (const memberId of new Set([
@@ -52,9 +53,8 @@ export function validateSocialCommit(characterIds, originals, drafts) {
 }
 
 function validateMirrors(group, kind, positions, drafts) {
-  const encoded = JSON.stringify(group);
   for (const id of ids(group)) {
-    if (JSON.stringify(drafts[positions.get(id)].social[kind]) !== encoded) {
+    if (!socialEqual(drafts[positions.get(id)].social[kind], group)) {
       domainInvalid(`atomic ${kind} mirrors`);
     }
   }
@@ -64,7 +64,7 @@ function validateInvitationChanges(before, after, positions, drafts) {
   const old = new Map(before.map((entry) => [entry.id, entry]));
   const next = new Map(after.map((entry) => [entry.id, entry]));
   for (const id of new Set([...old.keys(), ...next.keys()])) {
-    if (JSON.stringify(old.get(id)) === JSON.stringify(next.get(id))) continue;
+    if (socialEqual(old.get(id), next.get(id))) continue;
     const entry = next.get(id) ?? old.get(id);
     for (const participant of [entry.fromId, entry.toId]) {
       if (!positions.has(participant)) {
@@ -73,7 +73,7 @@ function validateInvitationChanges(before, after, positions, drafts) {
       const copy = drafts[positions.get(participant)].social.invitations.find(
         (candidate) => candidate.id === id,
       );
-      if (JSON.stringify(copy) !== JSON.stringify(next.get(id))) {
+      if (!socialEqual(copy, next.get(id))) {
         domainInvalid("atomic invitation mirrors");
       }
     }

@@ -390,6 +390,7 @@ export class LifeSystem {
       kind: slot.record.kind,
       authored: slot.record.authored,
       info: slot.template.info,
+      sources: slot.template.sources,
       interactionGeometryKnown: !!slot.interactionLocal,
       mode: "npc-interaction",
       canInteract: slot.canInteract,

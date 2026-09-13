@@ -1,5 +1,10 @@
 import { startQuestDialogue } from "./interaction-quest-dialogue.js";
 import {
+  NPC_MENU_HEADINGS,
+  npcQuestGroup,
+  npcTalkLabel,
+} from "../../client/src/npc/npc-menu.js";
+import {
   closeConversation,
   interactionReceipt,
   publishInteraction,
@@ -9,16 +14,17 @@ import {
 
 /** The menu is server-built from authored quest titles and the admitted talk route. */
 export function publishNpcMenu(actor, world, lease) {
+  lease.menu.sort((left, right) => npcQuestGroup(left) - npcQuestGroup(right));
   const choices = lease.menu.map((entry) => entry.questId);
-  const rows = lease.menu.map(
-    (entry) =>
-      `#L${entry.questId}#${world.content.catalog.quests.records[entry.questId].name}#l`,
-  );
+  const rows = questRows(world.content.catalog.quests, lease.menu);
   if (lease.route?.status === "supported") {
     choices.push(0);
-    rows.push(
-      `#L0#${world.content.catalog.quests.strings.npc[lease.npcTemplateId]}#l`,
+    const npc = world.npc(actor, lease.npcId);
+    const label = npcTalkLabel(
+      npc.template,
+      world.content.catalog.quests.npcScriptLabels,
     );
+    rows.push(heading(2), `#d#L0# ${label}#l#k`);
   }
   requireInteraction(
     choices.length > 0 && choices.length <= 128,
@@ -44,6 +50,24 @@ export function publishNpcMenu(actor, world, lease) {
     minimum: null,
     maximum: null,
   });
+}
+
+function heading(index) {
+  return `\r\n#fUI/UIWindow.img/UtilDlgEx/list${index}#`;
+}
+
+function questRows(quests, entries) {
+  const rows = [];
+  let previous = -1;
+  for (const entry of entries) {
+    const group = npcQuestGroup(entry);
+    if (group !== previous) rows.push(heading(NPC_MENU_HEADINGS[group]));
+    rows.push(
+      `#b#L${entry.questId}# ${quests.records[entry.questId].name}#l#k`,
+    );
+    previous = group;
+  }
+  return rows;
 }
 
 export function answerNpcMenu(actor, message, world, lease) {
