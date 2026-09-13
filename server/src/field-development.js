@@ -209,12 +209,13 @@ export function admitDeveloper(world, actor) {
 function admitSharedControl(world, actor) {
   admitDeveloper(world, actor);
   for (const peer of actor.field.characters.values()) {
+    // The GM controls this field; peers retain ordinary permissions. Never replace a
+    // participant's simulation while its transaction or transition is in progress.
     if (
-      peer.role !== "developer" ||
-      peer.realm !== actor.realm ||
-      peer.accountId !== actor.accountId
+      peer !== actor &&
+      (peer.pending || peer.retiring || peer.state !== "active")
     ) {
-      throw protocolError("NOT_ALLOWED");
+      throw protocolError("SERVER_BUSY");
     }
   }
 }

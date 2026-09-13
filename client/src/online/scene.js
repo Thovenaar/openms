@@ -61,6 +61,7 @@ export class OnlineScene {
     this.intent = intent;
     this.selfId = null;
     this.tick = 0;
+    this.paused = false;
     this.follow = true;
     this.geometry = new Graphics();
     this.scene.overlays.addChild(this.geometry);
@@ -594,6 +595,7 @@ export class OnlineScene {
     };
   }
   draw(now, elapsed, prediction, active) {
+    this.paused = prediction?.paused ?? false;
     this.syncPrediction(prediction, active);
     this.drawPrediction = prediction?.ready && active ? prediction : null;
     for (const view of this.views.values()) {

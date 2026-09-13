@@ -1,7 +1,7 @@
 import { EntityAnimation } from "../rendering/animation.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { DROP_POLICY } from "./drop-rules.js";
-import { dropDrawY } from "./drop-motion.js";
+import { dropDrawY, dropRotation } from "./drop-motion.js";
 import {
   currencyVariant,
   currencyEntity,
@@ -277,7 +277,11 @@ export class DropRenderer {
       entity.seek(slot.age);
       const halfHeight = centerDrop(entity);
       entity.setPosition(slot.x, dropDrawY(slot, halfHeight));
-      entity.container.rotation = slot.rotation;
+      entity.container.rotation = dropRotation(
+        slot,
+        this.system.remainderMs,
+        Boolean(slot.itemId),
+      );
       entity.container.alpha = slot.alpha;
     }
   }

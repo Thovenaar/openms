@@ -56,6 +56,10 @@ const clientSidebar = [
     text: "Asset decoding and streaming",
     items: [
       { text: "Original asset decoding", link: "/client/asset-evidence" },
+      {
+        text: "Original resource and property audit",
+        link: "/client/original-resource-audit",
+      },
       { text: "Original in-game inventory", link: "/client/ingame-inventory" },
       { text: "Deterministic asset delivery", link: "/client/asset-delivery" },
       { text: "Progressive streaming", link: "/client/streaming" },

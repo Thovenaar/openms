@@ -227,7 +227,10 @@ export class OnlineInspection {
       );
     }
     this.record("development request", action);
-    const result = await this.transport.develop(action);
+    let result = await this.transport.develop(action);
+    if (result.status === "unknown") {
+      result = await this.transport.recover(result.operationId);
+    }
     this.record("development result", result);
     if (result.status !== "committed") {
       throw new Error(result.code || result.status);
@@ -298,8 +301,9 @@ export class OnlineInspection {
     if (
       dialogue.event?.conversationId !== offer.conversationId ||
       dialogue.event?.step !== offer.step
-    )
-      {throw new Error("The native quest conversation has changed.");}
+    ) {
+      throw new Error("The native quest conversation has changed.");
+    }
     return dialogue.commandFor(
       { action: kind === "accept" ? "accept" : "acknowledge" },
       offer,
@@ -390,8 +394,9 @@ export class OnlineInspection {
 
   event(message) {
     const event = message.event ?? message;
-    if (event.kind === "dialogue")
-      {this.offer = event.quest?.mode === "confirm" ? event : null;}
+    if (event.kind === "dialogue") {
+      this.offer = event.quest?.mode === "confirm" ? event : null;
+    }
     if (event.kind === "dialogue.closed") this.offer = null;
     this.record("server event", message);
   }

@@ -1,6 +1,12 @@
 import { centerDrop } from "../world/drop-artwork.js";
-import { collectDrop, dropDrawY, DROP_MOTION } from "../world/drop-motion.js";
+import {
+  collectDrop,
+  dropDrawY,
+  dropRotation,
+  DROP_MOTION,
+} from "../world/drop-motion.js";
 import { DROP_POLICY } from "../world/drop-rules.js";
+import { PROTOCOL } from "../../../shared/protocol.js";
 
 const MAX_PICKUP_PRESENTATIONS = 4096;
 
@@ -17,16 +23,18 @@ export function nearestPickupDrop(entities, position, identity, now) {
       motion?.state !== "grounded" ||
       info.disappearing ||
       info.expiresAt <= now
-    )
-      {continue;}
+    ) {
+      continue;
+    }
     if (!pickupOwnerAllows(info, identity, now)) continue;
     const dx = motion.groundX - position.x;
     const dy = motion.groundY - position.y;
     if (
       Math.abs(dx) > DROP_POLICY.pickupX ||
       Math.abs(dy) > DROP_POLICY.pickupY
-    )
-      {continue;}
+    ) {
+      continue;
+    }
     const next = dx * dx + dy * dy;
     if (next < distance) {
       distance = next;
@@ -58,7 +66,13 @@ export class SceneDrops {
     const animation = view.animation;
     const motion = view.entity.dropMotion;
     animation.container.visible = motion?.state !== "waiting";
-    animation.container.rotation = motion?.rotation ?? 0;
+    // Server samples are90ms apart; using only their angle aliases a300ms spin.
+    // Advance artwork only, bounded to one publication interval; authority owns landing.
+    animation.container.rotation = dropRotation(
+      motion,
+      this.owner.paused ? 0 : Math.min(view.observedAge, PROTOCOL.TICK_MS * 3),
+      view.entity.templateId !== 0,
+    );
     animation.container.alpha = motion?.alpha ?? 1;
     animation.container.eventMode = view.entity.dropInfo?.disappearing
       ? "none"

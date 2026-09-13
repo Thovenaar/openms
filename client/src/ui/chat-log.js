@@ -9,6 +9,24 @@ const SOURCE_COLORS = Object.freeze({
   session: "#fff",
   gameplay: "#ffafaf",
 });
+// 008d01b2 fonts, selected by message type at008dc32f (base+0xbe0+type*4).
+// Selector order: buddy, buddy group, party, guild, alliance, spouse, whisper, map.
+export const CHAT_CHANNEL_COLORS = Object.freeze([
+  "#ff9900",
+  "#ff9900",
+  "#ff99cc",
+  "#e1acfe",
+  "#a6ff7f",
+  "#ff28a7",
+  "#00ff00",
+  "#ffffff",
+]);
+
+export function chatColor(record) {
+  return record.source === "session" && Number.isInteger(record.channelIndex)
+    ? (CHAT_CHANNEL_COLORS[record.channelIndex] ?? SOURCE_COLORS.session)
+    : SOURCE_COLORS[record.source];
+}
 
 function validateRecord(record) {
   if (
@@ -45,9 +63,12 @@ export class ChatLog {
   row(record) {
     const row = document.createElement("div");
     row.dataset.chatSource = record.source;
+    if (record.channelIndex !== undefined) {
+      row.dataset.chatChannel = String(record.channelIndex);
+    }
     row.textContent =
       record.source === "local-system" ? `[Local] ${record.text}` : record.text;
-    row.style.color = SOURCE_COLORS[record.source];
+    row.style.color = chatColor(record);
     return row;
   }
   append(record) {
@@ -65,6 +86,9 @@ export class ChatLog {
       source: record.source,
       text: record.text,
       time: record.time,
+      ...(record.channelIndex === undefined
+        ? {}
+        : { channelIndex: record.channelIndex }),
     };
     this.records.push(copy);
     element.append(this.row(copy));

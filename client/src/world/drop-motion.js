@@ -10,6 +10,21 @@ export const DROP_MOTION = Object.freeze({
   disappearLifetimeMs: 3000,
 });
 
+/** 00506142 vector+0xa0 -> Shape2D51408b08: zero-angle mode repeats360deg/300ms.
+ * The renderer may advance the visual clock within one admitted update interval.
+ */
+export function dropRotation(motion, elapsed = 0, item = true) {
+  if (!item || (motion.state !== "launching" && motion.state !== "falling")) {
+    return 0;
+  }
+  return (
+    (((motion.age + elapsed) % DROP_MOTION.itemRotationMs) /
+      DROP_MOTION.itemRotationMs) *
+    Math.PI *
+    2
+  );
+}
+
 /** Native asymmetric rounding, 005051c3..005051dc; do not use Math.round. */
 function nativeRound(value) {
   return Math.trunc(value >= 0 ? value + 0.5 : value - 0.499999999);
@@ -48,9 +63,7 @@ export function launchDrop(slot, source, point, explosive = false) {
 /** 00505117..00505426; returns true only on the landing transition. */
 export function stepDropFlight(slot) {
   const age = slot.phaseAge;
-  slot.rotation = slot.itemId
-    ? (slot.age / DROP_MOTION.itemRotationMs) * Math.PI * 2
-    : 0;
+  slot.rotation = dropRotation(slot, 0, Boolean(slot.itemId));
   if (slot.state === "falling") {
     slot.y = nativeRound(slot.sourceY + (age / 1000) * slot.launchSpeed);
     if (slot.y < slot.groundY) return false;

@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { WzArchive } from "../src/assets/wz.js";
 import { parseImage } from "../src/assets/image.js";
 import { decodeCanvas } from "../src/assets/canvas.js";
+import { inspectProperty, propertyInventory } from "./scan-properties.js";
 
 /** Read a required CLI option value rather than accepting a missing argument. */
 function option(args, name, fallback) {
@@ -47,6 +48,9 @@ function scanNodes(root, byteLimit, context) {
     const { node, path } = stack.pop();
     if (visited.has(node)) throw new Error("Cyclic IMG child traversal");
     visited.add(node);
+    if (context.report.inventoryProperties) {
+      inspectProperty(node, path, context);
+    }
     if (node.type === "Canvas") inspectCanvas(node, path, context);
     const children = Object.entries(node.children);
     for (let i = children.length - 1; i >= 0; i--) {
@@ -60,6 +64,13 @@ function scanNodes(root, byteLimit, context) {
 function scanImage(archive, entry, context) {
   context.counts.images++;
   context.imagePath = `${context.counts.archive}.wz:${entry.path}`;
+  if (context.report.inventoryProperties) {
+    context.counts.imagesInventory.push({
+      path: entry.path,
+      size: entry.size,
+      checksum: entry.checksum,
+    });
+  }
   try {
     const root = parseImage(archive.imageReader(entry.path));
     context.counts.parsed++;
@@ -89,6 +100,7 @@ async function scanArchive(name, report) {
     canvases: 0,
   };
   report.archives.push(counts);
+  if (report.inventoryProperties) propertyInventory(counts);
   const context = { counts, report, imagePath: "" };
   try {
     for (const entry of archive.entries.values()) {
@@ -102,7 +114,13 @@ async function scanArchive(name, report) {
   } finally {
     archive.close();
   }
-  console.log(counts);
+  console.log({
+    archive: name,
+    images: counts.images,
+    parsed: counts.parsed,
+    canvases: counts.canvases,
+    propertyNames: counts.propertyNames,
+  });
 }
 /** Run the original-archive inventory without following reference links or retaining IMG trees. */
 async function main() {
@@ -118,6 +136,7 @@ async function main() {
   const names = option(args, "--archives", "Map,Character,UI").split(",");
   const report = {
     source,
+    inventoryProperties: args.includes("--properties"),
     archives: [],
     canvasFormats: {},
     compressionEnvelopes: {},
@@ -132,7 +151,7 @@ async function main() {
   report.scope =
     "Every IMG payload in the named original archives checksum-checked and parsing attempted; unsupported entries are failures. Canvas metadata from parsed images counted; first original canvas per format/scale/compression envelope inflated and pixel-decoded. Not all canvases pixel-decoded; no original-client screenshot comparison.";
   await Bun.write(
-    "docs/archive-scan.json",
+    option(args, "--output", "docs/archive-scan.json"),
     JSON.stringify(report, null, 2) + "\n",
   );
   console.log({

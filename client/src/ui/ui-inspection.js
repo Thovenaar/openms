@@ -1022,6 +1022,12 @@ export class ProfileControls {
       option.value = id;
     }
     this.stagePreset = profileButton(section, "Stage preset");
+    this.applyPreset = profileButton(section, "Apply staged preset");
+    this.applyPreset.type = "submit";
+    this.applyPreset.setAttribute(
+      "aria-label",
+      "Apply staged character preset",
+    );
     inspectionElement(
       "p",
       "Choose a preset, stage it, then review and Apply. Discard cancels; staging does not change your character.",
@@ -1475,6 +1481,11 @@ export class ProfileControls {
       typeof this.owner.hooks.onProfileEdit !== "function";
     this.revert.disabled = !this.dirty || busy;
     this.apply.textContent = this.request ? "Saving…" : "Apply changes";
+    this.applyPreset.disabled =
+      this.apply.disabled || this.presetPreview.hidden;
+    this.applyPreset.textContent = this.request
+      ? "Saving…"
+      : "Apply staged preset";
   }
 
   refreshEditor(profile) {
@@ -1575,15 +1586,14 @@ export class ProfileControls {
     this.request = request;
     this.editStatus.textContent = "Saving profile edits…";
     try {
-      if (this.stagedBindings) {
-        this.requireBindingOwnership();
-        if (Number(this.job.value) !== this.stagedJobId) {
-          throw new Error(
-            "The job changed after staging its skills and bindings. Discard and stage the desired job preset.",
-          );
-        }
-      }
+      this.validateStagedJob();
       const patch = this.readPatch();
+      if (this.stagedJobId === null && Object.keys(patch).length === 0) {
+        this.dirty = false;
+        this.editStatus.textContent =
+          "The character already matches these values.";
+        return;
+      }
       this.refresh();
       const result = await this.owner.hooks.onProfileEdit(patch, {
         jobPreset: this.stagedJobId,
@@ -1605,6 +1615,16 @@ export class ProfileControls {
         this.request = null;
         this.refresh();
       }
+    }
+  }
+
+  validateStagedJob() {
+    if (!this.stagedBindings) return;
+    this.requireBindingOwnership();
+    if (Number(this.job.value) !== this.stagedJobId) {
+      throw new Error(
+        "The job changed after staging its skills and bindings. Discard and stage the desired job preset.",
+      );
     }
   }
 

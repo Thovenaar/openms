@@ -703,15 +703,7 @@ export class OnlineUI {
     }
   }
   chatEvent(event) {
-    if (event.channel === "map") {
-      if (event.senderId !== this.store.id) {
-        this.ui.chat.receive({
-          source: "session",
-          text: `${event.senderName}: ${event.text}`,
-          time: performance.now(),
-        });
-      }
-    } else this.social.chat.receive(event);
+    this.social.chat.receive(event);
   }
   async skillEvent(event) {
     switch (event.kind) {

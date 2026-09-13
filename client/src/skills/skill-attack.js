@@ -239,6 +239,12 @@ export class SkillAttack {
   prepareActor(actor, combat) {
     const prepared = new Map();
     for (const [id, record] of this.prepared) {
+      // Summons own their attack geometry through prepareExternal. They have no
+      // weapon specification; replacing the player's weapon must not reinterpret it.
+      if (record.spec === null) {
+        prepared.set(id, { ...record });
+        continue;
+      }
       const action = this.actionName(
         record.skill,
         record.info,
@@ -763,8 +769,9 @@ export class SkillAttack {
     context.luk = shot.luk;
     context.elementalBoost = learnedCombatInfo(this.field.hooks, 5220001);
     if (total > 0 || COMBAT_SKILLS.get(shot.skill.id)?.kind === "status") {
-      if (applySkillStatus(target, shot.skill, shot.info, context))
-        {this.field.hooks.onMobStatus?.(target, shot.skill.id);}
+      if (applySkillStatus(target, shot.skill, shot.info, context)) {
+        this.field.hooks.onMobStatus?.(target, shot.skill.id);
+      }
       shot.onHit?.(shot.skill.id, target);
       this.displaceImpact(shot);
       this.onPositiveHit(shot, total);
@@ -1079,8 +1086,9 @@ export class SkillAttack {
     this.context.summon = false;
     if (origin.kind === "area") {
       for (let index = 0; index < count; index++) {
-        if (applySkillStatus(this.targets[index], skill, info, this.context))
-          {this.field.hooks.onMobStatus?.(this.targets[index], skill.id);}
+        if (applySkillStatus(this.targets[index], skill, info, this.context)) {
+          this.field.hooks.onMobStatus?.(this.targets[index], skill.id);
+        }
       }
       return count;
     }

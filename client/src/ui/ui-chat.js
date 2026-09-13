@@ -352,12 +352,11 @@ export class UIChat {
       );
     }
     this.remember(text);
+    if (result.delivery === "server") return;
     this.owner.status(
-      result.delivery === "server"
-        ? "Message delivered by the server."
-        : result.delivery === "local-only"
-          ? "Local speech displayed; not sent to a server."
-          : "Delivered to the permitted loaded local participants; no server was contacted.",
+      result.delivery === "local-only"
+        ? "Local speech displayed; not sent to a server."
+        : "Delivered to the permitted loaded local participants; no server was contacted.",
     );
   }
 

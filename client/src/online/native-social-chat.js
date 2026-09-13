@@ -37,13 +37,15 @@ export class NativeSocialChat {
   }
   select({ channel, targetId, groupId } = {}) {
     const index = groupId !== undefined ? 1 : NATIVE_CHAT_CHANNELS[channel];
-    if (index === undefined)
-      {return { ok: false, reason: "Unknown original chat channel." };}
-    if (index === 5)
-      {return {
+    if (index === undefined) {
+      return { ok: false, reason: "Unknown original chat channel." };
+    }
+    if (index === 5) {
+      return {
         ok: false,
         reason: "Spouse chat requires a real marriage authority.",
-      };}
+      };
+    }
     this.targetId =
       groupId !== undefined ? `group:${groupId}` : (targetId ?? null);
     if (index === 6 && targetId) this.whisperId = targetId;
@@ -72,18 +74,20 @@ export class NativeSocialChat {
     try {
       const parsed = await this.parsed(text, index);
       const channel = WIRE_CHANNELS[parsed.channelIndex];
-      if (!channel || channel === "spouse")
-        {return {
+      if (!channel || channel === "spouse") {
+        return {
           accepted: false,
           reason:
             "Spouse chat has no marriage authority, or the channel is unknown.",
-        };}
+        };
+      }
       if (!parsed.text) return this.selectParsed(parsed);
       const action = await this.action(parsed, channel);
       if (!action) return { accepted: false, reason: "No recipient selected." };
       const outcome = nativeOutcome(await this.owner.command(action));
-      if (outcome.ok && channel === "whisper")
-        {this.whisperId = action.recipientId;}
+      if (outcome.ok && channel === "whisper") {
+        this.whisperId = action.recipientId;
+      }
       return {
         accepted: outcome.ok,
         reason: outcome.reason,
@@ -96,11 +100,12 @@ export class NativeSocialChat {
   }
   selectParsed(parsed) {
     if (parsed.channelIndex === 6) {
-      if (!parsed.targetId || parsed.targetId === this.owner.store.id)
-        {return {
+      if (!parsed.targetId || parsed.targetId === this.owner.store.id) {
+        return {
           accepted: false,
           reason: "Choose another exact Whisper recipient.",
-        };}
+        };
+      }
       this.whisperId = parsed.targetId;
     }
     return {
@@ -119,10 +124,14 @@ export class NativeSocialChat {
         : this.owner.store.profile.social.friends.find(
             (entry) => entry.id === target,
           )?.group;
-      if (!groupId || !this.owner.store.profile.social.groups.includes(groupId))
-        {throw new Error(
+      if (
+        !groupId ||
+        !this.owner.store.profile.social.groups.includes(groupId)
+      ) {
+        throw new Error(
           "Select an existing buddy group with Group whisper first.",
-        );}
+        );
+      }
       action.groupId = groupId;
     }
     if (channel === "whisper") {
@@ -143,17 +152,19 @@ export class NativeSocialChat {
     return action;
   }
   receive(event) {
-    if (event.channel === "map") return;
-    if (this.seen.has(event.messageId)) return;
-    if (this.seen.size >= 128)
-      {this.seen.delete(this.seen.values().next().value);}
-    this.seen.add(event.messageId);
-    if (event.senderId === this.owner.store.id) return;
     const channelIndex = WIRE_CHANNELS.indexOf(event.channel);
-    if (event.channel === "whisper") this.whisperId = event.senderId;
+    if (channelIndex < 0) return;
+    if (this.seen.has(event.messageId)) return;
+    if (this.seen.size >= 128) {
+      this.seen.delete(this.seen.values().next().value);
+    }
+    this.seen.add(event.messageId);
+    if (event.channel === "whisper" && event.senderId !== this.owner.store.id) {
+      this.whisperId = event.senderId;
+    }
     this.owner.ui.chat.receive({
       source: "session",
-      text: `[${CHANNEL_NAMES[channelIndex]}] ${event.senderName}: ${event.text}`,
+      text: `${channelIndex === 7 ? "" : `[${CHANNEL_NAMES[channelIndex]}] `}${event.senderName}: ${event.text}`,
       time: performance.now(),
       senderId: event.senderId,
       recipientId: this.owner.store.id,

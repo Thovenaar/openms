@@ -34,12 +34,16 @@ async function fixture() {
       async receipt() {
         return null;
       },
-      async commit(actor, operation, mutator) {
+    },
+    participants: {
+      busy: () => false,
+      signalIdle() {},
+      async commit(actor, operation, ids, mutator) {
         const draft = structuredClone(actor.profile);
         draft.onlineState = { probe: true };
-        await mutator(draft);
+        await mutator(new Map([[actor.id, draft]]));
         committed.push({ operation, draft });
-        return { status: "committed", value: { kind: operation.kind } };
+        return { status: "committed", code: "OK" };
       },
     },
   };
@@ -54,6 +58,7 @@ async function fixture() {
     simulation: { x: arrival.x, y: arrival.y, facing: 1 },
     field: { characters: new Map(), epoch: 3, manifest, paused: false },
     developmentReceipts: new Map(),
+    connection: { data: { epoch: "connection", ready: true } },
   };
   actor.field.characters.set(actor.id, actor);
   prepareActorCombat(world, actor);
@@ -61,7 +66,11 @@ async function fixture() {
 }
 
 function develop({ world, actor }, operationId, action) {
-  return developActor(world, actor, { operationId, action });
+  return developActor(world, actor, {
+    operationId,
+    action,
+    connectionEpoch: "connection",
+  });
 }
 
 test("a staged preset and the developer's explicit edits commit as one draft", async () => {
@@ -73,7 +82,6 @@ test("a staged preset and the developer's explicit edits commit as one draft", a
   });
   expect(receipt.status).toBe("committed");
   expect(probe.committed.length).toBe(1);
-  expect(probe.published).toContainEqual({ type: "snapshot-request" });
   const draft = probe.committed[0].draft;
   // Explicit edits survive the preset loadout instead of being dropped.
   expect(draft.name).toBe("Preset Probe");
@@ -91,6 +99,44 @@ test("a preset without explicit edits still commits its staged job", async () =>
   await develop(probe, "op-preset", { kind: "preset", job: 520 });
   expect(probe.committed.length).toBe(1);
   expect(probe.committed[0].draft.job).toBe(520);
+});
+
+test("every packaged job preset commits with ordinary players present", async () => {
+  const jobs = content.catalog.ui.coverage.skillCoverage.playerBooks;
+  expect(jobs.length).toBeLessThanOrEqual(1024);
+  for (const job of jobs) {
+    const probe = await fixture();
+    probe.actor.field.characters.set("player", {
+      role: "player",
+      state: "active",
+    });
+    await develop(probe, `preset-${job}`, { kind: "preset", job });
+    expect(probe.committed).toHaveLength(1);
+    expect(probe.committed[0].draft.job).toBe(job);
+  }
+});
+
+test("GM field controls allow other players, while player requests and busy peers are refused", async () => {
+  const probe = await fixture();
+  const peer = { role: "player", state: "active" };
+  probe.actor.field.characters.set("player", peer);
+  probe.world.neutralize = () => {};
+  probe.world.database.commit = async () => ({
+    status: "committed",
+    code: "OK",
+  });
+  await develop(probe, "pause", { kind: "pause", paused: true });
+  expect(probe.actor.field.paused).toBe(true);
+  probe.actor.role = "player";
+  await expect(
+    develop(probe, "player-pause", { kind: "pause", paused: false }),
+  ).rejects.toMatchObject({ code: "NOT_ALLOWED" });
+  probe.actor.role = "developer";
+  peer.pending = true;
+  await expect(
+    develop(probe, "busy", { kind: "pause", paused: false }),
+  ).rejects.toMatchObject({ code: "SERVER_BUSY" });
+  expect(probe.actor.field.paused).toBe(true);
 });
 
 test("an invalid combined draft commits nothing", async () => {

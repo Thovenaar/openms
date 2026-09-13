@@ -4,6 +4,7 @@ import {
   requireInteraction,
 } from "./interaction-common.js";
 import { admitActor } from "./action-rules.js";
+import { socialEqual } from "../../client/src/profile/social-equality.js";
 
 const MAX_RECIPIENTS = 2048;
 const MAX_MEMBERS = 32;
@@ -89,14 +90,13 @@ async function groupRecipients(actor, channel, world) {
   const ids = memberIds(group);
   requireInteraction(ids.includes(actor.id), "NOT_ALLOWED");
   const profiles = await world.participants.load(ids);
-  const signature = JSON.stringify(group);
   const recipients = [];
   for (const id of ids) {
     const profile = profiles.get(id);
     const membership = profile?.social[channel];
     requireInteraction(
       membership &&
-        JSON.stringify(membership) === signature &&
+        socialEqual(membership, group) &&
         memberIds(membership).includes(actor.id),
       "NOT_ALLOWED",
     );
@@ -108,8 +108,9 @@ async function groupRecipients(actor, channel, world) {
       );
     }
     const peer = world.actors.get(id);
-    if (peer !== actor && permitted(actor, peer, channel))
-      {recipients.push(peer);}
+    if (peer !== actor && permitted(actor, peer, channel)) {
+      recipients.push(peer);
+    }
   }
   return recipients;
 }
@@ -118,11 +119,12 @@ function buddyRecipients(actor, world, groupId = null) {
   const friends = actor.profile.social.friends;
   requireInteraction(friends.length <= MAX_MEMBERS, "CONTENT_MISMATCH");
   const recipients = [];
-  if (groupId !== null)
-    {requireInteraction(
+  if (groupId !== null) {
+    requireInteraction(
       actor.profile.social.groups.includes(groupId),
       "NOT_ALLOWED",
-    );}
+    );
+  }
   for (const friend of friends) {
     if (groupId !== null && friend.group !== groupId) continue;
     const peer = world.actors.get(friend.id);
@@ -136,22 +138,16 @@ function buddyRecipients(actor, world, groupId = null) {
   return recipients;
 }
 
-function mapRecipients(actor, world) {
+function mapRecipients(actor) {
   requireInteraction(
     actor.field.characters.size <= MAX_RECIPIENTS,
     "SERVER_BUSY",
-  );
-  const visible = new Set(
-    world
-      .entities(actor)
-      .filter((entity) => entity.kind === "player")
-      .map((entity) => entity.id),
   );
   const recipients = [];
   for (const peer of actor.field.characters.values()) {
     if (
       peer !== actor &&
-      visible.has(peer.id) &&
+      peer.field === actor.field &&
       permitted(actor, peer, "map")
     ) {
       recipients.push(peer);
@@ -161,7 +157,7 @@ function mapRecipients(actor, world) {
 }
 
 async function chatRecipients(actor, action, world) {
-  if (action.channel === "map") return mapRecipients(actor, world);
+  if (action.channel === "map") return mapRecipients(actor);
   if (action.channel === "buddy") return buddyRecipients(actor, world);
   if (action.channel === "group") {
     requireInteraction(typeof action.groupId === "string", "NOT_ALLOWED");

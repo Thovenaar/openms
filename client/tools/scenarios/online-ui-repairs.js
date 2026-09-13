@@ -7,6 +7,20 @@ import { clickLabel, openConsoleSection } from "./native.js";
 const DIALOG = '.maple-ui-panel[aria-label="UtilDlgEx"]';
 const PROFILE = '[aria-label="Apply character changes"]';
 
+// Shared native controls for focused follow-up scenarios; no fixture mutations.
+export {
+  participant,
+  signIn,
+  ready,
+  consoleSection,
+  closeConsole,
+  focusGame,
+  details,
+  replace,
+  requestBuddy,
+  mutualBuddies,
+};
+
 /** Caller owns a disposable server/database. Two isolated contexts use native input only.
  * Seed fresh Developer and Player at Robin (map50000,x167,y335), with a pending buddy request. */
 export async function runOnlineUiRepairs({ browser, url, output }) {

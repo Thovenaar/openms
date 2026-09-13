@@ -321,7 +321,9 @@ export async function prepareActorPoses(world, actor) {
 }
 
 export function actorCombatFields(actor) {
-  if (!actor.skillField) return {};
+  // Logout destroys skills before the asynchronous checkpoint/release removes
+  // the actor from its field. Peers can still observe its avatar during that gap.
+  if (!actor.skillField || !actor.skills) return {};
   const diseases = [];
   for (let id = 0; id < 256; id++) {
     const remainingMs = actor.skillField.diseases.remaining[id];
