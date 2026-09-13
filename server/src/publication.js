@@ -45,6 +45,10 @@ export class Publications {
 
   close(socket, code, retryAfterMs = 1000) {
     if (socket.data.closed) return;
+    this.world.log?.("socket.closing", {
+      character: socket.data.actor?.id,
+      code,
+    });
     const record = this.envelope(socket, {
       type: "closing",
       code,

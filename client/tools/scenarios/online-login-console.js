@@ -879,6 +879,15 @@ async function createCharacter(page) {
   if (ready.stage !== "create" || ready.dialogOpen || ready.disabled) {
     throw new Error(`Create is not available: ${JSON.stringify(ready)}`);
   }
+  await press(page, "Next");
+  await page.waitForSelector('.online-login-create[data-phase="stats"]', {
+    timeout: TIMEOUT,
+  });
+  await page.click(".online-login-roll");
+  await page.waitForFunction(
+    () => !document.querySelector(".online-login-create-submit").disabled,
+    { timeout: TIMEOUT },
+  );
   await press(page, "Create");
   await page.waitForFunction(
     (expected) => {

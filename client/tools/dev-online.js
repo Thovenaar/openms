@@ -4,6 +4,10 @@ import { buildOnlineBrowser } from "./browser-build.js";
 import { PROTOCOL } from "../../shared/protocol.js";
 import { createStaticResources } from "./static-resources.js";
 import { clientEnvironment } from "./environment.js";
+import {
+  createDevelopmentLog,
+  logStage,
+} from "../../shared/development-log.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_BACKLOG = 1024 * 1024;
@@ -45,9 +49,10 @@ function upstreamOrigin(value) {
 
 /** Development proxy changes transport routing only; the upstream remains sole authority. */
 class OnlineProxy {
-  constructor(config, resources) {
+  constructor(config, resources, log) {
     this.resources = resources;
     this.config = config;
+    this.log = log;
     this.relays = new Set();
     this.handlers = {
       maxPayloadLength: PROTOCOL.MAX_MESSAGE_BYTES,
@@ -62,6 +67,27 @@ class OnlineProxy {
   }
 
   async fetch(request, server) {
+    const started = performance.now();
+    const path = new URL(request.url).pathname;
+    const response = await this.handle(request, server);
+    if (
+      path.startsWith("/api/") ||
+      path === "/" ||
+      path === "/generated/catalog.json" ||
+      path.startsWith("/generated/maps/") ||
+      response?.status >= 400
+    ) {
+      this.log("http", {
+        method: request.method,
+        path,
+        status: response?.status ?? 101,
+        ms: Math.round(performance.now() - started),
+      });
+    }
+    return response;
+  }
+
+  async handle(request, server) {
     try {
       const url = new URL(request.url);
       if (url.pathname === "/api/v1/play") return this.upgrade(request, server);
@@ -84,6 +110,10 @@ class OnlineProxy {
       }
       return await this.resources.fetch(request);
     } catch (error) {
+      this.log("upstream.error", {
+        code: error.code ?? error.name,
+        upstream: this.config.upstream,
+      });
       console.error("Online development request failed:", error.message);
       return Response.json(
         { code: "SERVER_BUSY" },
@@ -116,6 +146,8 @@ class OnlineProxy {
       pending: [],
       closed: false,
       timer: null,
+      sent: 0,
+      received: 0,
     };
     const url = this.config.upstream.replace(/^http:/, "ws:") + "/api/v1/play";
     relay.upstream = new WebSocket(url, {
@@ -125,9 +157,10 @@ class OnlineProxy {
     relay.upstream.binaryType = "arraybuffer";
     relay.upstream.onopen = () => this.flush(relay);
     relay.upstream.onmessage = (event) => this.receive(relay, event.data);
-    relay.upstream.onclose = () => this.stop(relay);
-    relay.upstream.onerror = () => this.stop(relay);
-    relay.timer = setTimeout(() => this.stop(relay), 5000);
+    relay.upstream.onclose = (event) =>
+      this.stop(relay, "upstream closed", event.code);
+    relay.upstream.onerror = () => this.stop(relay, "upstream error");
+    relay.timer = setTimeout(() => this.stop(relay, "upstream timeout"), 5000);
     this.relays.add(relay);
     if (
       server.upgrade(request, {
@@ -143,11 +176,13 @@ class OnlineProxy {
 
   open(socket) {
     socket.data.client = socket;
+    this.log("socket.open", { upstream: this.config.upstream });
     if (socket.data.closed) socket.close(1011, "Upstream unavailable");
   }
 
   message(socket, data) {
     const relay = socket.data;
+    relay.sent++;
     if (relay.closed || typeof data !== "string") return this.stop(relay);
     if (relay.upstream.bufferedAmount > MAX_BACKLOG) return this.stop(relay);
     if (relay.upstream.readyState === WebSocket.OPEN) relay.upstream.send(data);
@@ -159,11 +194,13 @@ class OnlineProxy {
   flush(relay) {
     clearTimeout(relay.timer);
     if (relay.closed) return;
+    this.log("socket.upstream-ready", { upstream: this.config.upstream });
     for (const frame of relay.pending) relay.upstream.send(frame);
     relay.pending.length = 0;
   }
 
   receive(relay, data) {
+    relay.received++;
     if (
       relay.closed ||
       !relay.client ||
@@ -176,9 +213,15 @@ class OnlineProxy {
     if (relay.client.send(data) === 0) this.stop(relay);
   }
 
-  stop(relay) {
+  stop(relay, reason = "relay stopped", code = 1011) {
     if (relay.closed) return;
     relay.closed = true;
+    this.log("socket.closed", {
+      reason,
+      code,
+      sent: relay.sent,
+      received: relay.received,
+    });
     clearTimeout(relay.timer);
     relay.client?.close(1011, "Online connection closed");
     relay.upstream?.close();
@@ -186,24 +229,34 @@ class OnlineProxy {
     this.relays.delete(relay);
   }
 
-  close(socket) {
-    this.stop(socket.data);
+  close(socket, code) {
+    this.stop(socket.data, "browser closed", code);
   }
 }
 
 export async function startOnlineDevServer(options = {}) {
   const config = configuration(options);
   const started = performance.now();
-  const identity = await buildOnlineBrowser({
-    development: true,
-    progress: options.progress ?? console.log,
-  });
+  const log = options.log ?? createDevelopmentLog("client");
+  log("development.start", config);
+  const identity = await logStage(log, "browser.build", () =>
+    buildOnlineBrowser({
+      development: true,
+      progress: options.progress ?? console.log,
+    }),
+  );
   const resources = createStaticResources({
     root: ROOT,
     online: true,
     html: identity.html,
   });
-  const proxy = new OnlineProxy(config, resources);
+  log("browser.identity", {
+    source: identity.sourceBuildId,
+    rules: identity.rulesHash,
+    assets: identity.assetBuildId,
+    outputs: identity.outputs?.length,
+  });
+  const proxy = new OnlineProxy(config, resources, log);
   const server = Bun.serve({
     hostname: config.hostname,
     port: config.port,
@@ -218,8 +271,10 @@ export async function startOnlineDevServer(options = {}) {
     server,
     identity,
     close() {
+      log("shutdown", { phase: "start" });
       for (const relay of proxy.relays) proxy.stop(relay);
       server.stop(true);
+      log("shutdown", { phase: "complete" });
     },
   };
 }

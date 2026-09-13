@@ -57,6 +57,59 @@ function connected() {
   return { transport, sent };
 }
 
+test("a same-field baseline refresh preserves active input while recovery still blocks it", async () => {
+  const { transport, sent } = connected();
+  const statuses = [];
+  const prepared = Promise.withResolvers();
+  const model = {
+    snapshotId: "peer_joined",
+    eventSeq: 2,
+    serverTick: 3,
+    fieldEpoch: "source",
+    field: { fieldEpoch: "source" },
+    revisions: {
+      character: 0,
+      inventory: 0,
+      social: 0,
+      conversation: 0,
+      trade: 0,
+      invitation: 0,
+    },
+    presentation: { interactions: [] },
+  };
+  transport.model = { fieldEpoch: "source" };
+  transport.baselines.add = () => model;
+  transport.callbacks.onStatus = (value) => statuses.push(value.status);
+  transport.callbacks.onSnapshot = () => prepared.promise;
+  try {
+    const install = transport.installPart(
+      { fieldEpoch: "source" },
+      0,
+      transport.generation,
+    );
+    expect(transport.status).toBe("active");
+    expect(statuses).toEqual([]);
+    prepared.resolve();
+    await install;
+    expect(statuses).toEqual(["active"]);
+    expect(
+      sent.map((message) => decodeClient(JSON.stringify(message)).type),
+    ).toEqual(["ack", "ready"]);
+    expect(transport.model.snapshotId).toBe("peer_joined");
+    transport.status = "synchronizing";
+    transport.baselineId = null;
+    statuses.length = 0;
+    await transport.installPart(
+      { fieldEpoch: "source" },
+      0,
+      transport.generation,
+    );
+    expect(statuses).toEqual(["synchronizing", "active"]);
+  } finally {
+    transport.close();
+  }
+});
+
 test("a complete keyboard preference passes client and server command admission", async () => {
   const { transport, sent } = connected();
   try {
@@ -98,19 +151,18 @@ function input(targetTick) {
 }
 
 // Returning to the same field retires its old baseline just like inter-map travel.
-for (const destination of ["source", "destination"]) {
-  test(`committed travel to ${destination} does not acknowledge a retired source baseline`, async () => {
+for (const [phase, destination] of [
+  ["committed", "source"],
+  ["committed", "destination"],
+  ["aborted", "source"],
+]) {
+  test(`${phase} travel to ${destination} does not acknowledge a retired source baseline`, async () => {
     const { transport, sent } = connected();
     try {
       await transport.accept(transition("prepare", destination, 2), 100, 0, 0);
       expect(sent).toHaveLength(1);
       expect(sent[0].snapshotId).toBe("source_snapshot");
-      await transport.accept(
-        transition("committed", destination, 3),
-        100,
-        0,
-        0,
-      );
+      await transport.accept(transition(phase, destination, 3), 100, 0, 0);
       expect(sent).toHaveLength(1);
       expect(transport.snapshot().status).toBe("synchronizing");
       expect(transport.snapshot().connectionEpoch).toBe("connection");
@@ -275,6 +327,33 @@ test("a rejected logout releases sign-in and preserves the authority error", asy
       status: "disconnected",
       code: "NOT_ALLOWED",
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+    transport.close();
+  }
+});
+
+test("creation roll responses require a real id and valid integer totals", async () => {
+  const { transport } = connected();
+  transport.config = { csrfToken: "session-csrf" };
+  const originalFetch = globalThis.fetch;
+  const legal = { rollId: "issued-roll", str: 7, dex: 6, int: 8, luk: 4 };
+  try {
+    for (const patch of [
+      { rollId: null },
+      { rollId: 123 },
+      { str: 999 },
+      { int: "8" },
+    ]) {
+      globalThis.fetch = async () => Response.json({ ...legal, ...patch });
+      await expect(transport.rollCharacterStats()).rejects.toThrow(
+        "INVALID_MESSAGE",
+      );
+    }
+    globalThis.fetch = async () => Response.json(legal);
+    const roll = await transport.rollCharacterStats();
+    expect(roll).toEqual(legal);
+    expect(Object.isFrozen(roll)).toBe(true);
   } finally {
     globalThis.fetch = originalFetch;
     transport.close();

@@ -133,11 +133,12 @@ function activationOperation(actor) {
 
 /** One process owns field clocks. No packet or socket lifetime advances world time. */
 export class OnlineWorld {
-  constructor({ content, database, publish, development = false }) {
+  constructor({ content, database, publish, development = false, log = null }) {
     this.content = content;
     this.database = database;
     this.publish = publish;
     this.development = development;
+    this.log = log;
     this.actors = new Map();
     this.fields = new Map();
     this.fieldLoads = new Map();
@@ -205,6 +206,12 @@ export class OnlineWorld {
       throw protocolError("SERVER_BUSY");
     }
     this.fields.set(key, field);
+    this.log?.("field.ready", {
+      map: field.mapId,
+      instance: field.id,
+      mobs: field.mobs.length,
+      npcs: field.npcs.size,
+    });
     return field;
   }
 
@@ -223,10 +230,9 @@ export class OnlineWorld {
       throw protocolError("SERVER_BUSY");
     }
     if (this.actors.has(actor.id)) throw protocolError("CHARACTER_BUSY");
-    actor.realm =
-      this.development && actor.role === "developer"
-        ? `development:${actor.accountId}`
-        : "public";
+    // Roles grant commands, not separate world instances. All ordinary map
+    // entrants share the same field, as in Cosmic MapleMap.addPlayer.
+    actor.realm = "public";
     const field = await this.fieldFor(
       actor.profile.location.mapId,
       actor.realm,
@@ -256,13 +262,22 @@ export class OnlineWorld {
         [actor.id],
         () => ({}),
       );
-      if (activation.status !== "committed")
-        {throw protocolError(activation.code);}
+      if (activation.status !== "committed") {
+        throw protocolError(activation.code);
+      }
       if (actor.deliveryError) throw actor.deliveryError;
     }
     await prepareSocial(actor, this);
     this.assertJoiningSession(actor);
     this.invalidateField(field);
+    this.log?.("field.join", {
+      account: actor.accountId,
+      character: actor.id,
+      role: actor.role,
+      map: field.mapId,
+      instance: field.id,
+      players: field.characters.size,
+    });
     return actor;
   }
 
@@ -299,6 +314,11 @@ export class OnlineWorld {
     this.neutralize(actor);
     this.participants.signalIdle();
     if (actor.field) this.invalidateField(actor.field);
+    this.log?.("field.leave", {
+      character: actor.id,
+      map: actor.field?.mapId,
+      players: actor.field?.characters.size,
+    });
   }
 
   neutralize(actor) {
@@ -406,8 +426,9 @@ export class OnlineWorld {
   }
 
   moveActor(actor) {
-    if (actor.state !== "active" || actor.retiring || actor.deliveryError)
-      {return;}
+    if (actor.state !== "active" || actor.retiring || actor.deliveryError) {
+      return;
+    }
     consumeActorInput(actor);
     if (actor.state !== "active" || actor.profile.hp <= 0) {
       this.neutralize(actor);
@@ -441,8 +462,9 @@ export class OnlineWorld {
       actor.skillField?.hasPendingIncoming ||
       this.participants.producedPending(actor.id) ||
       this.now - actor.lastCheckpoint < 1000
-    )
-      {return;}
+    ) {
+      return;
+    }
     actor.lastCheckpoint = this.now;
     actor.pending = true;
     actor.pendingOperation = null;
@@ -474,8 +496,9 @@ export class OnlineWorld {
       actor.retiring ||
       actor.deliveryError ||
       this.participants.busy(actor)
-    )
-      {return;}
+    ) {
+      return;
+    }
     const portal = automaticPortalCandidate(actor);
     if (!portal) return;
     markAutomaticPortalAttempt(actor, portal);
@@ -607,8 +630,9 @@ export class OnlineWorld {
     actor.skillDoorOperation = operation;
     actor.skillDoorTravel = null;
     try {
-      if (!actor.skills.worldController.useDoor())
-        {throw protocolError("NOT_ALLOWED");}
+      if (!actor.skills.worldController.useDoor()) {
+        throw protocolError("NOT_ALLOWED");
+      }
       return actor.skillDoorTravel;
     } finally {
       actor.skillDoorOperation = null;

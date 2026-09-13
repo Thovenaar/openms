@@ -17,6 +17,17 @@ const MAX_PREAUTH_PER_ACCOUNT = 2;
 const RETIRE_WAIT_ATTEMPTS = 3000;
 const RETIRE_WAIT_MS = 10;
 
+/** A lease cannot rotate while skill effects or their durable rewards are settling. */
+function pendingSkillWork(actor, world) {
+  return (
+    actor.skillTask ||
+    actor.skillField?.hasPendingIncoming ||
+    actor.skillField?.rewardJobs.size ||
+    actor.skillDrops?.pickpocketPlan ||
+    world.participants.producedPending(actor.id)
+  );
+}
+
 /** Socket/session epochs fence admission; PostgreSQL separately fences all writes. */
 export class GameplayGateway {
   constructor({ config, auth, database, world }) {
@@ -105,6 +116,10 @@ export class GameplayGateway {
 
   open(socket) {
     this.sockets.add(socket);
+    this.world.log?.("socket.open", {
+      account: socket.data.session.accountId,
+      role: socket.data.session.role,
+    });
   }
 
   message(socket, bytes) {
@@ -151,6 +166,12 @@ export class GameplayGateway {
       this.attach(socket, actor);
       this.welcome(socket, Boolean(message.resume));
       this.publications.snapshot(actor);
+      this.world.log?.("socket.attached", {
+        character: actor.id,
+        map: actor.field.mapId,
+        instance: actor.field.id,
+        status: message.resume ? "resumed" : "joined",
+      });
     } finally {
       this.joining.delete(session.accountId);
     }
@@ -210,11 +231,7 @@ export class GameplayGateway {
       actor.pending ||
       actor.retiring ||
       actor.renewing ||
-      actor.skillTask ||
-      actor.skillField?.hasPendingIncoming ||
-      actor.skillField?.rewardJobs.size ||
-      actor.skillDrops?.pickpocketPlan ||
-      this.world.participants.producedPending(actor.id)
+      pendingSkillWork(actor, this.world)
     ) {
       throw protocolError("SERVER_BUSY");
     }
@@ -288,8 +305,13 @@ export class GameplayGateway {
 
   drainsTransfer(data, message) {
     const transfer = data.transfer;
-    if (!transfer || message.fieldEpoch !== transfer.sourceEpoch) return false;
-    if (message.type === "input") return true;
+    if (!transfer) return false;
+    // ACK has no fieldEpoch on the wire. Its known snapshot ID scopes it to
+    // the retired source; old ACKs can arrive after commit or rollback.
+    if (message.type !== "ack") {
+      if (message.fieldEpoch !== transfer.sourceEpoch) return false;
+      if (message.type === "input") return true;
+    }
     const cursor = transfer.baselines.get(message.snapshotId);
     if (cursor === undefined) return false;
     if (message.type === "ready") return true;
@@ -353,9 +375,11 @@ export class GameplayGateway {
     if (socket.data.commandWork >= 32) throw protocolError("SERVER_BUSY");
     socket.data.commandWork++;
     const actor = socket.data.actor;
+    const started = performance.now();
     this.world
       .command(actor, message)
       .then((receipt) => {
+        this.logCommand(actor, message, receipt, started);
         this.publications.publish(actor, {
           type: "result",
           operationId: message.operationId,
@@ -367,6 +391,12 @@ export class GameplayGateway {
         });
       })
       .catch((error) => {
+        this.logCommand(
+          actor,
+          message,
+          { status: "rejected", code: error.code ?? "SERVER_BUSY" },
+          started,
+        );
         this.publications.publish(actor, {
           type: "result",
           operationId: message.operationId,
@@ -385,6 +415,18 @@ export class GameplayGateway {
       });
   }
 
+  logCommand(actor, message, receipt, started) {
+    this.world.log?.("action.result", {
+      character: actor.id,
+      map: actor.field.mapId,
+      operation: message.operationId,
+      action: message.action.kind,
+      status: receipt.status,
+      code: receipt.code,
+      ms: Math.round(performance.now() - started),
+    });
+  }
+
   ready(socket, message) {
     if (!socket.data.baselines.has(message.snapshotId)) {
       throw protocolError("INVALID_MESSAGE");
@@ -393,8 +435,9 @@ export class GameplayGateway {
     socket.data.ready = true;
     socket.data.ackSnapshotId = message.snapshotId;
     socket.data.transfer = null;
-    if (socket.data.actor.state === "preparing")
-      {socket.data.actor.state = "active";}
+    if (socket.data.actor.state === "preparing") {
+      socket.data.actor.state = "active";
+    }
     if (becameReady) {
       this.world.participants
         .publish([socket.data.actor.id])
@@ -427,7 +470,12 @@ export class GameplayGateway {
     if (!error.code) console.error("Online gateway failure:", error.message);
   }
 
-  closed(socket) {
+  closed(socket, code, reason) {
+    this.world.log?.("socket.closed", {
+      character: socket.data.actor?.id,
+      code,
+      reason,
+    });
     socket.data.closed = true;
     this.sockets.delete(socket);
     const actor = socket.data.actor;

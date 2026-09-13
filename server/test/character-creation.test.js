@@ -50,6 +50,7 @@ const avatar = {
 const catalog = { avatar, create };
 const request = {
   csrfToken: "session-token",
+  rollId: "issued-roll",
   name: "DiceHero",
   gender: 0,
   skin: 0,

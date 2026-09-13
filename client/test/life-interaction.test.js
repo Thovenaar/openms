@@ -53,7 +53,7 @@ function npcResources(info) {
   return { template, record, entity };
 }
 
-function fixture(info = {}) {
+function fixture(info = {}, preparingDestination = false) {
   const { template, record, entity } = npcResources(info);
   const stage = new Container({ eventMode: "static" });
   const overlays = stage.addChild(new Container());
@@ -98,6 +98,11 @@ function fixture(info = {}) {
       destroy: () => inspected.splice(0),
     },
   });
+  if (preparingDestination) {
+    // Destination presentation must work before any predicted simulation exists.
+    life.scene.simulation = {};
+    life.hooks.foothold = () => ({ x1: 0, y1: 100, x2: 200, y2: 100 });
+  }
   const slot = bindFixture(life, record, entity);
   return {
     life,
@@ -108,6 +113,13 @@ function fixture(info = {}) {
     boundary: new EventBoundary(stage),
   };
 }
+
+test("online destination life prepares authored contact geometry before prediction", () => {
+  const { slot } = fixture({}, true);
+  expect(slot.contactStatus).toBe("Authored foothold resolved");
+  expect(slot.resident).toBe(true);
+  expect(slot.playerFootInsideBody).toBe(false);
+});
 
 function bindFixture(life, record, entity) {
   const slot = life.createSlot(record);

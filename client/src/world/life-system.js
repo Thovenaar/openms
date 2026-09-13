@@ -172,7 +172,9 @@ export class LifeSystem {
 
   createSlot(record) {
     const template = this.scene.manifest.life.templates[record.template];
-    const segment = this.scene.simulation.geometry.byId.get(record.authored.fh);
+    const segment = this.hooks.foothold
+      ? this.hooks.foothold(record.authored.fh)
+      : this.scene.simulation.geometry.byId.get(record.authored.fh);
     const label = record.kind === "npc" ? createLabel(template) : null;
     const slot = {
       record,

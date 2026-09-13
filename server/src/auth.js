@@ -1,8 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { protocolError, closedRecord } from "../../shared/protocol.js";
 import { ProofOfWorkAuthority, POW_TTL_MS } from "./proof-of-work.js";
-import { createProfile } from "../../client/src/profile/profile-validation.js";
-import { nearestSavedArrival } from "../../client/src/world/field-arrival.js";
 
 const MAX_LOGIN_NONCES = 1024;
 const MAX_TICKETS = 2048;
@@ -60,10 +58,9 @@ export class RateLimit {
 
 /** Sessions/tickets are process-local: restart revokes authentication, never economy. */
 export class SessionAuthority {
-  constructor(config, database, content) {
+  constructor(config, database) {
     this.config = config;
     this.database = database;
-    this.content = content;
     this.sessions = new Map();
     this.logins = new Map();
     this.tickets = new Map();
@@ -225,30 +222,15 @@ export class SessionAuthority {
     this.authWork++;
     try {
       const passwordHash = await Bun.password.hash(body.password);
-      const profile = await this.registrationProfile(body.name);
       const account = await this.database.registerPlayer(
         body.name,
         passwordHash,
-        profile,
       );
       if (!account) throw protocolError("NAME_TAKEN");
       return this.completeLogin(request, nonce, account);
     } finally {
       this.authWork--;
     }
-  }
-
-  async registrationProfile(name) {
-    const manifest = await this.content.map(this.content.catalog.defaultMap);
-    const arrival = nearestSavedArrival(manifest, { x: 0, y: 0, facing: 1 });
-    const profile = createProfile({
-      mapId: manifest.id,
-      x: arrival.x,
-      y: arrival.y,
-      facing: arrival.facing,
-    });
-    profile.name = name;
-    return profile;
   }
 
   challenge(request, address) {

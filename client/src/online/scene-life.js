@@ -13,6 +13,9 @@ export class SceneLife {
     this.quests = quests;
     this.life = new LifeSystem(owner.scene, {
       authority: "server-observation",
+      // Destination artwork prepares before its predictor is installed. Contact
+      // overlays need only the destination's validated, immutable WZ endpoints.
+      foothold: (id) => owner.footholds.get(id),
       entity: (id) => owner.lifeEntities.get(id)?.animation,
       canTalk: (id) =>
         quests.store.profile.hp > 0 && owner.npcByPlacement.has(id),
@@ -62,8 +65,9 @@ export class SceneLife {
     );
     const names = new Set();
     for (const record of this.owner.scene.manifest.portalPresentation.records) {
-      for (const branch of record.tutorialProgram?.branches ?? [])
-        {names.add(branch.path);}
+      for (const branch of record.tutorialProgram?.branches ?? []) {
+        names.add(branch.path);
+      }
     }
     if (names.size) {
       this.tutorials = new GameplayEffects(this.owner.services);
@@ -125,8 +129,9 @@ export class SceneLife {
   }
 
   showTutorial(path) {
-    if (!this.tutorials)
-      {throw new Error("Original tutorial artwork was not prepared");}
+    if (!this.tutorials) {
+      throw new Error("Original tutorial artwork was not prepared");
+    }
     this.tutorials.play(path, this.owner.scene);
   }
 

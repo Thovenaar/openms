@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { GameplayGateway } from "../src/gateway.js";
 import { OnlineWorld } from "../src/world.js";
 import { transitionActor } from "../src/field-transition.js";
+import { decodeClient } from "../../shared/protocol.js";
 
 function fixture() {
   const persisted = [];
@@ -83,7 +84,10 @@ test("logout removes combat lookup and snapshots before an in-flight transition 
 });
 
 test("transfer drains only its known old field and baselines before destination ready", () => {
-  const { gateway, actor } = fixture();
+  const { gateway, actor, world } = fixture();
+  // This admission fixture has no database/native presentation. Observe readiness
+  // publication without running unrelated social/profile preparation.
+  world.participants.publish = async () => {};
   actor.field.epoch = "destination";
   const data = {
     actor,
@@ -96,13 +100,36 @@ test("transfer drains only its known old field and baselines before destination 
     gateway.admitField(data, { type: "input", fieldEpoch: "source" }),
   ).toBe(false);
   expect(
-    gateway.admitField(data, {
+    gateway.admitField(
+      data,
+      decodeClient(
+        JSON.stringify({
+          v: 1,
+          type: "ack",
+          connectionEpoch: "connection",
+          seq: 1,
+          snapshotId: "old",
+          eventSeq: 4,
+        }),
+      ),
+    ),
+  ).toBe(false);
+  expect(
+    gateway.drainsTransfer(data, {
       type: "ack",
-      fieldEpoch: "source",
-      snapshotId: "old",
-      eventSeq: 4,
+      snapshotId: "new",
+      eventSeq: 8,
     }),
   ).toBe(false);
+  for (const eventSeq of [3, 9]) {
+    expect(
+      gateway.drainsTransfer(data, {
+        type: "ack",
+        snapshotId: "old",
+        eventSeq,
+      }),
+    ).toBe(false);
+  }
   expect(() =>
     gateway.admitField(data, {
       type: "ack",

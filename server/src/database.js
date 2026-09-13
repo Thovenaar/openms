@@ -53,6 +53,30 @@ function revision(actor, domain, hint = 0) {
 function rejected(code, domainRevision = 0) {
   return { status: "rejected", code, domainRevision, transactionId: null };
 }
+
+function validateCommitActors(actors) {
+  if (
+    !Array.isArray(actors) ||
+    actors.length < 1 ||
+    actors.length > PROFILE_LIMITS.characters ||
+    actors[0].passive ||
+    new Set(actors.map((actor) => actor.id)).size !== actors.length
+  ) {
+    throw failure("NOT_ALLOWED");
+  }
+}
+
+function validateParticipantFilters(name, mapId) {
+  if (
+    name !== null &&
+    (typeof name !== "string" || !name.length || name.length > 32)
+  ) {
+    throw failure("NOT_ALLOWED");
+  }
+  if (mapId !== null && !/^\d{1,9}$/.test(String(mapId))) {
+    throw failure("NOT_ALLOWED");
+  }
+}
 function actorFromRow(row, profile) {
   return {
     id: row.id,
@@ -297,7 +321,9 @@ export class Database {
       .sql`INSERT INTO account(id,name,password_hash,role) VALUES(${id()},${name},${passwordHash},${role}) RETURNING id,name,password_hash,role`;
     return { id: rows[0].id, name, passwordHash, role };
   }
-  async registerPlayer(name, passwordHash, profile) {
+  /** Registration creates an account, not an implicit unrolled character.
+   * Map loading, spawn validation and item ledgers belong to explicit creation. */
+  async registerPlayer(name, passwordHash) {
     if (
       !/^[A-Za-z0-9_-]{3,16}$/.test(name) ||
       typeof passwordHash !== "string" ||
@@ -305,16 +331,12 @@ export class Database {
     ) {
       throw failure("NOT_ALLOWED");
     }
-    this.validate(profile);
     const accountId = id();
-    const characterId = id();
-    return this.transaction(async (tx) => {
-      const rows =
-        await tx`INSERT INTO account(id,name,password_hash,role) VALUES(${accountId},${name},${passwordHash},'player') ON CONFLICT(name) DO NOTHING RETURNING id`;
-      if (!rows[0]) return null;
-      await this.insertCharacter(tx, accountId, profile, characterId);
-      return { id: accountId, name, passwordHash, role: "player" };
-    });
+    const rows = await this
+      .sql`INSERT INTO account(id,name,password_hash,role) VALUES(${accountId},${name},${passwordHash},'player') ON CONFLICT(name) DO NOTHING RETURNING id`;
+    return rows[0]
+      ? { id: accountId, name, passwordHash, role: "player" }
+      : null;
   }
   async accountByName(name) {
     const rows = await this
@@ -509,15 +531,7 @@ export class Database {
     );
   }
   async commitMany(actors, operation, mutator, options = {}) {
-    if (
-      !Array.isArray(actors) ||
-      actors.length < 1 ||
-      actors.length > PROFILE_LIMITS.characters ||
-      actors[0].passive ||
-      new Set(actors.map((actor) => actor.id)).size !== actors.length
-    ) {
-      throw failure("NOT_ALLOWED");
-    }
+    validateCommitActors(actors);
     const owners = actors.map((actor) => ({
       ...actor,
       profile: structuredClone(actor.profile),
@@ -720,8 +734,9 @@ export class Database {
       profile: state.profile,
       value: result.value ?? null,
     };
-    if (index === 0 && memo.plan.storage)
-      {effect.accountStorage = memo.plan.storage;}
+    if (index === 0 && memo.plan.storage) {
+      effect.accountStorage = memo.plan.storage;
+    }
     await tx`INSERT INTO character_op_log(character_id,operation_id,transaction_id,kind,effect) VALUES(${state.id},${operation.operationId},${transactionId},${operation.kind},${effect})`;
   }
   async publishPlan(tx, request, states) {
@@ -797,13 +812,11 @@ export class Database {
       partySearch = false,
       limit = 128,
     } = query;
+    validateParticipantFilters(name, mapId);
     if (
       Object.keys(query).some(
         (key) => !["name", "mapId", "partySearch", "limit"].includes(key),
       ) ||
-      (name !== null &&
-        (typeof name !== "string" || !name.length || name.length > 32)) ||
-      (mapId !== null && !/^\d{1,9}$/.test(String(mapId))) ||
       typeof partySearch !== "boolean" ||
       !Number.isInteger(limit) ||
       limit < 1 ||

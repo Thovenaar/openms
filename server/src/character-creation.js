@@ -6,6 +6,7 @@ import {
 import { nearestSavedArrival } from "../../client/src/world/field-arrival.js";
 import { recalculateVitals } from "../../client/src/character/character-stats.js";
 import { grantItem } from "../../client/src/items/inventory-model.js";
+import { validStartingStats } from "../../shared/starting-stats.js";
 
 export const MAX_ACCOUNT_CHARACTERS = 8;
 const CREATE_TABLE_VERSION = 1;
@@ -19,6 +20,7 @@ const STARTER_SLOTS = Object.freeze({
 const STARTER_FIELDS = Object.keys(STARTER_SLOTS);
 const BODY_KEYS = [
   "csrfToken",
+  "rollId",
   "name",
   "gender",
   "skin",
@@ -33,13 +35,7 @@ function invalid() {
 }
 
 function validateStats(body) {
-  let sum = 0;
-  for (const key of PRIMARY_STATS) {
-    const value = body[key];
-    if (!Number.isInteger(value) || value < 4 || value > 13) invalid();
-    sum += value;
-  }
-  if (sum !== 25) invalid();
+  if (!validStartingStats(body)) invalid();
 }
 
 function validateCosmetic(avatar, id, kind) {

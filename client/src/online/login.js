@@ -180,6 +180,8 @@ export class OnlineLogin {
     this.selected = 0;
     this.stage = "account";
     this.creationPhase = "name";
+    this.creationRoll = null;
+    this.diceElapsedMs = 320;
     this.draft = {
       name: "",
       gender: 0,
@@ -345,7 +347,7 @@ export class OnlineLogin {
     }
     this.listen(form, "submit", (event) => {
       event.preventDefault();
-      this.submit(true).catch((error) => this.report(error));
+      this.submit(true).catch((error) => this.reportRegistrationFailure(error));
     });
     this.listen(
       document,
@@ -559,7 +561,10 @@ export class OnlineLogin {
 
   buildCharacterInfo() {
     const detail = element("div", "online-login-character-detail");
-    detail.append(element("span", "online-login-info-ranking", "Unavailable"));
+    // 00603201 loads string 2976 and draws it at (36,99) without ranking data.
+    detail.append(
+      element("span", "online-login-info-ranking", "Ranking Not Available"),
+    );
     this.characterInfo = {};
     for (const key of ["job", "level", "fame", ...STAT_KEYS]) {
       const value = element("span", `online-login-info-${key}`);
@@ -692,7 +697,7 @@ export class OnlineLogin {
     look.append(this.createPreviewElement, this.previewNote);
     this.createOptions = this.buildCreateOptions();
     layout.append(look, this.createOptions);
-    stage.append(layout, this.buildNameStep());
+    stage.append(layout, this.buildNameStep(), this.buildStatsStep());
     const actions = element("div", "online-login-actions");
     this.backButton = element(
       "button",
@@ -754,6 +759,73 @@ export class OnlineLogin {
     return options;
   }
 
+  /** Restore the retained NewChar dice assets as an explicit third browser step. */
+  buildStatsStep() {
+    const step = element("section", "online-login-stats-step");
+    step.setAttribute("aria-label", "Starting stats");
+    step.append(element("h2", "online-login-stats-title", "Starting stats"));
+    this.statValues = {};
+    for (const [index, key] of STAT_KEYS.entries()) {
+      const output = element("output", "online-login-stat-value", "—");
+      output.setAttribute("aria-label", key.toUpperCase());
+      output.style.top = `${57 + index * 19}px`;
+      this.statValues[key] = output;
+      step.append(output);
+    }
+    this.rollButton = element("button", "online-login-roll", "Roll the dice");
+    this.rollButton.type = "button";
+    this.rollButton.setAttribute("aria-label", "Roll the dice");
+    this.rollButton.title = "Roll the dice";
+    this.rollNote = element(
+      "p",
+      "online-login-roll-note",
+      "Roll the dice to choose your starting stats.",
+    );
+    this.rollNote.setAttribute("role", "status");
+    this.listen(this.rollButton, "click", () =>
+      this.rollStats().catch((error) => this.report(error)),
+    );
+    step.append(this.rollButton, this.rollNote);
+    this.statsStep = step;
+    return step;
+  }
+
+  async rollStats() {
+    if (this.pending || this.destroyed) return;
+    const generation = ++this.generation;
+    this.diceElapsedMs = 0;
+    this.rollingStats = true;
+    this.setPending(true, "Rolling starting stats…");
+    this.rollNote.textContent = "Rolling…";
+    try {
+      const roll = await this.transport.rollCharacterStats();
+      if (this.cancelled(generation)) return;
+      this.creationRoll = roll;
+      this.setStatus("");
+    } catch (error) {
+      if (!this.cancelled(generation)) this.reportCreationFailure(error);
+    } finally {
+      if (!this.cancelled(generation)) {
+        this.rollingStats = false;
+        this.setPending(false);
+        this.rollButton.focus();
+      }
+    }
+  }
+
+  renderStats() {
+    const stats = this.creationRoll;
+    for (const key of STAT_KEYS) {
+      this.statValues[key].textContent = stats?.[key] ?? "—";
+    }
+    this.rollButton.disabled = this.pending;
+    if (!this.rollingStats) {
+      this.rollNote.textContent = stats
+        ? "Keep these stats, or roll the dice again."
+        : "Roll the dice to choose your starting stats.";
+    }
+  }
+
   buildNameStep() {
     const step = element("div", "online-login-name-step");
     this.characterNameInput = textInput("character", "Character name", 13);
@@ -781,6 +853,7 @@ export class OnlineLogin {
     }
     this.stage = "create";
     this.creationPhase = "name";
+    this.creationRoll = null;
     this.draft.name = "";
     this.characterNameInput.value = "";
     this.draft.gender = 0;
@@ -793,7 +866,11 @@ export class OnlineLogin {
 
   stepBack() {
     if (this.pending || this.destroyed) return;
-    if (this.creationPhase === "appearance") {
+    if (this.creationPhase === "stats") {
+      this.creationPhase = "appearance";
+      this.renderCreate();
+      this.focusStage();
+    } else if (this.creationPhase === "appearance") {
       this.creationPhase = "name";
       this.renderCreate();
       this.characterNameInput.focus();
@@ -913,11 +990,14 @@ export class OnlineLogin {
 
   renderCreate() {
     const naming = this.creationPhase === "name";
+    const stats = this.creationPhase === "stats";
     this.createStage.dataset.phase = this.creationPhase;
     this.nameStep.hidden = !naming;
-    this.createOptions.hidden = naming;
-    this.submitCreate.setAttribute("aria-label", naming ? "Next" : "Create");
-    this.submitCreate.title = naming ? "Next" : "Create";
+    this.createOptions.hidden = this.creationPhase !== "appearance";
+    this.statsStep.hidden = !stats;
+    this.submitCreate.setAttribute("aria-label", stats ? "Create" : "Next");
+    this.submitCreate.title = stats ? "Create" : "Next";
+    this.renderStats();
     this.backdrop?.renderCreate();
     // The catalog streams after the account form is usable, so the create screen
     // renders a preparing state instead of failing the sign-in path.
@@ -943,7 +1023,7 @@ export class OnlineLogin {
     const set = this.createSet();
     this.previewNote.textContent = `${set.face.length} faces, ${set.hairBase.length} hairs with ${set.hairColor.length} colours and ${set.skin.length} skin tones are the original starting choices.`;
     this.backButton.hidden = false;
-    this.submitCreate.disabled = this.pending;
+    this.submitCreate.disabled = this.pending || (stats && !this.creationRoll);
   }
 
   draftProfile() {
@@ -1016,6 +1096,7 @@ export class OnlineLogin {
       view,
       plane: new UIRasterPlane(root, element),
       prepared: null,
+      pose: { action: "stand1", facing: -1, state: "ground" },
       controller: null,
       generation: 0,
     };
@@ -1057,6 +1138,7 @@ export class OnlineLogin {
     }
     slot.prepared?.destroy();
     slot.prepared = prepared;
+    prepared.pose(slot.pose);
     slot.view.removeChildren();
     slot.view.addChild(prepared.root);
     this.placePreview(slot);
@@ -1097,8 +1179,17 @@ export class OnlineLogin {
     }
     if (this.pending || this.destroyed) return;
     if (this.creationPhase === "name") return this.acceptName(name);
-    // The server's existing bootstrap policy remains authoritative; v83 has no dice UI.
-    const { str, dex, int, luk } = this.draftProfile();
+    if (this.creationPhase === "appearance") {
+      this.creationPhase = "stats";
+      this.renderCreate();
+      this.rollButton.focus();
+      return;
+    }
+    if (!this.creationRoll) return;
+    return this.submitCharacter(name);
+  }
+
+  async submitCharacter(name) {
     const generation = ++this.generation;
     this.setPending(true, `Creating ${name}…`);
     try {
@@ -1108,10 +1199,7 @@ export class OnlineLogin {
         skin: this.draft.skin,
         face: this.draft.face,
         hair: this.draftHair(),
-        str,
-        dex,
-        int,
-        luk,
+        ...this.creationRoll,
         ...this.gearPayload(),
       });
       if (this.destroyed || generation !== this.generation) return;
@@ -1305,7 +1393,7 @@ export class OnlineLogin {
       if (this.cancelled(generation)) return;
       this.acceptCharacters(characters);
     } catch (error) {
-      if (!this.cancelled(generation)) this.report(error);
+      if (!this.cancelled(generation)) this.reportAccountFailure(error, signup);
     } finally {
       credentials.password = "";
       this.clearSecrets();
@@ -1319,6 +1407,22 @@ export class OnlineLogin {
     this.setPending(false);
     if (this.dialogs.open || this.stage !== "characters") return;
     (this.characters.length ? this.enterButton : this.createButton).focus();
+  }
+
+  /** Keep registration errors in its own window, with focus on the retry fields. */
+  reportAccountFailure(error, signup) {
+    if (signup) this.reportRegistrationFailure(error);
+    else this.report(error);
+  }
+
+  reportRegistrationFailure(error) {
+    this.setStatus(failureText(error, safeCode(error)));
+    this.registrationName.focus();
+    this.hooks.report(
+      new Error(`Account registration failed (${safeCode(error)})`, {
+        cause: error,
+      }),
+    );
   }
 
   /** Every awaited step checks this so a stale attempt never publishes over a newer one. */
@@ -1388,7 +1492,9 @@ export class OnlineLogin {
       const target =
         this.creationPhase === "name"
           ? this.characterNameInput
-          : this.optionRows.face.previous;
+          : this.creationPhase === "stats"
+            ? this.rollButton
+            : this.optionRows.face.previous;
       target.focus();
     } else {
       (this.characters.length ? this.enterButton : this.createButton).focus();
@@ -1455,8 +1561,24 @@ export class OnlineLogin {
         : `Empty character slot ${index + 1}`,
     );
     slot.name.textContent = character?.name ?? "";
+    this.renderRosterPreview(slot, character);
+  }
+
+  /** Selection changes the retained pose, including a portrait still loading. */
+  renderRosterPreview(slot, character) {
     if (!slot.preview) return;
-    if (slot.character === character && slot.preview.prepared) return;
+    // 0060599b sends move action 2 to the selected avatar, 4 to the others.
+    // 00451ec8 resolves those to the equipped weapon's walk/stand families.
+    slot.preview.pose.action =
+      slot.index === this.selected ? "walk1" : "stand1";
+    slot.preview.prepared?.pose(slot.preview.pose);
+    if (
+      slot.character === character &&
+      (slot.preview.prepared ||
+        slot.preview.controller?.signal.aborted === false)
+    ) {
+      return;
+    }
     slot.character = character;
     slot.preview.controller?.abort();
     slot.preview.generation++;
@@ -1706,6 +1828,7 @@ export class OnlineLogin {
   }
 
   advancePresentation(ms) {
+    this.diceElapsedMs = Math.min(320, this.diceElapsedMs + ms);
     this.backdrop?.update(ms);
     const ratio = window.devicePixelRatio || 1;
     const creating = this.stage === "create";
@@ -1730,6 +1853,10 @@ export class OnlineLogin {
       page: Math.floor(this.selected / CHARACTERS_PER_PAGE),
       selected: this.selected,
       creationPhase: this.creationPhase,
+      dice: {
+        rolling: Boolean(this.rollingStats || this.diceElapsedMs < 320),
+        elapsedMs: this.diceElapsedMs,
+      },
       portraits: this.previews.reduce(
         (count, slot) => count + Number(Boolean(slot.prepared)),
         0,

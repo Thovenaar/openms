@@ -188,11 +188,7 @@ export function developmentAction(action) {
 }
 
 export function admitDeveloper(world, actor) {
-  if (
-    !world.development ||
-    actor.role !== "developer" ||
-    !actor.realm.startsWith("development:")
-  ) {
+  if (!world.development || actor.role !== "developer") {
     throw protocolError("NOT_ALLOWED");
   }
   if (
@@ -348,8 +344,9 @@ export async function developActor(world, actor, request) {
   const operation = operationFor(actor, request);
   const existing = actor.developmentReceipts.get(request.operationId);
   if (existing) {
-    if (existing.digest !== operation.digest)
-      {throw protocolError("OPERATION_CONFLICT");}
+    if (existing.digest !== operation.digest) {
+      throw protocolError("OPERATION_CONFLICT");
+    }
     return existing.receipt;
   }
   const previous = await world.database.receipt(actor, operation);
@@ -374,26 +371,30 @@ function reserveDevelopment(world, actor, request) {
     !actor.connection ||
     actor.connection.data.closed ||
     actor.connection.data.epoch !== request.connectionEpoch
-  )
-    {throw protocolError("STALE_CONNECTION");}
+  ) {
+    throw protocolError("STALE_CONNECTION");
+  }
   if (!actor.connection.data.ready) throw protocolError("NOT_ALLOWED");
   if (
     actor.retiring ||
     actor.deliveryError ||
     world.participants.busy(actor) ||
     actor.developmentReceipts.size >= 1024
-  )
-    {throw protocolError("SERVER_BUSY");}
+  ) {
+    throw protocolError("SERVER_BUSY");
+  }
 }
 
 async function dispatchDevelopment(world, actor, action, operation) {
   if (action.kind === "map") {
     return world.transition(actor, { mapId: action.mapId }, operation);
   }
-  if (action.kind === "profile")
-    {return profileEdit(world, actor, action, operation);}
-  if (action.kind === "preset")
-    {return presetEdit(world, actor, action, operation);}
+  if (action.kind === "profile") {
+    return profileEdit(world, actor, action, operation);
+  }
+  if (action.kind === "preset") {
+    return presetEdit(world, actor, action, operation);
+  }
   admitSharedControl(world, actor);
   const prepared =
     action.kind === "spawn"

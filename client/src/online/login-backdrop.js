@@ -1,4 +1,4 @@
-import { Container } from "pixi.js";
+import { Container, Sprite, Texture } from "pixi.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { UISurface } from "../ui/ui-surface.js";
 import { LoginScene } from "./login-scene.js";
@@ -6,6 +6,7 @@ import { loginCameraY } from "./login-motion.js";
 
 const BUTTON_STATES = ["normal", "mouseOver", "pressed", "disabled"];
 const MAX_SURFACES = 48;
+const CHARACTER_ORIGINS = ["adventure", "knight", "aran"];
 // 005fc0e4: centerY=-8-600*stage. Explorer creation adds race substate1.
 const STAGES = Object.freeze({
   account: { index: 0, centerY: -8 },
@@ -101,7 +102,6 @@ export class LoginBackdrop {
     this.buildFrame();
     this.stage("account");
     const characters = this.stage("characters");
-    this.characterInfo = characters.image("CharSelect/charInfo", 180, 160);
     this.rosterArt = [];
     // 00603ff0: window(-290,-1218); 00606ba9: feet(170+125*i,80).
     for (let index = 0; index < this.login.rosterSlots.length; index++) {
@@ -109,12 +109,27 @@ export class LoginBackdrop {
       this.rosterArt.push({
         shadow: characters.stateImage("CharSelect/character/0/0", x, 370),
         empty: characters.stateImage("CharSelect/character/1/0", x, 370),
+        origins: CHARACTER_ORIGINS.map((name) =>
+          characters.stateImage(`CharSelect/${name}/0`, x, 370),
+        ),
         tags: [
           this.buildNameTag(characters, 0),
           this.buildNameTag(characters, 1),
         ],
       });
     }
+    // CUICharSelectInfo is above the slot decorations (0060292f, z=20).
+    // 00602b3b..00602b4f fills the 183×112 canvas with ARGB30ffff00
+    // before copying charInfo; the gaps in the WZ image are not empty.
+    this.characterInfoBackground = this.infoBackground(characters);
+    characters.root.addChild(this.characterInfoBackground);
+    this.characterInfo = characters.image("CharSelect/charInfo", 180, 160);
+    this.buildCreationScreens();
+    this.renderRoster();
+    this.renderCreate();
+  }
+
+  buildCreationScreens() {
     const create = this.stage("create");
     this.createSettings = create.image("NewChar/charSet", 509, 95);
     this.createName = create.image("NewChar/charName", 509, 95);
@@ -128,8 +143,36 @@ export class LoginBackdrop {
         ),
       );
     }
-    this.renderRoster();
-    this.renderCreate();
+    // Retained legacy artwork; browser placement documented separately from v83.
+    this.statsScroll = create.image("NewChar/scroll/0/3", 493, 150);
+    this.statsTable = create.image("NewChar/statTb", 526, 205);
+    this.diceFrames = [];
+    for (let frame = 0; frame < 4; frame++) {
+      this.diceFrames.push(
+        create.stateImage(`NewChar/dice/${frame}`, 634, 211),
+      );
+    }
+  }
+
+  /** A bitmap sprite also participates in the bounded DOM artwork compositor. */
+  infoBackground(panel) {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Login information backing requires Canvas2D");
+    }
+    context.fillStyle = "#ffff00";
+    context.fillRect(0, 0, 1, 1);
+    const texture = Texture.from(canvas);
+    const sprite = new Sprite({
+      texture,
+      width: 183,
+      height: 112,
+      alpha: 0x30 / 255,
+    });
+    panel.cleanups.push(() => texture.destroy(true));
+    return sprite;
   }
 
   /** 00605b52 tiles the nine-pixel middle, then overlays the two original caps. */
@@ -168,14 +211,29 @@ export class LoginBackdrop {
   renderRoster() {
     if (!this.rosterArt) return;
     this.characterInfo.container.visible = this.login.characters.length > 0;
+    this.characterInfoBackground.visible = this.characterInfo.container.visible;
     this.login.characterDetail.hidden = !this.login.characters.length;
     const x = 180 + 130 * (this.login.selected % 3);
     this.characterInfo.setPosition(x + 45, 160 + 57);
+    this.characterInfoBackground.position.set(x, 160);
     this.login.characterDetail.style.left = `${x}px`;
     for (let index = 0; index < this.rosterArt.length; index++) {
-      const occupied = Boolean(this.login.rosterSlots[index].character);
-      this.rosterArt[index].shadow.container.visible = occupied;
+      const character = this.login.rosterSlots[index].character;
+      const occupied = Boolean(character);
+      this.rosterArt[index].shadow.container.visible = !occupied;
       this.rosterArt[index].empty.container.visible = !occupied;
+      // 006072b7..00607348 selects the original class sign behind each avatar.
+      const job = character?.job ?? 0;
+      const origin =
+        Math.trunc(job / 1000) === 1
+          ? 1
+          : Math.trunc(job / 100) === 21 || job === 2000
+            ? 2
+            : 0;
+      for (let family = 0; family < CHARACTER_ORIGINS.length; family++) {
+        this.rosterArt[index].origins[family].container.visible =
+          occupied && family === origin;
+      }
       this.positionNameTags(index);
     }
   }
@@ -183,9 +241,28 @@ export class LoginBackdrop {
   renderCreate() {
     if (!this.createSettings) return;
     const naming = this.login.creationPhase === "name";
-    this.createSettings.container.visible = !naming;
+    const appearance = this.login.creationPhase === "appearance";
+    const stats = this.login.creationPhase === "stats";
+    this.createSettings.container.visible = appearance;
     this.createName.container.visible = naming;
-    for (const row of this.createRows) row.container.visible = !naming;
+    for (const row of this.createRows) row.container.visible = appearance;
+    this.statsScroll.container.visible = this.statsTable.container.visible =
+      stats;
+    this.renderDice();
+  }
+
+  renderDice() {
+    if (!this.diceFrames) return;
+    // WZ dice frames carry no delay. 80ms/frame is a browser presentation policy.
+    const active = this.login.rollingStats || this.login.creationRoll;
+    const frame =
+      active && this.login.diceElapsedMs < 320
+        ? 1 + (Math.floor(this.login.diceElapsedMs / 80) % 3)
+        : 0;
+    for (let index = 0; index < this.diceFrames.length; index++) {
+      this.diceFrames[index].container.visible =
+        this.login.creationPhase === "stats" && index === frame;
+    }
   }
 
   buildButtons() {
@@ -433,6 +510,7 @@ export class LoginBackdrop {
     if (!this.ready || this.destroyed) return;
     this.advanceTransition(ms);
     this.scene.update(this.camera, ms);
+    this.renderDice();
     for (const entry of this.buttons) this.paintButton(entry);
     for (const panel of this.surfaces) panel.update(ms);
   }

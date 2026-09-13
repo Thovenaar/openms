@@ -5,13 +5,23 @@ import { OnlineWorld } from "./world.js";
 import { SessionAuthority } from "./auth.js";
 import { GameplayGateway } from "./gateway.js";
 import { OnlineHttp } from "./http.js";
+import {
+  createDevelopmentLog,
+  logStage,
+} from "../../shared/development-log.js";
 
 /** One owned field process; TLS terminates at the configured same-origin reverse proxy. */
 export async function startServer(options = {}) {
   const started = performance.now();
   const config = options.config ?? serverConfig();
+  const log =
+    options.log ??
+    createDevelopmentLog("server", { enabled: config.development });
   const content =
-    options.content ?? (await loadContent({ root: config.contentRoot }));
+    options.content ??
+    (await logStage(log, "content.load", () =>
+      loadContent({ root: config.contentRoot }),
+    ));
   if (
     config.expectedRulesHash &&
     config.expectedRulesHash !== content.rulesHash
@@ -20,31 +30,26 @@ export async function startServer(options = {}) {
   }
   const database =
     options.database ??
-    (await openDatabase({ url: config.databaseUrl, items: content.items }));
-  const auth = new SessionAuthority(config, database, content);
+    (await logStage(log, "database.connect-and-migrate", () =>
+      openDatabase({ url: config.databaseUrl, items: content.items }),
+    ));
+  const auth = new SessionAuthority(config, database);
   const world = new OnlineWorld({
     content,
     database,
     development: config.development,
+    log,
     publish: (actor, record) => gateway.publications.publish(actor, record),
   });
   const gateway = new GameplayGateway({ config, auth, database, world });
-  const http = new OnlineHttp({ config, content, auth, gateway });
-  let server;
-  try {
-    server = Bun.serve({
-      hostname: config.hostname,
-      port: config.port,
-      maxRequestBodySize: 16 * 1024,
-      idleTimeout: 10,
-      fetch: http.fetch.bind(http),
-      websocket: gateway.handlers,
-    });
-  } catch (error) {
-    await database.close();
-    throw error;
-  }
-  const lifecycle = createLifecycle({ server, world, gateway, database });
+  const http = new OnlineHttp({ config, content, auth, gateway, log });
+  const server = await listen({ config, http, gateway, database });
+  const lifecycle = createLifecycle({ server, world, gateway, database, log });
+  log("listener.ready", {
+    origin: config.origin,
+    hostname: config.hostname,
+    port: server.port,
+  });
   console.log(
     `openms.dev authoritative server ready at ${server.url} (${(performance.now() - started).toFixed(1)}ms)`,
   );
@@ -63,7 +68,23 @@ export async function startServer(options = {}) {
   };
 }
 
-function createLifecycle({ server, world, gateway, database }) {
+async function listen({ config, http, gateway, database }) {
+  try {
+    return Bun.serve({
+      hostname: config.hostname,
+      port: config.port,
+      maxRequestBodySize: 16 * 1024,
+      idleTimeout: 10,
+      fetch: http.fetch.bind(http),
+      websocket: gateway.handlers,
+    });
+  } catch (error) {
+    await database.close();
+    throw error;
+  }
+}
+
+function createLifecycle({ server, world, gateway, database, log }) {
   let stopped = false;
   let closing = null;
   const timer = setInterval(tick, 10);
@@ -76,18 +97,21 @@ function createLifecycle({ server, world, gateway, database }) {
       stopped = true;
       clearInterval(timer);
       console.error("Authoritative simulation suspended:", error.message);
+      log("simulation.suspended", { code: error.code ?? error.name });
       for (const socket of gateway.sockets) {
         gateway.publications.close(socket, "SERVER_BUSY");
       }
     }
   }
   async function finish() {
+    log("shutdown", { phase: "start" });
     stopped = true;
     clearInterval(timer);
     await gateway.close();
     await world.close();
     await server.stop(true);
     await database.close();
+    log("shutdown", { phase: "complete" });
   }
   function close() {
     closing ??= finish();

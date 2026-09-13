@@ -151,12 +151,14 @@ export async function buildOnlineBrowser({
   progress,
 } = {}) {
   const timings = {};
+  progress?.("Online browser: hashing source inputs");
   const identity = await measureStage(
     timings,
     "sourceIdentityMs",
     sourceIdentity,
   );
   const contentRoot = resolve(root, "public/generated");
+  progress?.("Online browser: validating rules and existing asset catalog");
   const content = await measureStage(timings, "rulesIdentityMs", () =>
     loadContent({ root: contentRoot }),
   );
@@ -173,7 +175,11 @@ export async function buildOnlineBrowser({
   const result = await measureStage(timings, "compilationMs", () =>
     compileOnline({ development, sourceBuildId, content, graph }),
   );
+  progress?.(
+    `Online browser: compiled ${graph.inputs.size} modules; rechecking identities`,
+  );
   await recheckOnlineInputs(identity, content, timings);
+  progress?.(`Online browser: publishing ${result.outputs.length} outputs`);
   await publishBrowserOutputs(result.outputs);
   const deployment = development
     ? null
@@ -191,6 +197,8 @@ export async function buildOnlineBrowser({
   return {
     sourceBuildId,
     development,
+    rulesHash: content.rulesHash,
+    assetBuildId: content.assetBuildId,
     timings,
     deployment,
     html: new TextDecoder().decode(shell.get("/index.html")),

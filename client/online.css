@@ -241,7 +241,9 @@
   text-align: center;
 }
 .online-login-portrait {
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
   height: 100px;
   width: 100px;
   overflow: visible;
@@ -269,46 +271,53 @@
   left: 180px;
   width: 183px;
   height: 115px;
-  font-size: 11px;
+  /* 0098a707 font1 → 0098a7df: black Arial12. */
+  color: #000;
+  font-size: 12px;
 }
 .online-login-character-detail > span {
   position: absolute;
-  width: 54px;
-  line-height: 18px;
+  width: 45px;
+  height: 17px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .online-login-character-detail > .online-login-info-job {
-  top: 0;
-  left: 37px;
-  width: 146px;
+  top: 1px;
+  left: 46px;
+  width: 135px;
 }
 .online-login-info-level {
   top: 19px;
-  left: 37px;
+  left: 46px;
 }
 .online-login-info-fame {
   top: 19px;
-  left: 126px;
+  left: 136px;
 }
 .online-login-info-str {
   top: 37px;
-  left: 37px;
+  left: 46px;
 }
 .online-login-info-int {
   top: 37px;
-  left: 126px;
+  left: 136px;
 }
 .online-login-info-dex {
   top: 55px;
-  left: 37px;
+  left: 46px;
 }
 .online-login-info-luk {
   top: 55px;
-  left: 126px;
+  left: 136px;
 }
 .online-login-character-detail > .online-login-info-ranking {
-  top: 100px;
-  left: 0;
-  width: 183px;
+  top: 99px;
+  left: 36px;
+  width: 145px;
+  height: 14px;
 }
 .online-login-previous {
   position: absolute;
@@ -352,7 +361,8 @@
 }
 .online-login-look {
   position: absolute;
-  left: 450px;
+  /* 005f55d5..005f562b: x=22, y=-2369-600*race; 100 is z, not x. */
+  left: 372px;
   top: 239px;
   width: 100px;
 }
@@ -374,7 +384,9 @@
 .online-login-option {
   position: relative;
   height: 18px;
-  font-size: 11px;
+  /* 00618026 selects the same original font1 as the roster information. */
+  color: #000;
+  font-size: 12px;
 }
 .online-login-option .online-login-label {
   display: none;
@@ -416,6 +428,11 @@
   background: transparent;
   text-align: center;
 }
+.online-login-name-step .online-login-row {
+  display: block;
+  min-height: 0;
+  height: 15px;
+}
 .online-login-name-step .online-login-label,
 .online-login-name-step .online-login-note {
   display: none;
@@ -432,13 +449,67 @@
   left: 536px;
   top: 273px;
 }
+/* 00619876..00619900: appearance pane buttons are local (37/111,330).
+   The name pane uses (27/101,178) in 00617c1e..00617c98. */
+.online-login-create[data-phase="appearance"] .online-login-create-submit {
+  left: 546px;
+  top: 425px;
+}
 .online-login-create[data-phase="appearance"] .online-login-back {
   left: 620px;
   top: 425px;
 }
-.online-login-create[data-phase="appearance"] .online-login-create-submit {
-  left: 546px;
-  top: 425px;
+.online-login-stats-step {
+  position: absolute;
+  left: 493px;
+  top: 150px;
+  width: 242px;
+  height: 210px;
+  color: #362b20;
+}
+.online-login-stats-title {
+  position: absolute;
+  left: 25px;
+  top: 24px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 18px;
+}
+.online-login-stat-value {
+  position: absolute;
+  left: 73px;
+  width: 22px;
+  line-height: 15px;
+  color: #000;
+}
+.online-login-roll {
+  position: absolute;
+  left: 134px;
+  top: 60px;
+  width: 51px;
+  height: 58px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  font-size: 0;
+  cursor: pointer;
+}
+.online-login-roll-note {
+  position: absolute;
+  left: 25px;
+  top: 141px;
+  width: 192px;
+  margin: 0;
+  line-height: 17px;
+}
+.online-login-create[data-phase="stats"] .online-login-create-submit {
+  left: 536px;
+  top: 365px;
+}
+.online-login-create[data-phase="stats"] .online-login-back {
+  left: 610px;
+  top: 365px;
 }
 .online-dialog-overlay {
   position: absolute;

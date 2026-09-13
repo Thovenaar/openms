@@ -9,6 +9,7 @@ import {
 import { MultipartAssembly } from "./transport-assembly.js";
 import { freezeView, applyEntityChanges } from "./read-model.js";
 import { ServerClock } from "./transport-clock.js";
+import { validStartingStats } from "../../../shared/starting-stats.js";
 
 const HTTP_BYTES = 1024 * 1024;
 const HTTP_TIMEOUT_MS = 10000;
@@ -239,6 +240,22 @@ export class OnlineTransport {
       throw failure("INVALID_CHALLENGE");
     }
     return freezeView(result);
+  }
+
+  /** Roll on the server; malformed responses cannot become a creation draft. */
+  async rollCharacterStats() {
+    const roll = await request("/api/v1/character-roll", "POST", {
+      csrfToken: this.config.csrfToken,
+    });
+    if (
+      !roll ||
+      typeof roll.rollId !== "string" ||
+      !ID.test(roll.rollId) ||
+      !validStartingStats(roll)
+    ) {
+      throw failure("INVALID_MESSAGE");
+    }
+    return freezeView(roll);
   }
 
   /** Register one account-owned character with admitted stats, original look and starter gear. */
@@ -648,7 +665,15 @@ export class OnlineTransport {
     if (this.baselineId && model.eventSeq <= this.lastEventSeq) {
       throw failure("STALE_SNAPSHOT");
     }
-    this.setStatus("synchronizing");
+    // Joining peers and committed actions refresh this field's baseline. Keep
+    // physical holds and native windows alive while replacing that state.
+    // Initial entry, travel and explicit recovery still gate gameplay.
+    if (
+      this.status !== "active" ||
+      this.model?.fieldEpoch !== model.fieldEpoch
+    ) {
+      this.setStatus("synchronizing");
+    }
     const frozen = freezeView(model);
     await this.callbacks.onSnapshot?.(frozen);
     if (generation !== this.generation) return;
@@ -808,7 +833,13 @@ export class OnlineTransport {
       this.baselineId = null;
       this.setStatus("synchronizing");
     }
-    if (message.phase === "aborted") this.setStatus("active");
+    if (message.phase === "aborted") {
+      // Rollback retires source baselines too. Wait for the replacement snapshot
+      // before acknowledging publications or admitting movement again.
+      this.baselines.clear();
+      this.baselineId = null;
+      this.setStatus("synchronizing");
+    }
     this.callbacks.onTransition?.(freezeView(message));
   }
   sendTransitionReady(

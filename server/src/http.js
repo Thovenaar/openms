@@ -5,6 +5,7 @@ import {
 } from "../../shared/protocol.js";
 import { getInteractionContent } from "./interactions.js";
 import { prepareCreatedCharacter } from "./character-creation.js";
+import { issueCreationRoll, admitCreationRoll } from "./creation-roll.js";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_BODY_CHUNKS = 64;
@@ -79,15 +80,33 @@ async function requestBody(request) {
 
 /** Browser-only authenticated endpoints. No forwarded-IP/header trust on the public listener. */
 export class OnlineHttp {
-  constructor({ config, content, auth, gateway }) {
+  constructor({ config, content, auth, gateway, log = null }) {
     this.config = config;
     this.content = content;
     this.auth = auth;
     this.gateway = gateway;
     this.database = gateway.database;
+    this.log = log;
   }
 
   async fetch(request, server) {
+    const started = performance.now();
+    const path = new URL(request.url).pathname;
+    let result;
+    try {
+      result = await this.handle(request, server);
+      return result;
+    } finally {
+      this.log?.("http", {
+        method: request.method,
+        path,
+        status: result?.status ?? 101,
+        ms: Math.round(performance.now() - started),
+      });
+    }
+  }
+
+  async handle(request, server) {
     try {
       const url = new URL(request.url);
       if (url.search || request.headers.get("content-length")?.length > 20) {
@@ -103,10 +122,19 @@ export class OnlineHttp {
       }
       return await this.route(request, url.pathname, server);
     } catch (error) {
-      const code = error.code ?? "SERVER_BUSY";
-      if (!error.code) console.error("Online HTTP failure:", error.message);
-      return response({ code }, ERROR_STATUS.get(code) ?? 400);
+      return this.failedRequest(request, error);
     }
+  }
+
+  failedRequest(request, error) {
+    const code = error.code ?? "SERVER_BUSY";
+    this.log?.("http.rejected", {
+      method: request.method,
+      path: new URL(request.url).pathname,
+      code,
+    });
+    if (!error.code) console.error("Online HTTP failure:", error.message);
+    return response({ code }, ERROR_STATUS.get(code) ?? 400);
   }
 
   route(request, path, server) {
@@ -151,6 +179,7 @@ export class OnlineHttp {
       return this.authenticate(request, path, server);
     }
     if (path === "/api/v1/characters") return this.createCharacter(request);
+    if (path === "/api/v1/character-roll") return this.rollCharacter(request);
     if (path === "/api/v1/play-ticket") {
       return response(
         await this.auth.ticket(request, await requestBody(request)),
@@ -173,16 +202,29 @@ export class OnlineHttp {
     return response({ csrfToken, expiresAt, role }, 200, result.cookie);
   }
 
+  async rollCharacter(request) {
+    this.auth.origin(request);
+    const body = await requestBody(request);
+    closedRecord(body, ["csrfToken"]);
+    const session = this.auth.session(request);
+    this.auth.csrf(session, body.csrfToken);
+    return response(issueCreationRoll(session));
+  }
+
   async createCharacter(request) {
     this.auth.origin(request);
     const body = await requestBody(request);
     const session = this.auth.session(request);
     this.auth.csrf(session, body.csrfToken);
+    admitCreationRoll(session, body);
     const profile = await prepareCreatedCharacter(this.content, body);
     const character = await this.database.createAccountCharacter(
       session.accountId,
       profile,
-      () => this.auth.csrf(session, body.csrfToken),
+      () => {
+        this.auth.csrf(session, body.csrfToken);
+        admitCreationRoll(session, body);
+      },
     );
     return response({ character });
   }
@@ -298,6 +340,7 @@ export class OnlineHttp {
     });
     try {
       const result = await this.gateway.world.develop(actor, body);
+      this.logDevelopment(actor, body, result);
       await this.database.auditDevelopment({
         ...audit,
         status: result.status ?? "committed",
@@ -305,6 +348,10 @@ export class OnlineHttp {
       });
       return response({ ...result, operationId: body.operationId });
     } catch (error) {
+      this.logDevelopment(actor, body, {
+        status: "rejected",
+        code: error.code ?? "SERVER_BUSY",
+      });
       await this.database.auditDevelopment({
         ...audit,
         status: "rejected",
@@ -318,5 +365,16 @@ export class OnlineHttp {
         transactionId: null,
       });
     }
+  }
+
+  logDevelopment(actor, body, result) {
+    this.log?.("development.result", {
+      character: actor.id,
+      operation: body.operationId,
+      action: body.action?.kind,
+      map: actor.field.mapId,
+      status: result.status,
+      code: result.code,
+    });
   }
 }
