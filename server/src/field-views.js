@@ -80,6 +80,7 @@ export function lifeEntity(entity, kind) {
     actionStartTick: entity.actionStartTick ?? 0,
     appearance: null,
     ...(kind === "mob" ? mobCombatFields(entity) : {}),
+    ...(kind === "npc" ? { npcSpeech: entity.npcSpeech ?? null } : {}),
   };
 }
 

@@ -159,12 +159,13 @@ async function inspectBanners(page, report, output) {
           }),
       );
       const observed = await bannerPixels(page);
+      const spotlight = await selectionSpotlight(page, slot);
       assertion(
         observed.samples.every((sample) => sample.alpha >= 250),
         "Parchment/border missing behind transparent stat cells",
         { actual: observed.samples },
       );
-      report.observations.push({ viewport, slot, ...observed });
+      report.observations.push({ viewport, slot, ...observed, spotlight });
       const name = `${viewport.width}x${viewport.height}-slot${slot}`;
       await page.screenshot({ path: join(output, `${name}.png`) });
       await page.screenshot({
@@ -174,6 +175,31 @@ async function inspectBanners(page, report, output) {
       report.captures.push(`${name}.png`, `${name}-banner.png`);
     }
   }
+}
+
+async function selectionSpotlight(page, slot) {
+  await page.waitForFunction(
+    (index) => {
+      const light = window.maple.snapshot().login.spotlight;
+      return (
+        light?.visible &&
+        light.beam.x === 260 + 125 * index &&
+        light.beam.completed
+      );
+    },
+    { timeout: TIMEOUT },
+    slot,
+  );
+  const light = await page.evaluate(
+    () => window.maple.snapshot().login.spotlight,
+  );
+  assertion(
+    light.beam.frame === 4 &&
+      light.beam.playback === "once" &&
+      light.gleam.playback === "loop",
+    "Native spotlight opening/gleam playback mismatch",
+  );
+  return light;
 }
 
 function bannerPixels(page) {

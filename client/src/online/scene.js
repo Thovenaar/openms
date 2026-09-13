@@ -108,8 +108,9 @@ export class OnlineScene {
     }
     for (const id of this.views.keys()) if (!ids.has(id)) this.remove(id);
     for (const id of this.npcs.keys()) if (!ids.has(id)) this.remove(id);
-    for (const entity of this.reactorEntities.values())
-      {if (!ids.has(entity.id)) this.remove(entity.id);}
+    for (const entity of this.reactorEntities.values()) {
+      if (!ids.has(entity.id)) this.remove(entity.id);
+    }
   }
   changes(message) {
     this.tick = message.serverTick;
@@ -256,8 +257,9 @@ export class OnlineScene {
     }
     if (entity.kind === "mob") {
       const name = this.catalog.monsters[entity.templateId]?.name;
-      if (typeof name !== "string")
-        {throw new Error("Original monster name is not packaged.");}
+      if (typeof name !== "string") {
+        throw new Error("Original monster name is not packaged.");
+      }
       view.mobName = createMobNameLabel(name);
       view.mobName.position.set(0, 4);
       animation.container.addChild(view.mobName);
@@ -538,8 +540,9 @@ export class OnlineScene {
     return this.native?.isInteractive(x, y) ?? false;
   }
   event(message) {
-    if (!message.event || message.fieldEpoch !== this.fieldEpoch)
-      {return Promise.resolve();}
+    if (!message.event || message.fieldEpoch !== this.fieldEpoch) {
+      return Promise.resolve();
+    }
     this.queue = this.queue.then(() => this.events.event(message));
     return this.queue;
   }
@@ -586,6 +589,7 @@ export class OnlineScene {
       presentation: { ...this.presentation },
       entityCount: this.views.size,
       npcs: this.npcs.size,
+      npcPresentation: this.native?.snapshotNpcs() ?? [],
       combat: this.events.combat.snapshot(),
     };
   }
@@ -612,8 +616,9 @@ export class OnlineScene {
         view.entity.mobState.nameVisible &&
         view.observedAge < view.entity.mobState.nameRemainingMs;
     }
-    if (view.entity.kind === "drop")
+    if (view.entity.kind === "drop") {
       this.drops.observe(view, view.drawX, view.drawY);
+    }
   }
   interpolateView(view, now) {
     const self = view.entity.id === this.selfId;

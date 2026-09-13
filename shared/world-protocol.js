@@ -79,6 +79,15 @@ export function worldTransitionFields(entitySchema, maxEntities) {
   };
 }
 export const WORLD_ENTITY_FIELDS = {
+  npcSpeech: optional(
+    nullable(
+      record({
+        actionIndex: nullable(number(0, 4095)),
+        lineIndex: number(0, 4095),
+        startTick: revision,
+      }),
+    ),
+  ),
   expression: optional(
     nullable(
       record(

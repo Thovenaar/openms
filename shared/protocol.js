@@ -338,17 +338,23 @@ const appearance = record({
   ),
 });
 function playerEntityFragments(value) {
-  return value.kind === "player" || (
-    value.expression === undefined && value.seat === undefined &&
-    value.combatState === undefined && value.skillVisuals === undefined &&
-    value.skillVoices === undefined && value.diseases === undefined &&
-    value.skillDoor === undefined
+  return (
+    value.kind === "player" ||
+    (value.expression === undefined &&
+      value.seat === undefined &&
+      value.combatState === undefined &&
+      value.skillVisuals === undefined &&
+      value.skillVoices === undefined &&
+      value.diseases === undefined &&
+      value.skillDoor === undefined)
   );
 }
 
 function mobEntityFragments(value) {
-  return value.kind === "mob" ||
-    (value.placementId === undefined && value.mobState === undefined);
+  return (
+    value.kind === "mob" ||
+    (value.placementId === undefined && value.mobState === undefined)
+  );
 }
 
 const entity = record(
@@ -388,7 +394,9 @@ const entity = record(
     (value.kind === "drop") === (value.dropMotion !== undefined) &&
     (value.kind === "drop") === (value.dropInfo !== undefined) &&
     (value.kind === "reactor") === (value.reactor !== undefined) &&
-    playerEntityFragments(value) && mobEntityFragments(value),
+    (value.kind === "npc" || value.npcSpeech === undefined) &&
+    playerEntityFragments(value) &&
+    mobEntityFragments(value),
 );
 const statKey = enumeration(
   "str",

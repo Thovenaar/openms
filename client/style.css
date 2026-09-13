@@ -35,6 +35,59 @@ main {
 #viewport canvas[hidden] {
   display: none;
 }
+/* Browser startup admission precedes both the game and its shared storage. */
+#game-tab-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: #008080;
+  color: #000;
+  font:
+    14px/1.5 Arial,
+    sans-serif;
+}
+#game-tab-gate > div {
+  box-sizing: border-box;
+  width: min(100%, 420px);
+  padding: 4px 4px 20px;
+  border: 2px outset #fff;
+  background: #c0c0c0;
+  box-shadow: 2px 2px #000;
+}
+#game-tab-gate h1 {
+  margin: 0;
+  padding: 4px 8px;
+  background: #000080;
+  color: #fff;
+  font-size: 15px;
+}
+#game-tab-gate p {
+  margin: 20px 16px;
+}
+#game-tab-gate button {
+  display: block;
+  min-width: 96px;
+  margin: 0 auto;
+  padding: 5px 12px;
+  border: 2px outset #fff;
+  border-radius: 0;
+  background: #c0c0c0;
+  color: #000;
+  font: inherit;
+}
+#game-tab-gate button:active {
+  border-style: inset;
+}
+#game-tab-gate button:focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -5px;
+}
+#game-tab-gate [hidden] {
+  display: none;
+}
 /* Startup status is browser-owned, not reconstructed game artwork. */
 #delivery-startup {
   position: absolute;

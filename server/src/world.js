@@ -9,6 +9,7 @@ import {
 import { createSimulation } from "../../client/src/physics/simulation.js";
 import { nearestSavedArrival } from "../../client/src/world/field-arrival.js";
 import { npcRectangle } from "../../client/src/world/life-geometry-numeric.js";
+import { prepareNpcAmbient, advanceNpcs } from "./field-npcs.js";
 import { executeAction } from "./actions.js";
 import { operationFor } from "./action-rules.js";
 import { rebuildActorEffects, expireActorEffects } from "./action-character.js";
@@ -80,7 +81,7 @@ const NEUTRAL = Object.freeze({
 });
 const CANCEL_SKILLS = Object.freeze({ kind: "skill.cancel" });
 
-function prepareNpcs(manifest) {
+function prepareNpcs(manifest, randomUint) {
   const npcs = new Map();
   for (const record of manifest.life.placements) {
     if (record.kind !== "npc" || record.authored.hide) continue;
@@ -98,6 +99,8 @@ function prepareNpcs(manifest) {
       y: record.authored.y,
       facing: record.authored.f ? -1 : 1,
       action: template.defaultAction,
+      ambient: prepareNpcAmbient(template, randomUint),
+      npcSpeech: null,
       rectangle: npcRectangle(template.info),
     });
   }
@@ -185,7 +188,7 @@ export class OnlineWorld {
       tick: 0,
       characters: new Map(),
       mobs,
-      npcs: prepareNpcs(manifest),
+      npcs: prepareNpcs(manifest, () => this.nextUint32()),
       drops: new Map(),
       dropReservations: 0,
       developmentSpawns: 0,
@@ -410,6 +413,7 @@ export class OnlineWorld {
     advanceCombat(this, field);
     advanceDrops(this, field);
     advanceReactors(this, field, PROTOCOL.TICK_MS);
+    advanceNpcs(this, field);
     for (const actor of field.characters.values()) {
       if (actor.state !== "active" || actor.retiring) continue;
       this.publish(actor, {

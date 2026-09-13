@@ -34,8 +34,9 @@ export class NativeDialogue {
       cache: "no-store",
       signal: this.request.signal,
     });
-    if (!response.ok)
-      {throw new Error(`Dialogue content HTTP ${response.status}`);}
+    if (!response.ok) {
+      throw new Error(`Dialogue content HTTP ${response.status}`);
+    }
     const content = await response.json();
     if (generation !== this.generation) return;
     if (typeof content.text !== "string" || content.text.length > 65536) {
@@ -67,7 +68,7 @@ export class NativeDialogue {
       sessionId: event.conversationId,
       revision: event.step,
       npcId: event.npcTemplateId,
-      choices: event.choices,
+      choices: event.choices.map((id) => ({ id })),
       defaultValue: event.native.defaultValue ?? "",
       min: event.minimum,
       max: event.maximum,
@@ -90,7 +91,9 @@ export class NativeDialogue {
       ...this.questConfirmation,
       kind: "choice",
       next: false,
-      choices: this.event.quest.rewardChoices.map((item) => item.index),
+      choices: this.event.quest.rewardChoices.map((item) => ({
+        id: item.index,
+      })),
       text: `${this.questConfirmation.text}\r\n\r\nSelect one original item reward:\r\n${rows.join("\r\n")}`,
     };
   }
@@ -98,8 +101,9 @@ export class NativeDialogue {
     const choice = this.event.quest.rewardChoices.find(
       (item) => item.index === index,
     );
-    if (!choice)
-      {return { ok: false, reason: "This reward is no longer offered." };}
+    if (!choice) {
+      return { ok: false, reason: "This reward is no longer offered." };
+    }
     this.rewardIndex = index;
     this.view = {
       ...this.questConfirmation,
@@ -111,6 +115,7 @@ export class NativeDialogue {
   async respond(response) {
     const event = this.event;
     if (
+      this.pending ||
       !event ||
       response.sessionId !== event.conversationId ||
       response.revision !== event.step
@@ -134,8 +139,9 @@ export class NativeDialogue {
     }
   }
   rewardResponse(response, event) {
-    if (event.quest?.mode !== "confirm" || !event.quest.rewardChoices.length)
+    if (event.quest?.mode !== "confirm" || !event.quest.rewardChoices.length) {
       return null;
+    }
     if (response.action === "choose") return this.selectReward(response.value);
     if (response.action === "previous" && this.rewardIndex !== null) {
       this.rewardIndex = null;
@@ -145,8 +151,9 @@ export class NativeDialogue {
     if (
       this.rewardIndex === null &&
       (response.action === "accept" || response.action === "acknowledge")
-    )
+    ) {
       return { ok: false, reason: "Select an original item reward." };
+    }
     return null;
   }
   commandFor(response, event) {
@@ -173,9 +180,7 @@ export class NativeDialogue {
   }
   answer(response) {
     if (response.action === "decline") {
-      return this.event.quest
-        ? { kind: "cancel" }
-        : { kind: "yesno", value: false };
+      return { kind: "yesno", value: false };
     }
     if (ANSWERS[response.action]) return { kind: ANSWERS[response.action] };
     if (["yes", "no", "accept"].includes(response.action)) {

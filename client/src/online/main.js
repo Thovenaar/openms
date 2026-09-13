@@ -269,8 +269,13 @@ async function publishNative(snapshot) {
 function portal() {
   if (!current || isBlocked()) return;
   const self = transport.model?.self.entity;
-  if (!self || self.foothold === null || prediction.simulation?.movementLocked)
-    {return;}
+  if (
+    !self ||
+    self.foothold === null ||
+    prediction.simulation?.movementLocked
+  ) {
+    return;
+  }
   if (ui.skillVisuals.enterDoor()) return;
   const selected = entryPortal(
     current.scene.manifest.physics.portals ?? [],

@@ -56,33 +56,16 @@ function questAdmission(record, profile, npcId, stage) {
 }
 
 export function questOffers(actor, world, lease) {
-  const records = Object.values(world.content.catalog.quests.records);
-  requireInteraction(records.length <= MAX_QUESTS, "CONTENT_MISMATCH");
-  const offers = [];
-  for (const record of records) {
-    const stage = stateOf(actor.profile, record.id);
-    if (
-      stage > 1 ||
-      !record.supported ||
-      !isNpcEndpoint(record.stages[stage], lease.npcTemplateId)
-    ) {
-      continue;
-    }
-    const context = { npcId: lease.npcTemplateId, questId: record.id };
-    if (
-      !checkConditions(record.stages[stage].check, actor.profile, context).ok ||
-      !checkConditions(record.stages[stage].actionCheck, actor.profile, context)
-        .ok
-    ) {
-      continue;
-    }
-    requireInteraction(offers.length < MAX_OFFERS, "CONTENT_MISMATCH");
-    offers.push({
-      questId: record.id,
-      action: stage === 0 ? "accept" : "claim",
-    });
-  }
-  return offers;
+  // Browsing an active quest is allowed before its completion gates pass.
+  // Only publishQuestDialogue can grant the separate confirmation/reward lease.
+  const entries = narrativeQuestSystem(actor.profile, world).npcEntries(
+    lease.npcTemplateId,
+  );
+  requireInteraction(entries.length <= MAX_OFFERS, "CONTENT_MISMATCH");
+  return entries.map(({ record, state }) => ({
+    questId: record.id,
+    action: state === 0 ? "accept" : "claim",
+  }));
 }
 
 /** Require the current authored confirmation before planning quest effects. */

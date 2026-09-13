@@ -1304,11 +1304,15 @@ export class OnlineLogin {
     this.backdrop = backdrop;
     try {
       await backdrop.prepare(signal ?? this.controller.signal);
-      if (!this.destroyed) backdrop.showStage(this.host.dataset.stage);
+      if (!this.destroyed && this.backdrop === backdrop) {
+        backdrop.showStage(this.host.dataset.stage);
+      }
     } catch (error) {
+      const cancelled = backdrop.controller.signal.aborted || signal?.aborted;
       backdrop.destroy();
       if (this.backdrop === backdrop) this.backdrop = null;
-      throw error;
+      // Returning to the field can retire scenery while its asset demand awaits.
+      if (!cancelled) throw error;
     }
   }
 

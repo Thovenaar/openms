@@ -99,6 +99,7 @@ export class LoginBackdrop {
   }
 
   buildScreens() {
+    this.buildSelectionLight();
     this.buildFrame();
     this.stage("account");
     const characters = this.stage("characters");
@@ -122,6 +123,38 @@ export class LoginBackdrop {
     this.buildCreationScreens();
     this.renderRoster();
     this.renderCreate();
+  }
+
+  /** 005f6482: two center-vector layers, z0xc00614a4, below the login windows.
+   * effect/0 repeats (Animate0x20); effect/1 opens once (Animate0), then holds. */
+  buildSelectionLight() {
+    const panel = this.surface(
+      this.login.window,
+      "Login selection spotlight",
+      [800, 600],
+    );
+    panel.element.style.zIndex = "0";
+    panel.root.rasterClip = { x: 0, y: 0, width: 800, height: 600 };
+    this.selectionLight = panel;
+    this.selectionGleam = panel.stateImage("CharSelect/effect/0/0", 260, 0);
+    this.selectionBeam = panel.stateImage("CharSelect/effect/1/0", 260, 0);
+    this.selectionBeam.setAction("default", "once");
+    this.lightCharacter = null;
+  }
+
+  renderSelectionLight() {
+    const character = this.login.characters[this.login.selected];
+    const visible = this.currentStage === "characters" && Boolean(character);
+    this.selectionLight.element.hidden = !visible;
+    this.selectionLight.root.visible = visible;
+    if (!character || character === this.lightCharacter) return;
+    this.lightCharacter = character;
+    // 005f64de..005f6502: center + (-140 + 125*(index%3), -300).
+    const x = 260 + 125 * (this.login.selected % 3);
+    this.selectionGleam.setPosition(x, 0);
+    this.selectionBeam.setPosition(x, 0);
+    this.selectionGleam.setAction("default", "loop", true);
+    this.selectionBeam.setAction("default", "once", true);
   }
 
   /** 0060292f z20 is above the selection controls (00603ff0 z10).
@@ -223,6 +256,7 @@ export class LoginBackdrop {
   }
   renderRoster() {
     if (!this.rosterArt) return;
+    this.renderSelectionLight();
     this.characterInfo.container.visible = this.login.characters.length > 0;
     this.characterScroll.container.visible =
       this.characterInfo.container.visible;
@@ -455,6 +489,7 @@ export class LoginBackdrop {
       this.camera.y = next.centerY - 300;
     }
     this.currentStage = name;
+    this.renderSelectionLight();
     for (const [stage, panel] of this.stages) {
       panel.element.hidden = stage !== name;
       panel.root.visible = stage === name;
@@ -506,6 +541,7 @@ export class LoginBackdrop {
     const transition = this.transition;
     return {
       ...this.scene.snapshot(),
+      spotlight: this.spotlightSnapshot(),
       transition: {
         from: transition?.from ?? null,
         to: transition?.to ?? this.currentStage,
@@ -516,6 +552,15 @@ export class LoginBackdrop {
         ),
         replayable: Boolean(transition),
       },
+    };
+  }
+
+  spotlightSnapshot() {
+    if (!this.selectionLight) return null;
+    return {
+      visible: this.selectionLight.root.visible,
+      beam: this.selectionBeam.snapshot(),
+      gleam: this.selectionGleam.snapshot(),
     };
   }
 

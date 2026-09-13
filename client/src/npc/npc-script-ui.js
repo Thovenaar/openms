@@ -290,6 +290,10 @@ function refreshSafely(view) {
   }
 }
 
+function responseError(view, reason) {
+  if (!view.destroyed) view.layout.setError(reason);
+}
+
 /** Never retries a committed callback. A failed response keeps the exact current DOM, draft and selection. */
 async function respond(view, action, value) {
   if (view.destroyed || busy(view)) return false;
@@ -307,10 +311,10 @@ async function respond(view, action, value) {
   let result = null;
   try {
     result = await view.session.respond(response);
-    if (!result.ok) view.layout.setError(result.reason);
+    if (!result.ok) responseError(view, result.reason);
     await view.context.onOutcome?.(result);
   } catch (error) {
-    view.layout.setError(error.message);
+    responseError(view, error.message);
     view.panel.owner.report(error);
   } finally {
     finishResponse(view, result, focused);
@@ -449,7 +453,9 @@ export function mountNpcScriptDialogue(panel, session, context) {
   };
   listenDialogue(view);
   const cleanup = () => {
-    if (busy(view)) return false;
+    // A server terminal event may retire the panel before the request receipt.
+    // The owner has already committed disposal; release resources even in flight.
+    if (busy(view) && !panel.disposed) return false;
     if (view.destroyed) return true;
     view.destroyed = true;
     view.artRequest?.abort();

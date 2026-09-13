@@ -2,6 +2,7 @@ import { QuestDialogue } from "../../client/src/quests/quest-dialogue.js";
 import {
   stateOf,
   checkConditions,
+  isNpcEndpoint,
 } from "../../client/src/quests/quest-rules.js";
 import {
   closeConversation,
@@ -27,8 +28,12 @@ function status(record, npcId, profile) {
 
 export function startQuestDialogue(actor, world, lease, questId) {
   const record = world.content.catalog.quests.records[questId];
+  const state = stateOf(actor.profile, questId);
   requireInteraction(
-    record && status(record, lease.npcTemplateId, actor.profile).ok,
+    record?.supported &&
+      state < 2 &&
+      isNpcEndpoint(record.stages[state], lease.npcTemplateId) &&
+      (state === 1 || status(record, lease.npcTemplateId, actor.profile).ok),
     "REQUIREMENTS_NOT_MET",
   );
   const system = {
@@ -92,7 +97,8 @@ export function publishQuestDialogue(actor, world, lease) {
             : "say",
       speaker: 0,
       prev: view.canPrevious,
-      next: view.mode !== "confirm",
+      next:
+        view.mode === "offer" || (view.mode !== "confirm" && !view.finalPage),
       defaultValue: null,
     },
     contentId,
@@ -103,11 +109,7 @@ export function publishQuestDialogue(actor, world, lease) {
   });
 }
 
-export function answerQuestDialogue(actor, message, world, lease) {
-  currentNpc(world, actor, lease);
-  const dialogue = lease.questDialogue;
-  const answer = message.action.answer;
-  const view = dialogue.snapshot();
+function validateQuestAdvance(dialogue, view, answer) {
   if (answer.kind === "next" || answer.kind === "choice") {
     requireInteraction(
       dialogue.steps < 2048 &&
@@ -122,11 +124,24 @@ export function answerQuestDialogue(actor, message, world, lease) {
       "NOT_ALLOWED",
     );
   }
+}
+
+export function answerQuestDialogue(actor, message, world, lease) {
+  currentNpc(world, actor, lease);
+  const dialogue = lease.questDialogue;
+  const answer = message.action.answer;
+  const view = dialogue.snapshot();
   if (answer.kind === "cancel") {
-    if (!dialogue.reject()) {
-      closeConversation(actor, world);
-      return interactionReceipt(lease.step + 1);
-    }
+    closeConversation(actor, world);
+    return interactionReceipt(lease.step + 1);
+  }
+  validateQuestAdvance(dialogue, view, answer);
+  if (answer.kind === "yesno") {
+    requireInteraction(
+      answer.value === false && view.stage === 0 && view.mode === "confirm",
+      "NOT_ALLOWED",
+    );
+    requireInteraction(dialogue.reject(), "NOT_ALLOWED");
   } else if (answer.kind === "previous") {
     requireInteraction(dialogue.previous());
   } else {

@@ -24,6 +24,10 @@ openms.dev reconstructs an original-asset browser client with JavaScript, JSDoc,
 
 Run `bun run server:dev` for the loopback server and `bun run client:dev:online` for the original-asset online browser. PostgreSQL and extracted content are required. See [setup and production gates](server/index.md); development/reference policies are not original-server fidelity or measured security guarantees.
 
+The [online/offline parity inventory](server/offline-parity.md) maps native features to server ownership and records NPC/quest verification. [Login recovery](login-creation-recovery.md) documents the selected-character spotlight, banner, creation layout and dice evidence.
+
+[Browser session ownership](browser-session.md) allows one game tab per shared browser storage origin, for both clients.
+
 ## Project guidance
 
 Follow the [JavaScript coding style](coding-style.md) and [input provenance](inputs.md). Authoritative Markdown and raw evidence stay at their existing repository paths; the site publishes client pages under `/client/` and server pages under `/server/`. Repository-file links continue to target the actual Git remote. Historical captures, identities, and benchmark counts are not renamed or reinterpreted.

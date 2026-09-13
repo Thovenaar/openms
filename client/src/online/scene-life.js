@@ -31,7 +31,9 @@ export class SceneLife {
     this.world = new NpcWorldPresentation(this.life, quests, {
       app: owner.app,
       services: owner.services,
-      ambient: false,
+      ambient: "server",
+      speech: (id) => owner.npcByPlacement.get(id)?.entity.npcSpeech,
+      tick: () => owner.tick,
     });
     const portals = new Map(
       owner.scene.manifest.physics.portals.map((portal) => [portal.id, portal]),
@@ -160,6 +162,24 @@ export class SceneLife {
       }
     }
     return false;
+  }
+
+  /** Read-only native presentation evidence; no field/quest mutation port. */
+  snapshotNpcs() {
+    return this.world.slots.map((slot) => ({
+      placementId: slot.life.record.id,
+      templateId: Number(slot.life.template.originalId),
+      action: slot.life.entity?.action ?? null,
+      markerState: slot.state,
+      speechStartTick: slot.speechStartTick,
+      speech: slot.speech
+        ? {
+            text: slot.speech.text,
+            visible: slot.speech.root.visible,
+            remainingMs: Math.max(0, slot.speech.remainingMs),
+          }
+        : null,
+    }));
   }
 
   destroy() {

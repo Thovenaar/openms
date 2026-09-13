@@ -107,7 +107,7 @@ export async function buildBrowser(progress) {
   const result = await measureStage(timings, "compilationMs", () =>
     Bun.build({
       entrypoints: [
-        resolve(root, "src/main.js"),
+        resolve(root, "src/browser/offline/main.js"),
         resolve(root, "src/rendering/atlas-worker.js"),
         resolve(root, "src/audio/audio-capture-worklet.js"),
         resolve(root, "tools/browser-oracle.js"),
@@ -252,7 +252,7 @@ async function recheckOnlineInputs(identity, content, timings) {
 async function compileOnline({ development, sourceBuildId, content, graph }) {
   const result = await Bun.build({
     entrypoints: [
-      resolve(root, "src/online/main.js"),
+      resolve(root, "src/browser/online/main.js"),
       resolve(root, "src/rendering/atlas-worker.js"),
       resolve(root, "src/audio/audio-capture-worklet.js"),
     ],

@@ -84,7 +84,10 @@ export class NpcWorldPresentation {
       lines: [],
       actions: [],
       cooldownMs:
-        this.options.ambient === false ? 0 : (this.randomUint() % 6000) + 3000,
+        this.options.ambient === false || this.options.ambient === "server"
+          ? 0
+          : (this.randomUint() % 6000) + 3000,
+      speechStartTick: null,
       actionMs: 0,
       speechTickMs: 0,
       pose: { x: 0, headY: 0 },
@@ -190,7 +193,8 @@ export class NpcWorldPresentation {
     if (slot.speech) slot.speech.root.visible = false;
     if (!visible) return;
     slot.speechTickMs = ms;
-    if (this.options.ambient !== false) this.advanceAmbient(slot, ms);
+    if (this.options.ambient === "server") this.observeAmbient(slot);
+    else if (this.options.ambient !== false) this.advanceAmbient(slot, ms);
     const first = life.template.actions[entity.action]?.frames[0];
     if (!first) return;
     slot.pose.x = entity.container.x;
@@ -200,6 +204,32 @@ export class NpcWorldPresentation {
     if (slot.speech && slot.state < 0) {
       slot.speech.update(slot.speechTickMs, slot.pose, this.scene.camera);
     }
+  }
+
+  /** Replay the server's authored line selection; region rebinds never restart it.
+   * Original quest-marker precedence remains per character, from published quest state. */
+  observeAmbient(slot) {
+    if (!slot.speech) return;
+    const speech = this.options.speech(slot.life.record.id);
+    if (!speech) {
+      slot.speech.remainingMs = -1;
+      slot.speechStartTick = null;
+      return;
+    }
+    if (slot.speechStartTick === speech.startTick) return;
+    const lines =
+      speech.actionIndex === null
+        ? slot.lines
+        : slot.actions[speech.actionIndex]?.lines;
+    const prepared = lines?.[speech.lineIndex];
+    if (!prepared) {
+      throw new Error("Server selected an unknown original NPC utterance");
+    }
+    slot.speechStartTick = speech.startTick;
+    if (slot.state >= 0) return;
+    slot.speech.showPrepared(prepared);
+    slot.speechTickMs =
+      Math.max(0, this.options.tick() - speech.startTick) * 30;
   }
 
   /** 006d2918 counts30-ms updates; caller supplies the field's existing simulated delta. */
