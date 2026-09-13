@@ -96,12 +96,14 @@ export function validateCharacterCreation(body, { avatar, create }) {
   return body;
 }
 
-/** Names are unique only within an account: profile JSON has no global name constraint. */
+/** Cheap account admission; the database also enforces global, case-insensitive active names. */
 export function admitCharacterSlot(names, name) {
   if (!Array.isArray(names) || names.length > MAX_ACCOUNT_CHARACTERS + 1) {
     throw protocolError("CHARACTER_LIMIT");
   }
-  if (names.includes(name)) throw protocolError("NAME_TAKEN");
+  if (names.some((existing) => existing.toLowerCase() === name.toLowerCase())) {
+    throw protocolError("NAME_TAKEN");
+  }
   if (names.length >= MAX_ACCOUNT_CHARACTERS) {
     throw protocolError("CHARACTER_LIMIT");
   }

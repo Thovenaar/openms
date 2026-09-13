@@ -101,6 +101,8 @@ Keep `/api/` network-only. Do not install the offline service worker for the onl
 
 The [protocol](protocol.md) owns session lifetimes, input sequencing, field generations, checkpoints, transactions and recovery. Explicit logout retires the actor immediately and checkpoints it; transient disconnection has a separate grace. Dead logout follows the authored return-map revival policy.
 
+[Review fixes and migration](reliability.md) documents stateless login admission, byte-bounded snapshots, checkpoint recovery and retention, global character names, and market retry policy.
+
 ## Reference data
 
 The supplied `../MapleStory-Server` identifies itself as Cosmic. Set `MAPLE_SERVER_REFERENCE` or pass `--server-root` when converting it:

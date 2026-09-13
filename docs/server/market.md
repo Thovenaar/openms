@@ -90,3 +90,6 @@ Validation on **14 September 2026** passed the MTS rules, PostgreSQL custody/rep
 ## ✉️ Account recovery
 
 The login screen has a **Forgot account or password?** link. Its Windows 95 style dialog validates an email address, traps focus, supports Escape, and clears the address on close. It clearly states that email recovery is not available and that no email was sent. Account lookup, reset tokens and email delivery are intentionally deferred. See [dialog implementation](../../client/src/online/account-recovery.js).
+
+
+Expiry scheduling checks at most eight eligible lots every five seconds while an active actor is available. Each failed lot receives a durable retry deadline: 10 seconds initially, doubling to a five-minute maximum. Eligibility is ordered by `max(expires_at, retry_at)`, so blocked lots cannot monopolize later batches. The loop skips already-removed listings and continues after individual rejections. Updating another listing preserves retry metadata; successful settlement removes the index row and its retry state. Failures emit `market.expiry.deferred` with the listing ID and stable error code. No settlement rules, item reservations or currency limits are bypassed to make expiry succeed.

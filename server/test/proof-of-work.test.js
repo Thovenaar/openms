@@ -59,6 +59,34 @@ test("a valid challenge proof succeeds exactly once", () => {
   expect(() => authority.consume(owner, proof, 1002)).toThrow("POW_INVALID");
 });
 
+test("verified proof capacity is bounded, rejects replays and becomes available after expiry", () => {
+  const authority = new ProofOfWorkAuthority(8);
+  for (let index = 0; index < 4096; index++) {
+    const challenge = authority.issue(owner, 1000);
+    authority.consume(
+      owner,
+      { challengeId: challenge.challengeId, nonce: solve(challenge) },
+      1001,
+    );
+  }
+  const challenge = authority.issue(owner, 1000);
+  expect(() =>
+    authority.consume(
+      owner,
+      { challengeId: challenge.challengeId, nonce: solve(challenge) },
+      1001,
+    ),
+  ).toThrow("SERVER_BUSY");
+  expect(authority.consumed.size).toBe(4096);
+  const fresh = authority.issue(owner, 1000 + POW_TTL_MS);
+  const proof = { challengeId: fresh.challengeId, nonce: solve(fresh) };
+  authority.consume(owner, proof, 1001 + POW_TTL_MS);
+  expect(authority.consumed.size).toBe(1);
+  expect(() => authority.consume(owner, proof, 1002 + POW_TTL_MS)).toThrow(
+    "POW_INVALID",
+  );
+});
+
 test("expired and unknown challenges expose the same invalid proof result", () => {
   const authority = new ProofOfWorkAuthority(8);
   const challenge = authority.issue(owner, 1000);
@@ -66,7 +94,6 @@ test("expired and unknown challenges expose the same invalid proof result", () =
   expect(() => authority.consume(owner, proof, 1000 + POW_TTL_MS)).toThrow(
     "POW_INVALID",
   );
-  expect(() => authority.consume(owner, proof, 1000)).toThrow("POW_INVALID");
   expect(() =>
     authority.consume(
       owner,
@@ -76,7 +103,7 @@ test("expired and unknown challenges expose the same invalid proof result", () =
   ).toThrow("POW_INVALID");
 });
 
-test("malformed nonce and owner mismatch consume the challenge before rejecting", () => {
+test("malformed proofs cannot reserve memory or invalidate another browser challenge", () => {
   const authority = new ProofOfWorkAuthority(8);
   for (const invalid of [
     { owner, nonce: "-1" },
@@ -87,6 +114,7 @@ test("malformed nonce and owner mismatch consume the challenge before rejecting"
       challengeId: challenge.challengeId,
       nonce: solve(challenge),
     };
+    const consumed = authority.consumed.size;
     expect(() =>
       authority.consume(
         invalid.owner,
@@ -94,11 +122,12 @@ test("malformed nonce and owner mismatch consume the challenge before rejecting"
         1001,
       ),
     ).toThrow("POW_INVALID");
-    expect(() => authority.consume(owner, proof, 1002)).toThrow("POW_INVALID");
+    expect(authority.consumed.size).toBe(consumed);
+    authority.consume(owner, proof, 1002);
   }
 });
 
-test("failed digest consumes the challenge and live challenge capacity is bounded", () => {
+test("unsolved challenge flooding leaves issuance available and cannot consume proofs", () => {
   const authority = new ProofOfWorkAuthority(8);
   const challenge = authority.issue(owner, 1000);
   const valid = solve(challenge);
@@ -117,18 +146,15 @@ test("failed digest consumes the challenge and live challenge capacity is bounde
       1001,
     ),
   ).toThrow("POW_INVALID");
-  expect(() =>
-    authority.consume(
-      owner,
-      { challengeId: challenge.challengeId, nonce: valid },
-      1002,
-    ),
-  ).toThrow("POW_INVALID");
-  for (let index = 0; index < 4096; index++) authority.issue(owner, 1000);
-  expect(() => authority.issue(owner, 1001)).toThrow("SERVER_BUSY");
-  expect(authority.issue(owner, 1000 + POW_TTL_MS).expiresAt).toBe(
-    1000 + POW_TTL_MS * 2,
+  expect(authority.consumed.size).toBe(0);
+  authority.consume(
+    owner,
+    { challengeId: challenge.challengeId, nonce: valid },
+    1002,
   );
+  for (let index = 0; index < 5000; index++) authority.issue(owner, 1000);
+  expect(authority.issue(owner, 1001).expiresAt).toBe(1001 + POW_TTL_MS);
+  expect(authority.consumed.size).toBe(1);
 });
 
 test("same-origin browser challenge GET needs its cookie but not an Origin header", () => {
@@ -237,4 +263,55 @@ test("a challenge binds login CSRF to the shared cookie after concurrent bootstr
     headers: { Cookie: result.cookie.split(";")[0] },
   });
   expect(auth.session(authenticated).accountId).toBe(account.id);
+});
+
+test("anonymous bootstrap and proxy-shared challenge traffic cannot exhaust issuance", () => {
+  const config = {
+    origin: "http://localhost:3102",
+    maxSessions: 4,
+    sessionMs: 60000,
+    powBits: 8,
+  };
+  const auth = new SessionAuthority(config, null);
+  for (let index = 0; index < 5000; index++) {
+    const bootstrap = auth.bootstrap(
+      new Request(`${config.origin}/api/v1/config`),
+    );
+    const request = new Request(`${config.origin}/api/v1/challenge`, {
+      headers: { Cookie: bootstrap.cookie.split(";")[0] },
+    });
+    expect(auth.challenge(request, "proxy").bits).toBe(8);
+  }
+  const issued = auth.issueSession({ id: "account", role: "player" });
+  expect(
+    auth.bootstrap(
+      new Request(`${config.origin}/api/v1/config`, {
+        headers: { Cookie: issued.cookie.split(";")[0] },
+      }),
+    ).csrfToken,
+  ).toBe(issued.session.csrfToken);
+  expect(auth.rates.size).toBe(0);
+  expect(auth.proofs.consumed.size).toBe(0);
+});
+
+test("signed login cookies reject tampering and restart without leaking token comparisons", () => {
+  const auth = new SessionAuthority(
+    { origin: "http://localhost:3102", maxSessions: 4, sessionMs: 60000 },
+    null,
+  );
+  const issued = auth.issueLoginNonce();
+  const request = (id) =>
+    new Request("http://localhost:3102", {
+      headers: { Cookie: `openms_login=${id}` },
+    });
+  expect(auth.loginNonce(request(issued.id)).csrfToken).toBe(issued.csrfToken);
+  const tampered = `${issued.id[0] === "A" ? "B" : "A"}${issued.id.slice(1)}`;
+  expect(auth.loginNonce(request(tampered))).toBeNull();
+  expect(
+    new SessionAuthority(auth.config, null).loginNonce(request(issued.id)),
+  ).toBeNull();
+  const session = auth.issueSession({ id: "a", role: "player" }).session;
+  expect(() =>
+    auth.csrf(session, "é".repeat(session.csrfToken.length)),
+  ).toThrow("NOT_ALLOWED");
 });

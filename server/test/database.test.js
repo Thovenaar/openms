@@ -8,7 +8,12 @@ import { nearestSavedArrival } from "../../client/src/world/field-arrival.js";
 import { protocolError } from "../../shared/protocol.js";
 import { grantItem } from "../../client/src/items/inventory-model.js";
 import { createMarketOrder } from "../src/market-orders.js";
-import { marketSearch } from "../src/database-market.js";
+import {
+  marketSearch,
+  dueMarketListings,
+  deferMarketListing,
+} from "../src/database-market.js";
+import { advanceMarketSchedule } from "../src/market-schedule.js";
 import { mutateMarket } from "../src/interaction-market.js";
 
 const databaseUrl = process.env.OPENMS_TEST_DATABASE_URL;
@@ -386,6 +391,198 @@ test.skipIf(!databaseUrl)(
   "native PostgreSQL soft deletion frees the name and refuses deleted characters",
   async () => {
     await withDatabase(proveDeletion);
+  },
+  30000,
+);
+
+async function proveGlobalNames(database, content) {
+  const left = await characterFixture(database, content, "NameOwner");
+  const right = await characterFixture(database, content, "NameOther");
+  const profile = createProfile(left.profile.location);
+  profile.name = "nameowner";
+  await expect(
+    database.createAccountCharacter(right.actor.accountId, profile, () => {}),
+  ).rejects.toMatchObject({ code: "NAME_TAKEN" });
+  const candidates = ["RaceName", "racename"].map((name) => {
+    const next = createProfile(left.profile.location);
+    next.name = name;
+    return next;
+  });
+  const results = await Promise.allSettled([
+    database.createAccountCharacter(
+      left.actor.accountId,
+      candidates[0],
+      () => {},
+    ),
+    database.createAccountCharacter(
+      right.actor.accountId,
+      candidates[1],
+      () => {},
+    ),
+  ]);
+  expect(
+    results.filter((result) => result.status === "fulfilled"),
+  ).toHaveLength(1);
+  expect(
+    results.find((result) => result.status === "rejected").reason.code,
+  ).toBe("NAME_TAKEN");
+  await database.releaseLease(left.actor);
+  await database.deleteCharacter(left.actor.accountId, left.actor.id);
+  expect(
+    (
+      await database.createAccountCharacter(
+        right.actor.accountId,
+        profile,
+        () => {},
+      )
+    ).name,
+  ).toBe("nameowner");
+}
+
+test.skipIf(!databaseUrl)(
+  "PostgreSQL enforces global names across accounts, casing, races and soft deletion",
+  async () => {
+    await withDatabase(proveGlobalNames);
+  },
+  30000,
+);
+
+async function proveCheckpointHistory(database, content) {
+  const { actor } = await characterFixture(database, content);
+  actor.profile.location.x++;
+  await database.checkpoint(actor);
+  const before =
+    await database.sql`SELECT updated_at FROM character WHERE id=${actor.id}`;
+  await database.checkpoint(actor);
+  const after =
+    await database.sql`SELECT updated_at FROM character WHERE id=${actor.id}`;
+  expect(after[0].updated_at).toEqual(before[0].updated_at);
+  for (let index = 0; index < 5; index++) {
+    actor.profile.location.x++;
+    await database.checkpoint(actor);
+  }
+  const count =
+    await database.sql`SELECT count(*)::int AS n FROM character_snapshot WHERE character_id=${actor.id}`;
+  expect(count[0].n).toBe(1);
+  const restored = await database.loadCharacter(actor.accountId, actor.id);
+  expect(restored.profile.location.x).toBe(actor.profile.location.x);
+  await database.sql`INSERT INTO character_snapshot(character_id,fencing_generation,profile,created_at)
+    SELECT ${actor.id},${actor.fence},profile,clock_timestamp()-interval '2 hours' FROM character,generate_series(1,200) WHERE id=${actor.id}`;
+  await database.checkpoint(actor);
+  const firstPrune =
+    await database.sql`SELECT count(*)::int AS n FROM character_snapshot WHERE character_id=${actor.id}`;
+  expect(firstPrune[0].n).toBe(73);
+  await database.checkpoint(actor);
+  const secondPrune =
+    await database.sql`SELECT count(*)::int AS n FROM character_snapshot WHERE character_id=${actor.id}`;
+  expect(secondPrune[0].n).toBe(60);
+  await database.migrate();
+  actor.profile.location.x++;
+  await database.checkpoint(actor);
+  const remigrated =
+    await database.sql`SELECT count(*)::int AS n FROM character_snapshot WHERE character_id=${actor.id}`;
+  expect(remigrated[0].n).toBe(60);
+  await database.releaseLease(actor);
+  await expect(database.checkpoint(actor)).rejects.toMatchObject({
+    code: "STALE_CONNECTION",
+  });
+}
+
+test.skipIf(!databaseUrl)(
+  "PostgreSQL checkpoints skip unchanged writes, sample history and prune bounded batches after restart",
+  async () => {
+    await withDatabase(proveCheckpointHistory);
+  },
+  30000,
+);
+
+async function proveLedgerIndex(database) {
+  await database.sql`INSERT INTO ledger(transaction_id,account_key,asset,delta,reason)
+    SELECT 'index-proof-'||n,'owner','meso',d,'test' FROM generate_series(1,10000) n CROSS JOIN (VALUES(1),(-1)) sides(d)`;
+  await database.sql`ANALYZE ledger`;
+  const plan =
+    await database.sql`EXPLAIN (FORMAT JSON) SELECT asset FROM ledger WHERE transaction_id='index-proof-9999' GROUP BY asset HAVING sum(delta)<>0`;
+  expect(JSON.stringify(plan)).toContain("ledger_transaction_asset");
+  await expect(
+    Promise.resolve(
+      database.sql`INSERT INTO ledger(transaction_id,account_key,asset,delta,reason) VALUES('unbalanced','owner','meso',1,'test')`,
+    ),
+  ).rejects.toMatchObject({ errno: "23514" });
+  await expect(
+    Promise.resolve(
+      database.sql`DELETE FROM ledger WHERE transaction_id='index-proof-1'`,
+    ),
+  ).rejects.toThrow("append-only");
+}
+
+test.skipIf(!databaseUrl)(
+  "PostgreSQL ledger balance lookup uses its transaction index while retaining immutable balanced history",
+  async () => {
+    await withDatabase(proveLedgerIndex);
+  },
+  30000,
+);
+
+async function seedDueLots(database, owner) {
+  for (let index = 0; index < 9; index++) {
+    const summary = {
+      id: `expiry-${index}`,
+      bid: 0,
+      bidderId: "",
+      realm: "public",
+      expiresAt: 1000,
+    };
+    await database.sql`INSERT INTO market_listing(id,owner_id,kind,item_id,price,expires_at,realm,summary)
+      VALUES(${summary.id},${owner},'sale',2000000,1,1000,'public',${summary})`;
+  }
+}
+
+async function proveExpiryFairness(database, content) {
+  const { actor } = await characterFixture(database, content);
+  await seedDueLots(database, actor.id);
+  Object.assign(actor, {
+    state: "active",
+    realm: "public",
+    field: { epoch: "expiry-field" },
+  });
+  const world = {
+    database,
+    actors: new Map([[actor.id, actor]]),
+    now: 2000,
+    publish() {},
+    log() {},
+  };
+  const attempted = [];
+  world.participants = {
+    async commitProduced(_actor, _operation, resolve) {
+      attempted.push(resolve());
+      return { status: "rejected", code: "REQUIREMENTS_NOT_MET" };
+    },
+  };
+  advanceMarketSchedule(world);
+  await world.marketTask;
+  expect(attempted).toHaveLength(8);
+  expect(
+    (await dueMarketListings(database, 7000)).map((row) => row.summary.id),
+  ).toEqual(["expiry-8"]);
+  world.now = 7000;
+  advanceMarketSchedule(world);
+  await world.marketTask;
+  expect(attempted).toHaveLength(9);
+  expect(await dueMarketListings(database, 7000)).toHaveLength(0);
+  expect(await dueMarketListings(database, 12000)).toHaveLength(8);
+  const row = (await dueMarketListings(database, 12000))[0];
+  await deferMarketListing(database, row, 12000);
+  const retried =
+    await database.sql`SELECT retry_at,retry_count FROM market_listing WHERE id=${row.summary.id}`;
+  expect(Number(retried[0].retry_at)).toBe(32000);
+  expect(retried[0].retry_count).toBe(2);
+}
+
+test.skipIf(!databaseUrl)(
+  "PostgreSQL expiry backoff advances past eight blocked listings and remains restart-safe",
+  async () => {
+    await withDatabase(proveExpiryFairness);
   },
   30000,
 );

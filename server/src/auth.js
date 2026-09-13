@@ -1,8 +1,8 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { protocolError, closedRecord } from "../../shared/protocol.js";
 import { ProofOfWorkAuthority, POW_TTL_MS } from "./proof-of-work.js";
+import { SignedTokens } from "./signed-token.js";
 
-const MAX_LOGIN_NONCES = 1024;
 const MAX_TICKETS = 2048;
 const MAX_RATE_KEYS = 2048;
 const MAX_AUTH_WORK = 4;
@@ -30,7 +30,7 @@ function equalToken(left, right) {
   if (
     typeof left !== "string" ||
     typeof right !== "string" ||
-    left.length !== right.length
+    Buffer.byteLength(left) !== Buffer.byteLength(right)
   ) {
     return false;
   }
@@ -77,7 +77,7 @@ export class SessionAuthority {
     this.origins = browserOrigins(config);
     this.database = database;
     this.sessions = new Map();
-    this.logins = new Map();
+    this.loginTokens = new SignedTokens();
     this.tickets = new Map();
     this.rates = new Map();
     this.authWork = 0;
@@ -122,11 +122,7 @@ export class SessionAuthority {
   bootstrap(request) {
     const session = this.session(request, false);
     this.prune();
-    const previous = this.logins.get(cookieValue(request, "openms_login"));
-    const nonce =
-      previous && previous.expiresAt > Date.now()
-        ? previous
-        : this.issueLoginNonce();
+    const nonce = this.loginNonce(request) ?? this.issueLoginNonce();
     // The login nonce is independent of an existing session, so the sign-in form keeps working.
     const login = {
       loginToken: nonce.csrfToken,
@@ -142,19 +138,25 @@ export class SessionAuthority {
   }
 
   issueLoginNonce() {
-    if (this.logins.size >= MAX_LOGIN_NONCES) {
-      throw protocolError("SERVER_BUSY");
-    }
+    const expiresAt = Date.now() + POW_TTL_MS;
+    const id = this.loginTokens.issue("login", expiresAt);
     const nonce = {
-      id: opaqueId(32),
-      csrfToken: opaqueId(32),
-      expiresAt: Date.now() + POW_TTL_MS,
+      id,
+      csrfToken: this.loginTokens.csrf(id),
+      expiresAt,
     };
-    this.logins.set(nonce.id, nonce);
     return {
       ...nonce,
       cookie: this.cookie("openms_login", nonce.id, POW_TTL_MS / 1000),
     };
+  }
+
+  loginNonce(request) {
+    const id = cookieValue(request, "openms_login");
+    const expiresAt = this.loginTokens.read(id, "login");
+    return expiresAt
+      ? { id, expiresAt, csrfToken: this.loginTokens.csrf(id) }
+      : null;
   }
 
   validateLoginBody(body) {
@@ -182,7 +184,7 @@ export class SessionAuthority {
       "challengeId",
       "nonce",
     ]);
-    const nonce = this.logins.get(cookieValue(request, "openms_login"));
+    const nonce = this.loginNonce(request);
     this.proofs.consume(`${nonce?.id}\0${address}`, body);
     if (
       !nonce ||
@@ -210,7 +212,7 @@ export class SessionAuthority {
   }
 
   async login(request, body, address) {
-    const nonce = this.admitLogin(request, body, address);
+    this.admitLogin(request, body, address);
     this.authWork++;
     try {
       const account = await this.database.accountByName(body.name);
@@ -218,21 +220,20 @@ export class SessionAuthority {
         account &&
         (await Bun.password.verify(body.password, account.passwordHash));
       if (!valid) throw protocolError("UNAUTHENTICATED");
-      return this.completeLogin(request, nonce, account);
+      return this.completeLogin(request, account);
     } finally {
       this.authWork--;
     }
   }
 
-  completeLogin(request, nonce, account) {
-    this.logins.delete(nonce.id);
+  completeLogin(request, account) {
     const previous = this.session(request, false);
     if (previous) this.revoke(previous);
     return this.issueSession(account);
   }
 
   async register(request, body, address) {
-    const nonce = this.admitLogin(request, body, address);
+    this.admitLogin(request, body, address);
     if (!/^[A-Za-z0-9_-]{3,16}$/.test(body.name)) {
       throw protocolError("INVALID_MESSAGE");
     }
@@ -244,7 +245,7 @@ export class SessionAuthority {
         passwordHash,
       );
       if (!account) throw protocolError("NAME_TAKEN");
-      return this.completeLogin(request, nonce, account);
+      return this.completeLogin(request, account);
     } finally {
       this.authWork--;
     }
@@ -254,25 +255,24 @@ export class SessionAuthority {
     // Same-origin browser GET omits Origin; nonce-cookie/address binding still gates issuance.
     if (request.headers.has("origin")) this.origin(request);
     this.prune();
-    const nonce = this.logins.get(cookieValue(request, "openms_login"));
+    const nonce = this.loginNonce(request);
     if (!nonce || nonce.expiresAt <= Date.now()) {
       throw protocolError("NOT_ALLOWED");
     }
-    const key = `challenge\0${address}`;
-    let rate = this.rates.get(key);
-    if (!rate) {
-      if (this.rates.size >= MAX_RATE_KEYS) throw protocolError("SERVER_BUSY");
-      rate = new RateLimit(10 / 60, 10);
-      this.rates.set(key, rate);
-    }
-    if (!rate.take()) throw protocolError("RATE_LIMITED");
-    const challenge = this.proofs.issue(`${nonce.id}\0${address}`);
-    nonce.expiresAt = challenge.expiresAt;
+    const challenge = this.proofs.issue(
+      `${nonce.id}\0${address}`,
+      Date.now(),
+      nonce.expiresAt,
+    );
     return {
       ...challenge,
       // Concurrent bootstrap responses can leave a tab holding another nonce's token.
       loginToken: nonce.csrfToken,
-      cookie: this.cookie("openms_login", nonce.id, POW_TTL_MS / 1000),
+      cookie: this.cookie(
+        "openms_login",
+        nonce.id,
+        Math.ceil((nonce.expiresAt - Date.now()) / 1000),
+      ),
     };
   }
 
@@ -354,9 +354,6 @@ export class SessionAuthority {
     const now = Date.now();
     for (const session of this.sessions.values()) {
       if (session.expiresAt <= now) this.revoke(session);
-    }
-    for (const [key, nonce] of this.logins) {
-      if (nonce.expiresAt <= now) this.logins.delete(key);
     }
     for (const [key, ticket] of this.tickets) {
       if (ticket.expiresAt <= now) this.tickets.delete(key);

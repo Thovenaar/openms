@@ -483,6 +483,7 @@ export class OnlineWorld {
   checkpoint(actor) {
     if (
       actor.retiring ||
+      actor.deliveryError ||
       actor.state !== "active" ||
       actor.pending ||
       actor.skillTask ||
@@ -505,12 +506,20 @@ export class OnlineWorld {
       })
       .catch((error) => {
         actor.runtimeDirty ||= dirty;
-        actor.field.fault = error.code ?? "checkpoint-failed";
+        // Quarantine this lease holder; gateway maintenance drains and checkpoints it
+        // once more before release. A persistence failure must not poison a shared field.
+        actor.deliveryError = error;
+        this.neutralize(actor);
+        this.log?.("checkpoint.failed", {
+          character: actor.id,
+          code: error.code ?? "SERVER_BUSY",
+        });
         this.publish(actor, {
           type: "closing",
           code: "SERVER_BUSY",
           retryAfterMs: 1000,
         });
+        actor.connection?.close(1011, "SERVER_BUSY");
       })
       .finally(() => {
         actor.pending = false;
@@ -586,7 +595,10 @@ export class OnlineWorld {
           : kind === "drop"
             ? field.drops.get(id)
             : field.mobs.find((mob) => mob.id === id);
-    if (!target) throw protocolError("NOT_FOUND");
+    // Retiring players remain visible while pending work settles, but cannot be targeted.
+    if (!target || (kind === "player" && target.retiring)) {
+      throw protocolError("NOT_FOUND");
+    }
     const position = target.simulation ?? target.position ?? target;
     const dx = actor.simulation.x - position.x,
       dy = actor.simulation.y - position.y;

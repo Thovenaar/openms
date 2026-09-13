@@ -31,6 +31,7 @@ import {
   MAX_ACCOUNT_CHARACTERS,
 } from "./character-creation.js";
 import { characterSummary } from "./character-summary.js";
+import { persistCheckpoint } from "./database-checkpoint.js";
 
 const MAX_ATTEMPTS = 3;
 const MAX_EVENTS = 256;
@@ -305,6 +306,7 @@ export class Database {
         "001-authority.sql",
         "002-participant-cohorts.sql",
         "003-market.sql",
+        "004-review-hardening.sql",
       ].map((name) =>
         Bun.file(new URL(`../sql/${name}`, import.meta.url)).text(),
       ),
@@ -511,6 +513,9 @@ export class Database {
         });
       } catch (error) {
         const code = error.errno ?? error.code;
+        if (code === "23505" && error.constraint === "character_active_name") {
+          throw failure("NAME_TAKEN");
+        }
         if (!["40001", "40P01"].includes(code)) throw error;
         if (attempt === MAX_ATTEMPTS - 1) throw failure("SERVER_BUSY");
         await Bun.sleep(10 * (attempt + 1));
@@ -548,9 +553,12 @@ export class Database {
       const [durable] = await this.lockActors(tx, [{ ...actor, fence }]);
       const current = mutationDraft(durable.profile, profile);
       this.validate(current);
-      const cache = cacheProfile(current);
-      await tx`UPDATE character SET profile=${cache},map_id=${Number(current.location.mapId)},updated_at=clock_timestamp() WHERE id=${actor.id} AND fencing_generation=${fence} AND lease_owner=${this.owner} AND lease_until>clock_timestamp()`;
-      await tx`INSERT INTO character_snapshot(character_id,fencing_generation,profile) VALUES(${actor.id},${fence},${cache})`;
+      await persistCheckpoint(
+        tx,
+        this,
+        { ...actor, fence },
+        { current, durable: durable.profile },
+      );
     });
   }
   async commit(actor, operation, mutator) {

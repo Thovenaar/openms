@@ -1,10 +1,14 @@
 import { PROTOCOL, protocolError } from "../../shared/protocol.js";
 import { captureMotion } from "../../shared/motion.js";
 import { opaqueId } from "./auth.js";
+import {
+  frameBytes,
+  paginateViews,
+  MAX_FRAME_BYTES,
+  MAX_SNAPSHOT_PARTS,
+} from "./publication-frames.js";
 
-const MAX_FRAME_BYTES = 64 * 1024;
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
-const MAX_SNAPSHOT_PARTS = 64;
 const MAX_BASELINES = 64;
 const SOFT_BACKLOG_BYTES = 256 * 1024;
 const HARD_BACKLOG_BYTES = 1024 * 1024;
@@ -125,6 +129,22 @@ export class Publications {
   }
 
   snapshotFrames(actor, views, snapshotId, eventSeq) {
+    const base = {
+      type: "snapshot",
+      snapshotId,
+      fieldEpoch: actor.field.epoch,
+      eventSeq,
+      ackInputSeq: actor.ackInputSeq ?? null,
+    };
+    // Budget with the largest legal part counters, including recipient-specific metadata.
+    views = paginateViews(views, (view) =>
+      this.envelope(actor.connection, {
+        ...base,
+        part: MAX_SNAPSHOT_PARTS - 1,
+        parts: MAX_SNAPSHOT_PARTS,
+        view,
+      }),
+    );
     const frames = [];
     let total = 0;
     for (let part = 0; part < views.length; part++) {
@@ -193,10 +213,8 @@ export class Publications {
       return;
     }
     const snapshotId = opaqueId();
-    const eventSeq = this.nextEvent(actor);
-    this.offer(socket, snapshotId, eventSeq);
-    socket.data.pendingStateId = snapshotId;
-    this.send(socket, {
+    const eventSeq = (actor.eventSeq ?? 0) + 1;
+    const frame = {
       ...record,
       type: "state",
       snapshotId,
@@ -204,7 +222,15 @@ export class Publications {
       fieldEpoch: actor.field.epoch,
       ackInputSeq: actor.ackInputSeq ?? null,
       eventSeq,
-    });
+    };
+    if (frameBytes(this.envelope(socket, frame)) > MAX_FRAME_BYTES) {
+      this.snapshot(actor);
+      return false;
+    }
+    this.nextEvent(actor);
+    this.offer(socket, snapshotId, eventSeq);
+    socket.data.pendingStateId = snapshotId;
+    this.send(socket, frame);
     return true;
   }
 

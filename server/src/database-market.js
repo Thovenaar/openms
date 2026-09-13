@@ -6,9 +6,14 @@ export async function persistMarket(tx, database, entry, profiles) {
   const before = profiles.before.onlineState?.market?.listings ?? [];
   const after = profiles.after.onlineState?.market?.listings ?? [];
   if (JSON.stringify(before) !== JSON.stringify(after)) {
-    await tx`DELETE FROM market_listing WHERE owner_id=${entry.characterId}`;
+    const ids = after.map((row) => row.id);
+    await tx`DELETE FROM market_listing WHERE owner_id=${entry.characterId} AND id NOT IN (SELECT jsonb_array_elements_text(${JSON.stringify(ids)}::text::jsonb))`;
     for (const row of after) {
-      await tx`INSERT INTO market_listing(id,owner_id,kind,item_id,price,expires_at,realm,summary) VALUES(${row.id},${entry.characterId},${row.kind},${row.itemId},${row.price},${row.expiresAt},${row.realm},${row})`;
+      const saved =
+        await tx`INSERT INTO market_listing(id,owner_id,kind,item_id,price,expires_at,realm,summary) VALUES(${row.id},${entry.characterId},${row.kind},${row.itemId},${row.price},${row.expiresAt},${row.realm},${row})
+        ON CONFLICT(id) DO UPDATE SET kind=EXCLUDED.kind,item_id=EXCLUDED.item_id,price=EXCLUDED.price,expires_at=EXCLUDED.expires_at,realm=EXCLUDED.realm,summary=EXCLUDED.summary
+        WHERE market_listing.owner_id=EXCLUDED.owner_id RETURNING id`;
+      marketRequire(saved.length === 1, "NOT_ALLOWED");
     }
   }
   const delta = marketHeld(profiles.after) - marketHeld(profiles.before);
@@ -54,7 +59,13 @@ export async function marketSearch(database, actor, query) {
 }
 
 export async function dueMarketListings(database, now) {
-  return database.sql`SELECT owner_id,summary FROM market_listing WHERE expires_at<=${now} ORDER BY expires_at,id LIMIT 8`;
+  return database.sql`SELECT owner_id,summary FROM market_listing WHERE GREATEST(expires_at,retry_at)<=${now} ORDER BY GREATEST(expires_at,retry_at),id LIMIT 8`;
+}
+
+/** Scheduling metadata only; a failed lot cannot monopolize the bounded expiry batch. */
+export async function deferMarketListing(database, row, now) {
+  await database.sql`UPDATE market_listing SET retry_at=${now}+LEAST(300000,10000*power(2,retry_count))::bigint,retry_count=LEAST(10,retry_count+1)
+    WHERE id=${row.summary.id} AND owner_id=${row.owner_id} AND summary=${row.summary}::jsonb`;
 }
 
 export function marketHasProperty(profile) {

@@ -1,5 +1,10 @@
 import { LIMITS, resource } from "./stream-validation.js";
 import { resourceByteLimit } from "../../public/offline-manifest.js";
+import {
+  networkDeadline,
+  withinDeadline,
+  NETWORK_TIMEOUTS,
+} from "./stream-deadline.js";
 
 export function aborted() {
   return new DOMException("Demand cancelled", "AbortError");
@@ -59,7 +64,8 @@ export class Gate {
 
 /** Persistent FIFO cache has one serialized writer and a hard byte/entry ceiling. */
 export class Network {
-  constructor() {
+  constructor(timeouts = NETWORK_TIMEOUTS) {
+    this.timeouts = timeouts;
     this.gate = new Gate(LIMITS.fetches);
     this.cache = null;
     this.cacheBytes = 0;
@@ -163,15 +169,30 @@ export class Network {
     }
   }
   async fetchBytes(url, signal, maximum) {
-    const response = await fetch(url, { signal, cache: "no-store" });
+    const deadline = networkDeadline(signal, this.timeouts);
+    try {
+      return await this.download(url, deadline, maximum);
+    } finally {
+      deadline.dispose();
+    }
+  }
+  async download(url, deadline, maximum) {
+    const signal = deadline.signal;
+    signal.throwIfAborted();
+    const response = await withinDeadline(
+      fetch(url, { signal, cache: "no-store" }),
+      signal,
+    );
     if (!response.ok) throw new Error(`${response.status} fetching ${url}`);
+    deadline.progress();
     const reader = response.body.getReader();
     const chunks = [];
     let length = 0;
     try {
       for (let index = 0; index <= maximum; index++) {
-        const part = await reader.read();
+        const part = await withinDeadline(reader.read(), signal);
         if (part.done) break;
+        if (part.value.byteLength) deadline.progress();
         length += part.value.byteLength;
         if (length > maximum || index === maximum) {
           throw new Error("Network resource limit exceeded");
@@ -179,7 +200,10 @@ export class Network {
         chunks.push(part.value);
       }
     } catch (error) {
-      await reader.cancel(error);
+      // Do not let a broken stream's cancellation hold a fetch gate forever.
+      reader.cancel(error).catch((failure) => {
+        this.lastCancellationError = failure?.name ?? "CancellationError";
+      });
       throw error;
     }
     const result = new Uint8Array(length);
@@ -252,6 +276,7 @@ export class Network {
       cacheStatus: this.cacheStatus,
       cacheHits: this.hits,
       downloadBytes: this.downloadBytes,
+      lastCancellationError: this.lastCancellationError ?? null,
     };
   }
 }

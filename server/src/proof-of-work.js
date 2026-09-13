@@ -1,4 +1,5 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
+import { SignedTokens } from "./signed-token.js";
 import { protocolError } from "../../shared/protocol.js";
 import {
   powMessage,
@@ -8,54 +9,51 @@ import {
 } from "../../shared/proof-of-work.js";
 
 export const POW_TTL_MS = 120000;
-const MAX_CHALLENGES = 4096;
+const MAX_CONSUMED_PROOFS = 4096;
 
-/** Only the bounded challenge map is stateful; proof hashing never performs password work. */
+/** Issuance is stateless; only verified proofs occupy the bounded replay cache. */
 export class ProofOfWorkAuthority {
   constructor(bits) {
     this.bits = bits;
-    this.challenges = new Map();
+    this.tokens = new SignedTokens();
+    this.consumed = new Map();
   }
 
   prune(now) {
-    for (const [id, challenge] of this.challenges) {
-      if (challenge.expiresAt <= now) this.challenges.delete(id);
+    for (const [id, expiresAt] of this.consumed) {
+      if (expiresAt <= now) this.consumed.delete(id);
     }
   }
 
-  issue(owner, now = Date.now()) {
-    this.prune(now);
-    if (this.challenges.size >= MAX_CHALLENGES) {
-      throw protocolError("SERVER_BUSY");
-    }
-    const challengeId = randomBytes(24).toString("base64url");
-    const challenge = {
-      challengeId,
+  issue(owner, now = Date.now(), deadline = now + POW_TTL_MS) {
+    const expiresAt = Math.min(deadline, now + POW_TTL_MS);
+    return {
+      challengeId: this.tokens.issue(owner, expiresAt),
       bits: this.bits,
-      expiresAt: now + POW_TTL_MS,
+      expiresAt,
     };
-    this.challenges.set(challengeId, { ...challenge, owner });
-    return challenge;
   }
 
   consume(owner, proof, now = Date.now()) {
-    const challenge = this.challenges.get(proof.challengeId);
-    this.challenges.delete(proof.challengeId);
+    const expiresAt = this.tokens.read(proof.challengeId, owner, now);
     if (
       !validChallengeId(proof.challengeId) ||
       !validPowNonce(proof.nonce) ||
-      !challenge
+      !expiresAt ||
+      this.consumed.has(proof.challengeId)
     ) {
-      throw protocolError("POW_INVALID");
-    }
-    if (challenge.owner !== owner || challenge.expiresAt <= now) {
       throw protocolError("POW_INVALID");
     }
     const digest = createHash("sha256")
       .update(powMessage(proof.challengeId, proof.nonce))
       .digest();
-    if (!satisfiesProofOfWork(digest, challenge.bits)) {
+    if (!satisfiesProofOfWork(digest, this.bits)) {
       throw protocolError("POW_INVALID");
     }
+    this.prune(now);
+    if (this.consumed.size >= MAX_CONSUMED_PROOFS) {
+      throw protocolError("SERVER_BUSY");
+    }
+    this.consumed.set(proof.challengeId, expiresAt);
   }
 }
