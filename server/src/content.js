@@ -1,3 +1,4 @@
+import { prepareOnlineQuests } from "./quest-lifecycle.js";
 import { createHash } from "node:crypto";
 import { dirname, resolve, sep } from "node:path";
 import { realpath } from "node:fs/promises";
@@ -113,10 +114,19 @@ export class ServerContent {
     }
     const id = String(Number(value)).padStart(9, "0");
     const cached = this.maps.get(id);
-    if (cached) return cached;
+    if (cached) {
+      this.maps.delete(id);
+      this.maps.set(id, cached);
+      return cached;
+    }
     if (this.pendingMaps.has(id)) return this.pendingMaps.get(id);
     if (this.maps.size + this.pendingMaps.size >= MAX_CACHED_MAPS) {
-      throw new Error("Server field content capacity exceeded");
+      const oldest = this.maps.keys().next();
+      if (oldest.done) {
+        throw new Error("Server field content capacity exceeded");
+      }
+      // Existing field owners retain their immutable manifest; future loads still verify its hash.
+      this.maps.delete(oldest.value);
     }
     const pending = this.loadMap(id);
     this.pendingMaps.set(id, pending);
@@ -159,6 +169,7 @@ export async function loadContent(options = {}) {
   content.assetBuildId = content.catalog.buildId;
   content.rulesHash = await rulesIdentity(content.assetBuildId);
   content.items = content.catalog.ui.items;
+  await prepareOnlineQuests(content);
   await content.map(content.catalog.defaultMap);
   return content;
 }

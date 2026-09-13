@@ -1,3 +1,4 @@
+import { onlineQuestCatalog, questState } from "./quest-lifecycle.js";
 import { QuestSystem } from "../../client/src/quests/quest-system.js";
 
 /** Original quest rules on a detached server draft, never a browser persistence owner. */
@@ -7,7 +8,9 @@ export function narrativeQuestSystem(profile, world, exclusions = new Set()) {
     profileTransactionPending: false,
     commitProfile: async (mutate) => mutate(profile),
   };
-  const system = new QuestSystem(world.content.catalog.quests, store, {
+  const system = new QuestSystem(onlineQuestCatalog(world.content), store, {
+    questState: (value, id) =>
+      questState(value, onlineQuestCatalog(world.content).records[id]),
     onError: (error) => {
       throw error;
     },

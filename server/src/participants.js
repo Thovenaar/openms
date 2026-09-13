@@ -10,6 +10,7 @@ import {
   synchronizeActorSkills,
 } from "./field-skills.js";
 import { ParticipantProducers } from "./participant-producers.js";
+import { MAX_TRANSACTION_PARTICIPANTS } from "./online-limits.js";
 
 const GROUPS = new Set(["party", "guild", "alliance", "family", "messenger"]);
 
@@ -26,7 +27,7 @@ function cohortIds(ids, first = null) {
     }
     result.add(id);
   }
-  if (!result.size || result.size > PROFILE_LIMITS.characters) {
+  if (!result.size || result.size > MAX_TRANSACTION_PARTICIPANTS) {
     refuse("SERVER_BUSY");
   }
   return [...result];
@@ -152,15 +153,25 @@ export class Participants {
     if (!owner.pending && !produced && this.producedPending(owner.id)) {
       refuse("SERVER_BUSY");
     }
-    if (owner.pending && (owner.pendingOperation !== operation.operationId ||
-      owner.pendingOwner !== actor.id)) refuse("SERVER_BUSY");
+    if (
+      owner.pending &&
+      (owner.pendingOperation !== operation.operationId ||
+        owner.pendingOwner !== actor.id)
+    ) {
+      refuse("SERVER_BUSY");
+    }
   }
 
   /** Fresh commands cannot overtake accepted effects or another owned operation. */
   busy(actor) {
-    return Boolean(actor.pending || actor.skillTask ||
-      actor.skillField?.hasPendingIncoming || actor.skillField?.rewardJobs.size ||
-      actor.skillDrops?.pickpocketPlan || this.producedPending(actor.id));
+    return Boolean(
+      actor.pending ||
+      actor.skillTask ||
+      actor.skillField?.hasPendingIncoming ||
+      actor.skillField?.rewardJobs.size ||
+      actor.skillDrops?.pickpocketPlan ||
+      this.producedPending(actor.id),
+    );
   }
 
   release(held) {
@@ -192,8 +203,9 @@ export class Participants {
   async prepareProfiles(context, drafts, prepared) {
     for (let index = 0; index < context.owners.length; index += 1) {
       const owner = context.owners[index];
-      if (owner.passive || context.operation.runtimePrepared === owner.id)
-        {continue;}
+      if (owner.passive || context.operation.runtimePrepared === owner.id) {
+        continue;
+      }
       const candidate = await prepareProfileSkills(
         this.world,
         owner,
@@ -205,8 +217,9 @@ export class Participants {
 
   async installProfiles(context, prepared) {
     for (const owner of context.owners) {
-      if (owner.passive || context.operation.runtimePrepared === owner.id)
-        {continue;}
+      if (owner.passive || context.operation.runtimePrepared === owner.id) {
+        continue;
+      }
       const candidate = prepared.get(owner.id);
       try {
         await synchronizeActorSkills(this.world, owner, candidate);
@@ -256,8 +269,9 @@ export class Participants {
               .map((peer) => peer.id)
           : context.keys;
         await this.deliver(ids);
-        if (context.actor.state !== "transitioning")
-          {this.publishedReceipts.add(receipt);}
+        if (context.actor.state !== "transitioning") {
+          this.publishedReceipts.add(receipt);
+        }
       }
       return receipt;
     } finally {
@@ -389,8 +403,9 @@ export class Participants {
         actor.deliveryError ||
         actor.session?.revoked ||
         actor.session?.expiresAt <= Date.now()
-      )
-        {continue;}
+      ) {
+        continue;
+      }
       try {
         refreshPickupConditions(actor);
         projectCharacterStats(actor.profile, actor.statHooks, actor.stats);

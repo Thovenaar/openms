@@ -822,6 +822,7 @@ export class SkillAttack {
   }
 
   heal(info) {
+    if (this.field.hooks.authoritativePartyHealing) return;
     const profile = this.field.store.profile;
     const amount = Math.min(
       profile.maxHP - profile.hp,

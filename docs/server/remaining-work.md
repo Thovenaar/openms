@@ -1,0 +1,137 @@
+# Remaining client and server work
+
+Party effects, shared kill credit, quest timing, field retirement and MTS now extend the online foundation. The largest remaining gaps are **progression content, monster controllers, and scripted field/event systems**. A native window opening, an asset being extracted, or a skill being classified as supported does not establish complete online behavior.
+
+This audit was made on **13 September 2026**, against OpenMS `204d6979833f177c85f780e035c840a2969be71d`, the retained generated catalog, original WZ inventory/Ghidra evidence, and Cosmic `fec53bc7714dc0f1ae3f50b2986cdf2727e0912a`. It is a source/content audit, not a fresh gameplay acceptance run. The original client directory contains binaries and assets, **not original C/C++ source**. Cosmic is an interface inventory reference, not implementation code for new OpenMS systems or Nexon's server. See [provenance](../inputs.md).
+
+## 📊 Foundation and retained content
+
+| Area | Implemented foundation | Coverage boundary |
+| --- | --- | --- |
+| Accounts and entry | Registration/login, development accounts, character creation with server-validated rolls, selection, browser session ownership | External account services and multiple game channels are separate work. |
+| Shared fields | Server movement/physics, remote players, attacks, shared monsters, drops/pickup, portals, reconnect checkpoints | Party effects and reward sharing now have domain checks; remaining special controllers are listed below. |
+| Character and possessions | Inventory/equipment, ordinary item use, AP/SP, supported skills, enhancement, shops, storage, trading, cash purchases/locker/gifts/expansion | Specialized item and NPC services remain incomplete. |
+| Social and native UI | Buddies, party/search/HP, guild/alliance/BBS, family, chat/messenger, native windows/options, quest journal, MonsterBook | Party buffs, utility effects and kill credit exist; shared Door access remains open. |
+| Development | Presets, conjure, stats/skills, map travel, spawn, pause/step and admitted physics changes | Requires development mode and developer role; this is not a production GM command system. |
+
+The [wiring audit](online-feature-audit.json) finds **71 gameplay actions, 45 social actions, 69 online hooks and 34 ordinary bindings**, with no missing shared hooks or social-rule mappings. The [ownership inventory](offline-parity.md) identifies their implementation files.
+
+| Retained content | Current count | Interpretation |
+| --- | ---: | --- |
+| Original resources | 16 archives; 16,821 IMG payloads; 544,718 canvases | Inventoried, not every canvas decoded or every property consumed. |
+| Map IMG resources / packaged maps | 5,261 / 735 | Resource paths include special, linked and event content; the difference is not a count of ready-to-play maps. |
+| Packaged monster / NPC templates | 327 / 661 | Counts of distinct templates across the 735 manifests. |
+| Monster attack definitions | 105 classified supported / 191 | 86 unsupported definitions affect 82 monster templates. |
+| Retained quests | 1,037 classified supported / 2,825 | 1,788 have blockers; supported metadata still needs reachable content and runtime admission. |
+| Numeric/SQL NPC routes | 384 supported / 780 | 396 blocked; **17 supported routes still contain explicitly unavailable service branches**. |
+| NPC script compilation | 290 supported / 708 | Scripts and routes have different denominators; SQL shops contribute routes. |
+| Numeric player/job skills | 485 classified supported / 534 | 33 are disabled in the original data, 14 require GM/event permissions, 2 are hidden helpers without recovered semantics. Party behavior is not measured by this classification. |
+| Items | 7,531 extracted; 7 unresolved requested records | Missing original records/names are reference mismatches, not seven missing item controllers. |
+
+Quest counts in the retained catalog exclude the separate server lifecycle projection; the progress table records those additions. Counts and overlapping blocker groups are reproduced in [content coverage](content-coverage-audit.json).
+
+## 🛠️ Implementation policy
+
+Implement the backlog from the ground up for OpenMS. Cosmic is an **interface checklist only**: do not copy its code, port its scripts, or reproduce its virtual machine. Existing historical references describe prior investigations, not permission to reuse code for new work. Use original WZ data and address-backed Ghidra evidence for authored behavior and appearance. Where these cannot establish a server rule, define an explicit OpenMS policy and validate it through the authoritative transaction and recipient delivery path.
+
+The user has explicitly included **MTS**, excluded payments for now, and requested only the Windows 95 style recovery UI; email handling comes later. See [MTS and account recovery](market.md).
+
+## ✅ Implementation progress
+
+This table supersedes the baseline findings below for the listed domains. The rest of the backlog remains open.
+
+| Implemented domain | Rule and ownership | Executable evidence |
+| --- | --- | --- |
+| Party buffs and utility skills | One participant transaction debits the caster and applies area buffs, Heal, Dispel, Resurrection or Time Leap to eligible actors. Server positions, full mirrored party membership and original `lt`/`rb` bounds select targets. Echo permits field recipients. Received buffs grant no learned rank. | `server/test/party-skills.test.js`; native Haste → both players → cold server restart in `server/tools/check-party-skills.js`. |
+| Effects and cooldown persistence | Logout releases runtime resources without erasing durable effects/cooldowns. Rejoin hydrates received buff ranks, skill cooldown deadlines and diseases. Original `affected` sequences follow recipients through the existing visual stream. | The same party check verifies fresh authentication after restarting its disposable server. |
+| Shared kill rewards | Actual HP removed is recorded per monster life; misses, immunity and overkill add no credit. Damage earns a group pool of WZ EXP, divided among eligible members. EXP, kill objectives, family progress and drop escrow share one receipt. | `server/test/kill-credit.test.js`; native snail kill awards a combined 3 EXP to two clients and survives restart. |
+| Field/content cache retirement | At the 128-field limit, release the least recently used empty field with no entry/travel reservations, drops, reactor transaction, actor/transition or active Door endpoint. A fresh entry receives a fresh field epoch. Content cache eviction releases its reference without mutating manifests retained by active fields. | `server/test/field-retirement.test.js` crosses 260 field/content identities and checks protected owners and full-capacity refusal. |
+| Quest lifecycle | A separate server projection admits 94 repeatable quests and 2 timed quests whose remaining blockers are fully handled. Hash-verified original records stay unchanged. Repeat acceptance and expiry use server timestamps; prior completion still satisfies quest prerequisites during later cycles. Missing scripts/Say pages remain blocked. | `server/test/quest-lifecycle.test.js`; `server/tools/check-quest-lifecycle.js` drives original Arwen dialogue. |
+| MTS | Ground-up fixed-price listings, carts, wanted orders, auctions, transfer inventory, expiry and durable item/NX custody. Original ITC artwork supplies the stage. | [Rules, evidence and focused checks](market.md). |
+| Account recovery UI | Windows 95 style email form; local validation, focus ownership, explicit unavailable delivery state and clearing on close. Payments and email handling are deferred by request. | Included in the isolated MTS browser check. |
+
+### OpenMS policies and original evidence
+
+| Policy | Definition / evidence |
+| --- | --- |
+| Heal pool | `floor(caster.maxHP × WZ.hp / (100 × recipientCount))` per eligible living recipient, capped at its maximum HP. This is an explicit OpenMS server policy, not a recovered Nexon formula. |
+| Dispel / resurrection / cooldowns | Dispel uses authored `prop` per recipient and preserves the existing monster-buff removal path. Resurrection targets dead party members. Time Leap clears skill cooldowns other than itself, retaining item timers. These effects commit before presentation. |
+| Buff range and appearance | `Skill.wz` level `lt`, `rb`, `time`, stats and `affected` supply geometry, duration and visuals. Facing mirrors horizontal bounds. Examples: Haste 4101004, Heal 2301002, Dispel 2311001, Resurrection 2321006 and Time Leap 5121010. |
+| Kill eligibility | Living, active actors in the same field, within 1200 horizontal and 600 vertical units of the monster. Noncontributing members must be within 20 levels below the lower of the monster and strongest contributor. Contributors earn their damage share. Disconnected/dead contributors' share is forfeited rather than reassigned. |
+| EXP and loot | Each party/solo pool is `floor(WZ.exp × groupDamage / totalDamage)`. Divide equally, with remainder ordered by actor ID; apply each recipient's existing EXP modifiers afterward. Largest eligible individual contribution owns drops, with a captured list of eligible party recipients. No party switch retroactively grants ownership. |
+| Repeat timing | OpenMS interprets `Check.img/<id>/0/interval` as minutes. Zero allows another explicit NPC acceptance immediately; it never grants rewards automatically. Three otherwise similar records also contain `Act.img/.../interval` and remain blocked pending that separate action contract. |
+| Quest timeout | `QuestInfo.img/3458/timeLimit` and `/3951/timeLimit` both contain 1800; each original description explicitly says **30 minutes**, establishing seconds. Persist absolute deadlines. A late claim fails even if timeout delivery is still queued. |
+| Capacity | Field effects support up to 128 transaction participants. A combined reward/family cohort beyond that bound is refused; broader capacity/load behavior is a separate outstanding gate. Party Door access, server summons/forms restoration and the remaining roadmap are not covered by the completed party slice. |
+
+### Focused checks
+
+```sh
+bun test server/test/party-skills.test.js server/test/kill-credit.test.js server/test/field-retirement.test.js server/test/quest-lifecycle.test.js
+bun server/tools/check-party-skills.js /tmp/openms-party-credit
+bun server/tools/check-quest-lifecycle.js /tmp/openms-quest-lifecycle
+```
+
+The browser checks create and drop a uniquely named PostgreSQL database, use isolated browser contexts and temporary listeners 3197/3297, and preserve the user's development accounts/database. They require the configured database role to create a database and the installed Chrome path used by the existing scenario runner. They build the online bundle using the retained assets, without extraction. Fixtures grant the documented job/skill/party/item prerequisites; casts, attacks and quest choices use native inputs. Reports include source/catalog identity, transaction results and stage timings. Read-only snapshots observe outcomes; they do not author gameplay.
+
+## 🎯 Recommended implementation order
+
+Priorities reflect dependencies and impact on ordinary play. Each completion criterion requires actual server effects, recipient delivery, and appropriate persistence; a handler or animation alone is insufficient.
+
+| Priority | Remaining work | Current evidence | Completion criterion |
+| --- | --- | --- | --- |
+| **1 · Remaining party behavior** | Shared Door admission and durable summons/forms restoration. | Buffs, Heal, Dispel, Resurrection, Time Leap and kill credit are implemented above. | A party member can use an eligible Door; outsiders are refused; departure, expiry and reconnect preserve the intended state. |
+| **1 · Quest progression** | Remaining repeat/daily schedules, automatic start/completion, custom progress, skill/master-level conditions and rewards, script-backed stages. | The server lifecycle projection admits 96 additional records (1,133 total); missing Say pages and unrelated blockers remain refused. | Complete representative starter/job/skill chains through native NPC choices with one-time rewards and restart recovery. Author new OpenMS programs; do not port Cosmic scripts. |
+| **1 · NPC services** | Extend bounded script compilation and typed authority for job/skill teaching, cosmetic selection, custom progress, event access, and currently unsupported dialogue/control variants. | [Compiler](../../client/tools/npc-script-compiler.js), [service traps](../../client/tools/npc-script-services.js), [server effect allowlist](../../server/src/interaction-npc-executor.js). `sendStyle`, appearance reads/writes, `teachSkill`, dynamic collections and event APIs block routes. Existing job-change and crafting subsets should be retained. | Exercise an ordinary job progression route and a salon choice, including payment, eligibility, cancellation and reconnect. Every supported route branch either works or has a documented content restriction. |
+| **1 · Monster behavior** | Remaining attack types, mob skill scheduling/buffs/summons, revive chains, special AI and authored spawn/respawn policies. | [Extraction](../../client/tools/life-data.js) admits only type-0 attacks with known timing/range; unsupported counts are type 1:43, type 2:36, type 3:4, type 0:3. [Mob policy](../../client/src/combat/offline-mobs.js) still uses a 10-second respawn and retains `mobTime` without consuming its server meaning. Existing contact/type-0 damage and some disease handling are implemented. | A representative ranged mob and multi-stage boss execute their actual attacks against multiple actors; spawn, cooldown, death/revive and late-join state agree. |
+| **2 · Scripted fields and travel** | General portal/map-entry programs, timed maps, transport schedules and special field loaders. Expand map packaging only after their dependencies work. | [Transitions](../../server/src/field-transition.js) support ordinary/market and selected tutorial routes. Catalog records 172 script-unavailable portals, 150 special-loader refusals and 6 missing named destinations. Across packaged maps, 79 have `onUserEnter`, 10 nonzero `fieldType`, and 5 `timeLimit`; the current world/transition owners have no general consumer for these fields. | Enter/leave a timed/scripted field through its real route; both players see correct state, timeout/return behavior, and recovery after disconnect. |
+| **2 · PQs, bosses and events** | Instance membership/lobbies, stage state, timers, spawn/wave/reward callbacks, expedition admission, event reconnect/cleanup; Monster Carnival and other special field rules. | Cosmic has **108 event scripts**. Our extractor inventories event/map/quest/reactor categories; it does not execute their general lifecycle. NPC event calls remain blocked. A `realm` field in [World](../../server/src/world.js) is not an event manager. | Complete one Kerning PQ instance with a real party, isolated from another party, including leader departure, timeout and one-time rewards. Then extend the same contracts to other events. |
+| **2 · Reactors** | Execute script actions: rewards, drops, spawns and quest/event callbacks, with atomic item consumption. | 1,018 packaged placements; [server reactors](../../server/src/field-reactors.js) publish `scriptRewards:false`. State transitions and item offering already exist. Cosmic supplies **292 reactor scripts**. | Hit/offer to a reactor, observe the proper reward/event on both clients, and prove retry/reconnect cannot duplicate it. |
+| **2 · Pets and mounts** | Pet equipment, commands/chat, food/closeness/leveling, pickup filters/loot, automatic potions, revival and remaining evolution/lifecycle behavior; verify mount food/tiredness. | [Pet actions](../../server/src/action-pets.js) expose activation; [shared pets](../../client/src/character/pet-skills.js) implement toggle, Lead slots, egg hatching, hunger and presentation. [Native UI](../../client/src/online/ui.js) explicitly lacks pet equipment. These subsets do not implement Cosmic's pet handlers. | Feed/command/equip a pet, authorize pickup and potion use, display it remotely, then restore its state after reconnect. |
+| **2 · Specialized items and commerce** | Conditional/targeted/scripted items, summon bags/capture items, pet-life and death items, cosmetic coupons, lottery/Gachapon, remaining crafting/enhancement paths and second-pendant entitlement. | [Item use](../../server/src/action-character.js) only admits supported self-use specs; [equipment rules](../../client/src/items/inventory-action-rules.js) reject expanded pendant slots. Gachapon's named NPC route is blocked. [Cash commerce](../../client/src/items/cash-commerce.js) refuses commodities lacking supported cash-instance provenance. | Admit each family through its correct native action, debit exactly once, publish the actual result, and restore ownership/expiry. Cash purchase alone must not imply the purchased service is usable. |
+| **3 · Remaining player economy** | Player shops, hired merchants/Fredrick settlement, item search/Owl and Duey delivery. | MTS now provides listing, auction, wanted-order and transfer custody; these separate services still need their own native contracts. | Two clients buy/list/send/claim with fees, locks, expiry and recovery; disconnect and replay cannot duplicate goods. |
+| **3 · Minigames and relationships** | Omok/Match Cards rooms, related invitations/turn rules; marriage, wedding/rings and spouse chat. | [Settings](../../client/src/ui/ui-settings.js) explicitly lack the minigame controller. [Spouse chat](../../client/src/online/native-social-chat.js) rejects without marriage authority. | Complete a two-player game/wedding flow, persist its results, handle disconnect and restrict spouse delivery to the actual relationship. |
+| **3 · Channels, accounts and GM operations** | Channel/world handoff, name/world-transfer policies and production GM/moderation commands. | The server remains a single process with process-local authentication. Recovery UI exists; email handling and payments are deferred by request. | Transfer without duplicate actors/items; reject unauthorized moderation and record privileged mutations. |
+| **3 · World lifecycle follow-up** | Ownership and recovery across future channel processes; larger load/capacity proof. | Idle field/content retirement is implemented with protected entry, travel, drop and Door ownership. | Extend process ownership without weakening existing lease fences or admitting duplicate characters. |
+
+## 🖼️ Asset and visual work
+
+| Remaining work | Evidence and boundary |
+| --- | --- |
+| Expand content by dependency closure | Inventory all unshipped map/item/NPC/mob families, then admit assets together with their controllers, scripts and rewards. Do not equate 5,261 map IMG paths with 5,261 intended public fields. |
+| Original windows and special overlays | 40 UI bundles, including ITC, are packaged. Original UIWindow branches also describe minigames, shops, event interfaces and other services above. Recover geometry, origin/UOL/state selection and the specific native consumer before adding a window. |
+| Pixel, text and animation comparison | Use retained [client evidence](../client-evidence.md) and [Windows capture requests](../windows-reference-captures.md). Original Windows runtime comparison is still missing; inventory alone cannot certify glyph metrics, compositing, every alternate state or every action/effect. Previously fixed selection, creation, chat/drop and movement behavior is not listed as broken without new evidence. |
+| Inconsistent reference records | The catalog reports 7 unresolved item records and 29 absent NPC portrait sources. Reconcile reference version/IDs; do not fabricate artwork or weaken source checks. [Resource audit](../original-resource-audit.md) records the exact item cases. |
+| Disabled and unrecovered skills | Keep the 33 original-disabled definitions disabled unless a deliberate content policy changes. The 14 GM/event definitions need privileged server semantics, not ordinary SP allocation. Hidden helper skills `10001013` and `20001013` need additional behavior evidence; the available reference is insufficient. |
+
+Spawn-only portals (**2,941**) and no-route records (**374**) are not automatically missing travel implementations. Likewise, a MapleTV NPC script can compile successfully while doing only `cm.dispose()`; this does not establish a broadcast service. Dated quest schedules and private-server custom events require a content-policy decision, not unconditional activation.
+
+## 🔎 Reference code for the next implementation
+
+Historical audit pointers below are for interface discovery only, not code or script reuse. Paths are relative to `../MapleStory-Server/src/main/java/`, except `scripts/…`, which is relative to the sibling repository root. These are reference implementations to study; they are not files executed by OpenMS.
+
+| Domain | Cosmic source |
+| --- | --- |
+| Party targeting and credit | `server/StatEffect.java` (`applyBuff`, `applyTo`); `server/life/Monster.java` (`distributeExperience`, `distributePartyExperience`) |
+| Quest/NPC progression | `scripting/npc/NPCConversationManager.java`; `scripting/quest/QuestScriptManager.java`; `server/quest/`; `scripts/npc/`, `scripts/quest/` |
+| Mob/field rules | `server/life/MobSkill.java`, `MobSkillFactory.java`; `server/maps/MapFactory.java`; `scripts/map/`, `scripts/portal/` |
+| Instances/PQs | `scripting/event/EventManager.java`, `EventInstanceManager.java`; `server/partyquest/`, `server/expeditions/`; `scripts/event/KerningPQ.js`, `HorntailBattle.js`, `OrbisPQ.js` |
+| Reactor actions | `scripting/reactor/ReactorActionManager.java`, `ReactorScriptManager.java`; `scripts/reactor/` |
+| Pets/mounts | `client/inventory/Pet.java`, `client/Mount.java`; `net/server/channel/handlers/Pet*Handler.java`, `UseMountFoodHandler.java` |
+| Items, services and economy | `net/server/channel/handlers/UseCashItemHandler.java`, `MakerSkillHandler.java`, `PlayerInteractionHandler.java`, `MTSHandler.java`; `server/maps/PlayerShop.java`, `HiredMerchant.java`; `client/processor/npc/DueyProcessor.java`; `server/gachapon/` |
+| Relationships and channels | `server/Marriage.java`, `server/maps/MiniGame.java`; `net/server/channel/handlers/WeddingHandler.java`, `ChangeChannelHandler.java`, `TransferWorldHandler.java` |
+
+WZ data owns artwork, authored properties, names and client-facing geometry. Address-backed Ghidra evidence establishes original client consumers. Cosmic only identifies possible interfaces and feature families. New code and server policies are written for OpenMS; neither Cosmic customizations nor OpenMS choices establish original Nexon server behavior.
+
+## ✅ Reproduce and keep claims current
+
+```sh
+bun docs/tools/online-feature-audit.js
+bun docs/tools/content-coverage-audit.js
+bun run docs:check
+```
+
+The [content audit tool](../tools/content-coverage-audit.js) reads the existing catalog, hash-verifies its referenced manifests/server datasets, and aggregates the retained original inventory. It performs no extraction, login, browser work or original-archive rescan. Its JSON records catalog/build and evidence hashes. It reports static classifications; it does not inspect every script branch or prove the manually reviewed runtime findings above. Rerun the source review as those owners change.
+
+Continue with **quest/NPC progression and one complete instance**, alongside the remaining shared Door and monster controllers. Follow [change-scoped validation](../validation-method.md#shorten-the-loop): native input → transaction → recipient update → reconnect. Add one domain at a time and retain an executable acceptance case. Broader failure recovery, capacity/load tests and original-Windows comparison remain separate gates.
+
+Some retained investigation prose still contains earlier counts (for example 35/534 skills) or offline-only service limits. Treat those as evidence of that investigation's scope, not current inventory. This dated audit, the generated JSON and current code take precedence for the backlog.

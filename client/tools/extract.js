@@ -26,9 +26,11 @@ import { originalFrames } from "./extraction-frames.js";
 import { preflightAssets } from "./preflight.js";
 import { createExtractionCache } from "./extraction-cache.js";
 import { extractionRecipes } from "./extraction-recipes.js";
+import { extractionStage } from "./extraction-timings.js";
 import { resourceByteLimit } from "../public/offline-manifest.js";
 
 const started = performance.now();
+const timings = {};
 /** Terminal diagnostics stay separate from the existing JSON stdout records. */
 function progress(message) {
   console.error(
@@ -438,6 +440,7 @@ function conversionReport(buildId, reports) {
     newlyDecodedFormats: formats,
     images: Object.keys(inputImages).sort(),
     durationMs: performance.now() - started,
+    timings,
     limitations: [
       "Camera fallback derived from footholds; exact original fallback remains unverified.",
       "Map metadata retains active unsupported physics in physics.unsupported.",
@@ -627,28 +630,39 @@ async function sharedCatalog(converted) {
   return { quests, combat, drops, serverData, mapNames, ui, audiovisual };
 }
 
-/** Atomic catalog is the only mutable entry point. */
-async function run() {
-  await prepareExtraction();
+/** Reference conversion is separate from the preflight's route validation. */
+function serverReferences() {
   const originalQuestIds = new Set(
     Object.keys(image("Quest", "Check.img").children)
       .filter((key) => /^\d+$/.test(key))
       .map(Number),
   );
   progress("Scanning and converting authorized server references");
-  const converted = await convertServerData({
-    defaultTalkForNpc,
-    originalQuestIds,
-    progress,
-  });
+  return convertServerData({ defaultTalkForNpc, originalQuestIds, progress });
+}
+
+/** Atomic catalog is the only mutable entry point. */
+async function run() {
+  await prepareExtraction();
+  const converted = await extractionStage(
+    timings,
+    "serverReferencesMs",
+    serverReferences,
+  );
   extractionContext.portalPrograms = converted.report.scripts.portalPrograms;
   progress("Selecting original map and supported-NPC route closure");
   const routes = selectMapClosure(converted.datasets.shops.npcRoutes);
   progress(`Selected ${mapIds.length} maps; converting shared avatar artwork`);
-  const character = await extractAvatar(extractionContext);
+  const character = await extractionStage(timings, "avatarMs", () =>
+    extractAvatar(extractionContext),
+  );
   const { quests, combat, drops, serverData, mapNames, ui, audiovisual } =
-    await sharedCatalog(converted);
-  const { maps, monsters, reports } = await extractMaps(character, combat);
+    await extractionStage(timings, "sharedMs", () => sharedCatalog(converted));
+  const { maps, monsters, reports } = await extractionStage(
+    timings,
+    "mapsMs",
+    () => extractMaps(character, combat),
+  );
   const hitboxes = await cached("hitboxes", null, () =>
     reference(extractHitboxReferences(image)),
   );
@@ -709,12 +723,14 @@ async function prepareExtraction() {
     option("--preflight-report", resolve(directory, "preflight.json")),
   );
   progress("Preflight: scanning original assets and authorized references");
-  preflight = await preflightAssets({
-    assets: source,
-    maps: explicitMaps ? mapIds : undefined,
-    report: preflightReport,
-    progress,
-  });
+  preflight = await extractionStage(timings, "preflightMs", () =>
+    preflightAssets({
+      assets: source,
+      maps: explicitMaps ? mapIds : undefined,
+      report: preflightReport,
+      progress,
+    }),
+  );
   if (preflight.status !== "pass") {
     throw new Error(
       `Original-asset preflight failed (${preflight.failures.length} findings); previous catalog retained. See ${preflightReport}`,

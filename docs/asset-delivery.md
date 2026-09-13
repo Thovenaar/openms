@@ -26,6 +26,8 @@ Reusable units cover shared domains and individual maps. Recipe identities hash 
 
 A hit also requires matching publication bindings for shared texture, atlas, region and tiled-canvas tables. A unit that previously reused an atlas cannot restore stale coordinates when an earlier unit changes that binding. The converter recursively verifies the complete immutable output descriptor closure, including JSON children, exact lengths and SHA-256; resolved paths must remain inside generated output. Missing/corrupt output or a changed closure forces reconstruction. Verified descriptors may be reused within that extraction process, but **file existence alone is never a cache-hit criterion**. Content-addressed records retain results, sources, output closure and publication deltas without caching parser trees or decoded pixel buffers.
 
+Verification resolves the owned output root once per process, checks each resource's real path, and hashes each unique resource with the native synchronous SHA-256 implementation. JSON dependencies are still parsed and traversed. Original IMG checksums use indexed byte access with the same signed 32-bit overflow; unscaled packed canvases write RGBA directly, retaining transparent RGB and the original RGB565 red expansion. Scaled and DXT canvases retain their existing paths. These are conversion performance changes, not artwork or compression changes.
+
 Immutable outputs precede atomic catalog publication. Preflight, conversion or catalog-size failure preserves the prior catalog; caches and orphaned immutable outputs are not an alternative publication pointer. The [iteration procedure](validation-method.md#persistent-smoke-loop) separates this verified incremental work from explicit full extraction, full-release/offline acceptance and broad world validation. [Current results](validation.md) record what actually ran, not inferred speedups.
 
 ## Original selection evidence
@@ -75,6 +77,7 @@ UI windows/minimaps and selected effect sequences use independent schema-v1 visu
 - `schemaVersion: 2`, `buildId`, `inputDirectory`.
 - `maps`: ordered `{id, entities, regions, textures, physics}` counts and original map settings.
 - `incremental`: cache hit/miss and per-unit timing/reason evidence, logical reused RGBA bytes and verified output resource/byte counts. Timings describe the actual run, not a cache-speed guarantee.
+- `timings`: preflight, reference conversion, avatar, shared domains and maps, in wall-clock milliseconds. `incremental.timings` separates cache-record reads/writes, conversion and output verification. `incremental.verification` further breaks verification into file reads/path checks, hashing and JSON decode/traversal. These are nested measurements: **do not sum parent and child timings**. The top-level `durationMs` ends before diagnostic report writing and process teardown.
 - `policy`: `{atlasLimit, padding, regionSize, maxMaps}`.
 - `counts`: unique textures, unique atlases, retained source-image count (including verified reused inputs), map-region count.
 - `bytes`: `originalRGBA`/`newlyDecodedRGBA` count this run's decoding, `roundTripCompared` counts new pixel comparisons and `logicalReusedRGBA` records reused units separately. Encoded atlas PNG, decoded atlas RGBA (including padding), region JSON, map JSON and catalog JSON describe published content; reuse is not another pixel decode.
@@ -84,6 +87,18 @@ UI windows/minimaps and selected effect sequences use independent schema-v1 visu
 - `tiledCanvases`: keyed original full-canvas pixel identity, retaining original dimensions/source/format/scale and each tile's identity/offset/dimensions. Tile identities use the same dimensions-plus-RGBA hash convention. Tile parts also carry `sourceCanvas` and `sourceRect`. Before new atlas creation, the converter independently reconstructs every full oversized canvas from its tiles and compares every byte, including transparent RGB. `bytes.tileReconstructionCompared` sums retained per-canvas proof, which may come from verified cache records; it is separate from this run's PNG round-trip comparisons.
 
 The original seed selection contains eight maps: `100000000`, `100000001`, `103040000`, `108000500`, `120000000`, `200090500`, `211040000`, and `230000000`. Offline integration expands the default through data-supported nonscript portal routes; explicit `--maps` remains a selected release. The actual downloadable map inventory always comes from the final catalog. Browser code never downloads a WZ archive.
+
+### Profiling a slow extraction
+
+For explicitly requested performance work, capture one serial run with the existing cache intact:
+
+```sh
+mkdir -p artifacts/extraction-profile
+bun --cpu-prof-md --cpu-prof-dir=artifacts/extraction-profile --cpu-prof-name=warm.md client/tools/extract.js > artifacts/extraction-profile/warm.stdout.log 2> artifacts/extraction-profile/warm.progress.log
+cp docs/extraction.json artifacts/extraction-profile/warm.report.json
+```
+
+Keep the preflight report from the configured cache directory alongside it. Compare the same selection, original inputs, catalog identity and cache state. A first run after a recipe/decoder edit rebuilds invalidated units; measure a subsequent all-hit run separately. Do not label a rebuild-versus-hit comparison as an optimization speedup, run competing extraction probes, or delete the successful cache to obtain a warm measurement. [Current performance evidence](validation.md#extraction-performance) records the measured result and remaining costs.
 
 ## Historical converter-only fidelity boundaries
 

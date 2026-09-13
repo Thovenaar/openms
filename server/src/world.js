@@ -48,9 +48,12 @@ import {
   releaseSkill,
 } from "./field-skills.js";
 import { sweepInteractions, releaseInteractions } from "./interactions.js";
+import { advanceMarketSchedule } from "./market-schedule.js";
 import { updatePlayerMovement } from "../../client/src/physics/skill-movement.js";
 import { projectCharacterStats } from "../../client/src/character/character-stats.js";
 import { Participants } from "./participants.js";
+import { retireIdleField, touchField } from "./field-retirement.js";
+import { advanceQuestSchedule } from "./quest-schedule.js";
 import { prepareSocial, destroySocial } from "./social-presentation.js";
 import { openStorage } from "./interaction-storage.js";
 import { openPortalNpc } from "./interaction-npc.js";
@@ -156,17 +159,21 @@ export class OnlineWorld {
     this.random = () => this.nextUint32() / 0x100000000;
   }
 
-  async fieldFor(mapId, realm = "public") {
+  async fieldFor(mapId, realm = "public", retain = false) {
     const key = `${realm}:${Number(mapId)}`;
-    if (this.fields.has(key)) return this.fields.get(key);
-    if (this.fieldLoads.has(key)) return this.fieldLoads.get(key);
+    if (this.fields.has(key)) {
+      return touchField(this, key, this.fields.get(key), retain);
+    }
+    if (this.fieldLoads.has(key)) {
+      return touchField(this, key, await this.fieldLoads.get(key), retain);
+    }
     if (this.fields.size + this.fieldLoads.size >= MAX_FIELDS) {
-      throw protocolError("SERVER_BUSY");
+      if (!retireIdleField(this)) throw protocolError("SERVER_BUSY");
     }
     const pending = this.createField(mapId, realm, key);
     this.fieldLoads.set(key, pending);
     try {
-      return await pending;
+      return touchField(this, key, await pending, retain);
     } finally {
       this.fieldLoads.delete(key);
     }
@@ -239,7 +246,16 @@ export class OnlineWorld {
     const field = await this.fieldFor(
       actor.profile.location.mapId,
       actor.realm,
+      true,
     );
+    try {
+      return await this.joinField(actor, field);
+    } finally {
+      field.entryReservations--;
+    }
+  }
+
+  async joinField(actor, field) {
     this.assertJoiningSession(actor);
     if (field.characters.size + (field.travelReservations ?? 0) >= MAX_ACTORS) {
       throw protocolError("SERVER_BUSY");
@@ -385,6 +401,7 @@ export class OnlineWorld {
     }
     this.now = Date.now();
     sweepInteractions(this);
+    advanceMarketSchedule(this);
     if (this.lastNow === null) {
       this.lastNow = now;
       return;
@@ -438,6 +455,7 @@ export class OnlineWorld {
       this.neutralize(actor);
     }
     if (actor.skillField.hasPendingIncoming) return;
+    advanceQuestSchedule(this, actor);
     if (expireActorEffects(actor, this)) {
       this.publish(actor, { type: "snapshot-request" });
     }
@@ -676,6 +694,7 @@ export class OnlineWorld {
   }
 
   async close() {
+    await this.marketTask;
     for (const actor of this.actors.values()) {
       actor.retiring = true;
       actor.settling = true;

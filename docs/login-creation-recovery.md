@@ -99,6 +99,16 @@ Repeat the headless command above with function list`005f6482,005fd76d,00444fb6,
 
 Returning to the field during reconnect can cancel a newly preparing login backdrop. `OnlineLogin.startBackdrop` now recognizes cancellation of that backdrop's owned request and prevents its late result from remounting. Actual preparation failures still report. The NPC browser check reads the game error journal as well as uncaught page errors: otherwise this normal cancellation appeared as a false `REQUEST_FAILED` login notification while reconnect itself succeeded.
 
+### Cursor across login stages
+
+Sign-in, character selection, creation, registration and recovery share the existing `UICursor` implementation and extracted `UI/Basic.img/Cursor` artwork. The login backdrop leases that bundle through the same atlas owner as gameplay. Its pointer-transparent cursor plane sits above login windows and popups in viewport coordinates, independently of the centered 800×600 artwork. Original cursor states, animation and WZ hotspots are retained; no CSS replacement image is generated.
+
+`LoginCursor` adapts the existing cursor owner interface. The login host owns native-cursor suppression, so retiring it cannot clear the field canvas's cursor settings. Field entry destroys the login plane and releases its resources/listeners; returning to login prepares one replacement. Pointer cancellation, browser-window blur and document hiding clear a pressed cursor. Text-field focus changes do not cancel it. Inspection controls outside the login surface retain their native cursor.
+
+The focused command `bun server/tools/check-login-cursor.js` owns a disposable database, servers and browser context. It checks native idle/hover/press input, popup layering, selection/creation at1280×800 and800×600, the field handoff and return after revoking only the fixture session. Captures and its source/catalog-identified report go to `/tmp/openms-login-cursor` by default. It reuses extracted assets and performs no map gameplay or server-restart benchmark.
+
+The cursor replay passes. The fixture currently exits with a separate teardown failure after sign-out: the world is closed and HTTP requests are drained, but Bun still reports one pending WebSocket while server shutdown waits. Fixture cleanup now reports this after ten seconds and drops its disposable database. This is not a passing server-shutdown check; the browser report records only the cursor assertions.
+
 ## Restored dice step and server authority
 
 Name → appearance → stats is now the browser creation flow. The third step uses the original opened parchment at `(493,150)`, stat table at `(526,205)` and dice anchor `(634,211)`, leaving the recovered avatar platform unchanged. These third-step positions, labels and80ms animation frame cadence are browser presentation choices; they are not attributed to an active v83 consumer. Applying each dice frame's origin keeps its bottom at the same height.

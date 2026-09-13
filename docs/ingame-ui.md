@@ -1,5 +1,7 @@
 # In-game UI reconstruction
 
+This page retains detailed reconstruction findings, including earlier offline-only limits and historical skill counts. For current client/server coverage and priorities, use the [remaining-work audit](server/remaining-work.md) and [online ownership inventory](server/offline-parity.md).
+
 ## Provenance and fidelity boundary
 
 UI artwork and client-consumer inputs are the original `/Users/k/Development/tensorfish/Maplestory-Client` archives/executable, the lossless inventories in `docs/ingame-inventory`, and retained address-bearing decompilation/instruction/table exports. The earlier UI investigation used the isolated `/tmp/maple-ingame-ui.gpr` project; the graphical correction's selected exports are linked below. No third-party client implementation, original C/C++ source, Windows execution, or original runtime recording was supplied. The separately authorized `/Users/k/Development/tensorfish/MapleStory-Server` is **Cosmic server-reference code, not Nexon source**; its ordinary revival policy is distinguished from original client evidence in [combat](offline-combat.md#ordinary-revival-confirmation).
@@ -199,7 +201,7 @@ The outside-game **Local multiplayer simulation** and funding/receipt tools are 
 
 Implemented ordinary paths do not imply every branch in the110-branch inventory is complete. The tables above account for Item/Equip/Stat/Skill, options, WorldMap/Quest/helper, Shop/TradingRoom, social/identity/Family/Title, MonsterBook and SkillMacro rather than listing those domains as wholly unavailable.
 
-Still-unimplemented domains include remote login/channel/account services; personal/entrusted shops and storage variants; minigame/carnival/event controllers; wedding/marriage, pet/mount lifecycle, special enhancement/crafting/lottery/item services and unsupported dialog variants. Shared ContextMenu/Notice/temporary-stat resources are used only by their implemented consumers, not claimed as exhaustive generic engines. CashShop and CashShopPreview IMG families are now packaged/consumed; Login/ITC and their alternate previews, unrelated branding/tutorial/event artwork and optional name-tag skins remain separately inventoried. No behavior follows from a branch name alone.
+Still-unimplemented domains include remote login/channel/account services; personal/entrusted shops and storage variants; minigame/carnival/event controllers; wedding/marriage, pet/mount lifecycle, special enhancement/crafting/lottery/item services and unsupported dialog variants. Shared ContextMenu/Notice/temporary-stat resources are used only by their implemented consumers, not claimed as exhaustive generic engines. CashShop, CashShopPreview and the full ITC IMG family are packaged/consumed; [online MTS](server/market.md) provides the ITC service. Login alternate previews, unrelated branding/tutorial/event artwork and optional name-tag skins retain their separate inventory boundaries. No behavior follows from a branch name alone.
 
 ## Browser policies, resource bounds and timing
 
@@ -232,6 +234,8 @@ The native skill entry predicate, after template resolution and excluding IDs101
 Save/reset, validated persistent development edits, item-offering inspection, audio and diagnostics remain in the sidebar. The editor lists all original numeric job books and changes only explicit requested fields; it does not run advancement scripts or grant skills/SP implicitly. [Atomic validation](offline-profile.md) preserves the last complete profile on failure. Ordinary death opens a non-dismissable original Notice/0 modal with Basic/BtOK2 and confirmed authored return-map routing. Reset reloads only after successful commit; corrupt profiles never fabricate HUD values.
 
 ### Key draft, quick slots, chat and cursor
+
+The online login stages also use the original cursor through a dedicated login-owned raster plane. See [login cursor ownership](login-creation-recovery.md#cursor-across-login-stages) for popup coverage, viewport mapping and the handoff to the field cursor.
 
 The shared map contains89 packed `{type,id}` records and eight unique assignable physical-key indices. Right Control/Alt/Shift normalize to their left records; numpad digits normalize to number-row records. Default quick slots are Shift, Insert, Home, PageUp, Control, Delete, End and PageDown. These are keys, not eight independent action bindings.
 

@@ -4,6 +4,7 @@ import { HERO_WILL_SKILLS } from "./skill-utility-rules.js";
 const CURABLE = [120, 121, 122, 124, 125, 126];
 const PURGE = [120, 121, 122, 124, 125, 126, 128, 132, 133];
 const DISEASES = new Set([...PURGE, 123]);
+export const PLAYER_DISEASE_IDS = Object.freeze([...DISEASES]);
 const WILL = new Set(HERO_WILL_SKILLS);
 
 /** Local caster only. Original MobSkill rank duration/value, never roster metadata. */

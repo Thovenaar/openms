@@ -1,6 +1,6 @@
+import { onlineQuestCatalog, questState } from "./quest-lifecycle.js";
 import { QuestDialogue } from "../../client/src/quests/quest-dialogue.js";
 import {
-  stateOf,
   checkConditions,
   isNpcEndpoint,
 } from "../../client/src/quests/quest-rules.js";
@@ -15,7 +15,7 @@ import {
 } from "./interaction-common.js";
 
 function status(record, npcId, profile) {
-  const state = stateOf(profile, record.id);
+  const state = questState(profile, record);
   if (!record.supported || state > 1) {
     return { ok: false, state, code: "quest" };
   }
@@ -27,8 +27,8 @@ function status(record, npcId, profile) {
 }
 
 export function startQuestDialogue(actor, world, lease, questId) {
-  const record = world.content.catalog.quests.records[questId];
-  const state = stateOf(actor.profile, questId);
+  const record = onlineQuestCatalog(world.content).records[questId];
+  const state = questState(actor.profile, record);
   requireInteraction(
     record?.supported &&
       state < 2 &&
@@ -38,6 +38,7 @@ export function startQuestDialogue(actor, world, lease, questId) {
   );
   const system = {
     store: { profile: actor.profile },
+    state: (profile) => questState(profile, record),
     status: (entry, npcId) => status(entry, npcId, actor.profile),
   };
   const dialogue = new QuestDialogue(system, record, lease.npcTemplateId);

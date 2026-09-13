@@ -151,7 +151,7 @@ async function attackMob({ pages, report, output }, id) {
   );
 }
 
-async function approachMob(page, mob) {
+export async function approachMob(page, mob) {
   const position = await page.evaluate(
     () => window.maple.snapshot().presentation,
   );

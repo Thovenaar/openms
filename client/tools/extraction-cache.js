@@ -3,6 +3,7 @@ import { resolve, sep } from "node:path";
 import { hash, publishFile } from "./atlas.js";
 import { publicationLedger } from "./extraction-state.js";
 import { extractionOutputs } from "./extraction-outputs.js";
+import { extractionStage } from "./extraction-timings.js";
 
 const SCHEMA = 1;
 /** Bounded to one record per unit; the ui catalog unit is the largest because it
@@ -29,7 +30,13 @@ export async function createExtractionCache(options) {
     ledger: publicationLedger(options.state),
     outputs: extractionOutputs(output, options.progress),
     active: null,
-    evidence: { hits: 0, misses: 0, reusedRGBABytes: 0, units: [] },
+    evidence: {
+      hits: 0,
+      misses: 0,
+      reusedRGBABytes: 0,
+      units: [],
+      timings: {},
+    },
   };
   return {
     evidence: runtime.evidence,
@@ -110,7 +117,11 @@ function validRecord(record, id) {
 
 async function probe(runtime, unit) {
   if (runtime.full) return { reason: "forced-full" };
-  const loaded = await loadRecord(runtime, unit.id);
+  const loaded = await extractionStage(
+    runtime.evidence.timings,
+    "recordReadMs",
+    () => loadRecord(runtime, unit.id),
+  );
   if (!loaded.record) return loaded;
   const { record } = loaded;
   const difference = unitDifference(record, unit);
@@ -152,10 +163,11 @@ function unitDifference(record, unit) {
 async function verifyRecord(runtime, record) {
   try {
     runtime.progress?.(`${record.id}: verifying cached output closure`);
-    const outputs = await runtime.outputs.closure({
-      result: record.result,
-      publication: record.publication.delta,
-    });
+    const outputs = await outputClosure(
+      runtime,
+      record.result,
+      record.publication,
+    );
     if (digest(outputs) !== digest(record.outputs)) {
       return { reason: "cache-output-closure-corrupt" };
     }
@@ -179,6 +191,12 @@ async function saveRecord(runtime, record) {
   await publishFile(
     resolve(runtime.directory, `${digest(record.id)}.json`),
     JSON.stringify({ record: identity }),
+  );
+}
+
+function outputClosure(runtime, result, publication) {
+  return extractionStage(runtime.evidence.timings, "outputVerificationMs", () =>
+    runtime.outputs.closure({ result, publication: publication.delta }),
   );
 }
 
@@ -210,7 +228,9 @@ async function runUnit(runtime, unit, build) {
     runtime.progress?.(`${unit.id}: converting (${checked.reason})`);
     const record = await rebuildUnit(runtime, unit, build);
     runtime.progress?.(`${unit.id}: saving verified cache record`);
-    await saveRecord(runtime, record);
+    await extractionStage(runtime.evidence.timings, "recordWriteMs", () =>
+      saveRecord(runtime, record),
+    );
     recordTiming(runtime, unit.id, {
       status: "rebuilt",
       reason: checked.reason,
@@ -234,17 +254,18 @@ async function rebuildUnit(runtime, unit, build) {
   let result, publication, sources;
   try {
     for (const key of runtime.active) runtime.source(key);
-    result = await build();
+    result = await extractionStage(
+      runtime.evidence.timings,
+      "conversionMs",
+      build,
+    );
     sources = sourceRecords(runtime);
   } finally {
     publication = runtime.ledger.finish();
     runtime.active = null;
   }
   runtime.progress?.(`${unit.id}: verifying converted output closure`);
-  const outputs = await runtime.outputs.closure({
-    result,
-    publication: publication.delta,
-  });
+  const outputs = await outputClosure(runtime, result, publication);
   return {
     schemaVersion: SCHEMA,
     id: unit.id,

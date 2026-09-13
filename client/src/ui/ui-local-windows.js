@@ -9,6 +9,7 @@ import {
   layoutTitle,
 } from "./ui-social.js";
 import { layoutCashShop } from "./ui-cash-shop.js";
+import { layoutMarket } from "./ui-market.js";
 import { layoutMonsterBook } from "./ui-monster-book.js";
 import { layoutSkillMacros } from "./ui-skill-macros.js";
 import { layoutShop } from "./ui-shop.js";
@@ -33,6 +34,7 @@ export const LOCAL_WINDOW_NAMES = Object.freeze([
   "Title",
   "Messenger",
   "CashShop",
+  "ITC",
   "SkillMacro",
   "Shop",
   "Trunk",
@@ -53,6 +55,7 @@ const NATIVE_SIZES = Object.freeze({
   Family: [224, 392],
   Title: [260, 374],
   CashShop: [800, 600],
+  ITC: [800, 600],
   SkillMacro: [207, 289],
   Shop: [463, 339],
   Trunk: [463, 318],
@@ -105,6 +108,10 @@ export function layoutLocalWindow(panel) {
       panel.nativeClose = true;
       panel.operationOwner = owner.hooks.cashShop();
       layoutCashShop(panel, panel.operationOwner);
+      break;
+    case "ITC":
+      panel.operationOwner = owner.hooks.market();
+      layoutMarket(panel, panel.operationOwner);
       break;
     case "Shop":
       panel.nativeClose = true;

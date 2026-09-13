@@ -5,6 +5,7 @@ import { EntityAnimation } from "../rendering/animation.js";
 export class UICursor {
   constructor(owner, resource) {
     this.owner = owner;
+    this.target = owner.cursorTarget ?? owner.app.canvas;
     this.surface = new UISurface(owner, "Cursor", resource, [800, 600]);
     this.surface.element.style.pointerEvents = "none";
     this.surface.element.style.zIndex = "2147483647";
@@ -32,7 +33,7 @@ export class UICursor {
     this.surface.root.visible = false;
     this.cursorStyle = document.createElement("style");
     this.cursorStyle.textContent =
-      "canvas.maple-original-cursor{cursor:none!important}";
+      ".maple-original-cursor{cursor:none!important}";
     document.head.append(this.cursorStyle);
     this.setVisible(owner.visible);
   }
@@ -64,7 +65,7 @@ export class UICursor {
   }
 
   setVisible(visible) {
-    this.owner.app.canvas.classList.toggle("maple-original-cursor", visible);
+    this.target.classList.toggle("maple-original-cursor", visible);
     this.owner.host.classList.toggle("maple-ui-original-cursor", visible);
     if (!visible) this.surface.root.visible = false;
     this.surface.element.hidden = !visible;
@@ -91,7 +92,7 @@ export class UICursor {
   }
 
   insideCanvas(event) {
-    const canvas = this.owner.app.canvas.getBoundingClientRect();
+    const canvas = this.target.getBoundingClientRect();
     return (
       event.clientX >= canvas.left &&
       event.clientX < canvas.right &&
@@ -207,7 +208,7 @@ export class UICursor {
     this.clearGhost();
     this.surface.destroy();
     this.lastPointer = null;
-    this.owner.app.canvas.classList.remove("maple-original-cursor");
+    this.target.classList.remove("maple-original-cursor");
     this.cursorStyle.remove();
     this.owner.host.classList.remove("maple-ui-original-cursor");
   }

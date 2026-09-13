@@ -1,3 +1,4 @@
+import { onlineQuestCatalog } from "./quest-lifecycle.js";
 import {
   admitTutorialPortal,
   tutorialPortalKind,
@@ -22,7 +23,9 @@ export function admitVirtualNpc(world, actor, lease) {
       "NOT_ALLOWED",
     );
   } else if (lease.source.kind === "medal") {
-    const record = world.content.catalog.quests.records[lease.source.questId];
+    const record = onlineQuestCatalog(world.content).records[
+      lease.source.questId
+    ];
     const system = narrativeQuestSystem(actor.profile, world);
     requireInteraction(system.isMedalRecord(record), "NOT_ALLOWED");
     const endpoint = record.stages[lease.source.stage];

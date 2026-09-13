@@ -90,10 +90,12 @@ export function publishFieldDrop(field, drop, now) {
 
 /** Existing world port, for callers that already own an admitted debit/grant. */
 export function createFieldDrop(world, actor, request) {
-  if (request.id && actor.field.drops.has(request.id))
-    {return actor.field.drops.get(request.id);}
-  if (actor.field.drops.size >= MAX_FIELD_DROPS)
-    {throw protocolError("SERVER_BUSY");}
+  if (request.id && actor.field.drops.has(request.id)) {
+    return actor.field.drops.get(request.id);
+  }
+  if (actor.field.drops.size >= MAX_FIELD_DROPS) {
+    throw protocolError("SERVER_BUSY");
+  }
   return publishFieldDrop(
     actor.field,
     prepareFieldDrop(world, actor, request),
@@ -142,16 +144,18 @@ export function advanceDrops(world, field) {
     else stepDropFlight(drop);
     drop.position.x = drop.x;
     drop.position.y = drop.y;
-    if (drop.disappearing && fadeDisappearingDrop(drop))
-      {field.drops.delete(drop.id);}
+    if (drop.disappearing && fadeDisappearingDrop(drop)) {
+      field.drops.delete(drop.id);
+    }
   }
 }
 
 function admittedRows(world, mob) {
   const rows = world.content.catalog.drops?.mobs?.[mob.templateId]?.rows;
   if (!rows) return null;
-  if (!Array.isArray(rows) || rows.length > DROP_POLICY.maximumRows)
-    {throw protocolError("CONTENT_MISMATCH");}
+  if (!Array.isArray(rows) || rows.length > DROP_POLICY.maximumRows) {
+    throw protocolError("CONTENT_MISMATCH");
+  }
   const admitted = [];
   for (const row of rows) {
     if (row.status === "unavailable") continue;
@@ -291,12 +295,15 @@ export function commitKillDrops(world, actor, plan, receipt) {
     plan.state !== "reserved" ||
     receipt.status !== "committed" ||
     receipt.value?.dropPlanId !== plan.id
-  )
-    {return false;}
-  if (plan.actorId !== actor.id || plan.field !== actor.field)
-    {throw protocolError("STALE_FIELD");}
-  for (const drop of plan.requests)
-    {publishFieldDrop(plan.field, drop, world.now);}
+  ) {
+    return false;
+  }
+  if (plan.actorId !== actor.id || plan.field !== actor.field) {
+    throw protocolError("STALE_FIELD");
+  }
+  for (const drop of plan.requests) {
+    publishFieldDrop(plan.field, drop, world.now);
+  }
   plan.state = "committed";
   if (plan.refusal) {
     world.publish(actor, {
@@ -318,8 +325,10 @@ export function releaseKillDrops(field, plan) {
 
 /** Server-private ownership admission; durable mirrored party records establish shared ownership. */
 export function ownsDrop(actor, drop, now) {
-  if (drop.ownerUntil <= now || !drop.ownerId || drop.ownerId === actor.id)
-    {return true;}
+  if (drop.ownerUntil <= now || !drop.ownerId || drop.ownerId === actor.id) {
+    return true;
+  }
+  if (drop.ownerMemberIds) return drop.ownerMemberIds.includes(actor.id);
   const party = actor.profile.social?.party;
   if (!party) return false;
   return party.id === drop.ownerPartyId || party.members.includes(drop.ownerId);

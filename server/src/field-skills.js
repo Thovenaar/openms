@@ -17,6 +17,20 @@ import { rebuildActorEffects, syncActorEffects } from "./action-character.js";
 import { admitActor, ruleError } from "./action-rules.js";
 import { prepareActorCombat } from "./field-combat.js";
 import { protocolError } from "../../shared/schema.js";
+import {
+  preparePartyVisual,
+  publishPartyVisuals,
+} from "./party-skill-visuals.js";
+import {
+  retainsReceivedEffect,
+  setSkillCooldown,
+} from "./skill-durable-state.js";
+import {
+  partySkillKind,
+  partySkillTargets,
+  partySkillError,
+  applyPartySkill,
+} from "./party-skills.js";
 
 /** Shared controllers can spend resources only in a paid server phase. */
 class AuthorityCosts extends SkillCosts {
@@ -31,8 +45,9 @@ class AuthorityCosts extends SkillCosts {
   }
   consume(skill, info) {
     const paid = this.paid;
-    if (!paid || paid.skill !== skill || paid.info !== info)
-      {throw new Error("Skill phase lacks committed resource debit");}
+    if (!paid || paid.skill !== skill || paid.info !== info) {
+      throw new Error("Skill phase lacks committed resource debit");
+    }
     this.paid = null;
     this.projectilePAD = paid.costs.projectilePAD;
     this.projectileId = paid.costs.projectileId;
@@ -106,8 +121,9 @@ function authorityStore(world, actor) {
         },
       );
       if (scope) scope.receipt = receipt;
-      if (receipt.status !== "committed")
-        {throw protocolError(receipt.code ?? "NOT_ALLOWED");}
+      if (receipt.status !== "committed") {
+        throw protocolError(receipt.code ?? "NOT_ALLOWED");
+      }
       if (!fresh) throw protocolError("STALE_REVISION");
       return value;
     },
@@ -138,6 +154,10 @@ function skillHooks(world, actor, scene) {
     items: world.content.items,
     now: () => world.now,
     random: world.random,
+    partySkillError: (skill, info) =>
+      partySkillError(world, actor, skill, info),
+    retainsReceivedEffect: (id, state) =>
+      retainsReceivedEffect(actor, world.now, id, state),
     report: (error) => {
       actor.admission = error.code ?? error.message;
     },
@@ -169,11 +189,7 @@ function skillHooks(world, actor, scene) {
       actor.skillField.beginSkillAttack(entry, info, hit),
     startAction: (action) => actor.skillField.beginSkillPose(action),
     travelDoor: (destination) => world.travelSkillDoor(actor, destination),
-    prepareEnhancement: async () => {
-      const descriptor = world.content.catalog.ui.bundles.EnchantSkill;
-      if (!descriptor) throw protocolError("CONTENT_MISMATCH");
-      await world.content.json(descriptor);
-    },
+    prepareEnhancement: () => prepareEnhancement(world),
     enhancementError: () =>
       world.content.catalog.ui.bundles.EnchantSkill
         ? null
@@ -190,6 +206,12 @@ function skillHooks(world, actor, scene) {
   };
 }
 
+async function prepareEnhancement(world) {
+  const descriptor = world.content.catalog.ui.bundles.EnchantSkill;
+  if (!descriptor) throw protocolError("CONTENT_MISMATCH");
+  await world.content.json(descriptor);
+}
+
 /** Async preparation validates all learned controllers and authored resources before admission. */
 export async function prepareActorSkills(
   world,
@@ -199,8 +221,13 @@ export async function prepareActorSkills(
   actor.skillPreparing = true;
   actor.skillExecuting = true;
   if (!previous && !actor.skillTravelCandidate) {
-    actor.profile.onlineState.effects.length = 0;
-    actor.profile.onlineState.cooldowns = {};
+    actor.profile.onlineState.effects =
+      actor.profile.onlineState.effects.filter(
+        (row) =>
+          row.kind === "item" ||
+          world.content.catalog.ui.skills[row.templateId]?.classification
+            .owner === "state",
+      );
   }
   const preparation = prepareSkillRuntime(world, actor, previous);
   const { scene, resources, avatars } = preparation;
@@ -251,23 +278,37 @@ function prepareSkillRuntime(world, actor, previous) {
   hooks.createAnimation = resources.createAnimation.bind(resources);
   hooks.loadVisual = resources.loadVisual.bind(resources);
   const avatars = new AvatarVisuals(
-    { loadVisual: (descriptor, services, signal) =>
-      resources.loadVisual(descriptor, signal) },
+    {
+      loadVisual: (descriptor, services, signal) =>
+        resources.loadVisual(descriptor, signal),
+    },
     world.content.catalog,
   );
   return {
-    store, scene, hooks, resources, avatars,
-    priorField: actor.skillField, priorDrops: actor.skillDrops,
+    store,
+    scene,
+    hooks,
+    resources,
+    avatars,
+    priorField: actor.skillField,
+    priorDrops: actor.skillDrops,
   };
 }
 
 function installSkillRuntime(world, actor, previous, { scene, store, hooks }) {
-  actor.skills = new AuthoritySkills(scene, store, world.content.catalog, hooks);
+  actor.skills = new AuthoritySkills(
+    scene,
+    store,
+    world.content.catalog,
+    hooks,
+  );
   actor.skills.costs = new AuthorityCosts(actor.skills);
   actor.skills.debitCosts = new SkillCosts(actor.skills);
   actor.skillDrops = new AuthoritySkillDrops(world, actor);
   actor.skillField = new AuthorityCombat(world, actor, {
-    scene, store, hooks: createCombatHooks(world, actor),
+    scene,
+    store,
+    hooks: createCombatHooks(world, actor),
   });
   actor.hitboxes = actor.skillField.hitboxes;
   actor.combat = actor.skillField.combat;
@@ -278,7 +319,10 @@ function installSkillRuntime(world, actor, previous, { scene, store, hooks }) {
   Object.assign(actor, profileResourceKeys(actor.profile));
 }
 
-function discardSkillPreparation(actor, { scene, resources, priorField, priorDrops }) {
+function discardSkillPreparation(
+  actor,
+  { scene, resources, priorField, priorDrops },
+) {
   if (actor.skills?.scene === scene) actor.skills.destroy();
   if (actor.skillField !== priorField) actor.skillField?.destroy();
   if (actor.skillDrops !== priorDrops) actor.skillDrops?.destroy();
@@ -289,8 +333,9 @@ function discardSkillPreparation(actor, { scene, resources, priorField, priorDro
 
 function admitCast(world, actor, action) {
   admitActor(actor, world, actor.field.epoch);
-  if (!actor.skills || actor.skillPreparing || actor.skillTask)
-    {throw protocolError("SERVER_BUSY");}
+  if (!actor.skills || actor.skillPreparing || actor.skillTask) {
+    throw protocolError("SERVER_BUSY");
+  }
   if (
     action.target &&
     (action.target.kind !== "entity" || action.target.entityId !== actor.id)
@@ -298,8 +343,9 @@ function admitCast(world, actor, action) {
     throw protocolError("NOT_ALLOWED");
   }
   const system = actor.skills;
-  if (!system.level(action.skillId))
-    {throw protocolError("REQUIREMENTS_NOT_MET");}
+  if (!system.level(action.skillId)) {
+    throw protocolError("REQUIREMENTS_NOT_MET");
+  }
   const id = system.activationId(action.skillId);
   const skill = system.catalog[id],
     rank = system.level(id),
@@ -349,14 +395,23 @@ export async function castSkill(world, actor, action, operation) {
           };
         })
       : await debitSkill(world, actor, {
-          skill: plan.skill, info: plan.info, operation, drops,
+          skill: plan.skill,
+          info: plan.info,
+          operation,
+          drops,
         });
     if (
       receipt.status !== "committed" ||
       (deferred ? !fresh : !plan.system.costs.paid)
-    )
-      {return receipt;}
-    publishPaidCast(world, actor, plan, { operation, drops, receipt, deferred });
+    ) {
+      return receipt;
+    }
+    publishPaidCast(world, actor, plan, {
+      operation,
+      drops,
+      receipt,
+      deferred,
+    });
     return receipt;
   } finally {
     if (drops) releaseSkillDrops(drops);
@@ -366,40 +421,70 @@ export async function castSkill(world, actor, action, operation) {
 
 async function castBasicFallback(world, actor, plan, operation) {
   let fresh = false;
-  const receipt = await world.participants.commit(actor, operation, [actor.id], () => {
-    fresh = true;
-    return { value: {
-      kind: "skill.cast", skillId: plan.skill.id, rank: plan.rank,
-      deferred: false, dropPlanId: null,
-    } };
-  });
-  if (receipt.status === "committed" && fresh) plan.controller.castBasicFallback();
-  return receipt;
-}
-
-function publishPaidCast(world, actor, plan, { operation, drops, receipt, deferred }) {
-  admitActor(actor, world, operation.fieldEpoch);
-  if (drops) commitSkillDrops(actor, drops, receipt);
-  if (!deferred) {
-    plan.system.costs.consume(plan.skill, plan.info);
-    if (plan.skill.classification.owner === "state")
-      plan.system.utilityController.events.consume(plan.skill);
-  }
-  plan.controller.cast(plan.skill, plan.info, plan.rank);
-  if (!deferred) plan.system.publishCast(plan.skill, plan.info, plan.rank);
-  world.publish(actor, { type: "snapshot-request" });
-}
-
-async function debitSkill(world, actor, { skill, info, operation, drops = null }) {
-  const system = actor.skills;
-  const field = actor.field;
-  let debit = null;
   const receipt = await world.participants.commit(
     actor,
     operation,
     [actor.id],
+    () => {
+      fresh = true;
+      return {
+        value: {
+          kind: "skill.cast",
+          skillId: plan.skill.id,
+          rank: plan.rank,
+          deferred: false,
+          dropPlanId: null,
+        },
+      };
+    },
+  );
+  if (receipt.status === "committed" && fresh) {
+    plan.controller.castBasicFallback();
+  }
+  return receipt;
+}
+
+function publishPaidCast(
+  world,
+  actor,
+  plan,
+  { operation, drops, receipt, deferred },
+) {
+  admitActor(actor, world, operation.fieldEpoch);
+  if (drops) commitSkillDrops(actor, drops, receipt);
+  if (!deferred) {
+    plan.system.costs.consume(plan.skill, plan.info);
+    if (plan.skill.classification.owner === "state") {
+      plan.system.utilityController.events.consume(plan.skill);
+    }
+  }
+  const kind = partySkillKind(plan.skill, plan.info);
+  if (kind === "dispel") actor.skillField.dispelSkill(plan.info, false);
+  if (["resurrection", "time-leap", "dispel"].includes(kind)) {
+    if (plan.skill.actions.length) {
+      plan.system.hooks.startAction(plan.skill.actions[0]);
+    }
+  } else plan.controller.cast(plan.skill, plan.info, plan.rank);
+  if (!deferred) plan.system.publishCast(plan.skill, plan.info, plan.rank);
+  publishPartyVisuals(world, actor, plan, receipt.value.partyEffects);
+  world.publish(actor, { type: "snapshot-request" });
+}
+
+async function debitSkill(
+  world,
+  actor,
+  { skill, info, operation, drops = null },
+) {
+  const system = actor.skills;
+  const targets = partySkillTargets(world, actor, skill, info);
+  await preparePartyVisual(actor, skill, targets);
+  let debit = null;
+  const receipt = await world.participants.commit(
+    actor,
+    operation,
+    [actor.id, ...targets.map((target) => target.id)],
     (drafts) => {
-      admitActor(actor, world, field.epoch);
+      admitActor(actor, world, operation.fieldEpoch);
       admitSkillDrops(actor, drops);
       system.store.draft = drafts.get(actor.id);
       try {
@@ -410,6 +495,15 @@ async function debitSkill(world, actor, { skill, info, operation, drops = null }
           throw protocolError("REQUIREMENTS_NOT_MET");
         }
         debit = { skill, info, costs };
+        const partyEffects = applyPartySkill(
+          world,
+          actor,
+          { skill, info, targets },
+          drafts,
+        );
+        if (operation.kind !== "skill.phase") {
+          setSkillCooldown(drafts.get(actor.id), skill.id, info, world.now);
+        }
         return {
           value: {
             kind: "skill.cast",
@@ -418,6 +512,7 @@ async function debitSkill(world, actor, { skill, info, operation, drops = null }
             deferred: false,
             debitId: operation.operationId,
             dropPlanId: drops?.id ?? null,
+            partyEffects,
           },
           consumeEntitlements: drops?.consumeEntitlements ?? [],
         };
@@ -430,8 +525,9 @@ async function debitSkill(world, actor, { skill, info, operation, drops = null }
     receipt.status === "committed" &&
     receipt.value?.debitId === operation.operationId &&
     debit
-  )
-    {system.costs.paid = debit;}
+  ) {
+    system.costs.paid = debit;
+  }
   return receipt;
 }
 
@@ -445,8 +541,9 @@ function queueSkillPhase(world, actor, { skill, info, publish }) {
         receipt.status !== "committed" ||
         !actor.skills.costs.paid ||
         actor.skillGeneration !== generation
-      )
-        {return;}
+      ) {
+        return;
+      }
       actor.skillExecuting = true;
       try {
         admitActor(actor, world, operation.fieldEpoch);
@@ -478,8 +575,9 @@ export function releaseSkill(world, actor, action) {
       !pending ||
       pending.kind !== "skill.cancel" ||
       (action.kind === "skill.cancel" && action.skillId === undefined)
-    )
-      {actor.skillRelease = action;}
+    ) {
+      actor.skillRelease = action;
+    }
     return { code: "OK" };
   }
   if (action.kind === "skill.cancel") actor.skills.cancelHold(action.skillId);
@@ -489,14 +587,16 @@ export function releaseSkill(world, actor, action) {
 
 /** Called once after physics, before actor combat. Shared controllers own their exact clocks. */
 function skillClockBlocked(actor) {
-  return !actor.skills ||
+  return (
+    !actor.skills ||
     actor.state !== "active" ||
     actor.retiring ||
     actor.deliveryError ||
     actor.skillPreparing ||
     actor.pending ||
     actor.skillTask ||
-    actor.skillField?.hasPendingIncoming;
+    actor.skillField?.hasPendingIncoming
+  );
 }
 
 export function advanceActorSkills(world, actor, ms = 30) {
@@ -511,8 +611,9 @@ export function advanceActorSkills(world, actor, ms = 30) {
   const hp = actor.profile.hp;
   actor.skills.step(ms);
   syncActorEffects(actor, world);
-  if (hp > 0 && actor.profile.hp === 0 && !actor.skillField.dead)
-    {death(world, actor);}
+  if (hp > 0 && actor.profile.hp === 0 && !actor.skillField.dead) {
+    death(world, actor);
+  }
 }
 
 export async function flushPickpocket(world, actor) {
@@ -556,15 +657,18 @@ export async function settleActorSkills(actor) {
     }
     break;
   }
-  if (actor.skillField?.incomingFailure)
-    {failures.push(actor.skillField.incomingFailure);}
-  if (failures.length)
-    {throw new AggregateError(failures, "Accepted skill outcomes failed");}
+  if (actor.skillField?.incomingFailure) {
+    failures.push(actor.skillField.incomingFailure);
+  }
+  if (failures.length) {
+    throw new AggregateError(failures, "Accepted skill outcomes failed");
+  }
 }
 
 function acceptedSkillJobs(actor) {
   const jobs = new Set(actor.skillField?.rewardJobs ?? []);
   if (actor.skillTask) jobs.add(actor.skillTask);
+  if (actor.questTask) jobs.add(actor.questTask);
   if (actor.skillField?.incomingTask) jobs.add(actor.skillField.incomingTask);
   return jobs;
 }
@@ -581,8 +685,7 @@ export function disposeActorSkills(actor, logout = false) {
   actor.skillField?.scene.avatarOwner.resource.destroy();
   actor.skillDrops?.destroy();
   actor.skills = null;
-  actor.profile.onlineState.effects.length = 0;
-  actor.profile.onlineState.cooldowns = {};
+  // Runtime teardown is not death: durable timers continue while the account is offline.
 }
 
 /** Destination runtime is fully prepared against a detached server draft before travel commits. */
@@ -634,8 +737,9 @@ export function bindSkillTravel(actor, candidate) {
     "combatPresentation",
     "skillAvatarKey",
     "skillLearnedKey",
-  ])
-    {actor[key] = candidate[key];}
+  ]) {
+    actor[key] = candidate[key];
+  }
   skills.store.rebind(actor);
   skills.hooks.rebind(actor);
   skills.hooks.actor = actor;
@@ -669,8 +773,9 @@ export function releaseSkillTravel(candidate) {
   if (!candidate || candidate.bound) return;
   candidate.skills?.destroy();
   candidate.skillField?.destroy();
-  if (!candidate.avatarTransferred)
-    {candidate.skills?.scene.avatarOwner.resource.destroy();}
+  if (!candidate.avatarTransferred) {
+    candidate.skills?.scene.avatarOwner.resource.destroy();
+  }
   candidate.skillDrops?.destroy();
 }
 
@@ -694,8 +799,9 @@ export async function prepareProfileSkills(world, actor, profile) {
   if (
     keys.skillAvatarKey === actor.skillAvatarKey &&
     keys.skillLearnedKey === actor.skillLearnedKey
-  )
-    {return null;}
+  ) {
+    return null;
+  }
   return await prepareRuntimeCandidate(world, actor, {
     field: actor.field,
     simulation: { ...actor.simulation },
@@ -717,8 +823,9 @@ export async function synchronizeActorSkills(world, actor, prepared = null) {
   actor.skillExecuting = true;
   let previous = null;
   try {
-    if (avatarChanged)
-      {previous = await replaceAuthorityAvatar(world, actor, prepared);}
+    if (avatarChanged) {
+      previous = await replaceAuthorityAvatar(world, actor, prepared);
+    }
     system.refresh();
     if (avatarChanged || learnedChanged) await system.prepare();
     rebuildActorEffects(actor, world);

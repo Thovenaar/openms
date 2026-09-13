@@ -1,3 +1,6 @@
+import { MAX_TRANSACTION_PARTICIPANTS } from "./online-limits.js";
+import { validateMarket } from "./market-state.js";
+import { persistMarket, marketHasProperty } from "./database-market.js";
 import { SQL } from "bun";
 import { DEVELOPMENT_JSON } from "../../shared/development.js";
 import {
@@ -59,7 +62,7 @@ function validateCommitActors(actors) {
   if (
     !Array.isArray(actors) ||
     actors.length < 1 ||
-    actors.length > PROFILE_LIMITS.characters ||
+    actors.length > MAX_TRANSACTION_PARTICIPANTS ||
     actors[0].passive ||
     new Set(actors.map((actor) => actor.id)).size !== actors.length
   ) {
@@ -136,13 +139,21 @@ function stampQuestCycles(before, after, transactionId) {
   for (const [questId, quest] of entries) {
     if (quest.state !== 1) continue;
     const prior = before.onlineState?.questCycles?.[questId];
-    if (before.quests[questId]?.state === 1) {
+    if (sameQuestRun(before, after, questId)) {
       if (prior !== undefined) cycles[questId] = prior;
     } else cycles[questId] = transactionId;
   }
   after.onlineState ??= { effects: [], cooldowns: {} };
   after.onlineState.questCycles = cycles;
   pruneQuestNotices(after.onlineState, cycles);
+}
+
+function sameQuestRun(before, after, id) {
+  return (
+    before.quests[id]?.state === 1 &&
+    before.onlineState?.questLifecycle?.[id]?.cycle ===
+      after.onlineState?.questLifecycle?.[id]?.cycle
+  );
 }
 
 function pruneQuestNotices(state, cycles) {
@@ -170,9 +181,11 @@ function mutationDraft(durable, live) {
   draft.onlineState = structuredClone(
     live.onlineState ?? { effects: [], cooldowns: {} },
   );
-  draft.onlineState.questCycles = structuredClone(
-    durable.onlineState?.questCycles ?? {},
-  );
+  for (const key of ["questCycles", "questLifecycle", "market"]) {
+    if (durable.onlineState?.[key]) {
+      draft.onlineState[key] = structuredClone(durable.onlineState[key]);
+    } else delete draft.onlineState[key];
+  }
   mergeQuestKills(draft, live);
   return draft;
 }
@@ -288,7 +301,11 @@ export class Database {
   }
   async migrate() {
     const migrations = await Promise.all(
-      ["001-authority.sql", "002-participant-cohorts.sql"].map((name) =>
+      [
+        "001-authority.sql",
+        "002-participant-cohorts.sql",
+        "003-market.sql",
+      ].map((name) =>
         Bun.file(new URL(`../sql/${name}`, import.meta.url)).text(),
       ),
     );
@@ -298,6 +315,7 @@ export class Database {
     });
   }
   validate(profile) {
+    validateMarket(profile, this.items);
     const copy = structuredClone(profile);
     delete copy.onlineState;
     validateProfile(copy, this.items);
@@ -376,6 +394,13 @@ export class Database {
       if (rows[0].leased) throw failure("CHARACTER_BUSY");
       // As with an offline reset, mirrored links must be detached through social authority.
       if (hasSocialLinks(rows[0].profile.social)) throw failure("NOT_ALLOWED");
+      if (marketHasProperty(rows[0].profile)) throw failure("NOT_ALLOWED");
+      const transfers =
+        await tx`SELECT id FROM item_instance WHERE owner_id=${characterId} AND location IN ('market','market-transfer') LIMIT 1`;
+      if (transfers.length) throw failure("NOT_ALLOWED");
+      const bids =
+        await tx`SELECT id FROM market_listing WHERE summary->>'bidderId'=${characterId} AND (summary->>'bid')::bigint>0 LIMIT 1`;
+      if (bids.length) throw failure("NOT_ALLOWED");
       await tx`UPDATE character SET deleted_at=clock_timestamp(),lease_owner=NULL,lease_until=NULL,field_instance=NULL,field_epoch=NULL WHERE id=${characterId}`;
       return { id: characterId };
     });
@@ -428,6 +453,7 @@ export class Database {
       empty.cash.balances,
       profile.cash.balances,
     );
+    await persistMarket(tx, this, entry, { before: empty, after: profile });
     await tx`INSERT INTO character_op_log(character_id,operation_id,transaction_id,kind,effect) VALUES(${characterId},${characterId},${characterId},'bootstrap',${{ kind: "bootstrap", profile }})`;
   }
   async hydrate(tx, row) {
@@ -657,7 +683,7 @@ export class Database {
       stampQuestCycles(states[index].profile, drafts[index], transactionId);
       this.validate(drafts[index]);
     }
-    validateCharacterUids(drafts);
+    validateCharacterUids(drafts, MAX_TRANSACTION_PARTICIPANTS);
     validateSocialCommit(
       owners.map((owner) => owner.id),
       states.map((state) => state.profile),
@@ -716,6 +742,10 @@ export class Database {
       state.profile.cash.balances,
       draft.cash.balances,
     );
+    await persistMarket(tx, this, entry, {
+      before: state.profile,
+      after: draft,
+    });
     if (
       operation.domain === "social" ||
       JSON.stringify(state.profile.social) !== JSON.stringify(draft.social)

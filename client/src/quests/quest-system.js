@@ -34,6 +34,10 @@ export class QuestSystem {
     this.resetReadiness();
   }
 
+  state(profile, id) {
+    return this.hooks.questState?.(profile, id) ?? stateOf(profile, id);
+  }
+
   /** Loaded progress is a silent baseline, not a newly received quest-status event.
    * 00a20f4c updates progress before 00721d2c/00523408; login replay is not proved.
    */
@@ -48,7 +52,9 @@ export class QuestSystem {
    * This is a projection only: dialogue/rewards and durable state are never changed.
    */
   isReady(record, profile = this.store.profile) {
-    if (!record?.supported || stateOf(profile, record.id) !== 1) return false;
+    if (!record?.supported || this.state(profile, record.id) !== 1) {
+      return false;
+    }
     const stage = record.stages[1];
     const npcId = stage.check.npc || stage.actionCheck.npc;
     return this.status(record, npcId, profile).ok;
@@ -84,7 +90,7 @@ export class QuestSystem {
     if (!Number.isSafeInteger(id) || !this.isMedalRecord(record)) {
       return fail("medal", "Unknown original medal quest");
     }
-    if (stateOf(profile, id) !== stage) {
+    if (this.state(profile, id) !== stage) {
       return fail("quest", "Quest state changed");
     }
     const endpoint = record.stages[stage];
@@ -113,7 +119,7 @@ export class QuestSystem {
       ) {
         continue;
       }
-      const state = stateOf(this.store.profile, record.id);
+      const state = this.state(this.store.profile, record.id);
       const admission = this.medalAdmission(record.id, Math.min(state, 1));
       const forfeit = record.supported && this.giveUpAdmission(record.id).ok;
       result.push({
@@ -195,7 +201,7 @@ export class QuestSystem {
   isTrackerQuest(record, id, profile) {
     return Boolean(
       record &&
-      stateOf(profile, id) === 1 &&
+      this.state(profile, id) === 1 &&
       !(id >= 1200 && id <= 1399) &&
       Number(record.info?.type) !== 51,
     );
@@ -232,7 +238,7 @@ export class QuestSystem {
   }
 
   giveUpAdmission(id, profile = this.store.profile) {
-    if (stateOf(profile, id) !== 1 || (id >= 1200 && id <= 1399)) {
+    if (this.state(profile, id) !== 1 || (id >= 1200 && id <= 1399)) {
       return fail("quest", "This quest cannot be given up");
     }
     return { ok: true };
@@ -328,7 +334,7 @@ export class QuestSystem {
 
   /** Current profile root and nested state are looked up afresh after a local reset. */
   status(record, npcId, profile = this.store.profile) {
-    const state = stateOf(profile, record.id);
+    const state = this.state(profile, record.id);
     if (state === 2) {
       return fail(
         "completed",
@@ -407,7 +413,7 @@ export class QuestSystem {
     const progress = [];
     const available = [];
     for (const record of this.byNpc.get(id) ?? []) {
-      const state = stateOf(profile, record.id);
+      const state = this.state(profile, record.id);
       if (state !== 0 && state !== 1) continue;
       if (!isNpcEndpoint(record.stages[state], id)) continue;
       const admission = this.status(record, id, profile);

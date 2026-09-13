@@ -7,6 +7,7 @@ import { captureKillDropRates } from "./field-drops.js";
 import { hasMobStatus } from "../../client/src/combat/mob-skill-status.js";
 import { protocolError } from "../../shared/schema.js";
 import { syncActorEffects } from "./action-character.js";
+import { planKillCredit } from "./kill-credit.js";
 
 /** Shared OfflineField algorithms; only persistence, field scheduling and publication differ. */
 export class AuthorityCombat extends OfflineField {
@@ -65,24 +66,28 @@ export class AuthorityCombat extends OfflineField {
 
   resolveIncomingSource(source) {
     const mob = source.incomingOrigin ?? source;
-    if (source.incomingField && source.incomingField !== this.actor.field)
-      {return null;}
+    if (source.incomingField && source.incomingField !== this.actor.field) {
+      return null;
+    }
     if (
       source.incomingGeneration !== undefined &&
       mob.deaths !== source.incomingGeneration
-    )
-      {return null;}
+    ) {
+      return null;
+    }
     return mob.alive && mob.active && this.mobs.includes(mob) ? mob : null;
   }
 
   localHitBlocked() {
-    return this.destroyed ||
+    return (
+      this.destroyed ||
       this.actor.state !== "active" ||
       this.actor.retiring ||
       this.actor.deliveryError ||
       this.hasPendingIncoming ||
       this.actor.pending ||
-      this.actor.skillTask;
+      this.actor.skillTask
+    );
   }
 
   proposeMobHit(mob, magic, action = null) {
@@ -93,8 +98,9 @@ export class AuthorityCombat extends OfflineField {
     }
     if (
       this.rejectsHit({ ...this.localHit, source: mob, attackAction: action })
-    )
-      {return false;}
+    ) {
+      return false;
+    }
     const source = this.captureIncomingSource(mob);
     const admission = this.prepareMobHitAdmission(source, magic, action);
     // Rejected and MISS contacts have no private debit. Preserve the original scan,
@@ -113,8 +119,9 @@ export class AuthorityCombat extends OfflineField {
 
   /** One authored proposal per shared mob plus the current fall/contact head. */
   acceptIncoming(source, magic, action, release = null) {
-    if (this.incoming.length >= this.mobs.length + 1)
-      {throw protocolError("SERVER_BUSY");}
+    if (this.incoming.length >= this.mobs.length + 1) {
+      throw protocolError("SERVER_BUSY");
+    }
     const prepared = hasMobStatus(source, "inert")
       ? this.prepareHypnotizedImpact(source, action)
       : null;
@@ -151,8 +158,9 @@ export class AuthorityCombat extends OfflineField {
       let receipt = null;
       try {
         // A skill debit may release its SQL reservation before publishing its paid phase.
-        if (this.actor.skillTask)
-          {await Promise.allSettled([this.actor.skillTask]);}
+        if (this.actor.skillTask) {
+          await Promise.allSettled([this.actor.skillTask]);
+        }
         const operation = combatOperation(this.actor, "combat.incoming");
         let outcome = null;
         receipt = await this.world.participants.commitProduced(
@@ -170,8 +178,9 @@ export class AuthorityCombat extends OfflineField {
             };
           },
         );
-        if (receipt.status !== "committed")
-          {throw protocolError(receipt.code ?? "NOT_ALLOWED");}
+        if (receipt.status !== "committed") {
+          throw protocolError(receipt.code ?? "NOT_ALLOWED");
+        }
         if (outcome && receipt.value?.incomingId === operation.operationId) {
           this.commitHitOutcome(outcome);
           syncActorEffects(this.actor, this.world);
@@ -191,9 +200,9 @@ export class AuthorityCombat extends OfflineField {
   reportIncomingFailure(error, receipt) {
     this.incomingFailure ??= error;
     this.actor.admission = error.code ?? error.message;
-    if (receipt?.status === "committed")
+    if (receipt?.status === "committed") {
       this.world.deliveryFailed(this.actor, error);
-    else this.world.publish(this.actor, { type: "snapshot-request" });
+    } else this.world.publish(this.actor, { type: "snapshot-request" });
   }
   prepareIncoming(proposal, profile) {
     if (
@@ -201,28 +210,39 @@ export class AuthorityCombat extends OfflineField {
       this.actor.field !== proposal.field ||
       proposal.field.characters.get(this.actor.id) !== this.actor ||
       this.world.actors.get(this.actor.id) !== this.actor
-    ) throw protocolError("STALE_FIELD");
+    ) {
+      throw protocolError("STALE_FIELD");
+    }
     if (proposal.admission) {
       proposal.admission.profile = profile;
       return this.prepareHitOutcome(
-        proposal.admission.hit, profile, proposal.admission,
+        proposal.admission.hit,
+        profile,
+        proposal.admission,
       );
     }
     if (proposal.prepared) return proposal.prepared;
     return proposal.source
-      ? this.prepareMobHit(proposal.source, proposal.magic, proposal.action, profile)
+      ? this.prepareMobHit(
+          proposal.source,
+          proposal.magic,
+          proposal.action,
+          profile,
+        )
       : this.prepareHitOutcome(proposal.hit, profile);
   }
 
   attackBlocked() {
-    return this.actor.state !== "active" ||
+    return (
+      this.actor.state !== "active" ||
       this.actor.retiring ||
       this.actor.deliveryError ||
       this.hasPendingIncoming ||
       this.actor.skillTask ||
       this.store.profileTransactionPending ||
       this.phase !== "idle" ||
-      this.dead;
+      this.dead
+    );
   }
 
   beginAttack(prepared = false) {
@@ -250,8 +270,9 @@ export class AuthorityCombat extends OfflineField {
         admitActor(this.actor, this.world, field.epoch);
         const draft = drafts.get(this.actor.id);
         const item = draft.inventory.find((entry) => entry.uid === uid);
-        if (!item || item.count < (derived.shadowPartner ? 2 : 1))
-          {throw new Error("Ammunition is no longer available");}
+        if (!item || item.count < (derived.shadowPartner ? 2 : 1)) {
+          throw new Error("Ammunition is no longer available");
+        }
         this.store.draft = draft;
         this.weaponUse.ammunition = item;
         try {
@@ -267,8 +288,9 @@ export class AuthorityCombat extends OfflineField {
         if (
           receipt.status !== "committed" ||
           receipt.value?.debitId !== operation.operationId
-        )
-          {return;}
+        ) {
+          return;
+        }
         if (this.actor.field !== field || this.dead || this.destroyed) return;
         this.paidAmmunition = true;
         super.beginAttack(true);
@@ -300,7 +322,9 @@ export class AuthorityCombat extends OfflineField {
       ...mob,
       ...captureKillDropRates(this.world, this.actor, mob),
       expAmount: this.killExperience(mob, showdown),
+      showdown,
     };
+    defeated.creditPlan = planKillCredit(this.world, this.actor, defeated);
     mob.rewardGeneration = mob.deaths;
     const task = this.rewardTail.then(() =>
       rewardKill(this.world, this.actor, defeated, showdown),
@@ -325,8 +349,9 @@ export class AuthorityCombat extends OfflineField {
       this.hasPendingIncoming ||
       this.store.profileTransactionPending ||
       this.actor.skillTask
-    )
-      {return;}
+    ) {
+      return;
+    }
     const edge = Boolean(input.attack) && !this.wasAttack;
     this.wasAttack = Boolean(input.attack);
     this.phaseMs += ms;
@@ -349,14 +374,16 @@ export class AuthorityCombat extends OfflineField {
       this.hasPendingIncoming ||
       this.store.profileTransactionPending ||
       this.actor.skillTask
-    )
-      {return;}
+    ) {
+      return;
+    }
     if (!this.dead) this.contactDamage();
     if (this.hasPendingIncoming) return;
     this.advanceAlert();
     this.advanceHitPresentation();
-    if (this.recovery.step(ms, this.action ?? this.simulation.action))
-      {this.changed();}
+    if (this.recovery.step(ms, this.action ?? this.simulation.action)) {
+      this.changed();
+    }
     this.simulation.movementLocked = this.blocksMovement;
     this.presentActor(ms);
     this.actor.skills.present(ms);
@@ -373,10 +400,11 @@ export class AuthorityCombat extends OfflineField {
       this.simulation.state === "ladder" &&
       this.simulation.y === this.simulation.previousY;
     this.scene.actor.advance(ms);
-    if (this.phase !== "idle")
-      {this.scene.actor.seek(
+    if (this.phase !== "idle") {
+      this.scene.actor.seek(
         this.phase === "attack" ? this.attackAnimationMs : this.phaseMs,
-      );}
+      );
+    }
     this.scene.actor.setPosition(this.simulation.x, this.simulation.y);
     const pose = this.scene.presentation;
     this.scene.actor.container.scale.x = this.simulation.facing > 0 ? -1 : 1;

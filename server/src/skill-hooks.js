@@ -2,6 +2,8 @@ import { combatOperation } from "./combat-rewards.js";
 import { familyRate } from "./social-family.js";
 import { MOB_STATUS } from "../../client/src/combat/mob-skill-status.js";
 import { incomingElementCode } from "../../client/src/skills/skill-defenses.js";
+import { syncSkillDiseases } from "./skill-durable-state.js";
+import { recordKillDamage } from "./kill-credit.js";
 
 export function emitCombat(world, actor, event, privateEvent = false) {
   const message = { type: "event", fieldEpoch: actor.field.epoch, event };
@@ -36,7 +38,9 @@ function impact(context, target, amount, hit = null) {
 export function createCombatHooks(world, actor) {
   const context = { world, actor };
   return {
-    rebind(next) { context.actor = next; },
+    rebind(next) {
+      context.actor = next;
+    },
     ...combatAdmissionHooks(context),
     ...skillControllerHooks(context),
     ...combatPublicationHooks(context),
@@ -47,8 +51,10 @@ function combatAdmissionHooks(context) {
   const { world, actor } = context;
   const skill = () => context.actor.skills;
   return {
+    onMobDamage: (mob, amount) => recordKillDamage(context.actor, mob, amount),
     onMobStatus: (mob, id) => claimMobController(context.actor, mob, id),
     mobs: actor.field.mobs,
+    authoritativePartyHealing: true,
     renderer: null,
     random: world.random,
     nextUint32: world.nextUint32,
@@ -60,7 +66,8 @@ function combatAdmissionHooks(context) {
     growth: () => skill().growth(),
     derivedStats: () => skill().derived(),
     experienceRate: () => familyRate(context.actor.profile, "exp", world.now),
-    resolveIncomingSource: (source) => context.actor.skillField.resolveIncomingSource(source),
+    resolveIncomingSource: (source) =>
+      context.actor.skillField.resolveIncomingSource(source),
     drops: () => context.actor.skillDrops,
     canStrike: (rectangle, facing, skillId) =>
       world.canStrikeReactor(context.actor, { rectangle, facing, skillId }),
@@ -74,7 +81,9 @@ function combatAdmissionHooks(context) {
 async function activateCombatSkill(context, id) {
   try {
     const receipt = await context.world.cast(
-      context.actor, { skillId: id }, combatOperation(context.actor, "skill.cast"),
+      context.actor,
+      { skillId: id },
+      combatOperation(context.actor, "skill.cast"),
     );
     return { ok: receipt.status === "committed" };
   } catch (error) {
@@ -86,7 +95,8 @@ async function activateCombatSkill(context, id) {
 function skillControllerHooks(context) {
   const skill = () => context.actor.skills;
   return {
-    setSkillStateValue: (id, key, value) => skill().stateController.setValue(id, key, value),
+    setSkillStateValue: (id, key, value) =>
+      skill().stateController.setValue(id, key, value),
     cancelSkillFamily: (family) => skill().stateController.cancelFamily(family),
     transformed: () => Boolean(skill().worldController.forms.current),
     worldSkillActive: (id) => skill().worldController.active(id),
@@ -95,7 +105,8 @@ function skillControllerHooks(context) {
     skillTargetController: () => skill().combatController.targets,
     resolveSkillId: (id) => skill().activationId(id),
     eventSkillError: (entry) => skill().utilityController.events.error(entry),
-    consumeEventSkill: (entry) => skill().utilityController.events.consume(entry),
+    consumeEventSkill: (entry) =>
+      skill().utilityController.events.consume(entry),
     onEventAttack: (entry, target, sequence) =>
       skill().utilityController.events.onAttack(entry, target, sequence),
     onEventDamage: () => skill().utilityController.events.onDamage(),
@@ -106,35 +117,64 @@ function skillControllerHooks(context) {
       skill().worldController.interceptContact(mob, action, outcome),
     protects: (x, y) => skill().worldController.protects(x, y),
     damageForm: (amount) => skill().worldController.damageForm(amount),
-    absorbDamage: (amount, profile, outcome) => skill().absorbDamage(amount, profile, outcome),
+    absorbDamage: (amount, profile, outcome) =>
+      skill().absorbDamage(amount, profile, outcome),
   };
 }
 
 function combatPublicationHooks(context) {
   const { world } = context;
   return {
-    onSkillDamageLine: (target, amount, hit) => impact(context, target, amount, hit),
+    onSkillDamageLine: (target, amount, hit) =>
+      impact(context, target, amount, hit),
     onMobHit: (target, amount) => impact(context, target, amount),
-    onMagnetResult: (target, success) => emitCombat(world, context.actor, {
-      kind: "skill.magnet", actorId: context.actor.id, targetId: target.id, success,
-    }),
-    onAttack: (sfx) => emitCombat(world, context.actor, {
-      kind: "combat.attack", actorId: context.actor.id, templateId: null,
-      action: context.actor.skillField.attackName, weaponSfx: sfx ?? null,
-    }),
-    onMobAttack: (mob) => emitCombat(world, context.actor, {
-      kind: "combat.attack", actorId: mob.id, templateId: mob.templateId,
-      action: mob.action, weaponSfx: null,
-    }),
+    onMagnetResult: (target, success) =>
+      emitCombat(world, context.actor, {
+        kind: "skill.magnet",
+        actorId: context.actor.id,
+        targetId: target.id,
+        success,
+      }),
+    onAttack: (sfx) =>
+      emitCombat(world, context.actor, {
+        kind: "combat.attack",
+        actorId: context.actor.id,
+        templateId: null,
+        action: context.actor.skillField.attackName,
+        weaponSfx: sfx ?? null,
+      }),
+    onMobAttack: (mob) =>
+      emitCombat(world, context.actor, {
+        kind: "combat.attack",
+        actorId: mob.id,
+        templateId: mob.templateId,
+        action: mob.action,
+        weaponSfx: null,
+      }),
     onProjectile: (shot) => projectile(world, context.actor, shot),
     onPlayerHit: (hit) => playerHit(world, context.actor, hit),
     onPlayerDeath: () => death(world, context.actor),
-    onRecovery: (amount) => emitCombat(world, context.actor, {
-      kind: "combat.recovery", actorId: context.actor.id, hp: amount, mp: 0,
-    }, true),
-    onDisease: (id, duration) => emitCombat(world, context.actor, {
-      kind: "combat.disease", actorId: context.actor.id, diseaseId: id, durationMs: duration,
-    }),
+    onRecovery: (amount) =>
+      emitCombat(
+        world,
+        context.actor,
+        {
+          kind: "combat.recovery",
+          actorId: context.actor.id,
+          hp: amount,
+          mp: 0,
+        },
+        true,
+      ),
+    onDisease: (id, duration) => {
+      syncSkillDiseases(context.actor, world.now);
+      emitCombat(world, context.actor, {
+        kind: "combat.disease",
+        actorId: context.actor.id,
+        diseaseId: id,
+        durationMs: duration,
+      });
+    },
   };
 }
 

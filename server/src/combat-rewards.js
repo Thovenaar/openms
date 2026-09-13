@@ -3,10 +3,7 @@ import {
   awardExperience,
   learnedGrowth,
 } from "../../client/src/character/offline-progression.js";
-import {
-  familyProgressIds,
-  applyOnlineFamilyProgress,
-} from "./social-family.js";
+import { applyOnlineFamilyProgress } from "./social-family.js";
 import {
   prepareKillDrops,
   commitKillDrops,
@@ -14,6 +11,11 @@ import {
 } from "./field-drops.js";
 import { progressQuestViews } from "./interaction-quest.js";
 
+import {
+  planKillCredit,
+  killCreditIds,
+  assignKillLoot,
+} from "./kill-credit.js";
 import { protocolError } from "../../shared/schema.js";
 import { commitPickpocketDrops, releaseSkillDrops } from "./skill-drops.js";
 
@@ -39,12 +41,12 @@ export async function rewardKill(world, actor, mob, showdown = 0) {
   mob.killDropRate = 1 + showdown / 100;
   let plan = null;
   const pickpocket = actor.skillDrops.takePickpocketPlan();
-  let newlyReady = [];
+  const credit = mob.creditPlan ?? planKillCredit(world, actor, mob);
   try {
     const receipt = await world.participants.commitProduced(
       actor,
       operation,
-      familyProgressIds,
+      () => killCreditIds(credit),
       async (drafts) => {
         if (
           world.actors.get(actor.id) !== actor ||
@@ -53,15 +55,15 @@ export async function rewardKill(world, actor, mob, showdown = 0) {
         ) {
           throw protocolError("STALE_FIELD");
         }
-        plan = await prepareKillDrops(world, actor, mob);
-        const profile = drafts.get(actor.id);
-        const beforeReady = readyQuests(profile, actor, world);
-        const { amount, levels } = awardKillProgress(
-          world, actor, drafts, { mob, operation },
-        );
-        newlyReady = [...readyQuests(profile, actor, world)].filter(
-          (id) => !beforeReady.has(id),
-        );
+        plan = await prepareKillDrops(world, credit.lootOwner, mob);
+        assignKillLoot(credit, plan);
+        const rewards = awardKillProgress(world, credit, drafts, {
+          mob,
+          operation,
+        });
+        const own = rewards.find((row) => row.actorId === actor.id);
+        const amount = own?.amount ?? 0,
+          levels = own?.levels ?? 0;
         return {
           value: {
             kind: "combat.reward",
@@ -69,6 +71,7 @@ export async function rewardKill(world, actor, mob, showdown = 0) {
             levels,
             dropPlanId: plan.id,
             pickpocketPlanId: pickpocket?.id ?? null,
+            rewards,
           },
           grantEntitlements: pickpocket
             ? [...plan.grantEntitlements, ...pickpocket.grantEntitlements]
@@ -77,48 +80,70 @@ export async function rewardKill(world, actor, mob, showdown = 0) {
       },
     );
     if (receipt.status !== "committed" || !plan) return;
-    commitKillDrops(world, actor, plan, receipt);
+    commitKillDrops(world, credit.lootOwner, plan, receipt);
     if (pickpocket) commitPickpocketDrops(world, actor, pickpocket, receipt);
     if (receipt.value?.dropPlanId !== plan.id) return;
-    publishKillReward(world, actor, receipt, { field, newlyReady });
+    for (const reward of receipt.value.rewards) {
+      publishKillReward(world, world.actors.get(reward.actorId), reward, field);
+    }
   } finally {
     if (plan) releaseKillDrops(field, plan);
     if (pickpocket) releaseSkillDrops(pickpocket);
   }
 }
 
-function awardKillProgress(world, actor, drafts, { mob, operation }) {
+function awardKillProgress(world, credit, drafts, context) {
+  return credit.rewards.map((member) =>
+    awardMemberProgress(world, member, drafts, context),
+  );
+}
+
+function awardMemberProgress(world, member, drafts, { mob, operation }) {
+  const { actor, amount } = member;
   const profile = drafts.get(actor.id);
-  const amount = mob.expAmount;
+  const beforeReady = readyQuests(profile, actor, world);
   const growth = learnedGrowth(
-    profile, world.content.catalog.ui.skills, world.now, { hp: 0, mp: 0 },
+    profile,
+    world.content.catalog.ui.skills,
+    world.now,
+    { hp: 0, mp: 0 },
   );
   const levels = awardExperience(profile, amount, growth, world.content.items);
   progressKills(profile, actor, world, mob.templateId);
   const context = { now: world.now, operationId: operation.operationId };
   applyOnlineFamilyProgress(
-    drafts, actor.id,
+    drafts,
+    actor.id,
     { kind: mob.template.info.boss ? "boss" : "kill", maxHp: mob.maxHP },
     context,
   );
   for (let index = 0; index < levels; index++) {
-    applyOnlineFamilyProgress(drafts, actor.id, { kind: "level", maxHp: 0 }, context);
+    applyOnlineFamilyProgress(
+      drafts,
+      actor.id,
+      { kind: "level", maxHp: 0 },
+      context,
+    );
   }
-  return { amount, levels };
+  const newlyReady = [...readyQuests(profile, actor, world)].filter(
+    (id) => !beforeReady.has(id),
+  );
+  return { actorId: actor.id, amount, levels, newlyReady };
 }
 
-function publishKillReward(world, actor, receipt, { field, newlyReady }) {
+function publishKillReward(world, actor, reward, field) {
+  if (!actor || actor.field !== field) return;
   world.publish(actor, {
     type: "event",
     fieldEpoch: field.epoch,
     event: {
       kind: "combat.reward",
       actorId: actor.id,
-      amount: receipt.value.amount,
-      levels: receipt.value.levels,
+      amount: reward.amount,
+      levels: reward.levels,
     },
   });
-  for (const questId of newlyReady) {
+  for (const questId of reward.newlyReady) {
     world.publish(actor, {
       type: "event",
       fieldEpoch: field.epoch,
@@ -132,8 +157,9 @@ function progressKills(profile, actor, world, templateId) {
   for (const quest of progressQuestViews(viewActor, world)) {
     if (quest.state !== "active") continue;
     for (const objective of quest.objectives) {
-      if (objective.kind !== "kill" || objective.templateId !== templateId)
-        {continue;}
+      if (objective.kind !== "kill" || objective.templateId !== templateId) {
+        continue;
+      }
       profile.quests[quest.id].kills[templateId] = Math.min(
         objective.required,
         objective.current + 1,

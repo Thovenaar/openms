@@ -1,3 +1,4 @@
+import { onlineQuestCatalog } from "./quest-lifecycle.js";
 import { startQuestDialogue } from "./interaction-quest-dialogue.js";
 import {
   NPC_MENU_HEADINGS,
@@ -16,13 +17,13 @@ import {
 export function publishNpcMenu(actor, world, lease) {
   lease.menu.sort((left, right) => npcQuestGroup(left) - npcQuestGroup(right));
   const choices = lease.menu.map((entry) => entry.questId);
-  const rows = questRows(world.content.catalog.quests, lease.menu);
+  const rows = questRows(onlineQuestCatalog(world.content), lease.menu);
   if (lease.route?.status === "supported") {
     choices.push(0);
     const npc = world.npc(actor, lease.npcId);
     const label = npcTalkLabel(
       npc.template,
-      world.content.catalog.quests.npcScriptLabels,
+      onlineQuestCatalog(world.content).npcScriptLabels,
     );
     rows.push(heading(2), `#d#L0# ${label}#l#k`);
   }

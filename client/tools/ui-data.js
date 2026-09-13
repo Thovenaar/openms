@@ -511,6 +511,7 @@ async function loginSceneBundle(context) {
 async function windowBundles(context) {
   const bundles = Object.create(null);
   bundles.StatusBar = await branchBundle(context, "StatusBar.img", "");
+  bundles.ITC = await branchBundle(context, "ITC.img", "");
   bundles.Login = await branchBundle(
     context,
     "Login.img",

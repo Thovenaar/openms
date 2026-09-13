@@ -1,13 +1,11 @@
+import { onlineQuestCatalog, questState } from "./quest-lifecycle.js";
 import { domainEventSchema, protocolError } from "../../shared/protocol.js";
 import {
   decodeNativePresentation,
   NATIVE_CHUNK_SIZE,
   NATIVE_MAX_BYTES,
 } from "../../shared/native-presentation.js";
-import {
-  stateOf,
-  checkConditions,
-} from "../../client/src/quests/quest-rules.js";
+import { checkConditions } from "../../client/src/quests/quest-rules.js";
 import { progressQuestViews } from "./interaction-quest.js";
 import { socialPresentation } from "./social-presentation.js";
 import { nativeMedalViews } from "./interaction-quest-system.js";
@@ -40,7 +38,7 @@ function nativeQuestView(actor, record, progress) {
 }
 
 export function nativeQuestViews(actor, world) {
-  const records = Object.values(world.content.catalog.quests.records);
+  const records = Object.values(onlineQuestCatalog(world.content).records);
   if (records.length > 4096) throw protocolError("CONTENT_MISMATCH");
   const progress = new Map(
     progressQuestViews(actor, world).map((entry) => [entry.id, entry]),
@@ -55,13 +53,17 @@ export function nativeQuestViews(actor, world) {
 
 function nativeQuest(actor, record, progress) {
   const profile = actor.profile;
-  const state = stateOf(profile, record.id);
+  const state = questState(profile, record);
   const admission = questAdmission(profile, record, state);
   const objectives = progress?.objectives ?? [];
   return {
     id: record.id,
     state,
     partition: state,
+    completed: Boolean(
+      profile.quests[record.id]?.state === 2 ||
+      profile.onlineState?.questLifecycle?.[record.id]?.completedAt,
+    ),
     available: state === 0 && admission.ok,
     ready: progress?.ready ?? false,
     supported: Boolean(record.supported),

@@ -14,6 +14,10 @@
 #login-inspection [hidden] {
   display: none !important;
 }
+.online-login.maple-ui-original-cursor,
+.online-login.maple-ui-original-cursor * {
+  cursor: none !important;
+}
 .online-login-window {
   position: absolute;
   width: 800px;
@@ -95,6 +99,20 @@
   position: absolute;
   left: 424px;
   top: 350px;
+}
+.online-login-recovery {
+  position: absolute;
+  left: 424px;
+  top: 391px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: #163c77;
+  font:
+    12px Arial,
+    sans-serif;
+  text-decoration: underline;
+  cursor: pointer;
 }
 .online-login-form {
   position: absolute;

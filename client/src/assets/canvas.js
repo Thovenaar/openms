@@ -131,6 +131,10 @@ function packedColor(raw, source, format, color) {
 }
 /** Decode stored pixels once; scaling only repeats their unmodified RGBA values. */
 function decodePacked(raw, output) {
+  if (output.factor === 1) {
+    decodeUnscaled(raw, output.rgba, output.format);
+    return;
+  }
   const color = new Uint8Array(4);
   for (let y = 0; y < output.storedHeight; y++) {
     for (let x = 0; x < output.storedWidth; x++) {
@@ -138,6 +142,53 @@ function decodePacked(raw, output) {
       packedColor(raw, source, output.format, color);
       writePixel(output, x, y, color);
     }
+  }
+}
+/** The usual unscaled canvas needs no coordinate expansion or per-pixel scratch array. */
+function decodeUnscaled(raw, rgba, format) {
+  if (format === 2) {
+    const length = raw.length;
+    for (let offset = 0; offset < length; offset += 4) {
+      rgba[offset] = raw[offset + 2];
+      rgba[offset + 1] = raw[offset + 1];
+      rgba[offset + 2] = raw[offset];
+      rgba[offset + 3] = raw[offset + 3];
+    }
+    return;
+  }
+  if (format === 1) {
+    decode4444(raw, rgba);
+    return;
+  }
+  decode565(raw, rgba);
+}
+
+/** Validated inflate lengths make each two-byte source read and RGBA write complete. */
+function decode4444(raw, rgba) {
+  const length = raw.length;
+  for (let source = 0; source < length; source += 2) {
+    const low = raw[source],
+      high = raw[source + 1],
+      target = source * 2;
+    rgba[target] = (high & 15) * 17;
+    rgba[target + 1] = (low >>> 4) * 17;
+    rgba[target + 2] = (low & 15) * 17;
+    rgba[target + 3] = (high >>> 4) * 17;
+  }
+}
+
+/** Preserve the original RGB565 asymmetric red expansion from packedColor. */
+function decode565(raw, rgba) {
+  const length = raw.length;
+  for (let source = 0; source < length; source += 2) {
+    const pixel = raw[source] | (raw[source + 1] << 8),
+      target = source * 2;
+    const green = (pixel >>> 5) & 63,
+      blue = pixel & 31;
+    rgba[target] = (pixel >>> 11) << 3;
+    rgba[target + 1] = (green << 2) | (green >>> 4);
+    rgba[target + 2] = (blue << 3) | (blue >>> 2);
+    rgba[target + 3] = 255;
   }
 }
 /** DXT3 always has four colors, irrespective of endpoint ordering. */

@@ -109,6 +109,10 @@ export const NARRATIVE_RESULT_SCHEMAS = {
     questId: u32,
     state: enumeration(0, 1, 2),
   }),
+  "quest.lifecycle": record({
+    kind: enumeration("quest.lifecycle"),
+    expired: array(u32, 4096),
+  }),
   "shop.transaction": record({
     kind: enumeration("shop.transaction"),
     shopSession: id,

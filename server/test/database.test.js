@@ -6,6 +6,10 @@ import { loadContent } from "../src/content.js";
 import { createProfile } from "../../client/src/profile/profile-validation.js";
 import { nearestSavedArrival } from "../../client/src/world/field-arrival.js";
 import { protocolError } from "../../shared/protocol.js";
+import { grantItem } from "../../client/src/items/inventory-model.js";
+import { createMarketOrder } from "../src/market-orders.js";
+import { marketSearch } from "../src/database-market.js";
+import { mutateMarket } from "../src/interaction-market.js";
 
 const databaseUrl = process.env.OPENMS_TEST_DATABASE_URL;
 
@@ -30,9 +34,9 @@ async function withDatabase(run) {
   }
 }
 
-async function characterFixture(database, content) {
+async function characterFixture(database, content, label = "Database1") {
   const account = await database.createAccount({
-    name: "database_proof",
+    name: `database_proof_${label}`,
     passwordHash: await Bun.password.hash(randomUUID()),
     role: "player",
   });
@@ -44,6 +48,7 @@ async function characterFixture(database, content) {
     y: arrival.y,
     facing: 1,
   });
+  profile.name = label;
   const created = await database.createCharacter(account.id, profile);
   const actor = await database.acquireLease(account.id, created.id);
   await database.bindField(actor, {
@@ -106,6 +111,207 @@ test.skipIf(!databaseUrl)(
   "native PostgreSQL preserves owned JSON, atomic receipts and writer fences",
   async () => {
     await withDatabase(provePersistence);
+  },
+  30000,
+);
+
+async function proveMarketSearch(database, content) {
+  const { actor } = await characterFixture(database, content);
+  actor.realm = "public";
+  const request = {
+    kind: "mts.list",
+    quantity: 4,
+    price: 100,
+    hours: 24,
+    mode: "sale",
+    buyNow: 0,
+  };
+  const context = {
+    actor,
+    content,
+    now: Date.now(),
+    operationId: randomUUID(),
+  };
+  const receipt = await database.commit(actor, operation(actor), (draft) => {
+    grantItem(draft, content.items[2000000], 10);
+    request.uid = draft.inventory.find((item) => item.id === 2000000).uid;
+    createMarketOrder(draft, request, context);
+  });
+  expect(receipt.status).toBe("committed");
+  const query = {
+    tab: "sale",
+    query: "",
+    page: 0,
+    now: context.now,
+    itemIds: [],
+  };
+  await proveMarketFilters(database, actor, query);
+  const restored = await database.loadCharacter(actor.accountId, actor.id);
+  expect(restored.profile.onlineState.market.escrow[0].item.count).toBe(4);
+  expect(
+    restored.profile.inventory.find((item) => item.id === 2000000).count,
+  ).toBe(6);
+}
+
+async function proveMarketFilters(database, actor, query) {
+  const rows = await marketSearch(database, actor, query);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].item.count).toBe(4);
+  expect(
+    await marketSearch(database, actor, { ...query, category: 1 }),
+  ).toHaveLength(0);
+  expect(
+    await marketSearch(database, actor, { ...query, category: 2 }),
+  ).toHaveLength(1);
+  expect(
+    await marketSearch(database, actor, {
+      ...query,
+      query: "red",
+      itemIds: [2000000],
+    }),
+  ).toHaveLength(1);
+  expect(
+    await marketSearch(database, actor, { ...query, query: "missing" }),
+  ).toHaveLength(0);
+  expect(
+    await marketSearch(database, actor, { ...query, tab: "cart" }),
+  ).toHaveLength(0);
+  actor.profile.onlineState.market.cart = [rows[0].summary.id];
+  expect(
+    await marketSearch(database, actor, { ...query, tab: "cart" }),
+  ).toHaveLength(1);
+}
+
+async function marketRaceFixture(database, content) {
+  const actors = [];
+  for (const name of ["Seller", "Buyer", "BuyerTwo"]) {
+    const { actor } = await characterFixture(database, content, name);
+    actor.realm = "public";
+    await database.commit(actor, operation(actor), (draft) => {
+      draft.cash.balances.prepaid = 10000;
+      if (name === "Seller") grantItem(draft, content.items[2000000], 4);
+    });
+    actors.push(actor);
+  }
+  const seller = actors[0];
+  const request = {
+    kind: "mts.list",
+    uid: seller.profile.inventory[0].uid,
+    quantity: 4,
+    price: 100,
+    hours: 24,
+    mode: "sale",
+    buyNow: 0,
+  };
+  await database.commit(seller, operation(seller), (draft) =>
+    createMarketOrder(draft, request, {
+      actor: seller,
+      content,
+      now: Date.now(),
+      operationId: randomUUID(),
+    }),
+  );
+  return actors;
+}
+
+async function proveMarketRace(database, content) {
+  const [seller, buyer, second] = await marketRaceFixture(database, content);
+  const staleSeller = { ...seller, profile: structuredClone(seller.profile) };
+  const listing = {
+    ...seller.profile.onlineState.market.listings[0],
+    ownerId: seller.id,
+  };
+  const request = { kind: "mts.buy", listingId: listing.id, price: 100 };
+  const context = { content, request, now: Date.now(), ownerId: seller.id };
+  const purchase = operation(buyer);
+  const receipt = await database.commitMany(
+    [buyer, seller],
+    purchase,
+    ([b, s]) =>
+      mutateMarket(
+        new Map([
+          [buyer.id, b],
+          [seller.id, s],
+        ]),
+        { ...context, actor: buyer },
+        listing,
+      ),
+  );
+  expect(receipt.status).toBe("committed");
+  const duplicate = await database.commitMany(
+    [second, staleSeller],
+    operation(second),
+    ([b, s]) =>
+      mutateMarket(
+        new Map([
+          [second.id, b],
+          [seller.id, s],
+        ]),
+        { ...context, actor: second },
+        listing,
+      ),
+  );
+  expect(duplicate).toMatchObject({ status: "rejected", code: "NOT_FOUND" });
+  const replay = await database.commitMany([buyer, seller], purchase, () => {
+    throw new Error("Replayed purchase mutator executed");
+  });
+  expect(replay.transactionId).toBe(receipt.transactionId);
+  await database.checkpoint(staleSeller);
+  const loaded = await database.loadCharacter(seller.accountId, seller.id);
+  expect(loaded.profile.onlineState.market.listings).toEqual([]);
+  expect(loaded.profile.cash.balances.prepaid).toBe(10095);
+  expect(
+    (await database.loadCharacter(second.accountId, second.id)).profile.cash
+      .balances.prepaid,
+  ).toBe(10000);
+  await database.releaseLease(buyer);
+  await expect(
+    database.deleteCharacter(buyer.accountId, buyer.id),
+  ).rejects.toMatchObject({ code: "NOT_ALLOWED" });
+}
+
+test.skipIf(!databaseUrl)(
+  "native PostgreSQL MTS stale owner snapshots and replay cannot duplicate a sold lot",
+  async () => {
+    await withDatabase(proveMarketRace);
+  },
+  30000,
+);
+
+async function proveQuestCycleIdentity(database, content) {
+  const { actor } = await characterFixture(database, content);
+  await database.commit(actor, operation(actor), (draft) => {
+    draft.quests[3458] = { state: 1, kills: {} };
+    draft.onlineState ??= { effects: [], cooldowns: {} };
+    draft.onlineState.questLifecycle = {
+      3458: { cycle: "first", deadline: 1, completedAt: null, repeatAt: null },
+    };
+  });
+  const first = actor.profile.onlineState.questCycles[3458];
+  await database.commit(actor, operation(actor), (draft) => {
+    draft.onlineState.questLifecycle[3458] = {
+      cycle: "second",
+      deadline: Date.now() + 1800000,
+      completedAt: null,
+      repeatAt: null,
+    };
+  });
+  expect(actor.profile.onlineState.questCycles[3458]).not.toBe(first);
+  expect(actor.profile.quests[3458].kills).toEqual({});
+}
+
+test.skipIf(!databaseUrl)(
+  "native PostgreSQL quest reacceptance after timeout stamps a new kill cycle before expiry publication",
+  async () => {
+    await withDatabase(proveQuestCycleIdentity);
+  },
+  30000,
+);
+
+test.skipIf(!databaseUrl)(
+  "native PostgreSQL MTS indexes canonical escrow and handles empty and populated filters",
+  async () => {
+    await withDatabase(proveMarketSearch);
   },
   30000,
 );

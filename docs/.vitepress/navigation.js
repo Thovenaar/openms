@@ -48,6 +48,8 @@ export const sidebar = [
     ["Setup & operations", "/server/"],
     ["Protocol & transactions", "/server/protocol"],
     ["Online/offline coverage", "/server/offline-parity"],
+    ["Remaining implementation work", "/server/remaining-work"],
+    ["Trading system & recovery", "/server/market"],
     ["Login & shared maps", "/client/login-shared-map"],
   ]),
   group("Gameplay & persistence", "game", [

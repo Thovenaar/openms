@@ -520,9 +520,12 @@ export class OfflineField {
     box.active = true;
   }
 
-  dispelSkill(info) {
+  dispelSkill(info, cureSelf = true) {
     this.dispelRectangle(info);
-    if (this.damageGenerator.next() % 100 < Number(info.prop ?? 100)) {
+    if (
+      cureSelf &&
+      this.damageGenerator.next() % 100 < Number(info.prop ?? 100)
+    ) {
       this.diseases.cure();
     }
     for (const mob of this.mobs) {
@@ -786,7 +789,9 @@ export class OfflineField {
     const showdown = hasMobStatus(target, "showdown")
       ? target.skillStatus.values[MOB_STATUS.showdown]
       : 0;
+    const beforeHP = target.hp;
     const killed = damageMob(target, amount, facing, hit);
+    this.recordMobDamage(target, beforeHP - target.hp);
     if (hit.skillLine && this.hooks.onSkillDamageLine) {
       this.hooks.onSkillDamageLine(target, Math.max(0, generated), hit);
     } else this.hooks.onMobHit?.(target, amount);
@@ -799,6 +804,10 @@ export class OfflineField {
         ? "local mob hit"
         : "native physical MISS";
     if (killed) this.onKill(target, showdown);
+  }
+
+  recordMobDamage(target, amount) {
+    this.hooks.onMobDamage?.(target, amount);
   }
 
   /** Bounded nearest-first insertion into reusable target slots; stable ties keep field order. */

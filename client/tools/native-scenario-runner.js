@@ -208,7 +208,7 @@ export async function listNativeScenarios() {
   }));
 }
 
-async function acquireBrowser(options) {
+export async function acquireBrowser(options) {
   if (options.browser) {
     return { browser: options.browser, ownership: "borrowed-object" };
   }

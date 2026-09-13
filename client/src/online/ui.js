@@ -22,6 +22,7 @@ import { NativeEffects } from "./native-effects.js";
 import { NativeSkillPresentation } from "./native-skill-presentation.js";
 import { NativeSocial } from "./native-social.js";
 import { NativeCashShop } from "./native-cash-shop.js";
+import { NativeMarket } from "./native-market.js";
 import { NativeStorage } from "./native-storage.js";
 import { NativeMonsterBook } from "./native-monster-book.js";
 import { NativeWorldActions } from "./native-world-actions.js";
@@ -183,6 +184,10 @@ export class OnlineUI {
       trade: () => this.trade,
       macros: () => this.macros,
       cashShop: () => this.cashShop(),
+      market: () => {
+        this.market?.destroy();
+        return (this.market = new NativeMarket(this));
+      },
       storage: () => this.storage,
       monsterBook: () => this.book,
       onNpcDialogue: (panel) => this.dialogue.mount(panel),
@@ -536,6 +541,7 @@ export class OnlineUI {
     return this.activateWindowBinding(name);
   }
   activateWindowBinding(name) {
+    if (name === "NPT") return this.ui.toggleWindow("ITC");
     if (name === "MiniMap") return this.ui.advanceMinimap();
     if (name === "Quit") {
       this.quit().catch((error) => this.report(error));
@@ -793,6 +799,9 @@ export class OnlineUI {
   }
   async interactionEvent(event) {
     switch (event.kind) {
+      case "mts.changed":
+        this.market?.invalidate();
+        return true;
       case "dialogue":
         await this.dialogue.publish(event);
         return true;
@@ -809,9 +818,7 @@ export class OnlineUI {
         await this.publishStorage(event);
         return true;
       case "storage.closed":
-        if (this.storage?.event.storageSession === event.storageSession) {
-          this.closeStorage();
-        }
+        this.closeStorageSession(event.storageSession);
         return true;
       case "trade":
         await this.publishTrade(event);
@@ -819,6 +826,9 @@ export class OnlineUI {
       default:
         return false;
     }
+  }
+  closeStorageSession(id) {
+    if (this.storage?.event.storageSession === id) this.closeStorage();
   }
   async publishShop(event) {
     if (

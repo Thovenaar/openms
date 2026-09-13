@@ -4,6 +4,12 @@ import { JOB_LABELS } from "../ui/ui-job-labels.js";
 function orderValue(record, key) {
   return Number(record.info?.[key] ?? 0);
 }
+function inPartition(view, partition) {
+  return Boolean(
+    view &&
+    (view.partition === partition || (partition === 2 && view.completed)),
+  );
+}
 function questParent(record) {
   return String(record.info?.parent ?? record.name);
 }
@@ -67,13 +73,13 @@ export class NativeQuests {
   }
   selection(id, partition) {
     const view = this.view(id);
-    return view?.partition === partition ? this.catalog.records[id] : null;
+    return inPartition(view, partition) ? this.catalog.records[id] : null;
   }
   groups(partition) {
     const groups = new Map();
     for (const view of this.views()) {
       if (
-        view.partition !== partition ||
+        !inPartition(view, partition) ||
         (partition === 0 && !view.available)
       ) {
         continue;

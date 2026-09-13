@@ -12,6 +12,7 @@ import {
   union,
 } from "./schema.js";
 import { UPGRADE_STATS } from "../client/src/profile/profile-item-state.js";
+import { MARKET_ACTION_ROWS, marketSchemas } from "./market-protocol.js";
 
 const uid = string(/^[A-Za-z0-9_-]{1,80}$/, 80);
 const sn = number(1, 999999999);
@@ -80,6 +81,7 @@ export const bookSummarySchema = record({
   cover: number(0, 2389999),
 });
 export const COMMERCE_ACTION_ROWS = [
+  ...MARKET_ACTION_ROWS,
   ["cash.quote", "character", { sn, currency }],
   ["cash.recipients", "character", { names: array(name, 31, 1, true) }],
   ["cash.buy", "character", { sn, currency }],
@@ -116,11 +118,13 @@ export const COMMERCE_ACTION_ROWS = [
   ["monster-book.cover", "character", { itemId: number(0, 2389999) }],
 ];
 export const COMMERCE_EPHEMERAL_ACTIONS = new Set([
+  "mts.read",
   "cash.quote",
   "cash.recipients",
   "storage.close",
 ]);
 export const COMMERCE_EVENT_SCHEMAS = {
+  "mts.changed": marketSchemas(commerceItemSchema)["mts.changed"],
   storage: storageProjectionSchema,
   "storage.closed": record({
     kind: enumeration("storage.closed"),
@@ -128,6 +132,7 @@ export const COMMERCE_EVENT_SCHEMAS = {
   }),
 };
 export const COMMERCE_RESULT_SCHEMAS = {
+  ...marketSchemas(commerceItemSchema),
   "cash.quote": record({
     kind: enumeration("cash.quote"),
     sn,

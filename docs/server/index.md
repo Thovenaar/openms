@@ -1,6 +1,6 @@
 # Run the server
 
-The Bun server owns online characters, field clocks, gameplay admission and PostgreSQL transactions. The browser sends inputs and closed intents; it cannot upload a save or choose rewards. These are development/reference rules, not a reconstruction of Nexon's server. [Feature coverage](offline-parity.md) separates implemented paths from exercised behavior and remaining gaps.
+The Bun server owns online characters, field clocks, gameplay admission and PostgreSQL transactions. The browser sends inputs and closed intents; it cannot upload a save or choose rewards. These are development/reference rules, not a reconstruction of Nexon's server. [Feature coverage](offline-parity.md) separates implemented paths from exercised behavior; the [remaining-work audit](remaining-work.md) tracks implementation and gaps against original resources and Cosmic's interface inventory. New systems are written for OpenMS without reusing Cosmic code or scripts.
 
 ## Workspace
 

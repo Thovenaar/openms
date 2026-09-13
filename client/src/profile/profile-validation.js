@@ -301,11 +301,14 @@ function validateEquippedConflicts(equipment, slots) {
 }
 
 /** Every owned item and gift envelope has a distinct identity across the transaction. */
-export function validateCharacterUids(profiles) {
+export function validateCharacterUids(
+  profiles,
+  maximum = PROFILE_LIMITS.characters,
+) {
   if (
     !Array.isArray(profiles) ||
     profiles.length < 1 ||
-    profiles.length > PROFILE_LIMITS.characters
+    profiles.length > maximum
   ) {
     invalid("character transaction participants");
   }

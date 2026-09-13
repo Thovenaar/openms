@@ -3,6 +3,7 @@ import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { UISurface } from "../ui/ui-surface.js";
 import { LoginScene } from "./login-scene.js";
 import { loginCameraY } from "./login-motion.js";
+import { LoginCursor } from "./login-cursor.js";
 
 const BUTTON_STATES = ["normal", "mouseOver", "pressed", "disabled"];
 const MAX_SURFACES = 48;
@@ -57,6 +58,16 @@ export class LoginBackdrop {
     }
     await this.scene.prepare(this.login.catalog, this.login.services, combined);
     if (this.destroyed) return;
+    const cursor = await loadVisualBundle(
+      this.login.catalog.ui.bundles.Cursor,
+      this.login.services,
+      combined,
+    );
+    if (this.destroyed) {
+      cursor.destroy();
+      return;
+    }
+    this.cursor = new LoginCursor(this.login, cursor);
     this.buildScreens();
     this.buildButtons();
     this.buildDialog();
@@ -541,6 +552,7 @@ export class LoginBackdrop {
     const transition = this.transition;
     return {
       ...this.scene.snapshot(),
+      cursor: this.cursor?.snapshot() ?? null,
       spotlight: this.spotlightSnapshot(),
       transition: {
         from: transition?.from ?? null,
@@ -571,12 +583,14 @@ export class LoginBackdrop {
     this.renderDice();
     for (const entry of this.buttons) this.paintButton(entry);
     for (const panel of this.surfaces) panel.update(ms);
+    this.cursor?.update(ms);
   }
 
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
     this.controller.abort();
+    this.cursor?.destroy();
     this.scene.destroy();
     for (const panel of this.surfaces) panel.destroy();
     this.resource?.destroy();

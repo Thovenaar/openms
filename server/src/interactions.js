@@ -1,4 +1,5 @@
 import { executeNpc } from "./interaction-npc.js";
+import { executeMarket } from "./interaction-market.js";
 import { executeQuest } from "./interaction-quest.js";
 import { executeShop } from "./interaction-shop.js";
 import { executeTrade, closeTrade, sweepTrade } from "./interaction-trade.js";
@@ -22,6 +23,14 @@ import { actionDomain } from "../../shared/protocol.js";
 
 export { getInteractionContent } from "./interaction-common.js";
 
+const DIRECT_HANDLERS = new Map([
+  ["monster-book.cover", executeBook],
+  ["social.execute", executeSocial],
+  ["social.read", executeSocialRead],
+  ["social.peer", executePeerInfo],
+  ["social.resolve", executeSocialResolve],
+]);
+
 /** Unknown or unrelated leases yield zero rather than leaking another participant's state. */
 export function currentInteractionRevision(actor, action, world) {
   const domain = actionDomain(action);
@@ -42,14 +51,11 @@ export function currentInteractionRevision(actor, action, world) {
 
 export async function executeInteraction(actor, message, world) {
   const kind = message.action.kind;
-  if (kind === "social.execute") return executeSocial(actor, message, world);
-  if (kind === "social.read") return executeSocialRead(actor, message, world);
-  if (kind === "social.peer") return executePeerInfo(actor, message, world);
-  if (kind === "social.resolve")
-    {return executeSocialResolve(actor, message, world);}
+  if (kind.startsWith("mts.")) return executeMarket(actor, message, world);
+  const social = DIRECT_HANDLERS.get(kind);
+  if (social) return social(actor, message, world);
   if (kind.startsWith("cash.")) return executeCash(actor, message, world);
   if (kind.startsWith("storage.")) return executeStorage(actor, message, world);
-  if (kind === "monster-book.cover") return executeBook(actor, message, world);
   if (kind === "npc.open" || kind === "npc.answer") {
     return executeNpc(actor, message, world);
   }

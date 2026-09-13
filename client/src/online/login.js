@@ -1,4 +1,5 @@
 import { Container } from "pixi.js";
+import { AccountRecovery } from "./account-recovery.js";
 import {
   powMessage,
   satisfiesProofOfWork,
@@ -208,6 +209,7 @@ export class OnlineLogin {
     this.buildRegistration();
     document.querySelector("#viewport").append(this.host);
     this.dialogs = new OnlineDialogs(this.host);
+    this.recovery = new AccountRecovery(this);
     this.resize(app.screen.width, app.screen.height);
     this.installCues();
     this.setStatus("Preparing the sign in window…");
@@ -285,6 +287,15 @@ export class OnlineLogin {
     this.accountStage = stage;
     stage.append(form);
     this.buildAccountTools(stage);
+    const recovery = element(
+      "button",
+      "online-login-recovery",
+      "Forgot account or password?",
+    );
+    recovery.type = "button";
+    recovery.setAttribute("aria-haspopup", "dialog");
+    this.listen(recovery, "click", () => this.recovery.open());
+    stage.append(recovery);
     body.append(stage);
   }
 
@@ -1817,6 +1828,7 @@ export class OnlineLogin {
     this.host.dataset.viewport = width < 900 ? "compact" : "wide";
     const scale = Math.min(1, width / 800, height / 600);
     this.window.style.transform = `translate(-50%, -50%) scale(${scale})`;
+    this.backdrop?.cursor?.resize(width, height);
   }
 
   /** Each composed preview plane redraws only when its sprite tree changed. */
@@ -1909,6 +1921,7 @@ export class OnlineLogin {
     this.releasePreview();
     this.stopBackdrop();
     this.dialogs?.destroy();
+    this.recovery?.destroy();
     for (const slot of this.previews) {
       slot.plane.destroy();
       slot.root.destroy({ children: true });

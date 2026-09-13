@@ -153,7 +153,11 @@ export class WzArchive {
     this.reader.pos = entry.offset;
     const bytes = Buffer.from(this.reader.take(entry.size));
     let checksum = 0;
-    for (const byte of bytes) checksum = (checksum + byte) | 0;
+    // Indexed access avoids a typed-array iterator call for every archive byte.
+    // Keep the original signed 32-bit additive checksum, including overflow.
+    for (let index = 0; index < entry.size; index++) {
+      checksum = (checksum + bytes[index]) | 0;
+    }
     if (checksum !== entry.checksum) {
       throw new Error(`Checksum mismatch ${this.path}:${path}`);
     }

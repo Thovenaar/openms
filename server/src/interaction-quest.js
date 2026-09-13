@@ -1,4 +1,9 @@
 import {
+  onlineQuestCatalog,
+  questState,
+  commitQuestLifecycle,
+} from "./quest-lifecycle.js";
+import {
   stateOf,
   isNpcEndpoint,
   checkConditions,
@@ -41,7 +46,7 @@ function questAdmission(record, profile, npcId, stage) {
     "CONTENT_MISMATCH",
   );
   requireInteraction(
-    stateOf(profile, record.id) === stage,
+    questState(profile, record) === stage,
     "REQUIREMENTS_NOT_MET",
   );
   const endpoint = record.stages[stage];
@@ -92,7 +97,7 @@ function admitQuestConversation(actor, action, world) {
   return lease;
 }
 
-/** One-shot development quest policy: authored supported Check/Act only; no repeat timers. */
+/** Authored Check/Act and server lifecycle deadlines commit in one transaction. */
 export async function executeQuest(actor, message, world) {
   const action = message.action;
   requireInteraction(!actor.tradeId, "CHARACTER_BUSY");
@@ -101,7 +106,7 @@ export async function executeQuest(actor, message, world) {
     const system = narrativeQuestSystem(actor.profile, world);
     requireInteraction(
       system.isMedalRecord(
-        world.content.catalog.quests.records[action.questId],
+        onlineQuestCatalog(world.content).records[action.questId],
       ),
       "NOT_ALLOWED",
     );
@@ -112,7 +117,7 @@ export async function executeQuest(actor, message, world) {
   }
   const lease = admitQuestConversation(actor, action, world);
   const kind = action.kind === "quest.accept" ? "accept" : "claim";
-  const record = world.content.catalog.quests.records[action.questId];
+  const record = onlineQuestCatalog(world.content).records[action.questId];
   const stage = kind === "accept" ? 0 : 1;
   const receipt = await commitQuest(actor, message, world, {
     lease,
@@ -137,7 +142,7 @@ function abandonQuest(actor, message, world) {
     (profiles) => {
       const draft = profiles.get(actor.id);
       admitActor(actor, world, message.fieldEpoch);
-      const record = world.content.catalog.quests.records[id];
+      const record = onlineQuestCatalog(world.content).records[id];
       // The supported one-shot reference policy resets only this quest's progress, never items.
       requireInteraction(record?.supported, "CONTENT_MISMATCH");
       requireInteraction(
@@ -170,12 +175,15 @@ export function progressQuestViews(actor, world) {
   const entries = Object.entries(actor.profile.quests);
   requireInteraction(entries.length <= MAX_QUESTS, "CONTENT_MISMATCH");
   const views = [];
-  const system = { catalog: world.content.catalog.quests };
+  const system = { catalog: onlineQuestCatalog(world.content) };
   for (const [key, progress] of entries) {
     if (progress.state === 0) continue;
     const id = Number(key);
-    const record = world.content.catalog.quests.records[id];
+    const record = onlineQuestCatalog(world.content).records[id];
     requireInteraction(record, "CONTENT_MISMATCH");
+    if (progress.state === 1 && questState(actor.profile, record) === 0) {
+      continue;
+    }
     const stage = record.stages[1];
     const context = {
       questId: id,
@@ -252,6 +260,11 @@ function commitQuest(actor, message, world, plan) {
           ? "INVALID_MESSAGE"
           : "REQUIREMENTS_NOT_MET",
       );
+      commitQuestLifecycle(draft, record, stage, {
+        content: world.content,
+        now,
+        operationId: message.operationId,
+      });
       if (stage === 1) {
         draft.settings.questTracker.ids =
           draft.settings.questTracker.ids.filter((id) => id !== record.id);
@@ -262,19 +275,25 @@ function commitQuest(actor, message, world, plan) {
           result.levels <= 200,
         "CONTENT_MISMATCH",
       );
-      const familyProgress = { now, operationId: message.operationId };
-      for (let level = 0; level < result.levels; level++) {
-        applyOnlineFamilyProgress(
-          drafts,
-          actor.id,
-          { kind: "level", maxHp: 0 },
-          familyProgress,
-        );
-      }
+      applyQuestLevels(drafts, actor.id, result.levels, {
+        now,
+        operationId: message.operationId,
+      });
       return {
         value: { kind: "quest.changed", questId: record.id, state: stage + 1 },
         events: questRewardEvents(record, stage, result),
       };
     },
   );
+}
+
+function applyQuestLevels(drafts, actorId, levels, context) {
+  for (let level = 0; level < levels; level++) {
+    applyOnlineFamilyProgress(
+      drafts,
+      actorId,
+      { kind: "level", maxHp: 0 },
+      context,
+    );
+  }
 }

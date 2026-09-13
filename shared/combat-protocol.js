@@ -219,6 +219,7 @@ export const COMBAT_RESULT_SCHEMAS = {
     deferred: boolean,
     debitId: optional(id),
     dropPlanId: nullable(id),
+    partyEffects: optional(array(record({ actorId: id, hp: u32 }), 128)),
   }),
   "combat.reward": record({
     kind: enumeration("combat.reward"),
@@ -226,6 +227,17 @@ export const COMBAT_RESULT_SCHEMAS = {
     levels: number(0, 200),
     dropPlanId: id,
     pickpocketPlanId: nullable(id),
+    rewards: optional(
+      array(
+        record({
+          actorId: id,
+          amount: u32,
+          levels: number(0, 200),
+          newlyReady: array(u32, 16384),
+        }),
+        128,
+      ),
+    ),
   }),
   "combat.debit": record({ kind: enumeration("combat.debit"), debitId: id }),
   "combat.pickpocket": record({

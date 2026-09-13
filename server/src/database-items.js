@@ -3,6 +3,7 @@ import { PROFILE_DOMAIN_LIMITS } from "../../client/src/profile/profile-domains.
 import { isRechargeable } from "../../client/src/items/inventory-model.js";
 
 export const MAX_ITEMS =
+  73 + // OpenMS market: 25 escrow lots and 48 transfer slots.
   PROFILE_LIMITS.inventory +
   PROFILE_LIMITS.equipment +
   PROFILE_DOMAIN_LIMITS.locker +
@@ -43,6 +44,14 @@ export function flatten(profile) {
   for (const gift of profile.cash.gifts) {
     appendItems(result, gift.items, "gift", gift.uid);
   }
+  for (const entry of profile.onlineState?.market?.escrow ?? []) {
+    appendItems(result, [entry.item], "market", entry.listingId);
+  }
+  appendItems(
+    result,
+    profile.onlineState?.market?.transfer ?? [],
+    "market-transfer",
+  );
   if (result.size > MAX_ITEMS) invalid("INVENTORY_FULL");
   return result;
 }
@@ -61,12 +70,17 @@ export function cacheProfile(profile) {
   delete cache.meso;
   cache.cash.locker = [];
   for (const gift of cache.cash.gifts) gift.items = [];
+  if (cache.onlineState?.market) {
+    cache.onlineState.market.escrow = [];
+    cache.onlineState.market.transfer = [];
+  }
   return cache;
 }
 
 export function hydrateProfileItems(cache, rows, meso) {
   const profile = {
     ...cache,
+    onlineState: structuredClone(cache.onlineState),
     meso,
     inventory: [],
     equipment: [],
@@ -85,9 +99,18 @@ export function hydrateProfileItems(cache, rows, meso) {
       const gift = gifts.get(row.container_id);
       if (!gift) invalid("SERVER_BUSY");
       gift.items.push(row.data);
-    } else invalid("SERVER_BUSY");
+    } else hydrateMarketItem(profile, row);
   }
   return profile;
+}
+
+function hydrateMarketItem(profile, row) {
+  const state = profile.onlineState?.market;
+  if (!state) invalid("SERVER_BUSY");
+  if (row.location === "market") {
+    state.escrow.push({ listingId: row.container_id, item: row.data });
+  } else if (row.location === "market-transfer") state.transfer.push(row.data);
+  else invalid("SERVER_BUSY");
 }
 
 /** Stable aggregate deltas let moves between containers conserve the same asset. */

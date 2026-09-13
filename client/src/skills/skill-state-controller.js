@@ -86,6 +86,21 @@ function configureStateValues(state, spec, skill, info) {
   }
 }
 
+/** Convert authored skill values into a detached effect for an authority transaction. */
+export function skillBuffSpecification(skill, info) {
+  const definition = stateSpec(skill.id);
+  if (!definition) throw new Error("Skill has no temporary state definition");
+  const state = temporaryState("skill", skill.id);
+  configureStateValues(state, definition, skill, info);
+  const values = {};
+  for (let index = 0; index < TEMPORARY_STATS.length; index++) {
+    if (state.values[index]) {
+      values[TEMPORARY_STATS[index]] = state.values[index];
+    }
+  }
+  return { family: definition.family, values };
+}
+
 /** Timed values use the existing source/mask authority; no independent buff clock. */
 export class SkillStateController {
   constructor(system) {

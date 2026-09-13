@@ -35,6 +35,10 @@ import {
 } from "./action-rules.js";
 
 import { executeNativePreference } from "./action-native.js";
+import {
+  hydrateSkillClocks,
+  syncSkillDiseases,
+} from "./skill-durable-state.js";
 // Online command engineering bound; each point still uses the shared reference-policy rule.
 export const MAX_ALLOCATION_BATCH = 256;
 
@@ -251,6 +255,7 @@ function hydrateRuntimeEffects(actor, world) {
   const rows = onlineState(actor.profile).effects;
   removeExpiredRuntimeEffects(system, rows, world.now);
   for (const row of rows) hydrateRuntimeSource(actor, world, row);
+  hydrateSkillClocks(actor, world.now);
   system.refresh();
   system.recompute();
 }
@@ -266,38 +271,42 @@ function removeExpiredRuntimeEffects(system, rows, now) {
           row.templateId === source.id &&
           row.expiresAt > now,
       )
-    )
-      {continue;}
+    ) {
+      continue;
+    }
     effects.remove(source.source);
-    if (source.kind === "skill")
-      {system.controllerFor(system.catalog[source.id])?.cancel?.(source.id);}
+    if (source.kind === "skill") {
+      system.controllerFor(system.catalog[source.id])?.cancel?.(source.id);
+    }
   }
 }
 
 function hydrateRuntimeSource(actor, world, row) {
-    const system = actor.skills, effects = system.effects;
-    if (row.expiresAt <= world.now) return;
-    const prior = effects.find(
-      row.kind === "item" ? -row.templateId : row.templateId,
-    );
-    if (prior && prior.wireId === row.id) return;
-    const source =
-      row.kind === "item"
-        ? inspectItemSpec(world.content.items[row.templateId]).state
-        : system.states.get(row.templateId);
-    if (!source)
-      {reject("CONTENT_MISMATCH", "Missing learned temporary source.");}
-    configureTemporaryState(source, row.spec, row.expiresAt - world.now);
-    source.totalMs = row.duration;
-    source.rank = row.rank ?? system.level(row.templateId);
-    source.wireId = row.id;
-    source.expiresAt =
-      row.kind === "item"
-        ? row.expiresAt
-        : (actor.profile.skills[row.templateId]?.expiresAt ?? null);
-    source.itemValues = row.kind === "item" ? row.spec : null;
-    effects.start(source);
-    source.remaining = row.expiresAt - world.now;
+  const system = actor.skills,
+    effects = system.effects;
+  if (row.expiresAt <= world.now) return;
+  const prior = effects.find(
+    row.kind === "item" ? -row.templateId : row.templateId,
+  );
+  if (prior && prior.wireId === row.id) return;
+  const source =
+    row.kind === "item"
+      ? inspectItemSpec(world.content.items[row.templateId]).state
+      : system.states.get(row.templateId);
+  if (!source) {
+    reject("CONTENT_MISMATCH", "Missing learned temporary source.");
+  }
+  configureTemporaryState(source, row.spec, row.expiresAt - world.now);
+  source.totalMs = row.duration;
+  source.rank = row.rank ?? system.level(row.templateId);
+  source.wireId = row.id;
+  source.expiresAt =
+    row.kind === "item"
+      ? row.expiresAt
+      : (actor.profile.skills[row.templateId]?.expiresAt ?? null);
+  source.itemValues = row.kind === "item" ? row.spec : null;
+  effects.start(source);
+  source.remaining = row.expiresAt - world.now;
 }
 
 /** Serialize active source changes, preserving the native controller/source identity. */
@@ -307,42 +316,44 @@ export function syncActorEffects(actor, world) {
   const rows = onlineState(actor.profile).effects;
   for (let index = rows.length - 1; index >= 0; index--) {
     const row = rows[index];
-    if (!effects.find(row.kind === "item" ? -row.templateId : row.templateId))
-      {rows.splice(index, 1);}
+    if (!effects.find(row.kind === "item" ? -row.templateId : row.templateId)) {
+      rows.splice(index, 1);
+    }
   }
   for (let index = 0; index < effects.count; index++) {
     syncRuntimeSource(actor, world, effects.sources[index], rows);
   }
   syncRuntimeCooldowns(actor, world);
+  syncSkillDiseases(actor, world.now);
 }
 
 function syncRuntimeSource(actor, world, source, rows) {
-    let row = null;
-    for (const entry of rows) {
-      if (entry.kind === source.kind && entry.templateId === source.id) {
-        row = entry;
-        break;
-      }
+  let row = null;
+  for (const entry of rows) {
+    if (entry.kind === source.kind && entry.templateId === source.id) {
+      row = entry;
+      break;
     }
-    if (!row) {
-      row = {
-        id: crypto.randomUUID(),
-        kind: source.kind,
-        templateId: source.id,
-        cancelable: true,
-        expiresAt: 0,
-        duration: source.totalMs,
-        rank: source.rank,
-        spec: source.kind === "item" ? { ...source.itemValues } : {},
-      };
-      rows.push(row);
-    }
-    source.wireId = row.id;
-    row.expiresAt = world.now + source.remaining;
-    row.duration = source.totalMs;
-    row.rank = source.rank;
-    row.cancelable = actor.skills.canCancelEffect(source.kind, source.id);
-    if (source.kind !== "item") syncRuntimeSourceStats(source, row);
+  }
+  if (!row) {
+    row = {
+      id: crypto.randomUUID(),
+      kind: source.kind,
+      templateId: source.id,
+      cancelable: true,
+      expiresAt: 0,
+      duration: source.totalMs,
+      rank: source.rank,
+      spec: source.kind === "item" ? { ...source.itemValues } : {},
+    };
+    rows.push(row);
+  }
+  source.wireId = row.id;
+  row.expiresAt = world.now + source.remaining;
+  row.duration = source.totalMs;
+  row.rank = source.rank;
+  row.cancelable = actor.skills.canCancelEffect(source.kind, source.id);
+  if (source.kind !== "item") syncRuntimeSourceStats(source, row);
 }
 
 function syncRuntimeSourceStats(source, row) {

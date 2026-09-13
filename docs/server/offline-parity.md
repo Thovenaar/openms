@@ -2,14 +2,16 @@
 
 Online reuses the offline client's original-asset presentation and shared rules, with the **server authorizing gameplay and durable changes**. This is an implementation inventory, not proof that every original skill, quest or multiplayer failure mode has been exercised.
 
+The [remaining-work audit](remaining-work.md) compares current controllers and packaged content with the original resources and Cosmic reference. Its implementation progress records party effects, shared kill credit, quest timing, safe field retirement and MTS. Progression scripts and monster/event controllers remain major gaps.
+
 ## Implemented ownership paths
 
-The static [feature audit](online-feature-audit.json) was rerun against the current code: **61 gameplay action kinds, 45 social actions, no missing shared native UI hooks or social rule mappings**. Literal references and hooks establish wiring, not complete behavior. Reproduce with `bun docs/tools/online-feature-audit.js`.
+The static [feature audit](online-feature-audit.json) was rerun against the current code: **71 gameplay action kinds, 45 social actions, no missing shared native UI hooks or social rule mappings**. Literal references and hooks establish wiring, not complete behavior. Reproduce with `bun docs/tools/online-feature-audit.js`.
 
 | Feature / native surface                                   | Online owner                                             | Boundary or limitation                                                           |
 | ---------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | Walk, jump, climb and remote players                       | `world.js`, shared motion and checkpoints                | [100% movement now matches offline](../movement-parity.md); original 30 ms step. |
-| Attacks, skills, damage and mobs                           | `field-combat.js`, `field-skills.js`, shared controllers | Learned ranks, equipment, costs and cooldowns remain required.                   |
+| Attacks, skills, damage and mobs                           | `field-combat.js`, `field-skills.js`, shared controllers | Atomic party effects and shared kill credit; special mob controllers and party Door access remain incomplete. |
 | Item/Equip, use, enhancement, drop and pickup              | Inventory/character actions and `field-drops.js`         | Opaque instance IDs, owner checks and transactional debits.                      |
 | Stat/Details, AP, SP and SkillMacro                        | Character actions, native stat/skill projections         | Server-published stats; macros are drafts until saved.                           |
 | NPC dialogue and choices                                   | `interaction-npc*.js`, conversation leases               | Preserves authored choice IDs; unsupported program calls fail explicitly.        |
@@ -18,7 +20,8 @@ The static [feature audit](online-feature-audit.json) was rerun against the curr
 | TradingRoom                                                | `interaction-trade.js`, participants                     | Both owners, locked offers, confirm/cancel and atomic exchange.                  |
 | CashShop, locker, gifts and expansion                      | `interaction-cash.js`                                    | Catalog/account authority exists; real payment service is external.              |
 | Buddies, blacklist, UserInfo and fame                      | Social interactions and participant transactions         | Identity, reciprocal state and eligible recipient checks.                        |
-| Party, search and PartyHP                                  | Group/social rules and field observations                | Real membership and matching field state.                                        |
+| MTS | `interaction-market.js`, market custody and original ITC UI | Fixed-price sales, wanted orders, auctions, carts, expiry and transfer inventory; payment handling is deferred. |
+| Party, search and PartyHP                                  | Group/social rules and field observations                | Mirrored membership, party effects and shared kill credit; shared Door access remains open.         |
 | Guild/alliance, ranks, board and notice                    | Group/board owners                                       | Rank, capacity, cohort and founding-presence rules.                              |
 | Family, reputation and travel privileges                   | `social-family.js`, participant travel                   | Eligible real members and server-owned costs/travel.                             |
 | Map, whisper, buddy, party, guild/alliance chat; messenger | `interaction-chat.js`, social owners                     | Actual recipient admission; spouse relationships unavailable.                    |
@@ -26,7 +29,7 @@ The static [feature audit](online-feature-audit.json) was rerun against the curr
 | MiniMap, WorldMap, GameMenu and shortcuts                  | Shared `GameUI` and online native adapters               | Views do not grant travel or external channel/account services.                  |
 | MonsterBook, medals and titles                             | Native/book/quest actions                                | Earned records and supported quest rules.                                        |
 | Revival, portals, doors, expressions and seats             | Field transitions/world actions                          | Server-selected outcomes; unsupported routes/items refused.                      |
-| Pets and mount-related controllers                         | Pet actions and shared skill utilities                   | Owned activation; pet-equipment interaction remains incomplete.                  |
+| Pets and mount-related controllers                         | Pet actions and shared skill utilities                   | Activation, hunger, hatching and presentation exist; equipment and other lifecycle actions remain incomplete. |
 | Reactors and item offering                                 | `field-reactors.js`                                      | Authored eligible transitions; script rewards incomplete.                        |
 | NPC ambient action and speech                              | `field-npcs.js`                                          | One server-selected clock/line, shared by recipients and late joiners.           |
 | Development World/Character controls                       | Audited HTTP development endpoint                        | Developer role + development mode; never a normal-player mutation.               |

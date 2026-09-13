@@ -165,6 +165,7 @@ export class SkillSystem {
 
   reconcileSkills(previousSkills, previousBooks) {
     for (const [id, state] of this.states) {
+      if (this.hooks.retainsReceivedEffect?.(id, state)) continue;
       if (!this.skillStateInvalid(id, state, previousSkills, previousBooks)) {
         continue;
       }
@@ -332,7 +333,10 @@ export class SkillSystem {
         return `Actor lacks original action ${action}`;
       }
     }
-    return this.controllerFor(skill).admissionError(skill, info);
+    const partyError = this.hooks.partySkillError?.(skill, info);
+    return partyError !== undefined
+      ? partyError
+      : this.controllerFor(skill).admissionError(skill, info);
   }
 
   costError(skill, info) {
@@ -416,8 +420,9 @@ export class SkillSystem {
     if (!Number.isSafeInteger(amount) || amount < 0) {
       throw new Error("Invalid incoming damage");
     }
-    if (this.destroyed || (!outcome && this.store.profileTransactionPending))
-      {return amount;}
+    if (this.destroyed || (!outcome && this.store.profileTransactionPending)) {
+      return amount;
+    }
     if (profile.hp <= 0) return amount;
     const percent = this.derivedStats.magicGuard;
     const spent = Math.min(profile.mp, Math.trunc((amount * percent) / 100));

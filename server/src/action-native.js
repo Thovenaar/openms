@@ -1,3 +1,4 @@
+import { onlineQuestCatalog } from "./quest-lifecycle.js";
 import { validateNativePreferences } from "../../shared/native-presentation.js";
 import { nativeQuestViews } from "./native-presentation.js";
 import { reject } from "./action-rules.js";
@@ -11,8 +12,9 @@ function validateTracked(profile, world) {
     if (
       !system.isTrackerQuest(record, id, profile) ||
       !questObjectives(system, record, profile).length
-    )
-      {reject("NOT_ALLOWED", "Quest cannot be tracked.");}
+    ) {
+      reject("NOT_ALLOWED", "Quest cannot be tracked.");
+    }
   }
 }
 
@@ -56,7 +58,7 @@ function saveMacros(profile, macros, world) {
 function changeTracker(profile, action, context) {
   const tracker = profile.settings.questTracker;
   if (!action.tracked) {
-    if (!context.world.content.catalog.quests.records[action.questId]) {
+    if (!onlineQuestCatalog(context.world.content).records[action.questId]) {
       reject("NOT_ALLOWED", "Unknown original quest.");
     }
     tracker.ids = tracker.ids.filter((id) => id !== action.questId);

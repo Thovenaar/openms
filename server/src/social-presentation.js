@@ -1,3 +1,4 @@
+import { onlineQuestCatalog } from "./quest-lifecycle.js";
 import { memberIds } from "../../client/src/social/local-social-context.js";
 import { admitActor } from "./action-rules.js";
 import {
@@ -18,8 +19,9 @@ const GROUPS = ["party", "guild", "alliance", "family", "messenger"];
 function linkedIds(actor) {
   const social = actor.profile.social,
     ids = new Set([actor.id]);
-  for (const kind of GROUPS)
-    {if (social[kind]) for (const id of memberIds(social[kind])) ids.add(id);}
+  for (const kind of GROUPS) {
+    if (social[kind]) for (const id of memberIds(social[kind])) ids.add(id);
+  }
   for (const friend of social.friends) ids.add(friend.id);
   for (const id of social.blacklist) ids.add(id);
   for (const invite of social.invitations) {
@@ -167,8 +169,8 @@ function rosterParticipant({ world, actor, familyIds }, id, profile) {
 function publicContactAllowed(actor, id, profile) {
   return Boolean(
     profile &&
-      !actor.profile.social.blacklist.includes(id) &&
-      !profile.social.blacklist.includes(actor.id),
+    !actor.profile.social.blacklist.includes(id) &&
+    !profile.social.blacklist.includes(actor.id),
   );
 }
 
@@ -209,7 +211,12 @@ async function projectionSelection(actor, world, query, targetId) {
   });
   for (const entry of listings) ids.add(entry.id);
   if (actor.socialSelectedId) ids.add(actor.socialSelectedId);
-  selection.targetId = await selectFamilyProjection(actor, world, targetId, selection);
+  selection.targetId = await selectFamilyProjection(
+    actor,
+    world,
+    targetId,
+    selection,
+  );
   return selection;
 }
 
@@ -267,8 +274,9 @@ function searchDirectoryChanged(world, changed) {
       actor &&
       actor.socialSearchFingerprint !==
         JSON.stringify(actor.profile.social.search)
-    )
-      {return true;}
+    ) {
+      return true;
+    }
   }
   return false;
 }
@@ -276,10 +284,12 @@ function searchDirectoryChanged(world, changed) {
 function watchesSocialChange(actor, changed, directoryChanged) {
   return Boolean(
     actor.socialPresentation &&
-      (directoryChanged ||
-        changed.has(actor.id) ||
-        (actor.socialSelectedId && changed.has(actor.socialSelectedId)) ||
-        actor.socialPresentation.participants.some((entry) => changed.has(entry.id))),
+    (directoryChanged ||
+      changed.has(actor.id) ||
+      (actor.socialSelectedId && changed.has(actor.socialSelectedId)) ||
+      actor.socialPresentation.participants.some((entry) =>
+        changed.has(entry.id),
+      )),
   );
 }
 
@@ -289,7 +299,9 @@ export async function refreshSocial(world, ids) {
   const refreshes = [];
   const directoryChanged = searchDirectoryChanged(world, changed);
   for (const actor of world.actors.values()) {
-    if (watchesSocialChange(actor, changed, directoryChanged)) refreshes.push(actor);
+    if (watchesSocialChange(actor, changed, directoryChanged)) {
+      refreshes.push(actor);
+    }
   }
   for (const actor of refreshes) {
     try {
@@ -363,7 +375,7 @@ export function publicPeer(world, id, profile) {
         ([quest, state]) =>
           Number(quest) >= 29000 &&
           state.state === 2 &&
-          world.content.catalog.quests.records[quest]?.info?.viewMedalItem,
+          onlineQuestCatalog(world.content).records[quest]?.info?.viewMedalItem,
       )
       .map(([quest]) => Number(quest)),
   };

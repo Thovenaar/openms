@@ -106,7 +106,7 @@ function checkItemConditions(items, profile) {
 
 function checkProgressConditions(check, profile, questId) {
   for (const quest of check.quests) {
-    if (stateOf(profile, quest.id) !== quest.state) {
+    if (!questRequirementMet(profile, quest)) {
       return fail("quest", `Quest ${quest.id} must have state ${quest.state}`);
     }
   }
@@ -117,6 +117,18 @@ function checkProgressConditions(check, profile, questId) {
     }
   }
   return { ok: true };
+}
+
+function questRequirementMet(profile, quest) {
+  if (stateOf(profile, quest.id) === quest.state) return true;
+  // Server-owned completion history remains valid while a repeatable quest is active again.
+  return (
+    quest.state === 2 &&
+    profile.onlineState?.questLifecycle?.[quest.id]?.completedAt !== null &&
+    Number.isSafeInteger(
+      profile.onlineState?.questLifecycle?.[quest.id]?.completedAt,
+    )
+  );
 }
 
 /** Original reward job mask 00716926; gender-specific rewards need absent profile gender. */

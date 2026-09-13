@@ -17,10 +17,14 @@ import { executeWorldAction } from "./field-world-actions.js";
 import { offerReactor } from "./field-reactors.js";
 import { releaseSkill } from "./field-skills.js";
 
-const DOMAIN_INTERACTIONS = new Set(
-  ["npc.open", "quest.accept", "quest.claim", "quest.abandon", "trade.invite",
-    ...[...COMMERCE_ACTION_ROWS, ...NARRATIVE_ACTION_ROWS].map(([kind]) => kind)],
-);
+const DOMAIN_INTERACTIONS = new Set([
+  "npc.open",
+  "quest.accept",
+  "quest.claim",
+  "quest.abandon",
+  "trade.invite",
+  ...[...COMMERCE_ACTION_ROWS, ...NARRATIVE_ACTION_ROWS].map(([kind]) => kind),
+]);
 const MAX_EPHEMERAL_RECEIPTS = 4096;
 
 /** Class-1 outcomes belong to one play session, including its reconnect grace. */
@@ -140,11 +144,7 @@ function dispatch(actor, message, world, operation) {
 
 /** Receipt lookups must finish before reserving the actor or checking session capacity. */
 function admitOperationSlot(actor, world, entry) {
-  if (
-    actor.retiring ||
-    actor.deliveryError ||
-    world.participants.busy(actor)
-  ) {
+  if (actor.retiring || actor.deliveryError || world.participants.busy(actor)) {
     reject("SERVER_BUSY", "Another character operation is in flight.");
   }
   if (entry.ephemeral && entry.receipts.size >= MAX_EPHEMERAL_RECEIPTS) {
@@ -199,13 +199,15 @@ async function prepareAction(actor, message, world) {
     !actor.connection ||
     actor.connection.data.closed ||
     actor.connection.data.epoch !== message.connectionEpoch
-  )
-    {reject(
+  ) {
+    reject(
       "STALE_CONNECTION",
       "The original command connection is no longer current.",
-    );}
-  if (!actor.connection.data.ready)
-    {reject("NOT_ALLOWED", "The field is not ready.");}
+    );
+  }
+  if (!actor.connection.data.ready) {
+    reject("NOT_ALLOWED", "The field is not ready.");
+  }
   const entry = {
     operation,
     receipts,
@@ -250,6 +252,13 @@ export async function executeAction(actor, message, world) {
     return await world.participants.reconcile(actor, receipt);
   } catch (error) {
     const failure = ruleError(error);
+    world.log?.("action.refused", {
+      action: message.action.kind,
+      operation: message.operationId,
+      character: actor.id,
+      code: error.errno ?? error.code ?? error.name,
+      reason: failure.code,
+    });
     // Rejections are receipts too; no mutated draft is ever installed on this path.
     const receipt = await world.database.commit(actor, operation, () => ({
       code: failure.code,

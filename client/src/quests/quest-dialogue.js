@@ -18,7 +18,11 @@ export class QuestDialogue {
     this.system = system;
     this.record = record;
     this.npcId = npcId;
-    this.stage = Math.min(stateOf(system.store.profile, record.id), 1);
+    this.stage = Math.min(
+      system.state?.(system.store.profile, record.id) ??
+        stateOf(system.store.profile, record.id),
+      1,
+    );
     this.say = record.stages[this.stage].say;
     this.status = system.status(record, npcId);
     this.pages = this.status.ok

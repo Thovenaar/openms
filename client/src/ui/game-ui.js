@@ -74,6 +74,7 @@ import {
 const INVITATION_WINDOWS = new Set(["TradeInvitation", "SocialInvitation"]);
 // These controllers borrow a field/NPC; character windows and their drafts do not.
 const FIELD_WINDOWS = new Set([
+  "ITC",
   "UtilDlgEx",
   "Shop",
   "Trunk",
@@ -86,6 +87,7 @@ const MAX_DIAGNOSTIC_CONTROLS = 16384;
 const MAX_DIAGNOSTIC_TEXT = 65536;
 const MAX_SUSPENDED_ROOTS = 64;
 const MODAL_WINDOWS = new Set([
+  "ITC",
   "UtilDlgEx",
   "Trunk",
   "NativePrompt",
@@ -749,13 +751,20 @@ export class GameUI {
     return true;
   }
 
-  /** Demand-load one window; repeated requests coalesce and closed/cancelled loads never resurrect it. */
-  async open(name, commandSignal = this.commandSignal) {
+  admitWindow(name) {
     if (!WINDOWS.has(name) || !this.index) {
       throw new Error(`Unsupported UI window ${name}`);
     }
     const unavailable = this.hooks.windowCapability?.(name);
     if (unavailable) throw new Error(unavailable);
+    if (name === "ITC" && !this.hooks.market) {
+      throw new Error("The trading system requires an online character.");
+    }
+  }
+
+  /** Demand-load one window; repeated requests coalesce and closed/cancelled loads never resurrect it. */
+  async open(name, commandSignal = this.commandSignal) {
+    this.admitWindow(name);
     const existing = this.windows.get(name);
     if (existing) {
       this.front(existing);

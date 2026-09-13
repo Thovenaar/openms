@@ -131,15 +131,17 @@ function destinationRequest(actor, destination, portal) {
 }
 
 function destinationArrival(world, actor, target, request) {
-  if (request.portal?.marketReturn)
-    {return arrivalPosition(
+  if (request.portal?.marketReturn) {
+    return arrivalPosition(
       target.manifest,
       selectMarketReturnPortal(target.physics, world.random),
-    );}
-  if (request.portal !== undefined)
-    {return arrivalPosition(target.manifest, request.portal);}
-  if (!request.randomSpawn)
-    {return nearestSavedArrival(
+    );
+  }
+  if (request.portal !== undefined) {
+    return arrivalPosition(target.manifest, request.portal);
+  }
+  if (!request.randomSpawn) {
+    return nearestSavedArrival(
       target.manifest,
       request.x === undefined
         ? actor.profile.location
@@ -148,7 +150,8 @@ function destinationArrival(world, actor, target, request) {
             y: request.y,
             facing: request.facing ?? actor.simulation.facing,
           },
-    );}
+    );
+  }
   const eligible = target.manifest.physics.portals.filter(
     (portal) =>
       (portal.type === 0 || portal.type === 1) &&
@@ -170,8 +173,9 @@ function beginTransition(world, actor, request) {
   if (
     actor.state !== "active" ||
     actor.field.characters.get(actor.id) !== actor
-  )
-    {throw protocolError("STALE_FIELD");}
+  ) {
+    throw protocolError("STALE_FIELD");
+  }
   const gate = travelGate(world, actor);
   const token = gate.tryBegin(request.packet);
   if (!token) throw protocolError("COOLDOWN");
@@ -222,20 +226,23 @@ function assertTransition(actor, transition) {
     actor.field !== transition.source ||
     actor.state !== "transitioning" ||
     Date.now() > transition.deadline
-  )
-    {throw protocolError("STALE_FIELD");}
+  ) {
+    throw protocolError("STALE_FIELD");
+  }
   if (
     transition.readyConnection &&
     actor.connection !== transition.readyConnection
-  )
-    {throw protocolError("SESSION_EXPIRED");}
+  ) {
+    throw protocolError("SESSION_EXPIRED");
+  }
 }
 
 function prepareTransition(world, actor, transition, target) {
   assertTransition(actor, transition);
   if (target !== transition.source) {
-    if (target.characters.size + (target.travelReservations ?? 0) >= 128)
-      {throw protocolError("SERVER_BUSY");}
+    if (target.characters.size + (target.travelReservations ?? 0) >= 128) {
+      throw protocolError("SERVER_BUSY");
+    }
     target.travelReservations = (target.travelReservations ?? 0) + 1;
     transition.targetReserved = true;
   }
@@ -269,8 +276,9 @@ export function settleTransitionReady(world, actor, message) {
     transition.source.epoch !== message.fieldEpoch ||
     !transition.ready ||
     actor.connection !== transition.readyConnection
-  )
-    {throw protocolError("STALE_FIELD");}
+  ) {
+    throw protocolError("STALE_FIELD");
+  }
   assertTransition(actor, transition);
   transition.ready(message.accepted);
   transition.ready = null;
@@ -305,8 +313,9 @@ function applyArrival(draft, transition) {
     facing: request.packet ? 1 : transition.facing,
   };
   if (request.market) draft.savedLocations.FREE_MARKET = request.savedLocation;
-  if (request.revive)
-    {draft.hp = Math.min(draft.maxHP, REVIVAL_POLICY.restoredHP);}
+  if (request.revive) {
+    draft.hp = Math.min(draft.maxHP, REVIVAL_POLICY.restoredHP);
+  }
 }
 
 function commitTransition(world, actor, transition, operation) {
@@ -399,12 +408,13 @@ function publishTransition(world, actor, transition) {
       },
     });
   }
-  if (request.sound)
-    {world.publish(actor, {
+  if (request.sound) {
+    world.publish(actor, {
       type: "event",
       fieldEpoch: target.epoch,
       event: { kind: "world.portal", actorId: actor.id },
-    });}
+    });
+  }
   world.invalidateField(source);
   if (target !== source) world.invalidateField(target);
 }
@@ -450,23 +460,26 @@ async function tutorialPortal(world, actor, portal) {
     (entry) => entry.portalId === portal.id,
   );
   const program = admitTutorialPortal(record?.tutorialProgram);
-  if (program.script !== tutorialPortalKind(portal, rawPortal(actor, portal)))
-    {throw protocolError("CONTENT_MISMATCH");}
+  if (program.script !== tutorialPortalKind(portal, rawPortal(actor, portal))) {
+    throw protocolError("CONTENT_MISMATCH");
+  }
   const gate = travelGate(world, actor);
-  if (gate.blockedScripts.has(program.script))
-    {return interactionReceipt(actor.revision);}
+  if (gate.blockedScripts.has(program.script)) {
+    return interactionReceipt(actor.revision);
+  }
   const token = gate.tryBegin(true);
   if (!token) throw protocolError("COOLDOWN");
   let committed = false;
   try {
     if (program.openNpc) await world.openPortalNpc(actor, portal);
     const path = resolveTutorialPortal(program, actor.profile);
-    if (path)
-      {world.publish(actor, {
+    if (path) {
+      world.publish(actor, {
         type: "event",
         fieldEpoch: actor.field.epoch,
         event: { kind: "world.tutorial", path },
-      });}
+      });
+    }
     gate.blockedScripts.add(program.script);
     committed = true;
     return interactionReceipt(actor.revision);
@@ -481,14 +494,19 @@ export async function transitionActor(world, actor, destination, operation) {
     destination.portalId === undefined
       ? null
       : admittedPortal(actor, destination.portalId);
-  if (portal && tutorialPortalKind(portal, rawPortal(actor, portal)))
-    {return tutorialPortal(world, actor, portal);}
+  if (portal && tutorialPortalKind(portal, rawPortal(actor, portal))) {
+    return tutorialPortal(world, actor, portal);
+  }
   const request = destinationRequest(actor, destination, portal);
   const transition = beginTransition(world, actor, request);
   let committed = false;
   try {
-    const target = await world.fieldFor(request.mapId, actor.realm);
-    prepareTransition(world, actor, transition, target);
+    const target = await world.fieldFor(request.mapId, actor.realm, true);
+    try {
+      prepareTransition(world, actor, transition, target);
+    } finally {
+      target.entryReservations--;
+    }
     const receipt = await commitTransition(world, actor, transition, operation);
     if (receipt.status !== "committed") return receipt;
     bindTransition(world, actor, transition);
@@ -535,9 +553,7 @@ function automaticPortalReady(actor, portal) {
   if (!gate) return true;
   const now = gate.now();
   const packet = portal.type !== 3 || portal.targetMap !== actor.field.mapId;
-  return !(packet
-    ? now - gate.lastRequestMs < 500
-    : now < gate.sameMapUntilMs);
+  return !(packet ? now - gate.lastRequestMs < 500 : now < gate.sameMapUntilMs);
 }
 
 /** Attempted failed automatic overlap requires physical reentry. */
@@ -550,8 +566,9 @@ export function automaticPortalCandidate(actor) {
     actor.portalGate?.active ||
     actor.attackState?.active ||
     actor.simulation.movementLocked
-  )
-    {return null;}
+  ) {
+    return null;
+  }
   return automaticPortalReady(actor, selected) ? selected : null;
 }
 export function markAutomaticPortalAttempt(actor, portal) {
