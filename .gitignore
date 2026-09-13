@@ -6,5 +6,6 @@ client/.cache/
 docs/.vitepress/cache/
 docs/.vitepress/dist/
 server/.cache/
+studio/dist/
 .DS_Store
 .env*.local

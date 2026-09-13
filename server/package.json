@@ -1,8 +1,11 @@
 {
-  "name": "@openms.dev/server",
+  "name": "@openms/server",
   "private": true,
   "type": "module",
   "description": "Authoritative Bun and PostgreSQL online runtime",
+  "dependencies": {
+    "@openms/content": "workspace:*"
+  },
   "scripts": {
     "dev": "bun tools/dev.js",
     "start": "bun src/index.js"

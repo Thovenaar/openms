@@ -10,6 +10,8 @@ import { MultipartAssembly } from "./transport-assembly.js";
 import { freezeView, applyEntityChanges } from "./read-model.js";
 import { ServerClock } from "./transport-clock.js";
 import { validStartingStats } from "../../../shared/starting-stats.js";
+import { resource } from "../rendering/stream-validation.js";
+import { sameWorldIdentity } from "../../../shared/world-content.js";
 
 const HTTP_BYTES = 1024 * 1024;
 const HTTP_TIMEOUT_MS = 10000;
@@ -165,11 +167,13 @@ export class OnlineTransport {
     const config = await request("/api/v1/config");
     this.verifyCompiledIdentity(config);
     if (!validConfig(config)) throw failure("INVALID_CONFIG");
+    if (config.worldContent) resource(config.worldContent);
     if (
       this.config &&
       (this.config.assetBuildId !== config.assetBuildId ||
         this.config.rulesHash !== config.rulesHash ||
-        this.config.catalogHash !== config.catalogHash)
+        this.config.catalogHash !== config.catalogHash ||
+        this.config.worldContent?.sha256 !== config.worldContent?.sha256)
     ) {
       throw failure("CONTENT_MISMATCH");
     }
@@ -459,6 +463,9 @@ export class OnlineTransport {
       ticket,
       rulesHash: this.config.rulesHash,
       assetBuildId: this.config.assetBuildId,
+      ...(this.config.worldContent
+        ? { worldContentHash: this.config.worldContent.sha256 }
+        : {}),
     };
     if (this.playSession && this.lastEventSeq > 0) {
       hello.resume = {
@@ -619,8 +626,7 @@ export class OnlineTransport {
   welcome(message, receivedAt) {
     if (
       this.connectionEpoch ||
-      message.rulesHash !== this.config.rulesHash ||
-      message.assetBuildId !== this.config.assetBuildId ||
+      !sameWorldIdentity(message, this.config) ||
       message.tickMs !== PROTOCOL.TICK_MS ||
       message.inputLeadTicks !== PROTOCOL.INPUT_LEAD_TICKS ||
       message.inputBufferTicks !== PROTOCOL.INPUT_BUFFER_TICKS
@@ -959,6 +965,7 @@ export class OnlineTransport {
     }
     const travel =
       action.kind === "portal.enter" ||
+      action.kind === "content.enter" ||
       action.kind === "revive.request" ||
       action.kind === "skill.door";
     const promise = new Promise((resolve) => {

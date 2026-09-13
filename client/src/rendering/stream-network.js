@@ -221,8 +221,9 @@ export class Network {
       await this.ready;
       check(signal);
       const url = new URL(info.url, location.origin).href;
+      const cacheable = info.url.startsWith("/generated/");
       const cached =
-        !this.releaseControlled() && this.cache
+        cacheable && !this.releaseControlled() && this.cache
           ? await this.cache.match(url)
           : null;
       let buffer;
@@ -241,7 +242,7 @@ export class Network {
         await this.verify(buffer, info);
       }
       check(signal);
-      if (!cached) {
+      if (!cached && cacheable) {
         this.writes = this.writes.then(() => this.store(url, buffer));
         await this.writes;
       }

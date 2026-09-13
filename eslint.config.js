@@ -74,6 +74,7 @@ export default [
     ignores: [
       "node_modules/**",
       "client/dist/**",
+      "studio/dist/**",
       "client/public/generated/**",
       "docs/.vitepress/cache/**",
       "docs/.vitepress/dist/**",

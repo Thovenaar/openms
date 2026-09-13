@@ -16,7 +16,7 @@
       },
     },
     "client": {
-      "name": "@openms.dev/client",
+      "name": "@openms/client",
       "dependencies": {
         "pixi.js": "8.17.1",
       },
@@ -24,8 +24,21 @@
         "puppeteer-core": "24.40.0",
       },
     },
+    "content": {
+      "name": "@openms/content",
+      "version": "0.1.0",
+    },
     "server": {
-      "name": "@openms.dev/server",
+      "name": "@openms/server",
+      "dependencies": {
+        "@openms/content": "workspace:*",
+      },
+    },
+    "studio": {
+      "name": "@openms/studio",
+      "dependencies": {
+        "pixi.js": "8.17.1",
+      },
     },
   },
   "packages": {
@@ -179,9 +192,13 @@
 
     "@napi-rs/lzma-linux-x64-gnu": ["@napi-rs/lzma-linux-x64-gnu@1.5.1", "", { "os": "linux", "cpu": "x64" }, "sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ=="],
 
-    "@openms.dev/client": ["@openms.dev/client@workspace:client"],
+    "@openms/client": ["@openms/client@workspace:client"],
 
-    "@openms.dev/server": ["@openms.dev/server@workspace:server"],
+    "@openms/content": ["@openms/content@workspace:content"],
+
+    "@openms/server": ["@openms/server@workspace:server"],
+
+    "@openms/studio": ["@openms/studio@workspace:studio"],
 
     "@pixi/colord": ["@pixi/colord@2.9.6", "", {}, "sha512-nezytU2pw587fQstUu1AsJZDVEynjskwOL+kibwcdxsMBFqPsFFNA7xl0ii/gXuDi6M0xj3mfRJj8pBSc2jCfA=="],
 

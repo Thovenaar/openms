@@ -1,8 +1,60 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { Network } from "../src/rendering/stream-network.js";
+import { createHash } from "node:crypto";
 
 let fetchMock;
 afterEach(() => fetchMock?.mockRestore());
+
+test("original resources remain cached while private and world API resources never use persistent cache", async () => {
+  const previousLocation = globalThis.location;
+  globalThis.location = { origin: "http://localhost" };
+  const bytes = Uint8Array.of(1, 2, 3);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const entries = new Map(),
+    reads = [],
+    writes = [];
+  fetchMock = spyOn(globalThis, "fetch").mockImplementation(
+    async () => new Response(bytes),
+  );
+  const network = new Network();
+  await network.ready;
+  network.cache = {
+    async match(url) {
+      reads.push(url);
+      return entries.has(url) ? new Response(entries.get(url)) : undefined;
+    },
+    async put(url, response) {
+      writes.push(url);
+      entries.set(url, await response.arrayBuffer());
+    },
+  };
+  try {
+    const signal = new AbortController().signal;
+    const original = {
+      url: `/generated/atlases/${sha256}.png`,
+      bytes: bytes.length,
+      sha256,
+    };
+    for (let count = 0; count < 2; count++) {
+      await network.load(original, signal);
+    }
+    for (const path of ["custom-content/images", "world-content/resources"]) {
+      for (let count = 0; count < 2; count++) {
+        await network.load(
+          { ...original, url: `/api/v1/${path}/${sha256}` },
+          signal,
+        );
+      }
+    }
+    expect(reads).toHaveLength(2);
+    expect(writes).toEqual([`http://localhost${original.url}`]);
+    expect(fetchMock.mock.calls).toHaveLength(5);
+    expect(network.hits).toBe(1);
+  } finally {
+    if (previousLocation === undefined) delete globalThis.location;
+    else globalThis.location = previousLocation;
+  }
+});
 
 test("stalled response headers release all four gate slots and admit the queued demand", async () => {
   fetchMock = spyOn(globalThis, "fetch").mockImplementation(

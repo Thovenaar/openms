@@ -3,7 +3,9 @@ import {
   decodeClient,
   decodeJson,
   canonicalAction,
+  decodeServer,
 } from "../../shared/protocol.js";
+import { animationId } from "../../shared/motion-schema.js";
 
 const envelope = {
   v: 1,
@@ -14,6 +16,60 @@ const envelope = {
   operationId: "86d95e28-cb1a-42e0-a244-098cf0d8f2aa",
   expectedRevision: 0,
 };
+
+test("custom placement identities cross the server boundary without accepting arbitrary placement paths", () => {
+  const entity = {
+    id: "mob-opaque",
+    kind: "mob",
+    templateId: 800000001,
+    placementId: "custom:spawn-test",
+    position: { x: 0, y: 0 },
+    velocity: { x: 0, y: 0 },
+    foothold: 1,
+    facing: 1,
+    action: animationId("stand"),
+    actionStartTick: 0,
+    appearance: null,
+  };
+  const message = {
+    v: 1,
+    type: "state",
+    connectionEpoch: "connection",
+    serverTick: 1,
+    snapshotId: "snapshot",
+    baseSnapshotId: "baseline",
+    fieldEpoch: "field",
+    eventSeq: 1,
+    ackInputSeq: null,
+    changes: [{ kind: "upsert", entity }],
+  };
+  expect(
+    decodeServer(JSON.stringify(message)).changes[0].entity.placementId,
+  ).toBe(entity.placementId);
+  for (const value of [
+    "custom:../outside",
+    `custom:${"a".repeat(65)}`,
+    "life:1/2",
+  ]) {
+    entity.placementId = value;
+    expect(() => decodeServer(JSON.stringify(message))).toThrow(
+      "INVALID_MESSAGE",
+    );
+  }
+});
+
+test("community travel cannot carry original destinations or caller-selected coordinates", () => {
+  const command = {
+    ...envelope,
+    action: { kind: "content.enter", mapId: 800000001 },
+  };
+  expect(decodeClient(JSON.stringify(command)).action.mapId).toBe(800000001);
+  command.action.mapId = 100000000;
+  expect(() => decodeClient(JSON.stringify(command))).toThrow();
+  command.action.mapId = 800000001;
+  command.action.x = 0;
+  expect(() => decodeClient(JSON.stringify(command))).toThrow();
+});
 
 test("a legal portal intent cannot smuggle its destination or acting character", () => {
   const command = {

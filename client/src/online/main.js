@@ -25,6 +25,8 @@ import { OnlineInspection } from "./inspection.js";
 import { OnlineLogin } from "./login.js";
 import { OnlineLoading } from "./loading.js";
 import { portalEntryContains } from "../world/portal-presentation.js";
+import { applyWorldContent } from "../../../shared/world-content.js";
+import { CommunityMaps } from "./community-maps.js";
 
 const app = new Application();
 const controller = new AbortController();
@@ -42,6 +44,7 @@ const neutral = Object.freeze({
   attack: false,
 });
 let catalog = null;
+let communityMaps = null;
 let current = null;
 let ui = null;
 let login = null;
@@ -122,6 +125,7 @@ function isBlocked() {
 }
 
 function status(value) {
+  communityMaps?.update(value.status);
   if (destroyed) return;
   if (value.code === "SIGNED_OUT") {
     current?.destroy();
@@ -455,7 +459,12 @@ async function loadCatalog() {
   if (value.buildId !== transport.config.assetBuildId) {
     throw new Error("Server asset build mismatch");
   }
-  return value;
+  if (!transport.config.worldContent) return value;
+  const overlay = await network.json(
+    transport.config.worldContent,
+    controller.signal,
+  );
+  return validateCatalog(applyWorldContent(value, overlay));
 }
 
 function initializeInterfaces() {
@@ -522,6 +531,11 @@ async function initialize() {
     initializeInterfaces();
     await transport.initialize();
     catalog = await loadCatalog();
+    communityMaps = new CommunityMaps(catalog, {
+      intent,
+      clearInput,
+      signal: controller.signal,
+    });
     loading.decoration.loadCatalog(catalog);
     await ui.prepare(catalog, controller.signal);
     startPresentation();

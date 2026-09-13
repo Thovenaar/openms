@@ -7,6 +7,8 @@ import { getInteractionContent } from "./interactions.js";
 import { prepareCreatedCharacter } from "./character-creation.js";
 import { issueCreationRoll, admitCreationRoll } from "./creation-roll.js";
 import { DEVELOPMENT_JSON } from "../../shared/development.js";
+import { CONTENT_HTTP_PREFIX } from "./content-http.js";
+import { worldResourceResponse } from "./world-content.js";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_BODY_CHUNKS = 64;
@@ -86,12 +88,20 @@ async function requestBody(request, limits = { maxBytes: MAX_BODY_BYTES }) {
 
 /** Browser-only authenticated endpoints. No forwarded-IP/header trust on the public listener. */
 export class OnlineHttp {
-  constructor({ config, content, auth, gateway, log = null }) {
+  constructor({
+    config,
+    content,
+    auth,
+    gateway,
+    log = null,
+    contentHttp = null,
+  }) {
     this.config = config;
     this.content = content;
     this.auth = auth;
     this.gateway = gateway;
     this.database = gateway.database;
+    this.contentHttp = contentHttp;
     this.log = log;
   }
 
@@ -117,6 +127,12 @@ export class OnlineHttp {
       const url = new URL(request.url);
       if (url.search || request.headers.get("content-length")?.length > 20) {
         throw protocolError("INVALID_MESSAGE");
+      }
+      if (url.pathname.startsWith(CONTENT_HTTP_PREFIX) && this.contentHttp) {
+        return await this.contentHttp.fetch(
+          request,
+          url.pathname.slice(CONTENT_HTTP_PREFIX.length),
+        );
       }
       if (url.pathname === "/api/v1/play") {
         if (request.method !== "GET") throw protocolError("INVALID_MESSAGE");
@@ -169,6 +185,12 @@ export class OnlineHttp {
   }
 
   async readRoute(request, path) {
+    if (path.startsWith("/api/v1/world-content/")) {
+      return worldResourceResponse(
+        this.content,
+        path.slice("/api/v1/world-content/".length),
+      );
+    }
     if (path === "/api/v1/config") return this.configuration(request);
     if (path === "/api/v1/characters") {
       const session = this.auth.session(request);
@@ -262,6 +284,7 @@ export class OnlineHttp {
         assetBuildId: this.content.assetBuildId,
         rulesHash: this.content.rulesHash,
         catalogHash: this.content.catalogHash,
+        worldContent: this.content.worldContent ?? null,
         development: this.config.development,
         ...session,
       },

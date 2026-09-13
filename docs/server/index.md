@@ -11,6 +11,10 @@ The Bun server owns online characters, field clocks, gameplay admission and Post
 | `server/tools/`      | Development bootstrap and lifecycle tooling                       |
 | `shared/`            | Closed protocol, validation and motion checkpoints                |
 | `client/src/online/` | Transport, prediction and read-only native presentation           |
+| `content/` | `@openms/content`: original-asset lookup, private custom definitions, revisions and publishing |
+| `studio/` | `@openms/studio`: asset library, map/mob/quest editors and shared-world release dashboard |
+
+[Custom content](content.md) documents the database authoring API, asset-build pins and supported map/mob/quest contracts. Start `bun run studio:dev` and open [Studio](studio.md) at `http://127.0.0.1:3103` to author and publish. It has its own listener and `.env.studio`; the game client is optional for authoring. A developer explicitly activates selected publications for the shared world; saving or publishing alone leaves the live world unchanged.
 
 ## Online development
 
@@ -44,15 +48,20 @@ Restart **both** commands after runtime changes, then reload and sign in. The cu
 
 ### Configuration
 
-Scoped `.env.server` and `.env.client` are loaded relative to the repository. Process environment takes precedence. Ignored `.env*.local` files need explicit loading; they are not automatic overlays. `OPENMS_MODE` is process-only, and `NODE_ENV=production` forces production mode.
+Scoped `.env.server`, `.env.client` and `.env.studio` are loaded relative to the repository. Process environment takes precedence. Ignored `.env*.local` files need explicit loading; they are not automatic overlays. `OPENMS_MODE` is process-only, and `NODE_ENV=production` forces production mode.
 
 | File / setting                              | Default                                | Meaning                                         |
 | ------------------------------------------- | -------------------------------------- | ----------------------------------------------- |
 | `.env.client`: `HOST`, `PORT`               | `127.0.0.1`, `3100`                    | Offline listener                                |
 | `.env.client`: `ONLINE_HOST`, `ONLINE_PORT` | `127.0.0.1`, `3102`                    | Online listener                                 |
 | `.env.client`: `OPENMS_SERVER_URL`          | `http://127.0.0.1:3200`                | Reachable backend origin                        |
+| `.env.studio`: `STUDIO_HOST`, `STUDIO_PORT` | `127.0.0.1`, `3103` | Dedicated Studio listener |
+| `.env.studio`: `OPENMS_SERVER_URL` | `http://127.0.0.1:3200` | Studio's backend API origin |
+| `.env.studio`: `OPENMS_CLIENT_URL` | `http://127.0.0.1:3102` | Public game link in Studio |
+| `.env.studio`: `OPENMS_CONTENT_ROOT` | `client/public/generated` | Same original extraction as the backend |
 | `.env.server`: `OPENMS_HOST`, `OPENMS_PORT` | `127.0.0.1`, `3200`                    | Backend listener                                |
 | `.env.server`: `OPENMS_ORIGIN`              | `http://127.0.0.1:3102`                | Browser origin allowed to authenticate/play     |
+| `.env.server`: `OPENMS_STUDIO_ORIGIN` | `http://127.0.0.1:3103` | Separate browser origin for sessions and authoring |
 | `.env.server`: `DATABASE_URL`               | Dedicated local database on port 55432 | PostgreSQL connection                           |
 | `.env.server`: `OPENMS_CONTENT_ROOT`        | `client/public/generated`              | Verified immutable content                      |
 | `.env.server`: `OPENMS_POW_BITS`            | `15`                                   | Login/registration proof difficulty, valid 8–24 |
@@ -60,7 +69,7 @@ Scoped `.env.server` and `.env.client` are loaded relative to the repository. Pr
 
 Compose defaults are `POSTGRES_USER=openms`, `POSTGRES_PASSWORD=openms_local_only`, `POSTGRES_DB=openms`, `POSTGRES_PORT=55432`. Export overrides or pass a private `--env-file` to Compose, then supply a matching `DATABASE_URL` to Bun. Compose and Bun do not load each other's scoped files.
 
-For LAN development, configure reachable listener addresses and `OPENMS_SERVER_URL`, then set `OPENMS_ORIGIN` to the exact browser URL. A wildcard bind address is not a browser origin. Keep privileged development services on a trusted network. Production uses same-origin HTTPS; browser bundles contain no server secrets.
+For LAN development, configure reachable listener addresses and `OPENMS_SERVER_URL`, then set `OPENMS_ORIGIN` to the exact game browser URL and `OPENMS_STUDIO_ORIGIN` to Studio's separate public origin. Set Studio's `OPENMS_CLIENT_URL` to the public game origin. A wildcard bind address is not a browser origin. Keep privileged development services on a trusted network. Production uses HTTPS with each frontend proxying its own API requests; browser bundles contain no server secrets.
 
 ### Development controls
 
@@ -88,7 +97,8 @@ Build the online shell with `bun run client:build:online`; launch the backend wi
 
 | Gate             | Required deployment behavior                                                                                               |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| HTTPS/WSS        | Same-origin static shell/assets and `/api/`; proxy upgrades, Origin and cookies correctly.                                 |
+| HTTPS/WSS        | Game origin serves its static shell/assets and proxies `/api/` to the backend, including upgrades, Origin and cookies. |
+| Studio | Separate HTTPS origin routes to `bun run studio:start`; configure exact `OPENMS_STUDIO_ORIGIN` on the backend. See [Studio settings](studio.md#build-routing-and-validation). |
 | Runtime pin      | Set `OPENMS_RULES_HASH` to the verified 64-character lowercase SHA-256 rules identity.                                     |
 | Configuration    | Required production `DATABASE_URL` and exact public HTTPS `OPENMS_ORIGIN`; securely provision accounts and persistence.    |
 | Static files     | Publish `online.html`, styles, `dist/online/`, generated content; map `/dist/atlas-worker.js` to the online worker output. |

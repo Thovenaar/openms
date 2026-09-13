@@ -1,0 +1,15 @@
+{
+  "name": "@openms/content",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Versioned PostgreSQL content and original asset resolution for OpenMS",
+  "exports": {
+    ".": "./src/index.js",
+    "./postgres": "./src/postgres.js",
+    "./world-store": "./src/world-store.js"
+  },
+  "scripts": {
+    "test": "bun test test"
+  }
+}

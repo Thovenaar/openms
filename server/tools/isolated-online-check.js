@@ -6,9 +6,15 @@ import { loadContent } from "../src/content.js";
 import { openDatabase } from "../src/database.js";
 import { startServer } from "../src/index.js";
 import { startOnlineDevServer } from "../../client/tools/dev-online.js";
+import { startStudioServer } from "../../studio/tools/dev.js";
 
 /** Disposable database and listeners; never reset the configured development database. */
-export async function isolatedOnlineCheck({ seed, run, output }) {
+export async function isolatedOnlineCheck({
+  seed,
+  run,
+  output,
+  studio = false,
+}) {
   const environment = loadEnvironment("server");
   const name = `openms_check_${crypto.randomUUID().replaceAll("-", "")}`;
   const admin = new SQL(environment.DATABASE_URL, { max: 1 });
@@ -18,6 +24,7 @@ export async function isolatedOnlineCheck({ seed, run, output }) {
     created: false,
     runtime: null,
     client: null,
+    studio: null,
     browser: null,
   };
   try {
@@ -31,6 +38,7 @@ export async function isolatedOnlineCheck({ seed, run, output }) {
       OPENMS_MODE: "development",
       OPENMS_PORT: "3297",
       OPENMS_ORIGIN: "http://127.0.0.1:3197",
+      OPENMS_STUDIO_ORIGIN: studio ? "http://127.0.0.1:3198" : "",
     });
     const content = await loadContent();
     const database = await openDatabase({
@@ -44,10 +52,7 @@ export async function isolatedOnlineCheck({ seed, run, output }) {
       throw error;
     }
     owner.runtime = await startServer({ config, content, database });
-    owner.client = await startOnlineDevServer({
-      port: 3197,
-      upstream: "http://127.0.0.1:3297",
-    });
+    await startFrontends(owner, config);
     owner.browser = await launchBrowser();
     const restart = async () => {
       await owner.runtime.close();
@@ -56,6 +61,7 @@ export async function isolatedOnlineCheck({ seed, run, output }) {
     return await run({
       browser: owner.browser,
       url: config.origin,
+      studioUrl: config.studioOrigin,
       output,
       restart,
     });
@@ -64,10 +70,27 @@ export async function isolatedOnlineCheck({ seed, run, output }) {
   }
 }
 
+async function startFrontends(owner, config) {
+  owner.client = await startOnlineDevServer({
+    port: 3197,
+    upstream: "http://127.0.0.1:3297",
+  });
+  if (config.studioOrigin) {
+    owner.studio = await startStudioServer({
+      hostname: "127.0.0.1",
+      port: 3198,
+      upstream: "http://127.0.0.1:3297",
+      clientUrl: config.origin,
+      contentRoot: config.contentRoot,
+    });
+  }
+}
+
 async function release(owner) {
   const results = await Promise.allSettled([
     closeResource("browser", () => owner.browser?.close()),
     closeResource("client", () => owner.client?.close()),
+    closeResource("studio", () => owner.studio?.close()),
     closeResource(
       "runtime",
       () => owner.runtime?.close(),

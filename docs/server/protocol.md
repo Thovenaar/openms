@@ -71,6 +71,8 @@ The online entry uses separate transport, prediction, read models and presentati
 
 All authenticated responses use `Cache-Control: no-store`; service workers cache only public immutable shell/content, never session or online state. Same-origin policy and exact configured HTTPS origins apply in production. Explicit development mode permits the exact `localhost`, `127.0.0.1` and `[::1]` aliases of a configured loopback origin, preserving its scheme and port; non-loopback origins remain exact. Every Origin check below uses that bounded allowlist. Missing/null/foreign origins remain rejected, and the proxy preserves the browser's Origin rather than rewriting it. See [development setup and diagnosis](index.md).
 
+The optional `OPENMS_STUDIO_ORIGIN` adds a separate browser origin for config, challenges, sessions and `/api/v1/custom-content/` only. It uses the same exact-origin and bounded development-loopback rules. Registration, character creation, development commands, play tickets and gameplay upgrades still require the game origin. Studio's dedicated listener proxies only its authoring/session routes and serves its own dashboard and original-asset previews; see [Studio routing](studio.md#build-routing-and-validation).
+
 | Endpoint                    | Request                                                | Response and authority                                                                                                                                                             |
 | --------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /api/v1/config`        | No credentials required                                | `{v:1,assetBuildId,rulesHash,catalogHash,development,csrfToken,loginToken}`; establishes prelogin HttpOnly SameSite CSRF cookie. Authenticated responses also include `role` and `expiresAt`. `loginToken` is the hashcash login-nonce token and stays independent of a surviving session cookie. |
@@ -156,7 +158,11 @@ No client date, delta-time, damage, reward, position or acting-character field i
 
 Before welcome:
 
-`Hello = {v:1, type:"hello", ticket:Ticket, rulesHash:Hash, assetBuildId:Hash, resume?:{playSession:Id,lastEventSeq:Seq}}`
+`Hello = {v:1, type:"hello", ticket:Ticket, rulesHash:Hash, assetBuildId:Hash, worldContentHash?:Hash, resume?:{playSession:Id,lastEventSeq:Seq}}`
+
+When a [shared-world release](content.md#shared-world-activation) is selected, config additionally supplies `worldContent:{url,sha256,bytes}`. The client verifies that catalog overlay and sends its hash as `worldContentHash`; welcome echoes the same optional hash. Both directions require an exact match, including presence/absence. The original rules, asset build and catalog identities remain separately pinned.
+
+Activated community maps accept `{kind:"content.enter",mapId:800000000..899999998}` in the ordinary character command envelope. This is durable travel (Class 3). Admission requires that the map is active and the character is alive and free of a trade, conversation or movement-blocking action. The server chooses the authored spawn nearest the map origin and runs the existing prepare/commit/baseline transition; caller-supplied coordinates, original map IDs and undeployed custom IDs are rejected. Mob placement IDs may be original `life:<digits>` or bounded custom `custom:<content-placement-id>` in entity snapshots and transition preparations.
 
 Hashes negotiate compatibility, not trust. Resume requires a fresh ticket/session; the play-session ID alone is not a bearer credential. A mismatched `v`, rules hash or asset build is refused before any field work with `UNSUPPORTED_VERSION` or `CONTENT_MISMATCH` plus `closing`, and the ticket is consumed either way; the server never silently downgrades or serves a partially compatible build.
 

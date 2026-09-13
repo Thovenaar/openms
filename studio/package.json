@@ -1,0 +1,14 @@
+{
+  "name": "@openms/studio",
+  "private": true,
+  "type": "module",
+  "description": "OpenMS content authoring dashboard",
+  "dependencies": {
+    "pixi.js": "8.17.1"
+  },
+  "scripts": {
+    "dev": "bun tools/dev.js",
+    "start": "bun tools/dev.js",
+    "build": "bun tools/build.js"
+  }
+}

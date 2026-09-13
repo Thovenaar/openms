@@ -35,7 +35,7 @@ function resourcePath(path, options) {
     directory = resolve(root, shell);
     relative = `.${path}`;
   } else if (path.startsWith("/generated/")) {
-    directory = resolve(root, "public/generated");
+    directory = options.generatedRoot ?? resolve(root, "public/generated");
     relative = path.slice("/generated/".length);
   } else if (online && WORKERS.has(path)) {
     directory = resolve(root, "dist/online");

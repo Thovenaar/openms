@@ -10,16 +10,25 @@ const LOGIN_WINDOW_MS = 60_000;
 const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
 
 /** Only local development aliases share admission; scheme and port stay exact. */
-function browserOrigins(config) {
-  const origins = new Set([config.origin]);
+function browserOrigins(config, origin = config.origin) {
+  const origins = new Set(origin ? [origin] : []);
+  if (!origin) return origins;
   if (config.development !== true) return origins;
-  const url = new URL(config.origin);
+  const url = new URL(origin);
   if (!LOOPBACK_HOSTS.includes(url.hostname)) return origins;
   for (const hostname of LOOPBACK_HOSTS) {
     url.hostname = hostname;
     origins.add(url.origin);
   }
   return origins;
+}
+
+function studioRequest(request) {
+  const path = new URL(request.url).pathname;
+  return (
+    ["/api/v1/config", "/api/v1/challenge", "/api/v1/session"].includes(path) ||
+    path.startsWith("/api/v1/custom-content/")
+  );
 }
 
 export function opaqueId(bytes = 16) {
@@ -75,6 +84,7 @@ export class SessionAuthority {
   constructor(config, database) {
     this.config = config;
     this.origins = browserOrigins(config);
+    this.studioOrigins = browserOrigins(config, config.studioOrigin ?? null);
     this.database = database;
     this.sessions = new Map();
     this.loginTokens = new SignedTokens();
@@ -86,7 +96,9 @@ export class SessionAuthority {
   }
 
   origin(request) {
-    if (!this.origins.has(request.headers.get("origin"))) {
+    const origin = request.headers.get("origin");
+    const studio = this.studioOrigins.has(origin) && studioRequest(request);
+    if (!this.origins.has(origin) && !studio) {
       const error = protocolError("NOT_ALLOWED");
       error.reason = "origin-mismatch";
       throw error;

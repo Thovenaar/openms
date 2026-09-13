@@ -2,6 +2,7 @@ import { MAX_TRANSACTION_PARTICIPANTS } from "./online-limits.js";
 import { validateMarket } from "./market-state.js";
 import { persistMarket, marketHasProperty } from "./database-market.js";
 import { SQL } from "bun";
+import { migrateContent } from "@openms/content/postgres";
 import { DEVELOPMENT_JSON } from "../../shared/development.js";
 import {
   PROFILE_LIMITS,
@@ -315,6 +316,7 @@ export class Database {
       await tx`SELECT pg_advisory_xact_lock(742031091)`;
       for (const migration of migrations) await tx.unsafe(migration).simple();
     });
+    await migrateContent(this.sql);
   }
   validate(profile) {
     validateMarket(profile, this.items);

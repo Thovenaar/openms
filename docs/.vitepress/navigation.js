@@ -46,6 +46,8 @@ export const sidebar = [
   ]),
   group("Server & multiplayer", "server", [
     ["Setup & operations", "/server/"],
+    ["Studio dashboard", "/server/studio"],
+    ["Custom content & world releases", "/server/content"],
     ["Protocol & transactions", "/server/protocol"],
     ["Online/offline coverage", "/server/offline-parity"],
     ["Remaining implementation work", "/server/remaining-work"],

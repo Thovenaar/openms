@@ -1,5 +1,5 @@
 {
-  "name": "@openms.dev/client",
+  "name": "@openms/client",
   "private": true,
   "type": "module",
   "scripts": {

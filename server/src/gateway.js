@@ -145,12 +145,10 @@ export class GameplayGateway {
   }
 
   async hello(socket, message) {
+    if (this.activation?.busy) throw protocolError("SERVER_BUSY");
     const session = socket.data.session;
     const characterId = this.auth.consumeTicket(session, message.ticket);
-    if (
-      message.rulesHash !== this.world.content.rulesHash ||
-      message.assetBuildId !== this.world.content.assetBuildId
-    ) {
+    if (!sameWorldIdentity(message, this.world.content)) {
       throw protocolError("CONTENT_MISMATCH");
     }
     if (this.joining.has(session.accountId)) {
@@ -268,6 +266,9 @@ export class GameplayGateway {
       fieldEpoch: actor.field.epoch,
       rulesHash: this.world.content.rulesHash,
       assetBuildId: this.world.content.assetBuildId,
+      ...(this.world.content.worldContent
+        ? { worldContentHash: this.world.content.worldContent.sha256 }
+        : {}),
       serverTime: Date.now(),
       tickMs: PROTOCOL.TICK_MS,
       inputLeadTicks: PROTOCOL.INPUT_LEAD_TICKS,
@@ -639,3 +640,4 @@ export class GameplayGateway {
     this.sockets.clear();
   }
 }
+import { sameWorldIdentity } from "../../shared/world-content.js";

@@ -1,3 +1,4 @@
+import { LIFE_PLACEMENT_PATTERN } from "./content-identity.js";
 import {
   array,
   boolean,
@@ -179,6 +180,7 @@ const CORE_ACTION_ROWS = [
   ["quest.track", "character", { questId: template, tracked: boolean }],
   ["quest.notice", "character", { questId: template }],
   ["portal.enter", "character", { portalId: u32 }],
+  ["content.enter", "character", { mapId: number(800000000, 899999998) }],
   [
     "revive.request",
     "character",
@@ -293,6 +295,7 @@ const clientSchema = union("type", {
     ticket: string(/^[A-Za-z0-9_-]{43}$/, 43),
     rulesHash: hash,
     assetBuildId: hash,
+    worldContentHash: optional(hash),
     resume: optional(record({ playSession: id, lastEventSeq: seq })),
   }),
   input: clientRecord("input", {
@@ -364,7 +367,7 @@ const entity = record(
     id,
     kind: enumeration("player", "mob", "npc", "drop", "reactor"),
     templateId: template,
-    placementId: optional(string(/^life:[0-9]{1,5}$/u, 16)),
+    placementId: optional(string(LIFE_PLACEMENT_PATTERN, 71)),
     position: point,
     velocity: point,
     foothold: nullable(u32),
@@ -717,6 +720,7 @@ export const serverSchema = union("type", {
     fieldEpoch: id,
     rulesHash: hash,
     assetBuildId: hash,
+    worldContentHash: optional(hash),
     serverTime: revision,
     tickMs: enumeration(30),
     inputLeadTicks: number(0, 4),

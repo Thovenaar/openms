@@ -13,9 +13,9 @@ function port(value, fallback) {
   return result;
 }
 
-function configuredOrigin(environment, development) {
+function configuredOrigin(environment, development, key = "OPENMS_ORIGIN") {
   const origin = new URL(
-    environment.OPENMS_ORIGIN ??
+    environment[key] ??
       (development ? "http://127.0.0.1:3102" : "https://invalid.invalid"),
   );
   if (
@@ -23,16 +23,16 @@ function configuredOrigin(environment, development) {
     origin.username ||
     origin.password
   ) {
-    throw new Error("OPENMS_ORIGIN must be an exact origin without a path");
+    throw new Error(`${key} must be an exact origin without a path`);
   }
   if (
     !development &&
     (origin.protocol !== "https:" || origin.hostname === "invalid.invalid")
   ) {
-    throw new Error("Production requires an explicit HTTPS OPENMS_ORIGIN");
+    throw new Error(`Production requires an explicit HTTPS ${key}`);
   }
   if (development && !["http:", "https:"].includes(origin.protocol)) {
-    throw new Error("Development OPENMS_ORIGIN must use HTTP or HTTPS");
+    throw new Error(`Development ${key} must use HTTP or HTTPS`);
   }
   return origin.origin;
 }
@@ -43,6 +43,11 @@ function proofBits(value) {
     throw new Error("OPENMS_POW_BITS must be an integer");
   }
   return Math.max(POW_MIN_BITS, Math.min(POW_MAX_BITS, bits));
+}
+
+function studioOrigin(environment, development) {
+  if (!environment.OPENMS_STUDIO_ORIGIN) return null;
+  return configuredOrigin(environment, development, "OPENMS_STUDIO_ORIGIN");
 }
 
 /** Explicit development mode allows HTTP origins; production requires HTTPS. */
@@ -72,6 +77,7 @@ export function serverConfig(environment = loadEnvironment("server")) {
   return Object.freeze({
     development,
     origin,
+    studioOrigin: studioOrigin(environment, development),
     hostname,
     port: port(environment.OPENMS_PORT, 3200),
     databaseUrl: environment.DATABASE_URL,

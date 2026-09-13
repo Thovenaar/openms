@@ -589,3 +589,28 @@
   max-height: 220px;
   overflow: auto;
 }
+.community-maps {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 25;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 1px solid #b6c8b5;
+  border-radius: 8px;
+  background: #f2f7ef;
+  color: #183b29;
+  font:
+    13px system-ui,
+    sans-serif;
+}
+.community-maps[hidden] {
+  display: none;
+}
+.community-maps select,
+.community-maps button {
+  font: inherit;
+  padding: 5px 8px;
+}

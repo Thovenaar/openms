@@ -59,7 +59,7 @@ export function array(value, limit) {
 export function resource(info) {
   if (
     !info ||
-    !/^\/generated\/[a-zA-Z0-9/_.-]+$/.test(info.url) ||
+    !resourceURL(info.url) ||
     !/^[a-f0-9]{64}$/.test(info.sha256) ||
     !Number.isInteger(info.bytes) ||
     info.bytes <= 0 ||
@@ -67,6 +67,20 @@ export function resource(info) {
   ) {
     throw new Error("Invalid content-addressed resource");
   }
+}
+
+function resourceURL(url) {
+  return (
+    typeof url === "string" &&
+    (/^\/generated\/[a-zA-Z0-9/_.-]+$/.test(url) ||
+      /^\/api\/v1\/world-content\/(catalog|resources)\/[a-f0-9]{64}$/.test(
+        url,
+      ) ||
+      /^\/api\/v1\/custom-content\/images\/[a-f0-9]{64}$/.test(url) ||
+      /^\/api\/v1\/custom-content\/regions\/[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\/[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\/[1-9]\d{0,4}\/[a-f0-9]{64}$/.test(
+        url,
+      ))
+  );
 }
 export function catalog(value) {
   if (value?.schemaVersion !== 2 || typeof value.buildId !== "string") {

@@ -56,6 +56,8 @@ function dispatchCharacter(actor, message, world, operation) {
         { portalId: message.action.portalId },
         operation,
       );
+    case "content.enter":
+      return enterCommunityMap(actor, message, world, operation);
     case "revive.request":
       return world.transition(
         actor,
@@ -75,6 +77,26 @@ function dispatchCharacter(actor, message, world, operation) {
     default:
       return dispatchCharacterMutation(actor, message, world, operation);
   }
+}
+
+function enterCommunityMap(actor, message, world, operation) {
+  const mapId = message.action.mapId;
+  if (!world.content.catalog.communityMaps?.some((map) => map.id === mapId)) {
+    reject("NOT_FOUND", "This community map is not active");
+  }
+  if (
+    actor.profile.hp <= 0 ||
+    actor.tradeId ||
+    actor.conversation ||
+    actor.attackState?.active ||
+    actor.simulation.movementLocked
+  ) {
+    reject(
+      "NOT_ALLOWED",
+      "Finish the current activity before entering a community map",
+    );
+  }
+  return world.transition(actor, { mapId, x: 0, y: 0, facing: 1 }, operation);
 }
 
 function dispatchCharacterMutation(actor, message, world, operation) {

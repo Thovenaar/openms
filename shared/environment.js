@@ -7,6 +7,7 @@ const KEYS = Object.freeze({
   server: [
     "DATABASE_URL",
     "OPENMS_ORIGIN",
+    "OPENMS_STUDIO_ORIGIN",
     "OPENMS_HOST",
     "OPENMS_PORT",
     "OPENMS_CONTENT_ROOT",
@@ -15,6 +16,13 @@ const KEYS = Object.freeze({
     "OPENMS_DEV_PASSWORD",
   ],
   client: ["HOST", "PORT", "ONLINE_HOST", "ONLINE_PORT", "OPENMS_SERVER_URL"],
+  studio: [
+    "STUDIO_HOST",
+    "STUDIO_PORT",
+    "OPENMS_SERVER_URL",
+    "OPENMS_CLIENT_URL",
+    "OPENMS_CONTENT_ROOT",
+  ],
 });
 
 /** Read at most 16 KiB plus an overflow byte; paths never depend on the working directory. */
@@ -38,8 +46,8 @@ function readEnvironment(scope) {
 
 /** Host-only configuration: explicit keys, process precedence, no ambient environment mutation. */
 export function loadEnvironment(scope) {
-  if (scope !== "server" && scope !== "client") {
-    throw new Error("Environment scope must be server or client");
+  if (!["server", "client", "studio"].includes(scope)) {
+    throw new Error("Environment scope must be server, client or studio");
   }
   const defaults = readEnvironment(scope);
   const environment = {};

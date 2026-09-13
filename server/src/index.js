@@ -5,6 +5,9 @@ import { OnlineWorld } from "./world.js";
 import { SessionAuthority } from "./auth.js";
 import { GameplayGateway } from "./gateway.js";
 import { OnlineHttp } from "./http.js";
+import { createContentService } from "./content-authoring.js";
+import { ContentHttp, CONTENT_REQUEST_BYTES } from "./content-http.js";
+import { loadWorldContent, WorldActivation } from "./world-content.js";
 import {
   createDevelopmentLog,
   logStage,
@@ -17,23 +20,28 @@ export async function startServer(options = {}) {
   const log =
     options.log ??
     createDevelopmentLog("server", { enabled: config.development });
-  const content =
+  const original =
     options.content ??
     (await logStage(log, "content.load", () =>
       loadContent({ root: config.contentRoot }),
     ));
   if (
     config.expectedRulesHash &&
-    config.expectedRulesHash !== content.rulesHash
+    config.expectedRulesHash !== original.rulesHash
   ) {
     throw new Error("Verified server rules do not match OPENMS_RULES_HASH");
   }
   const database =
     options.database ??
     (await logStage(log, "database.connect-and-migrate", () =>
-      openDatabase({ url: config.databaseUrl, items: content.items }),
+      openDatabase({ url: config.databaseUrl, items: original.items }),
     ));
   const auth = new SessionAuthority(config, database);
+  const { content, contentHttp, activation } = await prepareAuthoring(
+    database,
+    original,
+    auth,
+  );
   const world = new OnlineWorld({
     content,
     database,
@@ -42,20 +50,18 @@ export async function startServer(options = {}) {
     publish: (actor, record) => gateway.publications.publish(actor, record),
   });
   const gateway = new GameplayGateway({ config, auth, database, world });
-  const http = new OnlineHttp({ config, content, auth, gateway, log });
+  activation.bind(world, gateway);
+  const http = new OnlineHttp({
+    config,
+    content,
+    auth,
+    gateway,
+    log,
+    contentHttp,
+  });
   const server = await listen({ config, http, gateway, database });
   const lifecycle = createLifecycle({ server, world, gateway, database, log });
-  log("listener.ready", {
-    origin: config.origin,
-    hostname: config.hostname,
-    port: server.port,
-  });
-  console.log(
-    `openms.dev authoritative server ready at ${server.url} (${(performance.now() - started).toFixed(1)}ms)`,
-  );
-  console.log(
-    `Rules ${content.rulesHash}; assets ${content.assetBuildId}; ${config.development ? "development" : "production"}`,
-  );
+  logReady(log, { config, content, server, started });
   return {
     server,
     world,
@@ -68,12 +74,43 @@ export async function startServer(options = {}) {
   };
 }
 
+function logReady(log, { config, content, server, started }) {
+  log("listener.ready", {
+    origin: config.origin,
+    hostname: config.hostname,
+    port: server.port,
+  });
+  console.log(
+    `openms.dev authoritative server ready at ${server.url} (${(performance.now() - started).toFixed(1)}ms)`,
+  );
+  console.log(
+    `Rules ${content.rulesHash}; assets ${content.assetBuildId}; ${config.development ? "development" : "production"}`,
+  );
+}
+
+async function prepareAuthoring(database, original, auth) {
+  try {
+    const service = createContentService(database, original);
+    await service.initialize(original.catalog);
+    const content = await loadWorldContent(database, original);
+    const activation = new WorldActivation({ database, content, service });
+    return {
+      content,
+      activation,
+      contentHttp: new ContentHttp({ service, auth, activation }),
+    };
+  } catch (error) {
+    await database.close();
+    throw error;
+  }
+}
+
 async function listen({ config, http, gateway, database }) {
   try {
     return Bun.serve({
       hostname: config.hostname,
       port: config.port,
-      maxRequestBodySize: 16 * 1024,
+      maxRequestBodySize: CONTENT_REQUEST_BYTES,
       idleTimeout: 10,
       fetch: http.fetch.bind(http),
       websocket: gateway.handlers,

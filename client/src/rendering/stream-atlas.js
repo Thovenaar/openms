@@ -3,8 +3,8 @@ import { Gate, aborted, check } from "./stream-network.js";
 import { LIMITS } from "./stream-validation.js";
 
 class Decoder {
-  constructor() {
-    this.worker = new Worker("/dist/atlas-worker.js", { type: "module" });
+  constructor(workerURL) {
+    this.worker = new Worker(workerURL, { type: "module" });
     this.gate = new Gate(LIMITS.decodes);
     this.pending = new Map();
     this.serial = 0;
@@ -107,9 +107,9 @@ class Uploads {
 
 /** Hash-keyed shared ownership; all memory is reserved before fetch or decode. */
 export class AtlasStore {
-  constructor(renderer, network) {
+  constructor(renderer, network, { workerURL = "/dist/atlas-worker.js" } = {}) {
     this.network = network;
-    this.decoder = new Decoder();
+    this.decoder = new Decoder(workerURL);
     this.uploads = new Uploads(renderer);
     this.records = new Map();
     this.cpuBytes = 0;

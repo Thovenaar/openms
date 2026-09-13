@@ -12,10 +12,15 @@ import {
 
 const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
 
-function config(origin = "http://127.0.0.1:3102", development = true) {
+function config(
+  origin = "http://127.0.0.1:3102",
+  development = true,
+  studioOrigin,
+) {
   return serverConfig({
     OPENMS_MODE: development ? "development" : "production",
     OPENMS_ORIGIN: origin,
+    OPENMS_STUDIO_ORIGIN: studioOrigin,
     OPENMS_POW_BITS: "8",
     OPENMS_RULES_HASH: "a".repeat(64),
     DATABASE_URL: "postgres://unused.invalid/origin_test",
@@ -44,7 +49,7 @@ function solve(challenge) {
   throw new Error("Proof search bound exceeded");
 }
 
-async function fixture() {
+async function fixture(settings = config()) {
   const passwordHash = await Bun.password.hash("password");
   const accounts = new Map([
     ["admin", { id: "admin", role: "developer", passwordHash }],
@@ -58,7 +63,6 @@ async function fixture() {
       return account;
     },
   };
-  const settings = config();
   const auth = new SessionAuthority(settings, database);
   const gateway = new GameplayGateway({ config: settings, auth, database });
   const http = new OnlineHttp({ config: settings, auth, gateway, content: {} });
@@ -166,4 +170,65 @@ test("production and non-loopback development origins remain exact", () => {
       );
     }
   }
+});
+
+test("Studio can sign in on its own port but cannot enter gameplay endpoints", async () => {
+  const f = await fixture(config(undefined, true, "http://127.0.0.1:3103"));
+  for (const hostname of LOOPBACK) {
+    const origin = `http://${hostname}:3103`;
+    const reply = await authenticate(f, origin, "session", "admin");
+    expect(reply.status).toBe(200);
+    const cookie = reply.headers.get("set-cookie").split(";")[0];
+    expect(() =>
+      f.auth.origin(request(origin, "custom-content/drafts", cookie)),
+    ).not.toThrow();
+    for (const path of [
+      "accounts",
+      "characters",
+      "development",
+      "play-ticket",
+      "play",
+    ]) {
+      expect(() => f.auth.origin(request(origin, path, cookie))).toThrow(
+        "NOT_ALLOWED",
+      );
+    }
+    const upgrade = request(origin, "play", cookie);
+    upgrade.headers.set("sec-websocket-protocol", PROTOCOL.SUBPROTOCOL);
+    expect(() =>
+      f.gateway.upgrade(upgrade, { upgrade: () => true }, "127.0.0.1"),
+    ).toThrow("NOT_ALLOWED");
+  }
+  expect(() =>
+    f.auth.origin(request("http://127.0.0.1:3104", "session")),
+  ).toThrow("NOT_ALLOWED");
+  const disabled = new SessionAuthority(config(), null);
+  expect(() =>
+    disabled.origin(request("http://127.0.0.1:3103", "session")),
+  ).toThrow("NOT_ALLOWED");
+});
+
+test("production Studio requires its exact configured HTTPS origin", () => {
+  const auth = new SessionAuthority(
+    config("https://game.example", false, "https://studio.example"),
+    null,
+  );
+  expect(() =>
+    auth.origin(request("https://studio.example", "session")),
+  ).not.toThrow();
+  for (const origin of [
+    "http://studio.example",
+    "https://studio.example:3103",
+    "https://other.example",
+  ]) {
+    expect(() => auth.origin(request(origin, "custom-content/drafts"))).toThrow(
+      "NOT_ALLOWED",
+    );
+  }
+  expect(() =>
+    config("https://game.example", false, "http://studio.example"),
+  ).toThrow("HTTPS OPENMS_STUDIO_ORIGIN");
+  expect(() =>
+    config(undefined, true, "http://localhost:3103/studio/"),
+  ).toThrow("OPENMS_STUDIO_ORIGIN");
 });

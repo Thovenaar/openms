@@ -27,6 +27,10 @@ async function rulesIdentity(assetBuildId) {
     ["server/sql", "**/*.sql"],
     ["shared", "**/*.js"],
     ["client/src", "**/*.js"],
+    ["content/src", "**/*.js"],
+    ["content/sql", "**/*.sql"],
+    ["content", "package.json"],
+    ["client/tools", "validation-png.js"],
   ]) {
     const glob = new Bun.Glob(pattern);
     for await (const path of glob.scan({

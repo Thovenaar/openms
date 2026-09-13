@@ -4,7 +4,9 @@
   "type": "module",
   "workspaces": [
     "client",
-    "server"
+    "server",
+    "content",
+    "studio"
   ],
   "scripts": {
     "server:dev": "bun server/tools/dev.js",
@@ -17,8 +19,14 @@
     "docs:build": "bunx --bun vitepress build docs",
     "docs:preview": "bunx --bun vitepress preview docs",
     "test": "bun test",
+    "test:content": "bun test content/test server/test/content-http.test.js server/test/world-content.test.js",
+    "check:content": "bun server/tools/check-content.js",
+    "studio:build": "bun studio/tools/build.js",
+    "studio:dev": "bun studio/tools/dev.js",
+    "studio:start": "bun studio/tools/dev.js",
+    "check:studio": "bun server/tools/check-studio.js",
     "lint": "bunx --bun eslint . --max-warnings 0",
-    "format": "bunx --bun prettier --write 'tools/**/*.js' 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' 'client/public/*.js' 'server/src/**/*.js' 'server/tools/**/*.js' 'server/test/**/*.js' 'shared/**/*.js' client/public/app.webmanifest client/index.html client/style.css client/online.css eslint.config.js package.json client/package.json server/package.json"
+    "format": "bunx --bun prettier --write 'tools/**/*.js' 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' 'client/public/*.js' 'server/src/**/*.js' 'server/tools/**/*.js' 'server/test/**/*.js' 'content/src/**/*.js' 'content/test/**/*.js' 'studio/src/**/*.js' 'studio/tools/**/*.js' 'studio/test/**/*.js' 'shared/**/*.js' client/public/app.webmanifest client/index.html client/style.css client/online.css studio/index.html studio/style.css eslint.config.js package.json client/package.json server/package.json content/package.json studio/package.json"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
