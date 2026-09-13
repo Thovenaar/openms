@@ -132,6 +132,8 @@ export class OnlineHttp {
       method: request.method,
       path: new URL(request.url).pathname,
       code,
+      reason: error.reason,
+      origin: request.headers.get("origin"),
     });
     if (!error.code) console.error("Online HTTP failure:", error.message);
     return response({ code }, ERROR_STATUS.get(code) ?? 400);

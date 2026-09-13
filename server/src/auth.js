@@ -7,6 +7,20 @@ const MAX_TICKETS = 2048;
 const MAX_RATE_KEYS = 2048;
 const MAX_AUTH_WORK = 4;
 const LOGIN_WINDOW_MS = 60_000;
+const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
+
+/** Only local development aliases share admission; scheme and port stay exact. */
+function browserOrigins(config) {
+  const origins = new Set([config.origin]);
+  if (config.development !== true) return origins;
+  const url = new URL(config.origin);
+  if (!LOOPBACK_HOSTS.includes(url.hostname)) return origins;
+  for (const hostname of LOOPBACK_HOSTS) {
+    url.hostname = hostname;
+    origins.add(url.origin);
+  }
+  return origins;
+}
 
 export function opaqueId(bytes = 16) {
   return randomBytes(bytes).toString("base64url");
@@ -60,6 +74,7 @@ export class RateLimit {
 export class SessionAuthority {
   constructor(config, database) {
     this.config = config;
+    this.origins = browserOrigins(config);
     this.database = database;
     this.sessions = new Map();
     this.logins = new Map();
@@ -71,8 +86,10 @@ export class SessionAuthority {
   }
 
   origin(request) {
-    if (request.headers.get("origin") !== this.config.origin) {
-      throw protocolError("NOT_ALLOWED");
+    if (!this.origins.has(request.headers.get("origin"))) {
+      const error = protocolError("NOT_ALLOWED");
+      error.reason = "origin-mismatch";
+      throw error;
     }
   }
 

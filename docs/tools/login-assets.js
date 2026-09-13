@@ -15,6 +15,10 @@ import { encodePNG } from "../../client/src/assets/png.js";
 // Fixed scope: no archive-wide traversal or game-asset extraction receipt changes.
 const PATHS = [
   "CharSelect/charInfo",
+  "CharSelect/scroll/0/0",
+  "CharSelect/scroll/0/1",
+  "CharSelect/scroll/0/2",
+  "CharSelect/scroll/0/3",
   "NewChar/charName",
   "NewChar/charSet",
   "NewChar/statTb",

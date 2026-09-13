@@ -5,6 +5,7 @@ import {
 } from "../../shared/development-log.js";
 import { OnlineHttp } from "../src/http.js";
 import { admitDeveloper } from "../src/field-development.js";
+import { SessionAuthority } from "../src/auth.js";
 
 function logger(enabled = true) {
   const lines = [];
@@ -70,6 +71,37 @@ test("HTTP stdout includes actual status and excludes query contents", async () 
   expect(reply.status).toBe(400);
   expect(await reply.json()).toEqual({ code: "INVALID_MESSAGE" });
   expect(lines.at(-1)).toContain('"status":400');
+  expect(lines.join("\n")).not.toContain("private");
+});
+
+test("origin rejection logs its reason and browser origin without login secrets", async () => {
+  const { log, lines } = logger();
+  const config = { origin: "http://127.0.0.1:3102" };
+  const http = new OnlineHttp({
+    config,
+    auth: new SessionAuthority(config, null),
+    gateway: { database: null },
+    log,
+  });
+  const reply = await http.fetch(
+    new Request("http://127.0.0.1:3200/api/v1/session", {
+      method: "POST",
+      headers: {
+        Origin: "http://localhost:9999",
+        "Content-Type": "application/json",
+        Cookie: "openms_login=private-cookie",
+      },
+      body: JSON.stringify({
+        name: "private-name",
+        password: "private-password",
+      }),
+    }),
+    { requestIP: () => ({ address: "127.0.0.1" }) },
+  );
+  expect(reply.status).toBe(403);
+  expect(await reply.json()).toEqual({ code: "NOT_ALLOWED" });
+  expect(lines[0]).toContain('"reason":"origin-mismatch"');
+  expect(lines[0]).toContain('"origin":"http://localhost:9999"');
   expect(lines.join("\n")).not.toContain("private");
 });
 

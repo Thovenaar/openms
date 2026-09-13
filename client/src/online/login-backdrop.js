@@ -118,15 +118,28 @@ export class LoginBackdrop {
         ],
       });
     }
-    // CUICharSelectInfo is above the slot decorations (0060292f, z=20).
-    // 00602b3b..00602b4f fills the 183×112 canvas with ARGB30ffff00
-    // before copying charInfo; the gaps in the WZ image are not empty.
-    this.characterInfoBackground = this.infoBackground(characters);
-    characters.root.addChild(this.characterInfoBackground);
-    this.characterInfo = characters.image("CharSelect/charInfo", 180, 160);
+    this.buildCharacterInformation();
     this.buildCreationScreens();
     this.renderRoster();
     this.renderCreate();
+  }
+
+  /** 0060292f z20 is above the selection controls (00603ff0 z10).
+   * Keep the whole information window in its own DOM stacking context. */
+  buildCharacterInformation() {
+    const panel = this.surface(
+      this.login.characterDetail,
+      "Login character information",
+      [183, 115],
+    );
+    panel.element.style.zIndex = "0";
+    // 00603dbc: scroll local(-20,-25), fully opened frame3, origin(0,0).
+    this.characterScroll = panel.image("CharSelect/scroll/0/3", -20, -25);
+    // 00602b3b..00602b4f fills the 183×112 canvas with ARGB30ffff00
+    // before copying charInfo; the gaps in the WZ image are not empty.
+    this.characterInfoBackground = this.infoBackground(panel);
+    panel.root.addChild(this.characterInfoBackground);
+    this.characterInfo = panel.image("CharSelect/charInfo", 0, 0);
   }
 
   buildCreationScreens() {
@@ -211,11 +224,11 @@ export class LoginBackdrop {
   renderRoster() {
     if (!this.rosterArt) return;
     this.characterInfo.container.visible = this.login.characters.length > 0;
+    this.characterScroll.container.visible =
+      this.characterInfo.container.visible;
     this.characterInfoBackground.visible = this.characterInfo.container.visible;
     this.login.characterDetail.hidden = !this.login.characters.length;
     const x = 180 + 130 * (this.login.selected % 3);
-    this.characterInfo.setPosition(x + 45, 160 + 57);
-    this.characterInfoBackground.position.set(x, 160);
     this.login.characterDetail.style.left = `${x}px`;
     for (let index = 0; index < this.rosterArt.length; index++) {
       const character = this.login.rosterSlots[index].character;

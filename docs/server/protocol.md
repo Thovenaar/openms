@@ -74,7 +74,7 @@ The online entry uses separate transport, prediction, read models and presentati
 
 ### HTTP endpoints
 
-All authenticated responses use `Cache-Control: no-store`; service workers cache only public immutable shell/content, never session or online state. Same-origin policy and exact configured HTTPS origins apply.
+All authenticated responses use `Cache-Control: no-store`; service workers cache only public immutable shell/content, never session or online state. Same-origin policy and exact configured HTTPS origins apply in production. Explicit development mode permits the exact `localhost`, `127.0.0.1` and `[::1]` aliases of a configured loopback origin, preserving its scheme and port; non-loopback origins remain exact. Every Origin check below uses that bounded allowlist. Missing/null/foreign origins remain rejected, and the proxy preserves the browser's Origin rather than rewriting it. See [development setup and diagnosis](index.md).
 
 | Endpoint                    | Request                                                | Response and authority                                                                                                                                                             |
 | --------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -100,7 +100,7 @@ Ticket/session lifetimes and numeric limits here are **initial engineering polic
 
 ### Development requests
 
-The separate HTTP envelope is `{csrfToken,connectionEpoch,operationId,action}`. It never accepts an acting character ID; the server selects the owned live actor. Exact configured Origin, developer role, current session/connection epoch, CSRF, bounded body/rate and audit are required. Every record is closed; unknown keys fail. This namespace is absent outside explicit development mode. Loopback is the default listener; opting into a LAN bind does not relax authentication or Origin checks. Hiding UI is not the security boundary.
+The separate HTTP envelope is `{csrfToken,connectionEpoch,operationId,action}`. It never accepts an acting character ID; the server selects the owned live actor. Exact allowlisted Origin, developer role, current session/connection epoch, CSRF, bounded body/rate and audit are required. Every record is closed; unknown keys fail. This namespace is absent outside explicit development mode. Loopback is the default listener; opting into a LAN bind does not relax authentication or Origin checks. Hiding UI is not the security boundary.
 
 | `action.kind` | Entire action payload after `kind`                                                                                                                                                                                                                                                                                                    |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

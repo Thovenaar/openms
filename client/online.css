@@ -267,6 +267,8 @@
 }
 .online-login-character-detail {
   position: absolute;
+  /* Original information window z20 is above the selection controls at z10. */
+  z-index: 1;
   top: 160px;
   left: 180px;
   width: 183px;
@@ -277,6 +279,7 @@
 }
 .online-login-character-detail > span {
   position: absolute;
+  z-index: 1;
   width: 45px;
   height: 17px;
   line-height: 14px;
