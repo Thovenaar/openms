@@ -73,7 +73,7 @@ The native check uses disposable accounts, an isolated PostgreSQL database, temp
 | Intents and replies | [Market protocol](../../shared/market-protocol.js) |
 | Rules | [Orders](../../server/src/market-orders.js), [inventory](../../server/src/market-inventory.js), [state](../../server/src/market-state.js) |
 | Admission and publication | [Market interactions](../../server/src/interaction-market.js), [expiry](../../server/src/market-schedule.js) |
-| Persistence | [Market index and escrow ledger](../../server/src/database-market.js), [migration](../../server/sql/003-market.sql) |
+| Persistence | [Market index and escrow ledger](../../server/src/database-market.js), [migration](../../infra/sql/003-market.sql) |
 | Browser | [Read-only service](../../client/src/online/native-market.js), [original stage](../../client/src/ui/ui-market.js), [forms](../../client/src/ui/ui-market-form.js) |
 
 Validation on **14 September 2026** passed the MTS rules, PostgreSQL custody/replay checks and native two-client scenario. The [batch evidence](implementation-validation.json) records each domain’s source identity and checks. Expiry rules are tested at the transaction level; the browser scenario does not wait seven real days.

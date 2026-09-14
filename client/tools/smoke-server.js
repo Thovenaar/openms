@@ -88,11 +88,6 @@ export async function rebuildOwnedServer(session, output) {
       cwd: session.options.repository,
       stdout: "pipe",
       stderr: Bun.file(join(output, "dev.stderr.log")),
-      env: {
-        ...process.env,
-        MAPLE_ASSETS: session.options.assets,
-        MAPLE_SERVER_REFERENCE: session.options.serverReference,
-      },
     },
   );
   const owner = { child, log: join(output, "dev.stdout.log") };

@@ -28,6 +28,7 @@ import { createExtractionCache } from "./extraction-cache.js";
 import { extractionRecipes } from "./extraction-recipes.js";
 import { extractionStage } from "./extraction-timings.js";
 import { resourceByteLimit } from "../public/offline-manifest.js";
+import { parseFlags, sourcePaths } from "./source-options.js";
 
 const started = performance.now();
 const timings = {};
@@ -41,22 +42,33 @@ progress("Starting extraction: preparing options and output directories");
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
-const explicitMaps = args.includes("--maps") || args.includes("--map");
-const option = (name, fallback) => {
-  const i = args.indexOf(name);
-  if (i < 0) return fallback;
-  const value = args[i + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`Missing value for ${name}`);
-  }
-  return value;
-};
-const source = resolve(
-  option(
-    "--assets",
-    Bun.env.MAPLE_ASSETS ?? "/Users/k/Development/tensorfish/Maplestory-Client",
-  ),
-);
+const flags = parseFlags(args, {
+  assets: { type: "string" },
+  "gameplay-definitions-root": { type: "string" },
+  "sql-root": { type: "string" },
+  "cache-dir": { type: "string" },
+  map: { type: "string" },
+  maps: { type: "string" },
+  "preflight-report": { type: "string" },
+  full: { type: "boolean" },
+  help: { type: "boolean" },
+});
+if (flags.help) {
+  console.log(
+    "bun tools/openms.js extract [--assets DIR] [--gameplay-definitions-root DIR] [--sql-root DIR] [--cache-dir DIR] [--map ID | --maps ID,ID] [--preflight-report FILE] [--full]\nDefaults relative to the repository: ../Maplestory-Client, infra/gameplay-definitions, infra/sql, client/.cache/extraction. No environment overrides.",
+  );
+  process.exit(0);
+}
+if (flags.map && flags.maps) throw new Error("Use only --map or --maps");
+const sources = sourcePaths({
+  assets: flags.assets,
+  gameplayDefinitionsRoot: flags["gameplay-definitions-root"],
+  sqlRoot: flags["sql-root"],
+  cacheDir: flags["cache-dir"],
+});
+const explicitMaps = flags.maps !== undefined || flags.map !== undefined;
+const option = (name, fallback) => flags[name.slice(2)] ?? fallback;
+const source = sources.assets;
 const selected = option(
   "--maps",
   option("--map", defaultRoots.join(",")),
@@ -631,14 +643,20 @@ async function sharedCatalog(converted) {
 }
 
 /** Reference conversion is separate from the preflight's route validation. */
-function serverReferences() {
+function gameplayDefinitions() {
   const originalQuestIds = new Set(
     Object.keys(image("Quest", "Check.img").children)
       .filter((key) => /^\d+$/.test(key))
       .map(Number),
   );
-  progress("Scanning and converting authorized server references");
-  return convertServerData({ defaultTalkForNpc, originalQuestIds, progress });
+  progress("Compiling local gameplay definitions");
+  return convertServerData({
+    defaultTalkForNpc,
+    originalQuestIds,
+    progress,
+    gameplayDefinitionsRoot: sources.gameplayDefinitionsRoot,
+    sqlRoot: sources.sqlRoot,
+  });
 }
 
 /** Atomic catalog is the only mutable entry point. */
@@ -646,8 +664,8 @@ async function run() {
   await prepareExtraction();
   const converted = await extractionStage(
     timings,
-    "serverReferencesMs",
-    serverReferences,
+    "gameplayDefinitionsMs",
+    gameplayDefinitions,
   );
   extractionContext.portalPrograms = converted.report.scripts.portalPrograms;
   progress("Selecting original map and supported-NPC route closure");
@@ -701,13 +719,7 @@ async function run() {
 }
 
 async function prepareExtraction() {
-  const directory = resolve(
-    option(
-      "--cache-dir",
-      Bun.env.MAPLE_EXTRACTION_CACHE ??
-        resolve(root, "client/.cache/extraction"),
-    ),
-  );
+  const directory = sources.cacheDir;
   progress(
     `Preparing ${args.includes("--full") ? "full-conversion" : "incremental"} cache: ${directory}`,
   );
@@ -726,6 +738,8 @@ async function prepareExtraction() {
   preflight = await extractionStage(timings, "preflightMs", () =>
     preflightAssets({
       assets: source,
+      gameplayDefinitionsRoot: sources.gameplayDefinitionsRoot,
+      sqlRoot: sources.sqlRoot,
       maps: explicitMaps ? mapIds : undefined,
       report: preflightReport,
       progress,

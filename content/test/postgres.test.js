@@ -1,6 +1,7 @@
+import { migrateDatabase } from "../../tools/migrate.js";
 import { expect, test } from "bun:test";
 import { SQL } from "bun";
-import { migrateContent, PostgresContentStore } from "../src/postgres.js";
+import { PostgresContentStore } from "../src/postgres.js";
 import { canonical, digest } from "../src/digest.js";
 import { createContentService } from "../../server/src/content-authoring.js";
 import { ContentHttp } from "../../server/src/content-http.js";
@@ -28,8 +29,8 @@ async function withStore(run) {
     url.pathname = `/${name}`;
     sql = new SQL(url.href, { max: 4, connectionTimeout: 5 });
     console.log("content check: migrate schema");
-    await migrateContent(sql);
-    await migrateContent(sql);
+    await migrateDatabase({ databaseUrl: url.href });
+    await migrateDatabase({ databaseUrl: url.href });
     const { original } = await originalFixture();
     const service = createContentService({ sql }, original);
     console.log("content check: retain catalog snapshot");

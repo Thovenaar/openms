@@ -39,7 +39,7 @@ async function main() {
     const content = await logStage(log, "content.load", () =>
       loadContent({ root: config.contentRoot }),
     );
-    database = await logStage(log, "database.connect-and-migrate", () =>
+    database = await logStage(log, "database.connect-and-check-schema", () =>
       openDatabase({
         url: config.databaseUrl,
         items: content.items,

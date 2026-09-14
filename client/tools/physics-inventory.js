@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { WzArchive } from "../src/assets/wz.js";
 import { parseImage } from "../src/assets/image.js";
 import { annotatePhysicsOption } from "./physics-option-evidence.js";
+import { inventoryOptions } from "./source-options.js";
 
 const MAX_IMAGES = 100000;
 const MAX_NODES = 2000000;
@@ -235,10 +236,13 @@ export async function inventoryPhysics(source, output) {
 }
 
 if (import.meta.main) {
-  const source =
-    process.argv[2] ??
-    Bun.env.MAPLE_ASSETS ??
-    "/Users/k/Development/tensorfish/Maplestory-Client";
-  const output = process.argv[3] ?? "docs/physics-options.json";
-  await inventoryPhysics(source, output);
+  const options = inventoryOptions(
+    process.argv.slice(2),
+    "docs/physics-options.json",
+  );
+  if (options.help) {
+    console.log(
+      "bun client/tools/physics-inventory.js [--assets DIR] [--output FILE]",
+    );
+  } else await inventoryPhysics(options.assets, options.output);
 }

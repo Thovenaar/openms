@@ -1,3 +1,4 @@
+import { migrateDatabase } from "../../tools/migrate.js";
 import { SQL } from "bun";
 import { acquireBrowser } from "../../client/tools/native-scenario-runner.js";
 import { loadEnvironment } from "../../shared/environment.js";
@@ -40,11 +41,7 @@ export async function isolatedOnlineCheck({
       OPENMS_ORIGIN: "http://127.0.0.1:3197",
       OPENMS_STUDIO_ORIGIN: studio ? "http://127.0.0.1:3198" : "",
     });
-    const content = await loadContent();
-    const database = await openDatabase({
-      url: url.href,
-      items: content.items,
-    });
+    const { content, database } = await prepareDatabase(url.href);
     try {
       await seed(database, content);
     } catch (error) {
@@ -68,6 +65,13 @@ export async function isolatedOnlineCheck({
   } finally {
     await release(owner);
   }
+}
+
+async function prepareDatabase(url) {
+  await migrateDatabase({ databaseUrl: url });
+  const content = await loadContent();
+  const database = await openDatabase({ url, items: content.items });
+  return { content, database };
 }
 
 async function startFrontends(owner, config) {

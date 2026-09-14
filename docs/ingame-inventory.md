@@ -85,7 +85,7 @@ Domain extraction probes establish only their own decode coverage, not current r
 
 ```sh
 bun client/tools/ingame-inventory.js
-bun client/tools/ingame-inventory.js /path/to/original/client /path/to/output
+bun client/tools/ingame-inventory.js --assets /path/to/original/client --output /path/to/output
 ```
 
 The first form uses the supplied installation path and `docs/ingame-inventory`. The inventory does not alter original inputs. Use the per-archive JSON index to locate a root, then read a compressed member:

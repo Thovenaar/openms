@@ -6,6 +6,8 @@ Target desktop-sized applications with a minimum viewport of **800×600**. Mobil
 
 ## Operating rules
 
+Use explicit flags for CLI tool configuration; follow [CLI configuration](docs/coding-style.md#cli-configuration). Do not introduce environment-variable inputs for one-shot tools.
+
 Follow [change-scoped validation](docs/validation-method.md#validation-scope): use the smallest check relevant to the edit, then stop. Comprehensive smoke/end-to-end runs are opt-in, not a completion requirement. Documentation and Compose/environment edits do not require browser, login, gameplay or persistence checks.
 
 Apply [shorten the loop](docs/validation-method.md#shorten-the-loop) before expanding online integration: prove native input → transaction → recipient update → reconnect, in small file-disjoint batches with fixed interfaces and immediate cheap checks. Prioritize one domain-scoped executable check over more agents or speculative integration. The [iteration-loop findings](docs/validation.md#iteration-loop-investigation) distinguish measured costs, current reuse/restart constraints and tooling still to implement; do not treat the offline `smoke` loop as the online inner loop.
@@ -24,7 +26,7 @@ Keep static extraction reusable across sessions. `smoke` checks original/referen
 
 - [Documentation home: Client and Server sections](docs/index.md)
 - [Client: overview, setup, scope, and limitations](docs/README.md)
-- [Server: workspace, reference data, and authority boundaries](docs/server/index.md)
+- [Quick Start: server setup, workspace, reference data, and authority boundaries](docs/server/index.md)
 - [Required coding style for all coding agents](docs/coding-style.md)
 - [Original inputs and provenance](docs/inputs.md)
 - [Original file hashes](docs/input-manifest.json)

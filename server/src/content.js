@@ -24,11 +24,10 @@ async function rulesIdentity(assetBuildId) {
   const paths = [];
   for (const [directory, pattern] of [
     ["server/src", "**/*.js"],
-    ["server/sql", "**/*.sql"],
+    ["infra/sql", "*.sql"],
     ["shared", "**/*.js"],
     ["client/src", "**/*.js"],
     ["content/src", "**/*.js"],
-    ["content/sql", "**/*.sql"],
     ["content", "package.json"],
     ["client/tools", "validation-png.js"],
   ]) {

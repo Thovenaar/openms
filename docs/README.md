@@ -4,14 +4,16 @@ The browser client uses JavaScript, JSDoc, Bun, and PixiJS. Offline play runs lo
 
 ## Run
 
-From the repository root, install dependencies and extract the original assets once:
+For a fresh multiplayer setup, follow **[Quick Start](server/index.md)**. It covers prerequisites, extraction, PostgreSQL, the explicit `migrate` command, the backend, login and optional Studio.
+
+Download [Maplestory-Assets.zip](http://bucket.openms.dev/Maplestory-Assets.zip) and unpack its `Maplestory-Client/` folder beside the repository; [Quick Start](server/index.md#_3-extract-the-original-content) includes the download/unzip commands. Then, from the repository root, install dependencies and extract the original assets once:
 
 ```sh
 bun install --frozen-lockfile
-MAPLE_ASSETS=../Maplestory-Client MAPLE_SERVER_REFERENCE=../MapleStory-Server bun tools/openms.js extract
+bun tools/openms.js extract --assets ../Maplestory-Client
 ```
 
-Set `MAPLE_ASSETS` to the original client and `MAPLE_SERVER_REFERENCE` to the supplied Cosmic checkout. The paths above match this workspace; the converter's legacy fallback is `/Users/k/Development/tensorfish/Cosmic`. See [inputs and provenance](inputs.md) and `bun tools/openms.js extract --help` for source overrides. Original binaries and generated artwork are not included in Git.
+`--assets` selects the original client. Gameplay scripts and settings default to repository `infra/gameplay-definitions`; reference SQL defaults to `infra/sql`. Optional `--gameplay-definitions-root` and `--sql-root` flags select different snapshots. No external server checkout, Java source or server configuration is required. CLI tools use explicit flags; environment variables do not override extraction inputs. See [inputs and provenance](inputs.md) and `bun tools/openms.js extract --help`. Original binaries and generated artwork are not included in Git.
 
 Then start the mode you need:
 
@@ -25,10 +27,9 @@ Extraction is incremental. Reuse the successful extraction receipt for unchanged
 
 ## Online development
 
-[Start PostgreSQL and the backend](server/index.md#online-development), then run the online client in another terminal:
+Complete [Quick Start through backend startup](server/index.md#online-development), then run the online client in another terminal:
 
 ```sh
-bun run server:dev
 bun run client:dev:online
 ```
 
@@ -69,7 +70,7 @@ The [UI guide](ingame-ui.md) covers focus, original windows, tooltips and modal 
 | `client/src/character/`, `combat/`, `skills/`, `items/`, `quests/`, `npc/`, `world/`, `social/` | Shared gameplay consumers and local authorities                | [Feature inventory](server/offline-parity.md)  |
 | `client/src/profile/`                                                                           | Schema 8 validation, migrations and offline transactions       | [Saves](offline-saves.md)                      |
 | `client/src/assets/`, `client/tools/`                                                           | Bounded decoding, extraction, development and validation tools | [Asset evidence](asset-evidence.md)            |
-| `server/src/`, `server/sql/`, `shared/`                                                         | Online authority, persistence and closed protocol              | [Server](server/index.md)                      |
+| `server/src/`, `infra/sql/`, `shared/`                                                         | Online authority, persistence and closed protocol              | [Server](server/index.md)                      |
 
 `client/public/generated/` and `client/dist/` are generated and ignored. Asset caches and character saves have separate ownership; deleting browser site data can remove both.
 

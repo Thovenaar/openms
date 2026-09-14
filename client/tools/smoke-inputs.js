@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { sourcePaths } from "./source-options.js";
 
 const MAX_FILES = 32768;
 const MAX_FILE_BYTES = 32 * 1024 ** 3;
@@ -27,9 +28,14 @@ export function inputRoots(options, descriptors) {
     },
     { root: options.assets, patterns: ["*.wz"], prefix: "original/" },
     {
-      root: options.serverReference,
-      patterns: ["scripts/**/*.js", "db/{tables,data}/**/*.sql"],
-      prefix: "server-reference/",
+      root: sourcePaths(options).gameplayDefinitionsRoot,
+      patterns: ["**/*.js", "policy.json"],
+      prefix: "gameplay-definitions/",
+    },
+    {
+      root: sourcePaths(options).sqlRoot,
+      patterns: ["{tables,data}/**/*.sql"],
+      prefix: "reference-sql/",
     },
   ].map((entry) => ({ ...entry, exclude: `${resolve(options.output)}/` }));
 }
@@ -95,7 +101,11 @@ export async function scanInputs(roots, previous = new Map()) {
 }
 
 export function extractionChange(path) {
-  if (path.startsWith("original/") || path.startsWith("server-reference/")) {
+  if (
+    path.startsWith("original/") ||
+    path.startsWith("gameplay-definitions/") ||
+    path.startsWith("reference-sql/")
+  ) {
     return true;
   }
   if (path.startsWith("client/src/assets/")) return true;

@@ -16,14 +16,11 @@ import {
 } from "./preflight-inputs.js";
 import { originalValidators } from "./preflight-validators.js";
 import { selectWorld, validateWorldMap } from "./preflight-world.js";
+import { sourcePaths, parseFlags } from "./source-options.js";
 
 function createState(options, report) {
   const context = preflightInputs(
-    resolve(
-      options.assets ??
-        Bun.env.MAPLE_ASSETS ??
-        "/Users/k/Development/tensorfish/Maplestory-Client",
-    ),
+    sourcePaths(options).assets,
     report,
     options.progress,
   );
@@ -60,10 +57,8 @@ async function routes(state, options) {
   try {
     const converted = await convertServerData({
       progress: options.progress,
-      serverRoot:
-        options.serverReference ??
-        Bun.env.MAPLE_SERVER_REFERENCE ??
-        "/Users/k/Development/tensorfish/MapleStory-Server",
+      gameplayDefinitionsRoot: sourcePaths(options).gameplayDefinitionsRoot,
+      sqlRoot: sourcePaths(options).sqlRoot,
       defaultTalkForNpc: (id) => {
         const root = state.context.image("String", "Npc.img").children[
           String(id)
@@ -71,7 +66,7 @@ async function routes(state, options) {
         return root ? value(root, "d0", "(...)") : "(...)";
       },
     });
-    state.report.serverReference = converted.report;
+    state.report.gameplayContent = converted.report;
     state.context.portalPrograms = converted.report.scripts.portalPrograms;
     state.context.npcRoutes = new Map(
       converted.datasets.shops.npcRoutes
@@ -79,7 +74,7 @@ async function routes(state, options) {
         .map((route) => [route.npcId, route]),
     );
   } catch (error) {
-    error.code = "server-reference-boundary";
+    error.code = "gameplay-content-boundary";
     state.findings.add(error);
   }
 }
@@ -161,9 +156,7 @@ export async function preflightAssets(options = {}) {
   };
   const state = createState(options, report);
   try {
-    options.progress?.(
-      "Preflight: scanning authorized server-reference routes",
-    );
+    options.progress?.("Preflight: scanning local gameplay routes");
     const seeds = selectedMapIds(options.maps);
     await routes(state, options);
     options.progress?.("Preflight: scanning original map dependency closure");
@@ -212,23 +205,24 @@ async function validateSelectedMaps(state) {
 }
 
 export function preflightOptions(args) {
-  const options = {};
-  const names = {
-    "--assets": "assets",
-    "--maps": "maps",
-    "--map": "maps",
-    "--server-reference": "serverReference",
-    "--report": "report",
+  const values = parseFlags(args, {
+    assets: { type: "string" },
+    map: { type: "string" },
+    maps: { type: "string" },
+    "gameplay-definitions-root": { type: "string" },
+    "sql-root": { type: "string" },
+    report: { type: "string" },
+  });
+  if (values.map && values.maps) throw new Error("Use only --map or --maps");
+  return {
+    ...sourcePaths({
+      assets: values.assets,
+      gameplayDefinitionsRoot: values["gameplay-definitions-root"],
+      sqlRoot: values["sql-root"],
+    }),
+    maps: values.map ?? values.maps,
+    report: values.report,
   };
-  for (let index = 0; index < args.length; index += 2) {
-    const name = names[args[index]],
-      value = args[index + 1];
-    if (!name || !value || value.startsWith("--")) {
-      throw new Error(`Invalid preflight option ${args[index]}`);
-    }
-    options[name] = value;
-  }
-  return options;
 }
 
 if (import.meta.main) {

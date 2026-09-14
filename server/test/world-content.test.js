@@ -1,3 +1,4 @@
+import { migrateDatabase } from "../../tools/migrate.js";
 import { expect, test } from "bun:test";
 import { SQL } from "bun";
 import { openDatabase } from "../src/database.js";
@@ -30,6 +31,7 @@ async function withWorld(run) {
     created = true;
     const isolated = new URL(url);
     isolated.pathname = `/${name}`;
+    await migrateDatabase({ databaseUrl: isolated.href });
     const { original } = await originalFixture();
     database = await openDatabase({
       url: isolated.href,

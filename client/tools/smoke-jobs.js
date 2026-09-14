@@ -23,11 +23,6 @@ export async function runJob(session, options) {
     cwd: session.options.repository,
     stdout: Bun.file(stdout),
     stderr: Bun.file(stderr),
-    env: {
-      ...process.env,
-      MAPLE_ASSETS: session.options.assets,
-      MAPLE_SERVER_REFERENCE: session.options.serverReference,
-    },
   });
   session.children.add(child);
   let timedOut = false;

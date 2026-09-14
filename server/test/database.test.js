@@ -1,3 +1,8 @@
+import {
+  readMigrations,
+  applyMigrations,
+} from "../../tools/database-migrations.js";
+import { migrateDatabase } from "../../tools/migrate.js";
 import { expect, test } from "bun:test";
 import { SQL } from "bun";
 import { createHash, randomUUID } from "node:crypto";
@@ -29,6 +34,7 @@ async function withDatabase(run) {
     created = true;
     const url = new URL(databaseUrl);
     url.pathname = `/${name}`;
+    await migrateDatabase({ databaseUrl: url.href });
     const content = await loadContent();
     database = await openDatabase({ url: url.href, items: content.items });
     await run(database, content);
@@ -476,7 +482,7 @@ async function proveCheckpointHistory(database, content) {
   const secondPrune =
     await database.sql`SELECT count(*)::int AS n FROM character_snapshot WHERE character_id=${actor.id}`;
   expect(secondPrune[0].n).toBe(60);
-  await database.migrate();
+  await applyMigrations(database.sql, await readMigrations());
   actor.profile.location.x++;
   await database.checkpoint(actor);
   const remigrated =

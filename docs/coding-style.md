@@ -1,6 +1,6 @@
 # JavaScript coding style
 
-**Required for every coding agent and every hand-written JavaScript change.** This is the authoritative policy; `AGENTS.md` only links here. Apply it to client code, Bun tools, tests, and server code. Generated bundles and retained Ghidra decompilation are evidence/output, not hand-written implementation.
+**Required for every coding agent and every hand-written JavaScript change.** This is the authoritative policy; `AGENTS.md` only links here. Apply it to client code, Bun tools, tests, and server code. Generated bundles and retained Ghidra decompilation are evidence/output, not hand-written implementation. Imported `infra/gameplay-definitions/**/*.js` files are compiler inputs with preserved upstream bytes and license, excluded from formatting and linting. Parse them through the closed gameplay compiler; never evaluate them as application code.
 
 Adapted from Gerard J. Holzmann's [The Power of Ten (2006)](https://spinroot.com/gerard/pdf/P10.pdf), with the [requested overview](https://en.wikipedia.org/wiki/The_Power_of_10:_Rules_for_Developing_Safety-Critical_Code). These adaptations improve reviewability; they do not certify JavaScript or this game as safety-critical software.
 
@@ -25,6 +25,16 @@ Adapted from Gerard J. Holzmann's [The Power of Ten (2006)](https://spinroot.com
 - Async loading never runs an unbounded decode/upload batch in a render callback. Heavy conversion belongs in Bun extraction or a dedicated worker. Bound fetch concurrency, prefetch distance, decoded residency, persistent cache size, and staged GPU upload work. Unsupported device/asset limits fail explicitly.
 - Deterministic tests may allocate snapshots outside the simulation step. Browser acceptance uses real keyboard/mouse input; inspection APIs observe state rather than replacing input-driven acceptance.
 
+## CLI configuration
+
+One-shot CLI tools take configuration through named flags, not environment variables. This includes source paths, cache/output directories, selection, concurrency and validation options. Document defaults in help; resolve repository-owned defaults from the repository location rather than a developer's absolute home directory. Reject unknown flags, repeated flags and missing values before expensive work. Pass resolved flags to child tools instead of injecting environment variables. Exported tool functions receive explicit option objects.
+
+The extraction family uses `--assets`, `--gameplay-definitions-root`, `--sql-root` and `--cache-dir`. `MAPLE_ASSETS`, `MAPLE_SERVER_REFERENCE` and `MAPLE_EXTRACTION_CACHE` are no longer tool inputs. `--gameplay-definitions-root` defaults to `infra/gameplay-definitions`, `--sql-root` to `infra/sql`, and `--assets` to the sibling `Maplestory-Client` directory. The removed `--server-reference` and `--server-root` flags are rejected; no external server implementation is an extraction input. Source paths supplied as flags are relative to the invocation directory; `tools/openms.js` runs its child from the repository root.
+
+Database schema changes run through `bun run migrate --database-url URL [--sql-root DIR]`. Numbered SQL scripts live directly in `infra/sql/`; application history lives in the PostgreSQL `migrations` table. Server startup checks the required schema without applying scripts. The migration CLI does not read `.env` files or an ambient `DATABASE_URL`.
+
+Long-running application services retain their explicit `.env.server`, `.env.client` and `.env.studio` configuration contracts, including service fixtures that start those applications. OS/runtime environment such as executable lookup is not a tool option. Test-framework adapters may pass an explicitly selected configuration to their worker environment where the framework requires it; they must not add hidden user-facing configuration inputs.
+
 ## Review checklist
 
 - [ ] No direct/indirect synchronous recursion or unbounded work.
@@ -34,3 +44,4 @@ Adapted from Gerard J. Holzmann's [The Power of Ten (2006)](https://spinroot.com
 - [ ] Functions/variables are small and narrowly scoped; JSDoc describes data and units.
 - [ ] The smallest relevant check passes under [validation scope](validation-method.md#validation-scope); no unrelated smoke/browser flows were added.
 - [ ] Changed contracts and known limitations are documented. Measurements/evidence reports are required only when that validation work is explicitly in scope.
+- [ ] CLI configuration uses documented flags and explicit child arguments, without ambient environment overrides.

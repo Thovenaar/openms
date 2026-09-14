@@ -2,24 +2,25 @@
 
 A browser reconstruction of MapleStory v83, with a Bun server and PostgreSQL persistence.
 
-## Quick start
+## Quick Start
 
-Requires [Bun](https://bun.sh), [Podman](https://podman.io) and a Compose provider supporting `up --wait` (e.g. Docker Compose). Check with `podman compose version`.
+Follow the **[Quick Start](docs/server/index.md)** for prerequisites, a fresh checkout, asset extraction, explicit database migration and your first login.
 
-On macOS/Windows: `podman machine init` once, then `podman machine start` when stopped.
-
-Already running the old `openms-postgres` container? Stop it first with `podman stop openms-postgres`; Compose reuses `openms-postgres-data`.
-
-From the repository root, using your [original v83 assets and authorized Cosmic checkout](docs/inputs.md) (not included):
+With Bun, Podman, a Compose provider, `curl` and `unzip` installed, run from the repository root. On macOS/Windows, initialize and start the Podman machine first as described in Quick Start.
 
 ```sh
 bun install --frozen-lockfile
-MAPLE_ASSETS=/path/to/v83 MAPLE_SERVER_REFERENCE=/path/to/Cosmic \
-  bun tools/openms.js extract
+curl --fail --location --output ../Maplestory-Assets.zip \
+  http://bucket.openms.dev/Maplestory-Assets.zip
+unzip -n ../Maplestory-Assets.zip -d .. -x '__MACOSX/*'
+bun tools/openms.js extract --assets ../Maplestory-Client
 podman compose -f infra/compose.yaml up -d --build --wait --wait-timeout 90
+bun run migrate --database-url postgres://openms:openms_local_only@127.0.0.1:55432/openms
 ```
 
-Run in **separate terminals**:
+[Maplestory-Assets.zip](http://bucket.openms.dev/Maplestory-Assets.zip) contains `Maplestory-Client/`; the commands above unpack it beside the repository. `--assets` points directly to that WZ directory. Gameplay definitions and reference SQL are included in `infra/gameplay-definitions/` and `infra/sql/`; no Cosmic checkout is needed. `migrate` executes the numbered PostgreSQL files directly in `infra/sql/`, while asset extraction reads only its `tables/` and `data/` reference directories. See [SQL ownership and migration behavior](infra/sql/README.md).
+
+Then leave each command running in a **separate terminal**:
 
 ```sh
 bun run server:dev
@@ -29,17 +30,8 @@ bun run server:dev
 bun run client:dev:online
 ```
 
-Open **http://127.0.0.1:3102**. Log in as `dev_developer` or `dev_player` with the passwords printed by the server. Schema setup is automatic.
+Open **http://127.0.0.1:3102**. Sign in with `admin` / `password` or `player` / `password`. Run `migrate` before initial startup and after SQL updates. Applied scripts are tracked in PostgreSQL's `migrations` table. Backend startup checks the schema and provisions development accounts; it does not run migrations. The checked-in `.env.server` and `.env.client` configure these local defaults.
 
-## Configuration
+Optional: run `bun run studio:dev` in another terminal and open **http://127.0.0.1:3103**. Studio has its own `.env.studio` and stores custom content in PostgreSQL.
 
-- [`.env.server`](.env.server) and [`.env.client`](.env.client) load automatically; exported variables override them.
-- Database defaults: `openms` user/database, `openms_local_only` password, `127.0.0.1:55432`. **Development only.**
-- Override Compose's `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` or `POSTGRES_PORT` via exported variables or `--env-file`; set the server's `DATABASE_URL` to match. Existing database passwords are not changed by these variables.
-- Optional `OPENMS_DEV_PASSWORD` fixes both development account passwords; otherwise they reset randomly on each server launch.
-
-Stop the database: `podman compose -f infra/compose.yaml down`. Data is retained; `down --volumes` deletes it.
-
-Offline client: `bun run client:dev:offline` → **http://127.0.0.1:3100** (after extraction; no database/server).
-
-[Client docs](docs/README.md) · [Server setup and production](docs/server/index.md) · [Validation](docs/validation.md)
+[Quick Start, configuration and troubleshooting](docs/server/index.md) · [Client modes and controls](docs/README.md) · [Studio](docs/server/studio.md) · [Validation](docs/validation-method.md)

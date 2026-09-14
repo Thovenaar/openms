@@ -75,6 +75,7 @@ export default [
       "node_modules/**",
       "client/dist/**",
       "studio/dist/**",
+      "infra/gameplay-definitions/**/*.js",
       "client/public/generated/**",
       "docs/.vitepress/cache/**",
       "docs/.vitepress/dist/**",

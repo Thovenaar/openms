@@ -2,7 +2,7 @@ import { MAX_TRANSACTION_PARTICIPANTS } from "./online-limits.js";
 import { validateMarket } from "./market-state.js";
 import { persistMarket, marketHasProperty } from "./database-market.js";
 import { SQL } from "bun";
-import { migrateContent } from "@openms/content/postgres";
+import { assertDatabaseSchema } from "./database-schema.js";
 import { DEVELOPMENT_JSON } from "../../shared/development.js";
 import {
   PROFILE_LIMITS,
@@ -238,8 +238,13 @@ export async function openDatabase({ url, items }) {
     new SQL(url, { max: 8, connectionTimeout: 10, idleTimeout: 30 }),
     items,
   );
-  await database.migrate();
-  return database;
+  try {
+    await assertDatabaseSchema(database.sql);
+    return database;
+  } catch (error) {
+    await database.close();
+    throw error;
+  }
 }
 
 export class Database {
@@ -300,23 +305,6 @@ export class Database {
     const rows = await this
       .sql`UPDATE character SET field_instance=${membership.instanceId},field_epoch=${membership.fieldEpoch},map_id=${membership.mapId} WHERE id=${actor.id} AND fencing_generation=${actor.fence} AND lease_owner=${this.owner} AND lease_until>clock_timestamp() RETURNING id`;
     if (!rows.length) throw failure("STALE_CONNECTION");
-  }
-  async migrate() {
-    const migrations = await Promise.all(
-      [
-        "001-authority.sql",
-        "002-participant-cohorts.sql",
-        "003-market.sql",
-        "004-review-hardening.sql",
-      ].map((name) =>
-        Bun.file(new URL(`../sql/${name}`, import.meta.url)).text(),
-      ),
-    );
-    await this.sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(742031091)`;
-      for (const migration of migrations) await tx.unsafe(migration).simple();
-    });
-    await migrateContent(this.sql);
   }
   validate(profile) {
     validateMarket(profile, this.items);

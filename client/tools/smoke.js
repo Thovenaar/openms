@@ -1,5 +1,4 @@
 import puppeteer from "puppeteer-core";
-import { parseArgs } from "node:util";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -8,6 +7,7 @@ import { inputRoots, scanInputs, selectAffected } from "./smoke-inputs.js";
 import { loadScenarios, readJSON, runJob, writeStatus } from "./smoke-jobs.js";
 import { measureStage } from "./native-evidence.js";
 import { scenarioConcurrency } from "./native-scenario-runner.js";
+import { parseFlags, sourcePaths, sourceFlags } from "./source-options.js";
 import {
   inspectExtractedAssets,
   rememberExtractedAssets,
@@ -20,20 +20,19 @@ const DEFAULT_CHROME =
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 function optionsFor(args) {
-  const { values } = parseArgs({
-    args,
-    options: {
-      once: { type: "boolean", default: false },
-      scenarios: { type: "string" },
-      url: { type: "string" },
-      port: { type: "string", default: "3101" },
-      output: { type: "string", default: "artifacts/smoke" },
-      chrome: { type: "string", default: DEFAULT_CHROME },
-      concurrency: { type: "string", default: "1" },
-      assets: { type: "string" },
-      "server-reference": { type: "string" },
-      help: { type: "boolean", default: false },
-    },
+  const values = parseFlags(args, {
+    once: { type: "boolean", default: false },
+    scenarios: { type: "string" },
+    url: { type: "string" },
+    port: { type: "string", default: "3101" },
+    output: { type: "string", default: "artifacts/smoke" },
+    chrome: { type: "string", default: DEFAULT_CHROME },
+    concurrency: { type: "string", default: "1" },
+    assets: { type: "string" },
+    "gameplay-definitions-root": { type: "string" },
+    "sql-root": { type: "string" },
+    "cache-dir": { type: "string" },
+    help: { type: "boolean", default: false },
   });
   const { port, url } = ownedServerOptions(values);
   const scenarios = values.scenarios ? values.scenarios.split(",") : [];
@@ -47,16 +46,12 @@ function optionsFor(args) {
     port,
     url: url.href,
     scenarios,
-    assets: resolve(
-      values.assets ??
-        Bun.env.MAPLE_ASSETS ??
-        "/Users/k/Development/tensorfish/Maplestory-Client",
-    ),
-    serverReference: resolve(
-      values["server-reference"] ??
-        Bun.env.MAPLE_SERVER_REFERENCE ??
-        "/Users/k/Development/tensorfish/Cosmic",
-    ),
+    ...sourcePaths({
+      assets: values.assets,
+      gameplayDefinitionsRoot: values["gameplay-definitions-root"],
+      sqlRoot: values["sql-root"],
+      cacheDir: values["cache-dir"],
+    }),
   };
 }
 
@@ -130,6 +125,7 @@ async function refreshAssets(session, output) {
     output,
     args: [
       "client/tools/extract.js",
+      ...sourceFlags(session.options),
       "--preflight-report",
       join(output, "preflight.json"),
     ],
@@ -346,7 +342,7 @@ export async function main(args = process.argv.slice(2)) {
   const options = optionsFor(args);
   if (options.help) {
     console.log(
-      "bun tools/openms.js smoke [--once] [--scenarios name,name] [--concurrency 1..4] [--port 3101] [--url http://127.0.0.1:3101/] [--output artifacts/smoke] [--chrome PATH] [--assets DIR] [--server-reference DIR]\nContinuous rerun: SIGUSR1; stop: SIGINT/SIGTERM. Never runs --full or release browser/offline gates.",
+      "bun tools/openms.js smoke [--once] [--scenarios name,name] [--concurrency 1..4] [--port 3101] [--url http://127.0.0.1:3101/] [--output artifacts/smoke] [--chrome PATH] [--assets DIR] [--gameplay-definitions-root DIR] [--sql-root DIR] [--cache-dir DIR]\nSource paths use flags with repository-relative defaults; no environment overrides. Continuous rerun: SIGUSR1; stop: SIGINT/SIGTERM. Never runs --full or release browser/offline gates.",
     );
     return 0;
   }

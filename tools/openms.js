@@ -6,19 +6,25 @@ const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP", "SIGUSR1"];
 const COMMANDS = [
   {
+    name: "migrate",
+    path: "tools/migrate.js",
+    description: "Apply PostgreSQL migrations from infra/sql explicitly.",
+    usage: "--database-url URL [--sql-root DIR]",
+  },
+  {
     name: "extract",
     file: "extract.js",
     description:
       "Convert original assets incrementally; --full forces conversion.",
     usage:
-      "[--full] [--assets DIR] [--map ID | --maps ID,ID] [--cache-dir DIR] [--preflight-report FILE]",
+      "[--full] [--assets DIR] [--gameplay-definitions-root DIR] [--sql-root DIR] [--map ID | --maps ID,ID] [--cache-dir DIR] [--preflight-report FILE]",
   },
   {
     name: "preflight",
     file: "preflight.js",
     description: "Check the selected original-world dependency closure.",
     usage:
-      "[--assets DIR] [--map ID | --maps ID,ID] [--server-reference DIR] [--report FILE]",
+      "[--assets DIR] [--map ID | --maps ID,ID] [--gameplay-definitions-root DIR] [--sql-root DIR] [--report FILE]",
   },
   {
     name: "scenario",
@@ -41,7 +47,7 @@ const COMMANDS = [
     file: "smoke.js",
     description: "Own the incremental rebuild/browser loop; SIGUSR1 reruns it.",
     usage:
-      "[--once] [--scenarios NAME,NAME] [--concurrency 1..4] [--port PORT] [--url URL] [--output DIR] [--chrome PATH] [--assets DIR] [--server-reference DIR]",
+      "[--once] [--scenarios NAME,NAME] [--concurrency 1..4] [--port PORT] [--url URL] [--output DIR] [--chrome PATH] [--assets DIR] [--gameplay-definitions-root DIR] [--sql-root DIR] [--cache-dir DIR]",
   },
   {
     name: "scan",
@@ -52,8 +58,8 @@ const COMMANDS = [
   {
     name: "data server",
     file: "server-data.js",
-    description: "Convert authorized server-reference SQL and script metadata.",
-    usage: "--output DIR [--server-root DIR]",
+    description: "Convert local gameplay SQL and script definitions.",
+    usage: "--output DIR [--gameplay-definitions-root DIR] [--sql-root DIR]",
   },
   {
     name: "audit skills",
@@ -91,6 +97,15 @@ function printHelp(command = null, group = "") {
     console.log(
       "Options and positional arguments are passed unchanged to the existing tool.",
     );
+    if (
+      ["extract", "preflight", "scan", "smoke", "data server"].includes(
+        command.name,
+      )
+    ) {
+      console.log(
+        "Source defaults relative to the repository: --assets ../Maplestory-Client; --gameplay-definitions-root infra/gameplay-definitions; --sql-root infra/sql; --cache-dir client/.cache/extraction (where supported). No environment overrides.",
+      );
+    }
     return;
   }
   console.log(`Usage: bun tools/openms.js ${group || "<command>"} [arguments]`);
@@ -126,7 +141,7 @@ function waitForExit(child) {
 async function runTool(command, args) {
   const child = spawn(
     process.execPath,
-    [`client/tools/${command.file}`, ...args],
+    [command.path ?? `client/tools/${command.file}`, ...args],
     {
       cwd: ROOT,
       stdio: "inherit",

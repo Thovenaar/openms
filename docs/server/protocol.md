@@ -422,7 +422,7 @@ Short Serializable transactions remain the rule for multi-aggregate operations; 
 
 ### Runtime persistence layout
 
-The executable migration is [`server/sql/001-authority.sql`](../../server/sql/001-authority.sql), not the historical sketch below. `account` owns password hashes/roles; `character` carries fenced lease, domain revisions, durable field identity, scalar `meso` and non-economic profile projection. `item_instance` materializes owned inventory/equipment with global IDs and deferred occupied-slot uniqueness. The cached profile deliberately excludes inventory/equipment/money on write and restores them from authoritative rows on load.
+The executable migration is [`infra/sql/001-authority.sql`](../../infra/sql/001-authority.sql), not the historical sketch below. `account` owns password hashes/roles; `character` carries fenced lease, domain revisions, durable field identity, scalar `meso` and non-economic profile projection. `item_instance` materializes owned inventory/equipment with global IDs and deferred occupied-slot uniqueness. The cached profile deliberately excludes inventory/equipment/money on write and restores them from authoritative rows on load.
 
 `operation_receipt` stores one outcome per character/UUID operation, `character_op_log` stores typed effects, `character_snapshot` stores fenced profile checkpoints, `entitlement` tracks drop grant/consumption, and `ledger` balances asset deltas per transaction including world counterpart accounts. Append-only triggers protect receipt/log/ledger/outbox/development audit history; a deferred constraint checks ledger balance at commit using the `(transaction_id,asset)` index. Continuous-state snapshot history is sampled at most once per minute when state changes and retains the latest 60 rows per character. Current materialized state still checkpoints at most once per second; unchanged state skips its update. Old oversized snapshot histories drain in batches of at most 128 rows per checkpoint. `outbox` and `outbox_delivery` separate committed events from delivery cursor state.
 
@@ -446,7 +446,7 @@ Inventory/economy invariant checks and unique constraints are defense in depth; 
 
 ### DDL design reference {#proposed-ddl-sketch}
 
-The following sketch explains the required invariants; it is **not the executable migration**. The runtime migration under `server/sql/` and database adapter define actual table/column names. Adapt the audit queries below to that migration before running them. Wire-visible identifiers stay `text` to match `Id`.
+The following sketch explains the required invariants; it is **not the executable migration**. The SQL scripts under `infra/sql/` and database adapter define actual table/column names; run them with the explicit `migrate` CLI. Adapt the audit queries below to that migration before running them. Wire-visible identifiers stay `text` to match `Id`.
 
 ```sql
 CREATE TABLE character (

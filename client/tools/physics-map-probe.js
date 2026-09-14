@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { WzArchive } from "../src/assets/wz.js";
 import { parseImage } from "../src/assets/image.js";
 import { readPhysicsData } from "./physics-data.js";
+import { inventoryOptions } from "./source-options.js";
 
 const MAX_ENTRIES = 100000;
 
@@ -124,12 +125,13 @@ function retainActive(active, path, data) {
 }
 
 if (import.meta.main) {
-  const source =
-    process.argv[2] ??
-    Bun.env.MAPLE_ASSETS ??
-    "/Users/k/Development/tensorfish/Maplestory-Client";
-  await probePhysicsMaps(
-    source,
-    process.argv[3] ?? "docs/ghidra-physics-options/map-probe.json",
+  const options = inventoryOptions(
+    process.argv.slice(2),
+    "docs/ghidra-physics-options/map-probe.json",
   );
+  if (options.help) {
+    console.log(
+      "bun client/tools/physics-map-probe.js [--assets DIR] [--output FILE]",
+    );
+  } else await probePhysicsMaps(options.assets, options.output);
 }

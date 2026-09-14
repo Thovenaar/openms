@@ -3,17 +3,8 @@ import { WzArchive } from "../src/assets/wz.js";
 import { parseImage } from "../src/assets/image.js";
 import { decodeCanvas } from "../src/assets/canvas.js";
 import { inspectProperty, propertyInventory } from "./scan-properties.js";
+import { parseFlags, sourcePaths } from "./source-options.js";
 
-/** Read a required CLI option value rather than accepting a missing argument. */
-function option(args, name, fallback) {
-  const index = args.indexOf(name);
-  if (index < 0) return fallback;
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`Missing value for ${name}`);
-  }
-  return value;
-}
 /** Count metadata and decode the first original example of each compression/format combination. */
 function inspectCanvas(node, path, context) {
   const { report, counts } = context;
@@ -125,18 +116,27 @@ async function scanArchive(name, report) {
 /** Run the original-archive inventory without following reference links or retaining IMG trees. */
 async function main() {
   const args = process.argv.slice(2);
-  const source = resolve(
-    option(
-      args,
-      "--assets",
-      Bun.env.MAPLE_ASSETS ??
-        "/Users/k/Development/tensorfish/Maplestory-Client",
-    ),
-  );
-  const names = option(args, "--archives", "Map,Character,UI").split(",");
+  const flags = parseFlags(args, {
+    assets: { type: "string" },
+    archives: { type: "string", default: "Map,Character,UI" },
+    output: { type: "string", default: "docs/archive-scan.json" },
+    properties: { type: "boolean" },
+    help: { type: "boolean" },
+  });
+  if (flags.help) {
+    console.log(
+      "bun tools/openms.js scan [--assets DIR] [--archives Map,Character,UI] [--output FILE] [--properties]\nDefaults: sibling Maplestory-Client, Map/Character/UI, docs/archive-scan.json. No environment overrides.",
+    );
+    return;
+  }
+  const source = sourcePaths(flags).assets;
+  const names = flags.archives.split(",");
+  if (names.length > 32 || names.some((name) => !/^[A-Za-z0-9]+$/.test(name))) {
+    throw new Error("Invalid --archives selection");
+  }
   const report = {
     source,
-    inventoryProperties: args.includes("--properties"),
+    inventoryProperties: flags.properties === true,
     archives: [],
     canvasFormats: {},
     compressionEnvelopes: {},
@@ -150,10 +150,7 @@ async function main() {
   report.durationMs = performance.now() - started;
   report.scope =
     "Every IMG payload in the named original archives checksum-checked and parsing attempted; unsupported entries are failures. Canvas metadata from parsed images counted; first original canvas per format/scale/compression envelope inflated and pixel-decoded. Not all canvases pixel-decoded; no original-client screenshot comparison.";
-  await Bun.write(
-    option(args, "--output", "docs/archive-scan.json"),
-    JSON.stringify(report, null, 2) + "\n",
-  );
+  await Bun.write(flags.output, JSON.stringify(report, null, 2) + "\n");
   console.log({
     formats: report.canvasFormats,
     examples: report.decodedExamples,

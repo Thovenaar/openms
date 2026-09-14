@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "upstream": "Cosmic",
+  "revision": "fec53bc7714dc0f1ae3f50b2986cdf2727e0912a",
+  "sourceRoot": "src/main/resources/db",
+  "files": [
+    {
+      "path": "data/101-shops-data.sql",
+      "source": "src/main/resources/db/data/101-shops-data.sql",
+      "bytes": 2979,
+      "sha256": "5f77736a1ab2290b58c4fc03bf0f87b2ef8a87a08fce4552e796b869281c7636"
+    },
+    {
+      "path": "data/102-shopitems-data.sql",
+      "source": "src/main/resources/db/data/102-shopitems-data.sql",
+      "bytes": 157997,
+      "sha256": "f665e010f056f370dde21d52b239397b317779cc14b174b3b3d546ffe8c32e35"
+    },
+    {
+      "path": "data/111-makercreate-data.sql",
+      "source": "src/main/resources/db/data/111-makercreate-data.sql",
+      "bytes": 47240,
+      "sha256": "b2197cf86e0cab4be709e938ae1af8c1f2b8337c8646d651b34fcbf1118ff289"
+    },
+    {
+      "path": "data/112-makerrecipe-data.sql",
+      "source": "src/main/resources/db/data/112-makerrecipe-data.sql",
+      "bytes": 58559,
+      "sha256": "9384401e1e4902c4749c4a2251716a105bec89d86e34d2ce28af4598e373fac9"
+    },
+    {
+      "path": "data/113-makerreward-data.sql",
+      "source": "src/main/resources/db/data/113-makerreward-data.sql",
+      "bytes": 3316,
+      "sha256": "75a2dbe63cad0044053fc576370c74a5421139537f800e6d8aabf7513542a303"
+    },
+    {
+      "path": "data/114-makerreagent-data.sql",
+      "source": "src/main/resources/db/data/114-makerreagent-data.sql",
+      "bytes": 1559,
+      "sha256": "737be79c37001bb4b173b12ea777405ead10eb8c6d623cb8b637a9683d22d346"
+    },
+    {
+      "path": "data/121-monstercard-data.sql",
+      "source": "src/main/resources/db/data/121-monstercard-data.sql",
+      "bytes": 9293,
+      "sha256": "9be00d24506d9046b555cfeb6966ca19a0de8679e37cafc089ee9bce39707063"
+    },
+    {
+      "path": "data/131-reactordrops-data.sql",
+      "source": "src/main/resources/db/data/131-reactordrops-data.sql",
+      "bytes": 39007,
+      "sha256": "c18fe11b80f8b1b2e9356ee7b16ef061c71321522acdcb6c6f6cef4b26bd4238"
+    },
+    {
+      "path": "data/141-specialcashitems-data.sql",
+      "source": "src/main/resources/db/data/141-specialcashitems-data.sql",
+      "bytes": 84,
+      "sha256": "c770a6b132ccaf5e858dd93fbc10c26f8f0552fab96e64d6e18d57162b0a0a6f"
+    },
+    {
+      "path": "data/142-nxcoupons-data.sql",
+      "source": "src/main/resources/db/data/142-nxcoupons-data.sql",
+      "bytes": 1389,
+      "sha256": "f1390b661029b484eefc4c23e30ac2c114bea37483c427e841ee76baa68279c1"
+    },
+    {
+      "path": "data/151-global-drop-data.sql",
+      "source": "src/main/resources/db/data/151-global-drop-data.sql",
+      "bytes": 378,
+      "sha256": "90f3a182067374b0fe4e61a99a7daabce59f21b03e798cfe985356c9e01131a1"
+    },
+    {
+      "path": "data/152-drop-data.sql",
+      "source": "src/main/resources/db/data/152-drop-data.sql",
+      "bytes": 935218,
+      "sha256": "f32135ffd9c4bfa4f57638f6499bdbc4c899076437cfd873def0901bb97534e6"
+    },
+    {
+      "path": "data/161-admin-data.sql",
+      "source": "src/main/resources/db/data/161-admin-data.sql",
+      "bytes": 5448,
+      "sha256": "1253b58687fd53edb90c0154f114d33ea6905cd720295865041b3fa5df778e54"
+    },
+    {
+      "path": "tables/001-account.sql",
+      "source": "src/main/resources/db/tables/001-account.sql",
+      "bytes": 1737,
+      "sha256": "7bd2cfa156b8abfaa0658529b9a4b427404848971fbc26b96f550b8b7116a40f"
+    },
+    {
+      "path": "tables/002-character.sql",
+      "source": "src/main/resources/db/tables/002-character.sql",
+      "bytes": 5047,
+      "sha256": "8c0c60e8df27c37cf9eeb61ed38186d7a502433ad73d26354d4aceb61e3391d2"
+    },
+    {
+      "path": "tables/003-inventory.sql",
+      "source": "src/main/resources/db/tables/003-inventory.sql",
+      "bytes": 2744,
+      "sha256": "41167f661ef76a0bbbbc10e084dd9f069b7e41bf13d73c038064ddadb966168d"
+    },
+    {
+      "path": "tables/004-skill.sql",
+      "source": "src/main/resources/db/tables/004-skill.sql",
+      "bytes": 1135,
+      "sha256": "df3602cdd055ae29915dbf6643c04cc4d07de34225f84973ccd627979dbda978"
+    },
+    {
+      "path": "tables/005-pet.sql",
+      "source": "src/main/resources/db/tables/005-pet.sql",
+      "bytes": 745,
+      "sha256": "13ae9b394cc2dc57435a4980419044314f4b56d89fee7e23cf039656cd13084d"
+    },
+    {
+      "path": "tables/006-quest.sql",
+      "source": "src/main/resources/db/tables/006-quest.sql",
+      "bytes": 2314,
+      "sha256": "f45776ae948a37f30128a46f8920f018a44305665b9e5d3314c7ba4f7ed53890"
+    },
+    {
+      "path": "tables/007-guild.sql",
+      "source": "src/main/resources/db/tables/007-guild.sql",
+      "bytes": 2573,
+      "sha256": "207ff574c1cb8baa214a5b295285880f9b7349ff5b8f679aaec03ffad6845680"
+    },
+    {
+      "path": "tables/008-keymap.sql",
+      "source": "src/main/resources/db/tables/008-keymap.sql",
+      "bytes": 468,
+      "sha256": "c7d4f0af8c2bc1a4d209c0b015bd4bc0249282c53ddf3abf334e165f51c7d3c1"
+    },
+    {
+      "path": "tables/009-drop.sql",
+      "source": "src/main/resources/db/tables/009-drop.sql",
+      "bytes": 1284,
+      "sha256": "802520586e8a7b9da6639f5a5abdeb11b0ecd228ac8010ad91f5c0f44a1fd968"
+    },
+    {
+      "path": "tables/010-storage.sql",
+      "source": "src/main/resources/db/tables/010-storage.sql",
+      "bytes": 559,
+      "sha256": "63ca71f410a062135efbfcc504423083c090761aa03f2388e2d7cd50e6a6b6b7"
+    },
+    {
+      "path": "tables/011-shop.sql",
+      "source": "src/main/resources/db/tables/011-shop.sql",
+      "bytes": 661,
+      "sha256": "5b1b81cd1a8c455726189d092a6789b18713144ce85c960c7b9bdaf814784edc"
+    },
+    {
+      "path": "tables/012-character-state.sql",
+      "source": "src/main/resources/db/tables/012-character-state.sql",
+      "bytes": 2325,
+      "sha256": "40feaa63d48911317206cc72199dc9bc66765e69f70da8c12cdb36d0e6cbe19f"
+    },
+    {
+      "path": "tables/013-cashshop.sql",
+      "source": "src/main/resources/db/tables/013-cashshop.sql",
+      "bytes": 1127,
+      "sha256": "d02fd71c38dbda9d6e55a8c3f0a1724ec82e5b0024dbe478cf28dd83ff47b700"
+    },
+    {
+      "path": "tables/014-gift.sql",
+      "source": "src/main/resources/db/tables/014-gift.sql",
+      "bytes": 1320,
+      "sha256": "3c2ddf2b5eae3a60aa4c8bdb69dcc392f88d803de685b2d1164dc1614f0933cd"
+    },
+    {
+      "path": "tables/015-marriage.sql",
+      "source": "src/main/resources/db/tables/015-marriage.sql",
+      "bytes": 523,
+      "sha256": "2357eaa6ebb76d811468562d3f2bf527b502dc5040646aa0683f295626849de6"
+    },
+    {
+      "path": "tables/016-monsterbook.sql",
+      "source": "src/main/resources/db/tables/016-monsterbook.sql",
+      "bytes": 444,
+      "sha256": "5ab10bbd9ef5552c1ccb97b74104c78b83b9765c280c3ba73f85748e62c56a6a"
+    },
+    {
+      "path": "tables/017-family.sql",
+      "source": "src/main/resources/db/tables/017-family.sql",
+      "bytes": 805,
+      "sha256": "ec95b2dcd1a775fd852c4bcf4585e99b7fe56c9ee7c380f9cb458f7ff35b05c4"
+    },
+    {
+      "path": "tables/018-transfer.sql",
+      "source": "src/main/resources/db/tables/018-transfer.sql",
+      "bytes": 709,
+      "sha256": "7736cf467abc9b0b2bc0ebb300fcb7ccbd9c65d33e75a026cbb642df85139195"
+    },
+    {
+      "path": "tables/019-mts.sql",
+      "source": "src/main/resources/db/tables/019-mts.sql",
+      "bytes": 2235,
+      "sha256": "abff6b81e8e5fae0e85ddd7092180d0f42bee33054621825fa45fd9521c61f60"
+    },
+    {
+      "path": "tables/020-maker.sql",
+      "source": "src/main/resources/db/tables/020-maker.sql",
+      "bytes": 1102,
+      "sha256": "6d6a33651369d51dc780aae50fc3f37db8a24a61bc4377997fc8806b13376cac"
+    },
+    {
+      "path": "tables/021-field-object.sql",
+      "source": "src/main/resources/db/tables/021-field-object.sql",
+      "bytes": 2224,
+      "sha256": "b229a00cad762a310acc318c7562b3e5aa0dc20081673595abaee399693e36da"
+    },
+    {
+      "path": "tables/022-ban.sql",
+      "source": "src/main/resources/db/tables/022-ban.sql",
+      "bytes": 1391,
+      "sha256": "3370b5457b76b4753345a4f4052ed80f8d62cc8da33c775b2d7f02765c18b188"
+    },
+    {
+      "path": "tables/023-bosslog.sql",
+      "source": "src/main/resources/db/tables/023-bosslog.sql",
+      "bytes": 861,
+      "sha256": "da25a296ff4cf9267e75d71944fa5ea2a82ac9efca5d631dad3afaef7389113f"
+    },
+    {
+      "path": "tables/024-duey.sql",
+      "source": "src/main/resources/db/tables/024-duey.sql",
+      "bytes": 814,
+      "sha256": "f8ea40fc604aae9e6762d8aea2a8e2845b1cace56b349ac46245046e49784586"
+    }
+  ]
+}

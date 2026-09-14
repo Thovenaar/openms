@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { WzArchive } from "../src/assets/wz.js";
 import { parseImage } from "../src/assets/image.js";
+import { inventoryOptions } from "./source-options.js";
 
 const MAX_NODES = 2000000;
 const MAX_IMAGES = 20000;
@@ -251,12 +252,13 @@ export async function inventoryInGame(source, output) {
 }
 
 if (import.meta.main) {
-  await inventoryInGame(
-    resolve(
-      process.argv[2] ??
-        Bun.env.MAPLE_ASSETS ??
-        "/Users/k/Development/tensorfish/Maplestory-Client",
-    ),
-    resolve(process.argv[3] ?? "docs/ingame-inventory"),
+  const options = inventoryOptions(
+    process.argv.slice(2),
+    "docs/ingame-inventory",
   );
+  if (options.help) {
+    console.log(
+      "bun client/tools/ingame-inventory.js [--assets DIR] [--output DIR]",
+    );
+  } else await inventoryInGame(options.assets, options.output);
 }

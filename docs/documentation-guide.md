@@ -7,7 +7,7 @@
 | Information                                | Canonical page                                                                   | Avoid duplicating                            |
 | ------------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------- |
 | Run commands, controls and code map        | [Client setup](README.md)                                                        | Server environment and release checklists    |
-| Database, accounts, origins, deployment    | [Server setup](server/index.md)                                                  | Protocol payload specifications              |
+| Quick Start, database, accounts, deployment | [Server Quick Start](server/index.md)                                                  | Protocol payload specifications              |
 | Shared owners, clock and commit boundaries | [Integration contract](reconstruction-contract.md)                               | Full schema dumps maintained elsewhere       |
 | Current online feature owners and gaps     | [Feature coverage](server/offline-parity.md)                                     | Old correction narratives                    |
 | Exact original behavior and provenance     | Domain evidence page, e.g. [movement](physics-evidence.md) or [UI](ingame-ui.md) | Unlabeled emulator policy or inference       |

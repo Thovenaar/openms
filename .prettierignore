@@ -1,0 +1,2 @@
+# Imported gameplay source is compiler input; preserve its original bytes.
+infra/gameplay-definitions/**/*.js

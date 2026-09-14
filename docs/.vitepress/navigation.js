@@ -30,7 +30,7 @@ export const sidebar = [
     [
       ["Documentation home", "/"],
       ["Run the client", "/client/"],
-      ["Run the server", "/server/"],
+      ["Quick Start", "/server/"],
       ["Inputs & provenance", "/client/inputs"],
       ["Coding style", "/client/coding-style"],
       ["Maintain these docs", "/client/documentation-guide"],
@@ -45,7 +45,7 @@ export const sidebar = [
     ["Browser session ownership", "/client/browser-session"],
   ]),
   group("Server & multiplayer", "server", [
-    ["Setup & operations", "/server/"],
+    ["Quick Start & operations", "/server/"],
     ["Studio dashboard", "/server/studio"],
     ["Custom content & world releases", "/server/content"],
     ["Protocol & transactions", "/server/protocol"],

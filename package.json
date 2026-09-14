@@ -9,6 +9,7 @@
     "studio"
   ],
   "scripts": {
+    "migrate": "bun tools/migrate.js",
     "server:dev": "bun server/tools/dev.js",
     "server:start": "bun server/src/index.js",
     "client:dev:offline": "bun client/tools/dev.js",

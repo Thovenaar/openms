@@ -12,18 +12,6 @@ import { validateContentRef, validateSave } from "./definitions.js";
 
 const RUNTIME_LIMITS = { maxBytes: 32 * 1024 * 1024, maxNodes: 2000000 };
 
-export async function migrateContent(sql) {
-  const migrations = await Promise.all(
-    ["001-content.sql", "002-world.sql"].map((name) =>
-      Bun.file(new URL(`../sql/${name}`, import.meta.url)).text(),
-    ),
-  );
-  await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(742031092)`;
-    for (const migration of migrations) await tx.unsafe(migration).simple();
-  });
-}
-
 function missing() {
   throw contentError("CONTENT_NOT_FOUND", "Content revision was not found");
 }

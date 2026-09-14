@@ -6,11 +6,11 @@ hero:
   tagline: Original assets. Shared gameplay. Server-owned online state. Find the setup, contracts, and evidence behind the reconstruction.
   actions:
     - theme: brand
-      text: Run the client
-      link: /client/
-    - theme: alt
-      text: Set up multiplayer
+      text: Quick Start
       link: /server/
+    - theme: alt
+      text: Client modes & controls
+      link: /client/
 features:
   - icon: 🎮
     title: Play & develop
@@ -42,7 +42,7 @@ features:
 
 | I want to…                              | Start here                                                                                                                |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Run locally or fix a login problem      | [Client quick start](README.md) · [Server setup and troubleshooting](server/index.md#troubleshooting)                     |
+| Run locally or fix a login problem      | [Quick Start](server/index.md) · [Troubleshooting](server/index.md#troubleshooting)                     |
 | Change a gameplay feature               | [Integration and ownership](reconstruction-contract.md) · [Feature map](server/offline-parity.md)                         |
 | Match the original appearance or motion | [UI recovery](login-creation-recovery.md) · [Movement](movement-parity.md) · [Resource audit](original-resource-audit.md) |
 | Inspect a character or map              | [Development inspection](inspection-tools.md) · [Agent interface](agent-interface.md)                                     |

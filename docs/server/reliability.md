@@ -4,7 +4,7 @@ The review fixes retain one authoritative Bun process, PostgreSQL ownership and 
 
 ## Persistence and deployment
 
-`server/sql/004-review-hardening.sql` runs through the existing startup migration transaction. It adds the ledger transaction/asset index, the character snapshot lookup index, the unique active character name index and market retry metadata/index. Test a database backup before production rollout; ordinary index creation can block writes, so schedule this migration during a maintenance window for an established database. No running development or production database was migrated as part of the code edit.
+`infra/sql/004-review-hardening.sql` runs through the explicit `migrate` CLI transaction. PostgreSQL's `migrations` table tracks its application; server startup only checks the schema. It adds the ledger transaction/asset index, the character snapshot lookup index, the unique active character name index and market retry metadata/index. Test a database backup before production rollout; ordinary index creation can block writes, so schedule this migration during a maintenance window for an established database. No running development or production database was migrated as part of the code edit.
 
 Active names must be unique under PostgreSQL `lower(profile->>'name')`. Migration stops with a value-free error if existing duplicates need resolution; it does not rename or delete characters. An operator can identify affected records using the following query in their authorized database session, then resolve them with the character owners before retrying startup:
 

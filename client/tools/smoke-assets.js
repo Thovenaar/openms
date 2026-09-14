@@ -4,6 +4,7 @@ import { resolve, dirname } from "node:path";
 import { extractionRecipes } from "./extraction-recipes.js";
 import { readJSON } from "./smoke-jobs.js";
 import { publishFile } from "./atlas.js";
+import { sourcePaths } from "./source-options.js";
 
 const MAX_CATALOG_BYTES = 64 * 1024 * 1024;
 const MAX_UNITS = 1152;
@@ -11,11 +12,14 @@ const HASH = /^[a-f0-9]{64}$/;
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 
 function receiptPath(options) {
-  const cache = resolve(
-    process.env.MAPLE_EXTRACTION_CACHE ??
-      resolve(options.repository, "client/.cache/extraction"),
+  const cache = sourcePaths(options).cacheDir;
+  const key = digest(
+    JSON.stringify([
+      options.assets,
+      options.gameplayDefinitionsRoot,
+      sourcePaths(options).sqlRoot,
+    ]),
   );
-  const key = digest(JSON.stringify([options.assets, options.serverReference]));
   return resolve(cache, `smoke-${key}.json`);
 }
 
@@ -52,7 +56,8 @@ async function inputIdentity(options, inputs, names) {
   for (const [path, record] of inputs) {
     if (
       path.startsWith("original/") ||
-      path.startsWith("server-reference/") ||
+      path.startsWith("gameplay-definitions/") ||
+      path.startsWith("reference-sql/") ||
       path === "bun.lock"
     ) {
       originals.push([path, record.hash]);
@@ -62,7 +67,8 @@ async function inputIdentity(options, inputs, names) {
   return digest(
     JSON.stringify({
       assets: options.assets,
-      serverReference: options.serverReference,
+      gameplayDefinitionsRoot: options.gameplayDefinitionsRoot,
+      sqlRoot: sourcePaths(options).sqlRoot,
       recipes,
       originals,
       bun: Bun.version,

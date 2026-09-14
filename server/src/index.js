@@ -33,7 +33,7 @@ export async function startServer(options = {}) {
   }
   const database =
     options.database ??
-    (await logStage(log, "database.connect-and-migrate", () =>
+    (await logStage(log, "database.connect-and-check-schema", () =>
       openDatabase({ url: config.databaseUrl, items: original.items }),
     ));
   const auth = new SessionAuthority(config, database);

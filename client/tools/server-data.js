@@ -6,8 +6,20 @@ import { compileNpcScript } from "./npc-script-compiler.js";
 import { compileNpcRoutes } from "./npc-script-routes.js";
 import { compileTutorialPortal } from "./portal-data.js";
 import { TUTORIAL_PORTAL_PROGRAMS } from "../src/npc/npc-script-portals.js";
+import {
+  sourcePaths as configuredSources,
+  parseFlags,
+} from "./source-options.js";
 
 const DB_ROOT = "src/main/resources/db";
+const POLICY_KEYS = [
+  "USE_CPQ",
+  "USE_ENABLE_SOLO_EXPEDITIONS",
+  "USE_AUTOASSIGN_STARTERS_AP",
+  "USE_STARTING_AP_4",
+  "USE_ENFORCE_JOB_SP_RANGE",
+];
+const MAX_POLICY_BYTES = 4096;
 const MAX_FILES = 10000;
 const MAX_SQL_FILES = 128;
 const MAX_TOTAL_BYTES = 64000000;
@@ -27,14 +39,6 @@ const DOMAINS = Object.freeze({
   cash: ["specialcashitems", "nxcoupons"],
 });
 const AUTHORITY = "Cosmic-authorized-server-reference-not-original-client";
-
-export function serverReferenceRoot(serverRoot) {
-  return resolve(
-    serverRoot ??
-      Bun.env.MAPLE_SERVER_REFERENCE ??
-      "/Users/k/Development/tensorfish/Cosmic",
-  );
-}
 
 async function sourceFile(root, source, maximum) {
   const file = Bun.file(resolve(root, source));
@@ -61,12 +65,12 @@ async function sourcePaths(root, directory, extension) {
       withFileTypes: true,
     });
     entries += children.length;
-    if (entries > MAX_FILES) throw new Error("Server reference file limit");
+    if (entries > MAX_FILES) throw new Error("Gameplay input file limit");
     children.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const child of children) {
-      const path = `${queue[index]}/${child.name}`;
+      const path = queue[index] ? `${queue[index]}/${child.name}` : child.name;
       if (child.isSymbolicLink()) {
-        throw new Error(`Server reference symlink unsupported: ${path}`);
+        throw new Error(`Gameplay input symlink unsupported: ${path}`);
       }
       if (child.isDirectory()) queue.push(path);
       else if (child.isFile() && child.name.endsWith(extension)) {
@@ -77,19 +81,20 @@ async function sourcePaths(root, directory, extension) {
   return paths.sort();
 }
 
-async function readSqlInventory(root, progress) {
+export async function readSqlInventory(root, progress) {
   const files = [],
     parsed = [];
   let bytes = 0;
   for (const directory of ["tables", "data"]) {
-    progress?.(`Server reference: scanning ${DB_ROOT}/${directory}`);
-    const paths = await sourcePaths(root, `${DB_ROOT}/${directory}`, ".sql");
+    progress?.(`Reference SQL: scanning ${resolve(root, directory)}`);
+    const paths = await sourcePaths(root, directory, ".sql");
     if (paths.length + files.length > MAX_SQL_FILES) {
       throw new Error("SQL file limit");
     }
-    for (const source of paths) {
-      progress?.(`Server reference: reading and parsing SQL ${source}`);
-      const file = await sourceFile(root, source, MAX_SQL_BYTES);
+    for (const path of paths) {
+      const source = `${DB_ROOT}/${path}`;
+      progress?.(`Gameplay content: reading and parsing SQL ${source}`);
+      const file = await sourceFile(root, path, MAX_SQL_BYTES);
       bytes += file.bytes;
       if (bytes > MAX_TOTAL_BYTES) throw new Error("SQL aggregate byte limit");
       const sql = parseSql(file.text);
@@ -149,7 +154,7 @@ function collectTables(inventory) {
       table.convertedRows += insert.rows ? insert.rows.length : 0;
       rows += insert.rowCount;
       if (rows > MAX_TOTAL_ROWS) {
-        throw new Error("Server reference total row limit");
+        throw new Error("Gameplay input total row limit");
       }
       const source = inventory.files[index].source;
       if (!table.dataSources.includes(source)) table.dataSources.push(source);
@@ -177,20 +182,21 @@ async function scriptFile(root, source) {
 }
 
 async function scriptInventory(root, options, staticConfig) {
-  options.progress?.("Server reference: scanning script paths");
-  const paths = await sourcePaths(root, "scripts", ".js");
+  options.progress?.("Gameplay content: scanning local scripts");
+  const paths = await sourcePaths(root, "", ".js");
   const files = [],
     compilations = [],
     categories = Object.create(null);
   const portalPrograms = Object.create(null);
   let bytes = 0;
-  for (const source of paths) {
+  for (const path of paths) {
+    const source = `scripts/${path}`;
     if (files.length % SCRIPT_PROGRESS_INTERVAL === 0) {
       options.progress?.(
-        `Server reference: reading/compiling script ${files.length + 1}/${paths.length}: ${source}`,
+        `Gameplay content: reading/compiling script ${files.length + 1}/${paths.length}: ${source}`,
       );
     }
-    const file = await scriptFile(root, source);
+    const file = await scriptFile(root, path);
     bytes += file.bytes;
     if (bytes > MAX_TOTAL_BYTES) throw new Error("Script aggregate byte limit");
     const parts = source.split("/");
@@ -221,7 +227,7 @@ async function scriptInventory(root, options, staticConfig) {
     }
     files.push(record);
   }
-  options.progress?.(`Server reference: ${files.length} scripts inventoried`);
+  options.progress?.(`Gameplay content: ${files.length} scripts inventoried`);
   return {
     status:
       "npc-complete-source-compiler; verified-tutorial-portals; other-categories-inventoried",
@@ -327,69 +333,56 @@ function inventorySummary(inventory, tables, scripts) {
   };
 }
 
-/** Publish only the closed NPC settings and hashes, never secret configuration text. */
-async function npcRuntimePolicy(root) {
-  const sources = [];
-  const staticConfig = Object.create(null);
-  let enhancedCrafting;
-  for (const source of [
-    "config.yaml",
-    "src/main/java/client/Character.java",
-    "src/main/java/scripting/AbstractPlayerInteraction.java",
-    "src/main/java/scripting/npc/NPCScriptManager.java",
-    "src/main/java/constants/inventory/ItemConstants.java",
-    "src/main/java/scripting/npc/NPCConversationManager.java",
-    "src/main/java/constants/game/GameConstants.java",
-    "src/main/java/constants/id/MapId.java",
-  ]) {
-    const file = await sourceFile(root, source, MAX_SCRIPT_BYTES);
-    if (source === "config.yaml") {
-      const server = Bun.YAML.parse(file.text)?.server;
-      enhancedCrafting = server?.USE_ENHANCED_CRAFTING;
-      for (const key of [
-        "USE_CPQ",
-        "USE_ENABLE_SOLO_EXPEDITIONS",
-        "USE_AUTOASSIGN_STARTERS_AP",
-        "USE_STARTING_AP_4",
-        "USE_ENFORCE_JOB_SP_RANGE",
-      ]) {
-        if (server?.[key] === undefined) continue;
-        if (typeof server[key] !== "boolean") {
-          throw new Error(`NPC server setting must be boolean: ${key}`);
-        }
-        staticConfig[key] = server[key];
-      }
-    }
-    sources.push({ source, sha256: file.sha256, bytes: file.bytes });
-  }
-  if (enhancedCrafting !== false) {
+/** Local gameplay settings only; no server implementation, Java hashes or deployment config. */
+export async function npcRuntimePolicy(root) {
+  const file = await sourceFile(root, "policy.json", MAX_POLICY_BYTES);
+  const value = JSON.parse(file.text);
+  if (
+    !value ||
+    value.schemaVersion !== 1 ||
+    value.enhancedCrafting !== false ||
+    Object.keys(value).length !== 3 ||
+    !value.staticConfig ||
+    Array.isArray(value.staticConfig)
+  ) {
     throw new Error(
-      "Offline NPC equipment grants require server.USE_ENHANCED_CRAFTING=false",
+      "Invalid gameplay policy: schemaVersion 1 and enhancedCrafting false required",
+    );
+  }
+  if (
+    Object.keys(value.staticConfig).length !== POLICY_KEYS.length ||
+    POLICY_KEYS.some((key) => typeof value.staticConfig[key] !== "boolean")
+  ) {
+    throw new Error(
+      "Gameplay policy must contain exactly the supported boolean settings",
     );
   }
   return {
-    sources,
-    enhancedCrafting,
+    sources: [
+      { source: "scripts/policy.json", sha256: file.sha256, bytes: file.bytes },
+    ],
+    enhancedCrafting: value.enhancedCrafting,
     equipmentRandomStats: false,
-    staticConfig,
+    staticConfig: value.staticConfig,
   };
 }
 
-/** Convert authorized reference files. No source JavaScript or SQL is executed. */
+/** Compile local gameplay inputs. Source JavaScript and SQL are parsed, never executed. */
 export async function convertServerData(options = {}) {
-  const root = serverReferenceRoot(options.serverRoot);
-  options.progress?.(`Server reference: reading runtime policy from ${root}`);
+  const root = configuredSources(options).gameplayDefinitionsRoot;
+  const sqlRoot = configuredSources(options).sqlRoot;
+  options.progress?.(`Gameplay content: reading local policy from ${root}`);
   const policy = await npcRuntimePolicy(root);
-  const inventory = await readSqlInventory(root, options.progress);
-  options.progress?.("Server reference: collecting SQL tables");
+  const inventory = await readSqlInventory(sqlRoot, options.progress);
+  options.progress?.("Gameplay content: collecting SQL tables");
   const tables = collectTables(inventory);
   const scripts = await scriptInventory(root, options, policy.staticConfig);
   const datasets = Object.create(null);
   for (const [name, names] of Object.entries(DOMAINS)) {
-    options.progress?.(`Server reference: converting ${name} tables`);
+    options.progress?.(`Gameplay content: converting ${name} tables`);
     datasets[name] = domainData(name, names, inventory, tables);
   }
-  options.progress?.("Server reference: compiling NPC routes");
+  options.progress?.("Gameplay content: compiling NPC routes");
   Object.assign(
     datasets.shops,
     compileNpcRoutes(datasets.shops.tables, scripts.compilations),
@@ -457,30 +450,26 @@ export async function extractServerData(options) {
   };
 }
 
-function cliOptions(args) {
-  const options = {};
-  if (args.length > 4) throw new Error("Too many server-data arguments");
-  for (let index = 0; index < args.length; index += 2) {
-    const name = args[index],
-      value = args[index + 1];
-    if (!value || value.startsWith("--")) {
-      throw new Error(`Missing value for ${name}`);
-    }
-    if (name === "--server-root" && !options.serverRoot) {
-      options.serverRoot = value;
-    } else if (name === "--output" && !options.output) options.output = value;
-    else throw new Error(`Unknown or duplicate option: ${name}`);
-  }
-  return options;
+export function cliOptions(args) {
+  const values = parseFlags(args, {
+    "gameplay-definitions-root": { type: "string" },
+    "sql-root": { type: "string" },
+    output: { type: "string" },
+  });
+  return {
+    output: values.output,
+    sqlRoot: values["sql-root"],
+    gameplayDefinitionsRoot: values["gameplay-definitions-root"],
+  };
 }
 
 if (import.meta.main) {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === "--help") {
     console.log(
-      "Usage: bun client/tools/server-data.js --output DIR [--server-root COSMIC]\n" +
-        "Default root: MAPLE_SERVER_REFERENCE or /Users/k/Development/tensorfish/Cosmic\n" +
-        "Inventories every db/tables and db/data SQL file and scripts/**/*.js.\n" +
+      "Usage: bun client/tools/server-data.js --output DIR [--gameplay-definitions-root DIR] [--sql-root DIR]\n" +
+        "Defaults: repository infra/gameplay-definitions for gameplay scripts/policy.json; infra/sql for SQL. No external server checkout or environment overrides.\n" +
+        "Inventories tables/*.sql and data/*.sql under the SQL root and **/*.js under the gameplay definitions root.\n" +
         "Writes immutable references/{sha256}.json; stdout is deterministic descriptor JSON.\n" +
         "Domains: shops, drops, crafting, cards, cash. Report includes hashes, schemas, row counts, unsupported statements and script identities.\n" +
         "Only CREATE TABLE and literal INSERT VALUES are interpreted; bootstrap SQL subqueries are reported, never executed. Credentials are excluded.\n" +
