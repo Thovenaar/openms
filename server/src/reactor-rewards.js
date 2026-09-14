@@ -9,6 +9,7 @@ import {
 } from "./field-drops.js";
 import { combatOperation } from "./combat-rewards.js";
 import { protocolError } from "../../shared/schema.js";
+import { dropBirths } from "./database-history.js";
 
 /** Capture the hitter and field before async work; every terminal generation has one producer. */
 export function rewardReactor(controller, record) {
@@ -62,6 +63,11 @@ async function commitReward(world, actor, field, { record, reward }) {
         return {
           value: { kind: "reactor.reward", dropPlanId: plan.id },
           grantEntitlements: plan.grantEntitlements,
+          itemBirths: dropBirths(plan.requests, {
+            source: "reactor",
+            sourceId: String(record.placement.templateId),
+            mapId: Number(actor.profile.location.mapId),
+          }),
         };
       },
     );

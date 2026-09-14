@@ -19,6 +19,7 @@ import {
 import { protocolError } from "../../shared/schema.js";
 import { commitPickpocketDrops, releaseSkillDrops } from "./skill-drops.js";
 import { broadcastLevelUp } from "./field-effects.js";
+import { dropBirths } from "./database-history.js";
 
 export function combatOperation(actor, kind, operationId = randomUUID()) {
   return {
@@ -31,6 +32,25 @@ export function combatOperation(actor, kind, operationId = randomUUID()) {
       .update(`${kind}:${actor.id}:${actor.field.epoch}:${operationId}`)
       .digest("hex"),
   };
+}
+
+/** Label every rolled ground drop with the monster or pickpocket skill that produced it. */
+function killItemBirths(plan, pickpocket, mob, owner) {
+  const mapId = Number(owner.profile.location.mapId);
+  const births = dropBirths(plan.requests, {
+    source: "monster",
+    sourceId: String(mob.templateId),
+    mapId,
+  });
+  if (!pickpocket) return births;
+  return births.concat(
+    dropBirths(pickpocket.requests, {
+      source: "skill",
+      sourceId: String(mob.templateId),
+      mapId,
+      detail: { skill: "pickpocket" },
+    }),
+  );
 }
 
 /** One generation has one producer; EXP, quests, family and loot escrow share its receipt. */
@@ -77,6 +97,7 @@ export async function rewardKill(world, actor, mob, showdown = 0) {
           grantEntitlements: pickpocket
             ? [...plan.grantEntitlements, ...pickpocket.grantEntitlements]
             : plan.grantEntitlements,
+          itemBirths: killItemBirths(plan, pickpocket, mob, credit.lootOwner),
         };
       },
     );

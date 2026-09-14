@@ -103,27 +103,18 @@ function equipment(profile, action, context) {
   }
 }
 
-function scroll(profile, action, context) {
-  ownedItem(profile, context.actor, action.scrollId, context.now);
-  ownedItem(profile, context.actor, action.equipmentId, context.now);
-  if (action.protectionId) {
-    ownedItem(profile, context.actor, action.protectionId, context.now);
-  }
-  const request = {
+function scrollRequest(action, context) {
+  return {
     scrollUid: action.scrollId,
     equipUid: action.equipmentId,
     whiteScroll: action.protectionId !== undefined,
     whiteScrollUid: action.protectionId,
     temporary: context.actor.temporaryStats?.derived,
   };
-  const plan = enhancementPlan(profile, context.items, request);
-  if (action.protectionId && plan.white?.uid !== action.protectionId) {
-    reject(
-      "REQUIREMENTS_NOT_MET",
-      "This scroll has no compatible protection mode.",
-    );
-  }
-  const spirit = LEGENDARY_SPIRIT_SKILLS.some(
+}
+
+function hasLegendarySpirit(profile, context) {
+  return LEGENDARY_SPIRIT_SKILLS.some(
     (id) =>
       profileSkillLevel(
         context.world.content.catalog.ui.skills,
@@ -132,15 +123,68 @@ function scroll(profile, action, context) {
         context.now,
       ) > 0,
   );
-  if (plan.equipment.slot > 0 && !spirit) {
+}
+
+function scrollOutcome(plan, action, before, outcome) {
+  const after =
+    outcome === "curse" || !plan.equipment.upgrade
+      ? null
+      : structuredClone(plan.equipment.upgrade);
+  return {
+    equipmentId: action.equipmentId,
+    equipmentTemplateId: plan.equipment.id,
+    scrollId: action.scrollId,
+    scrollTemplateId: plan.scroll?.id ?? null,
+    whiteScrollId: action.protectionId ?? null,
+    before,
+    after,
+    outcome,
+  };
+}
+
+function scroll(profile, action, context) {
+  ownedItem(profile, context.actor, action.scrollId, context.now);
+  ownedItem(profile, context.actor, action.equipmentId, context.now);
+  if (action.protectionId) {
+    ownedItem(profile, context.actor, action.protectionId, context.now);
+  }
+  const request = scrollRequest(action, context);
+  const plan = enhancementPlan(profile, context.items, request);
+  if (action.protectionId && plan.white?.uid !== action.protectionId) {
+    reject(
+      "REQUIREMENTS_NOT_MET",
+      "This scroll has no compatible protection mode.",
+    );
+  }
+  if (plan.equipment.slot > 0 && !hasLegendarySpirit(profile, context)) {
     reject(
       "REQUIREMENTS_NOT_MET",
       "Inventory scrolling requires learned Legendary Spirit.",
     );
   }
+  const before = plan.equipment.upgrade
+    ? structuredClone(plan.equipment.upgrade)
+    : null;
+  const outcome = applyEnhancement(
+    profile,
+    context.items,
+    request,
+    context.random,
+  );
   return {
-    kind: "equipment.enhancement",
-    outcome: applyEnhancement(profile, context.items, request, context.random),
+    value: { kind: "equipment.enhancement", outcome },
+    history: scrollOutcome(plan, action, before, outcome),
+  };
+}
+
+/** Provenance label for one scroll attempt; database-history completes the ledger row. */
+export function enhancementHistory(result) {
+  return {
+    [result.history.equipmentId]: {
+      event: result.value.outcome === "curse" ? "destroyed" : "enhanced",
+      source: "enhancement",
+      detail: result.history,
+    },
   };
 }
 
@@ -156,8 +200,13 @@ function mutateInventory(profile, action, context) {
     case "equipment.unequip":
       equipment(profile, action, context);
       break;
-    case "equipment.scroll":
-      return { value: scroll(profile, action, context) };
+    case "equipment.scroll": {
+      const result = scroll(profile, action, context);
+      return {
+        value: result.value,
+        itemSources: enhancementHistory(result),
+      };
+    }
     case "item.use":
       return useItem(profile, action, context);
     default:

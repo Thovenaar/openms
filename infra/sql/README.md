@@ -28,6 +28,7 @@ The current files are:
 5. `005-content.sql`: asset-build records, custom definitions and uploaded assets.
 6. `006-world.sql`: published world releases, resources and the active release pointer.
 7. `007-content-kinds.sql`: admits the `drops` and `dialogue` custom content kinds.
+8. `008-item-history.sql`: append-only per-instance provenance (`item_history`, `item_origin`).
 
 These scripts previously lived in `server/sql/` and `content/sql/`. For an existing database without the new `migrations` table, the CLI replays the idempotent scripts once and records them. Existing rows and the legacy `authority_migration` guards are retained. Back up an established database before schema updates, and stop the old server version during adoption because it still has a startup migration runner.
 

@@ -1,5 +1,5 @@
 /** Bump when a new migration changes the schema required by this runtime. */
-export const DATABASE_SCHEMA_VERSION = 7;
+export const DATABASE_SCHEMA_VERSION = 8;
 
 function migrationRequired() {
   return Object.assign(

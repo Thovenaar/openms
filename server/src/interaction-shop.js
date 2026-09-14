@@ -84,16 +84,30 @@ export async function executeShop(actor, message, world) {
       );
       const quote = shopQuote(draft, world.content.items, session, action);
       applyShopQuote(draft, quote);
+      const value = {
+        kind: "shop.transaction",
+        shopSession: session.id,
+        action: quote.kind,
+        itemId: quote.itemId,
+        uid: quote.uid,
+        count: quote.units,
+        amount: quote.amount,
+        currency: quote.currency,
+      };
+      if (quote.kind !== "buy") return { value };
       return {
-        value: {
-          kind: "shop.transaction",
-          shopSession: session.id,
-          action: quote.kind,
-          itemId: quote.itemId,
-          uid: quote.uid,
-          count: quote.units,
-          amount: quote.amount,
-          currency: quote.currency,
+        value,
+        itemSources: {
+          [quote.uid]: {
+            source: "shop",
+            sourceId: String(session.shopId),
+            mapId: Number(actor.profile.location.mapId),
+            detail: {
+              npcId: session.npcId,
+              rowId: action.rowId,
+              count: quote.units,
+            },
+          },
         },
       };
     },

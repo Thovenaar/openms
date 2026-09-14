@@ -33,6 +33,11 @@ import {
 } from "./character-creation.js";
 import { characterSummary } from "./character-summary.js";
 import { persistCheckpoint } from "./database-checkpoint.js";
+import {
+  persistItemHistory,
+  readItemHistory,
+  readHistoryQuery,
+} from "./database-history.js";
 
 const MAX_ATTEMPTS = 3;
 const MAX_EVENTS = 256;
@@ -446,6 +451,23 @@ export class Database {
       profile.cash.balances,
     );
     await persistMarket(tx, this, entry, { before: empty, after: profile });
+    const bootstrapSources = {};
+    for (const uid of flatten(profile).keys()) {
+      bootstrapSources[uid] = { source: "bootstrap" };
+    }
+    await persistItemHistory(tx, {
+      transactionId: characterId,
+      reason: "bootstrap",
+      actorId: characterId,
+      mapId: Number(profile.location.mapId),
+      states: [{ id: characterId, accountId, profile: empty }],
+      drafts: [profile],
+      storageBefore: null,
+      storageAfter: null,
+      accountId: null,
+      names: new Map([[`character:${characterId}`, profile.name]]),
+      result: { itemSources: bootstrapSources },
+    });
     await tx`INSERT INTO character_op_log(character_id,operation_id,transaction_id,kind,effect) VALUES(${characterId},${characterId},${characterId},'bootstrap',${{ kind: "bootstrap", profile }})`;
   }
   async hydrate(tx, row) {
@@ -699,6 +721,8 @@ export class Database {
     }
     await this.socialNames(tx, result.socialNames);
     await this.entitlements(tx, transactionId, result);
+    // Provenance reads the durable drafts before persistMutation installs the new profile.
+    await this.recordItemHistory(tx, request, states);
     // Remove every changed owner row before inserting any transfer destination.
     for (let index = 0; index < states.length; index += 1) {
       await this.removeChangedItems(
@@ -911,6 +935,40 @@ export class Database {
     });
     const cache = { ...storage, items: [] };
     await tx`UPDATE account_storage SET state=${cache},updated_at=clock_timestamp() WHERE account_id=${accountId}`;
+  }
+  /** Provenance rows come from the same committed delta as item_instance, so retries never double-write. */
+  async recordItemHistory(tx, request, states) {
+    const { owners, operation, memo } = request;
+    const { drafts, result, transactionId } = memo.plan;
+    await persistItemHistory(tx, {
+      transactionId,
+      reason: operation.kind,
+      actorId: owners[0].id,
+      mapId: Number(states[0].profile.location.mapId),
+      states,
+      drafts,
+      storageBefore: request.storage,
+      storageAfter: memo.plan.storage,
+      accountId: request.account ? owners[0].accountId : null,
+      names: new Map([[`character:${owners[0].id}`, owners[0].profile.name]]),
+      result,
+    });
+  }
+  /** A player may read an instance they currently own or have ever owned. */
+  async itemHistory(actor, value) {
+    const request = readHistoryQuery(value);
+    const present = await this
+      .sql`SELECT 1 AS owned FROM item_instance WHERE id=${request.uid} AND owner_id=${actor.id} LIMIT 1`;
+    if (!present[0]) {
+      const linked = await this
+        .sql`SELECT 1 AS linked FROM item_history WHERE item_id=${request.uid} AND (from_owner_id=${actor.id} OR to_owner_id=${actor.id} OR actor_id=${actor.id} OR account_id=${actor.accountId}) LIMIT 1`;
+      if (!linked[0]) throw failure("NOT_FOUND");
+    }
+    return readItemHistory(this.sql, request);
+  }
+  /** Administrative read used by the history CLI; it applies no ownership policy. */
+  async itemHistoryTrail(value) {
+    return readItemHistory(this.sql, value);
   }
   async cashLedger(tx, entry, before, after) {
     for (const asset of CASH_CURRENCIES) {
