@@ -1,6 +1,9 @@
-# Systematic client audit
+# Retired offline client audit
 
-The current correction pass combines original-binary/WZ investigation, source-level domain audits, independent native browser scenarios, fault-boundary probes and an integrated replay. **410 integrated checks pass; 66 regression tests pass (414 assertions).** Full extraction succeeds for the **356-map** packaged closure.
+> [!NOTE]
+> The offline client, installer and validator covered by this report have been removed. This page preserves evidence for the retired build; use the [online validation procedure](validation-method.md) for current work.
+
+This historical correction pass combined original-binary/WZ investigation, source-level domain audits, independent native browser scenarios, fault-boundary probes and an integrated replay. **410 integrated checks passed; 66 regression tests passed (414 assertions).** Full extraction succeeded for the **356-map** packaged closure.
 
 This is not a claim that the original game has been reproduced completely. Supplied authority consists of original PE/DLL/WZ bytes and address-bearing Ghidra reconstruction. No original C/C++ source, PDBs, Windows gameplay recording or executable Windows reference environment was supplied. Decompiled C is evidence, not original source. See [inputs](inputs.md) and the [Windows reference request](windows-reference-captures.md).
 
@@ -118,18 +121,7 @@ The integrated cold-ready measurement was25.441 s under page-target150-ms/187,50
 
 ## Verification and remaining authority boundaries
 
-Executed on the integrated source:
-
-```sh
-bun run extract
-bun run format
-bun run lint
-bun test
-bun client/tools/validate.js --url http://127.0.0.1:3101 --duration 15 \
-  --maps 100000000,100010000,103040000,108000500,211040000,120000000,200090500,230000000 \
-  --output docs/client-audit/validation
-bun run docs:build
-```
+The retained reports record the exact retired extraction, formatting, test, browser-validator and documentation-build invocations. Those offline entry points are no longer runnable. Current checks use `bun run client:build`, focused online scenarios and the [online validation procedure](validation-method.md).
 
 The isolated acceptance server used3101 and did not replace the user's3100 server. Throwaway corruption/publication/capacity probes were used for boundary proof rather than left as production features. The two final retained regressions specifically defend failed icon retention and contact-versus-authored audio provenance; the latter's first fixture mistake was corrected before observing the actual pre-fix wrong sound.
 

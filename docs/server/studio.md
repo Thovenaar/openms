@@ -7,7 +7,7 @@ bun run server:dev
 bun run studio:dev
 ```
 
-Studio has its own listener and uses the existing account login. The backend development launcher provisions the usual development accounts; Studio does not create or elevate accounts. The game client is optional for authoring: run `bun run client:dev:online` on port **3102** when ready to play.
+Studio has its own listener and uses the existing account login. The backend development launcher provisions the usual development accounts; Studio does not create or elevate accounts. The game client is optional for authoring: run `bun run client:dev` on port **3102** when ready to play.
 
 The workspace packages are `@openms/client`, `@openms/server`, `@openms/content` and `@openms/studio`. Studio owns the browser interface, content owns the authoring contracts and persistence, and server owns publication admission and shared-world activation. The dashboard reuses the client's Pixi renderer, atlas decoder and original resources for previews. No generated asset file is edited.
 
@@ -36,12 +36,12 @@ Unsaved edits remain in memory and navigating away warns before discarding them.
 
 Studio loads [`.env.studio`](../../.env.studio) relative to the repository, independently of the working directory. Process environment overrides the file; programmatic launch options override both. Restart Studio after changing its settings or source.
 
-| Setting | Default | Purpose |
-| --- | --- | --- |
-| `STUDIO_HOST` | `127.0.0.1` | Studio bind address |
-| `STUDIO_PORT` | `3103` | Dedicated Studio port |
-| `OPENMS_SERVER_URL` | `http://127.0.0.1:3200` | Backend API origin |
-| `OPENMS_CLIENT_URL` | `http://127.0.0.1:3102` | Public destination of game links |
+| Setting               | Default                   | Purpose                                                      |
+| --------------------- | ------------------------- | ------------------------------------------------------------ |
+| `STUDIO_HOST`         | `127.0.0.1`               | Studio bind address                                          |
+| `STUDIO_PORT`         | `3103`                    | Dedicated Studio port                                        |
+| `OPENMS_SERVER_URL`   | `http://127.0.0.1:3200`   | Backend API origin                                           |
+| `OPENMS_CLIENT_URL`   | `http://127.0.0.1:3102`   | Public destination of game links                             |
 | `OPENMS_CONTENT_ROOT` | `client/public/generated` | Existing extraction for previews, relative to the repository |
 
 The backend's `.env.server` separately sets `OPENMS_STUDIO_ORIGIN=http://127.0.0.1:3103`. When changing Studio's public host or port, update that exact browser origin and restart the backend too. Development admits the same scheme/port on `localhost`, `127.0.0.1` and `[::1]`; production requires the exact configured HTTPS origin. Keep both listeners' `OPENMS_CONTENT_ROOT` pointed at the same extraction.

@@ -73,7 +73,7 @@ The original eight-map acceptance selection was `100000000`, `100000001`, `10304
 
 ## Current publication and coverage boundaries
 
-[`extraction.json`](extraction.json) retains shared lossless packaging, original input hashes, byte comparisons and its own catalog build identity. The earlier **356-map** selection is historical, not the current release total. The current iteration's full offline inventory contains **728 maps**; the pinned release/catalog and [validation](validation.md) own its exact identity and acceptance status. Its map list is the authority for packaged content, not proof that every original map, quest or course mechanic is supported.
+[`extraction.json`](extraction.json) retains shared lossless packaging, original input hashes, byte comparisons and its own catalog build identity. The earlier **356-map** selection is historical, not the current catalog total. The current iteration's full inventory contains **728 maps**; the generated catalog and [validation](validation.md) own its exact identity and acceptance status. Its map list is the authority for packaged content, not proof that every original map, quest or course mechanic is supported.
 
 Current on-demand coverage includes Item/Equip and their original controls/tooltips; NPC portraits/dialogue/shop assets; Quest/QuestAlarm/Title and WorldMap; original cash/catalog/preview resources; Monster Book; and the supported social/trading windows. A decoded or packaged branch is not automatically an operational feature. The [UI branch ledger](ingame-ui.md#remaining-resource-ledger), [NPC/quest contract](ingame-quests.md) and each feature's recorded blockers distinguish original metadata, packaged assets, implemented semantics, profile eligibility and exercised native paths.
 

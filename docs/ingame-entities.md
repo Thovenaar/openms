@@ -1,8 +1,8 @@
-# Offline reactors and remaining entity families
+# Reactors and remaining entity families
 
 ## Evidence, not server reconstruction
 
-Implementation sources are only the supplied WZ archives and unpacked original executable. No third-party client, server scripts, original runtime recording, or server authority was available. Rendering and hit eligibility are address-backed where described below; applying WZ `state`, item conditions, `timeOut`, quest requirements and placement `reactorTime` offline is an explicit provisional local policy. **A script name never grants an item, meso, experience, quest completion, monster spawn or map transition.**
+Rendering and hit eligibility use the supplied WZ archives and unpacked original executable. The initial offline implementation had no server reward adapter; [reactor loot recovery](reactor-quest-scroll-recovery.md) now connects explicitly compiled drop definitions to offline pickup and durable online drops. A script name alone still grants nothing. Complex event scripts remain outside the closed reward compiler.
 
 The inventory was executed over every IMG and every typed descendant in these previously omitted archives, without copying encoded canvas bytes into documentation. Complete rows and exhaustive normalized path/type family counts are retained, including UOL text, scalar/vector values, canvas dimensions/formats and encoded byte counts:
 
@@ -47,7 +47,7 @@ Fresh read-only Ghidra output is retained under `ghidra-ingame-portals/`:
 - Expanded extraction also reaches explicit zero-delay reactor frames. Their original Gr2D insertion/timestamp/queue consumers preserve equal-time events, now supported by the common renderer without adding a guessed frame duration; see [client evidence](client-evidence.md#timed-frame-alpha--verified).
 - [reactor-layers.txt](ghidra-ingame-portals/reactor-layers.txt): exact normal depth at `00734d30` is `B + 29990 + 10*(plane*3000-group)` and backTile depth at `00734fb5` is `B + 2000 + plane*30000`, where the existing renderer removes common `B=-0x40000000`. The original asks `00a45677` for the placement foothold. Offline extraction selects the nearest segment at/below the placement; the no-segment plane0 fallback is explicitly local, not recovered collision behavior.
 
-`ReactorSystem` runs state hit one-shots without looping, changes to the exact authored target state, processes positive timeOut/type101 transitions, and locally respawns terminal states after placement reactorTime seconds. Type100 uses the actual inventory stack and authored required count. The `quest` field is locally interpreted as requiring the quest to be active. None of those local authority choices is described as an original server rule. Reactors whose root action is a script still animate supported state transitions but report `local-transition-script-reward-unavailable` instead of granting invented rewards.
+`ReactorSystem` runs state hit one-shots without looping, changes to the exact authored target state, processes positive timeOut/type101 transitions, and locally respawns terminal states after placement reactorTime seconds. Type100 uses the actual inventory stack and authored required count. The `quest` field is locally interpreted as requiring the quest to be active. None of those local authority choices is described as an original server rule. Terminal transitions can now invoke the closed, compiled drop reward owner. Unsupported script bodies retain their unavailable boundary; see [reward admission and limitations](reactor-quest-scroll-recovery.md#reward-path).
 
 ## Extraction and lifetime contract
 

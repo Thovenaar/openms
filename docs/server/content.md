@@ -1,6 +1,6 @@
 # Custom content: `@openms/content`
 
-`content/` is the private Bun workspace package for database-backed map, mob and quest authoring. It provides an original-asset registry, closed authoring documents, revision storage and publication compilers. The server exposes it through authenticated `/api/v1/custom-content/` routes. The [`@openms/studio` dashboard](studio.md) runs on its own origin (default `http://127.0.0.1:3103`), serving previews and proxying authoring requests independently of the game client.
+`content/` is the private Bun workspace package for database-backed map, mob, quest, monster-drop-table and NPC-conversation authoring. It provides an original-asset registry, closed authoring documents, revision storage and publication compilers. The server exposes it through authenticated `/api/v1/custom-content/` routes. The [`@openms/studio` dashboard](studio.md) runs on its own origin (default `http://127.0.0.1:3103`), serving previews and proxying authoring requests independently of the game client.
 
 Publishing creates a validated, immutable private runtime revision. A developer can explicitly activate selected publications as a shared-world release. The server and clients load that release from PostgreSQL alongside the unchanged extracted catalog. Authoring rewards never grants rewards to a player's live character; normal quest transactions remain authoritative.
 
@@ -15,7 +15,7 @@ Publishing creates a validated, immutable private runtime revision. A developer 
 | `content_world_resource` | Immutable compiled JSON and promoted PNG bytes used by shared releases |
 | `content_world_head` | One transactional pointer to the selected shared-world release |
 
-The package's [authoring migration](../../infra/sql/005-content.sql) and [world migration](../../infra/sql/006-world.sql) are applied explicitly by `bun run migrate --database-url URL`, with history in the PostgreSQL `migrations` table. They create their own tables and runtime-ID sequence; they do not modify original asset files or original reference-data tables. Uploads, definitions, modified map regions and compiled records are all stored in PostgreSQL. `client/public/generated/` remains an input.
+The package's [authoring migration](../../infra/sql/005-content.sql), [world migration](../../infra/sql/006-world.sql) and [content-kind migration](../../infra/sql/007-content-kinds.sql) are applied explicitly by `bun run migrate --database-url URL`, with history in the PostgreSQL `migrations` table. They create their own tables and runtime-ID sequence; they do not modify original asset files or original reference-data tables. Uploads, definitions, modified map regions and compiled records are all stored in PostgreSQL. `client/public/generated/` remains an input.
 
 The authenticated account owns every read and write. Projects are namespaces within an account, not collaborative teams. The API derives ownership from the session; caller-supplied owner IDs are rejected. Ordinary accounts may author private content without developer gameplay privileges. POST requests require the accepted Origin and session CSRF token; mutations recheck session admission inside the committing transaction. Image and publication responses use `no-store`.
 
@@ -41,7 +41,7 @@ Custom runtime IDs are allocated from 800000000–899999998, checked against the
 
 Activation is separate from saving and publishing. Only a developer account may select a release, and the world must be idle: no connected or reconnecting characters, joins, active character leases, map loads, retained drops or unfinished field activity. Ordinary accounts can author and publish privately. They cannot activate content for other players.
 
-A release selects exact published revisions from one owner/project and includes their complete custom dependency closure. All selected revisions must match the server's current original asset build. The server verifies publication hashes, materializes the map manifests/regions and promoted uploaded images, then atomically records the release and updates the database head. The installed overlay adds custom IDs; it cannot override an original ID. Every selected resource is verified by SHA-256. Failed compilation or admission leaves the previous release selected.
+A release selects exact published revisions from one owner/project and includes their complete custom dependency closure. All selected revisions must match the server's current original asset build. The server verifies publication hashes, materializes the map manifests/regions and promoted uploaded images, then atomically records the release and updates the database head. The installed overlay adds custom IDs; it cannot override an original map, monster or quest identity. Authored drop tables and conversations are keyed by their original or custom target identity and deliberately extend or replace that target instead. Every selected resource is verified by SHA-256. Failed compilation or admission leaves the previous release selected.
 
 The runtime supports one authoritative world process per database. The activation gate blocks joins while replacing the release. Do not run multiple independent world processes against one database; distributed release propagation is not implemented. The lease check is an additional protection, not a distributed process-coordination protocol.
 
@@ -55,13 +55,15 @@ World catalogs/resources are available through `/api/v1/world-content/catalog/:h
 
 ## Authoring contracts
 
-The executable schemas are in [definitions.js](../../content/src/definitions.js), [map-definition.js](../../content/src/map-definition.js) and [quest-definition.js](../../content/src/quest-definition.js). Unknown fields and arbitrary scripts are rejected.
+The executable schemas are in [definitions.js](../../content/src/definitions.js), [map-definition.js](../../content/src/map-definition.js), [quest-definition.js](../../content/src/quest-definition.js), [drop-definition.js](../../content/src/drop-definition.js) and [dialogue-definition.js](../../content/src/dialogue-definition.js). Unknown fields and arbitrary scripts are rejected.
 
-| Kind  | Supported authoring                                                                                                                                                                                                        |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mob   | Derive from an original mob; override supported stats while retaining its original animation/combat definition; optionally supply a new PNG sheet with explicit actions, delays, origins and body rectangles               |
-| Map   | Derive from an original map; add original scenery/mob appearances or uploaded decorations; add original/custom mob spawns; remove scenery or mob placements; replace bounds, footholds and ladders                         |
-| Quest | Choose original NPC endpoints, level limits, completed-quest prerequisites, hunt/collect objectives, fixed EXP/meso/item rewards and plain dialogue; hunt targets and prerequisites may reference custom published content |
+| Kind     | Supported authoring                                                                                                                                                                                                        |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mob      | Derive from an original mob; override supported stats while retaining its original animation/combat definition; optionally supply a new PNG sheet with explicit actions, delays, origins and body rectangles               |
+| Map      | Derive from an original map; add original scenery/mob appearances or uploaded decorations; add original/custom mob spawns; remove scenery or mob placements; replace bounds, footholds and ladders                         |
+| Quest    | Choose original NPC endpoints, level limits, completed-quest prerequisites, hunt/collect objectives, fixed EXP/meso/item rewards and plain dialogue; hunt targets and prerequisites may reference custom published content |
+| Drops    | Extend or replace one original/custom monster's drop rows with explicit item, chance, quantity, quest gate and optional window/job/level conditions; items resolve against the pinned catalog, and the merged table stays within the field row limit |
+| Dialogue | Replace one original NPC's conversation with up to sixteen plain-text nodes, dense node IDs and bounded options whose targets are existing nodes or an end |
 
 Map publication reuses unchanged original descriptors. Modified/new regions become database resources. Geometry and animation are checked using the existing simulation/rendering validators, including whether added mobs are active on valid footholds. Existing NPCs, portals, backgrounds and other inherited map systems remain inherited; authoring custom portals/NPC behavior and starting from a blank map are not implemented.
 

@@ -1,6 +1,6 @@
-# Authorized offline server data
+# Authorized server reference data
 
-Cosmic is an authorized **server reference**, not original Nexon client source or a replacement for original WZ metadata. The historical inventory below was executed against `/Users/k/Development/tensorfish/Cosmic`; current conversion uses the repository-owned snapshots. No SQL, Cosmic JavaScript, Java server, Windows client, or full asset extraction was executed by the converter.
+Cosmic is an authorized **server reference**, not original Nexon client source or a replacement for original WZ metadata. The historical inventory below was executed against `/Users/k/Development/tensorfish/Cosmic`; current online conversion uses the repository-owned snapshots. No SQL, Cosmic JavaScript, Java server, Windows client, or full asset extraction was executed by the converter.
 
 ## Reproducible tool and output contract
 
@@ -26,52 +26,52 @@ Engineering bounds: 16,000,000 bytes per SQL file, 2,000,000 lexer matches per f
 
 Every file below contains declarations and **zero INSERT rows**. In particular, `009-drop.sql` is not the drop catalog. The supplied 24 files declare **73 tables**; **55 tables have no companion seed rows**. Column definitions/defaults in an empty table are not world content.
 
-| File under `src/main/resources/db/tables/` | Declared tables | Populated companion or meaning |
-| --- | --- | --- |
-| `001-account.sql` | accounts | Admin bootstrap only; excluded |
-| `002-character.sql` | characters | Admin bootstrap only; excluded |
-| `003-inventory.sql` | inventoryitems, inventoryequipment, inventorymerchant | First two bootstrap only; merchant empty |
-| `004-skill.sql` | skills, cooldowns, skillmacros | Empty character-state schemas, not skill definitions |
-| `005-pet.sql` | pets, petignores | Empty state |
-| `006-quest.sql` | questactions, questprogress, questrequirements, queststatus, area_info, eventstats, medalmaps | All empty; no SQL quest content |
-| `007-guild.sql` | guilds, bbs_replies, bbs_threads, alliance, allianceguilds | Empty social state |
-| `008-keymap.sql` | keymap, quickslotkeymapped | keymap bootstrap only; not native default-key authority |
-| `009-drop.sql` | drop_data, drop_data_global, reactordrops | Data files 152, 151, 131 |
-| `010-storage.sql` | storages, fredstorage | storages bootstrap only |
-| `011-shop.sql` | shops, shopitems | Data files 101, 102 |
-| `012-character-state.sql` | playerdiseases, buddies, savedlocations, famelog, trocklocations, characterexplogs | Empty character state |
-| `013-cashshop.sql` | wishlists, specialcashitems, nxcode, nxcode_items, nxcoupons | Data files 141, 142 for specialcashitems/nxcoupons; others empty |
-| `014-gift.sql` | gifts, notes, newyear | Empty state |
-| `015-marriage.sql` | marriages, rings | Empty state |
-| `016-monsterbook.sql` | monsterbook, monstercarddata | monsterbook empty; card mappings in 121 |
-| `017-family.sql` | family_character, family_entitlement | Empty state |
-| `018-transfer.sql` | namechanges, worldtransfers | Empty requests |
-| `019-mts.sql` | mts_cart, mts_items | Empty market state |
-| `020-maker.sql` | makercreatedata, makerrecipedata, makerrewarddata, makerreagentdata | Data files 111–114 |
-| `021-field-object.sql` | playernpcs, playernpcs_equip, playernpcs_field, plife | All empty; not authored NPC/monster placements |
-| `022-ban.sql` | hwidaccounts, hwidbans, ipbans, macbans, macfilters, reports | Empty moderation state |
-| `023-bosslog.sql` | bosslog_daily, bosslog_weekly | Empty attempt logs |
-| `024-duey.sql` | dueypackages, dueyitems | Empty delivery state |
+| File under `src/main/resources/db/tables/` | Declared tables                                                                               | Populated companion or meaning                                   |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `001-account.sql`                          | accounts                                                                                      | Admin bootstrap only; excluded                                   |
+| `002-character.sql`                        | characters                                                                                    | Admin bootstrap only; excluded                                   |
+| `003-inventory.sql`                        | inventoryitems, inventoryequipment, inventorymerchant                                         | First two bootstrap only; merchant empty                         |
+| `004-skill.sql`                            | skills, cooldowns, skillmacros                                                                | Empty character-state schemas, not skill definitions             |
+| `005-pet.sql`                              | pets, petignores                                                                              | Empty state                                                      |
+| `006-quest.sql`                            | questactions, questprogress, questrequirements, queststatus, area_info, eventstats, medalmaps | All empty; no SQL quest content                                  |
+| `007-guild.sql`                            | guilds, bbs_replies, bbs_threads, alliance, allianceguilds                                    | Empty social state                                               |
+| `008-keymap.sql`                           | keymap, quickslotkeymapped                                                                    | keymap bootstrap only; not native default-key authority          |
+| `009-drop.sql`                             | drop_data, drop_data_global, reactordrops                                                     | Data files 152, 151, 131                                         |
+| `010-storage.sql`                          | storages, fredstorage                                                                         | storages bootstrap only                                          |
+| `011-shop.sql`                             | shops, shopitems                                                                              | Data files 101, 102                                              |
+| `012-character-state.sql`                  | playerdiseases, buddies, savedlocations, famelog, trocklocations, characterexplogs            | Empty character state                                            |
+| `013-cashshop.sql`                         | wishlists, specialcashitems, nxcode, nxcode_items, nxcoupons                                  | Data files 141, 142 for specialcashitems/nxcoupons; others empty |
+| `014-gift.sql`                             | gifts, notes, newyear                                                                         | Empty state                                                      |
+| `015-marriage.sql`                         | marriages, rings                                                                              | Empty state                                                      |
+| `016-monsterbook.sql`                      | monsterbook, monstercarddata                                                                  | monsterbook empty; card mappings in 121                          |
+| `017-family.sql`                           | family_character, family_entitlement                                                          | Empty state                                                      |
+| `018-transfer.sql`                         | namechanges, worldtransfers                                                                   | Empty requests                                                   |
+| `019-mts.sql`                              | mts_cart, mts_items                                                                           | Empty market state                                               |
+| `020-maker.sql`                            | makercreatedata, makerrecipedata, makerrewarddata, makerreagentdata                           | Data files 111–114                                               |
+| `021-field-object.sql`                     | playernpcs, playernpcs_equip, playernpcs_field, plife                                         | All empty; not authored NPC/monster placements                   |
+| `022-ban.sql`                              | hwidaccounts, hwidbans, ipbans, macbans, macfilters, reports                                  | Empty moderation state                                           |
+| `023-bosslog.sql`                          | bosslog_daily, bosslog_weekly                                                                 | Empty attempt logs                                               |
+| `024-duey.sql`                             | dueypackages, dueyitems                                                                       | Empty delivery state                                             |
 
 The related `changelog-data.xml` names all 13 companion files listed below. The converter inventories the actual trees, not just filenames presumed present from a manifest; it does not run Liquibase or MySQL.
 
 ## Actual companion rows
 
-| File under `src/main/resources/db/data/` | Table / rows | Browser reference use |
-| --- | --- | --- |
-| `101-shops-data.sql` | shops: 110 | NPC-to-shop mapping |
-| `102-shopitems-data.sql` | shopitems: 3,882 | Shop inventory and authored price/order |
-| `111-makercreate-data.sql` | makercreatedata: 834 | Maker output requirements |
-| `112-makerrecipe-data.sql` | makerrecipedata: 1,926 | Recipe input counts |
-| `113-makerreward-data.sql` | makerrewarddata: 98 | Reward quantities/probabilities |
-| `114-makerreagent-data.sql` | makerreagentdata: 45 | Reagent stat/value data |
-| `121-monstercard-data.sql` | monstercarddata: 343 | Card-to-mob mapping |
-| `131-reactordrops-data.sql` | reactordrops: 1,116 across four INSERTs | Reactor item/chance/quest configuration |
-| `141-specialcashitems-data.sql` | specialcashitems: 1 | Server cash configuration only |
-| `142-nxcoupons-data.sql` | nxcoupons: 40 | Server coupon schedules only |
-| `151-global-drop-data.sql` | drop_data_global: 5 | Reference only; not automatically enabled |
-| `152-drop-data.sql` | drop_data: 22,157 across three INSERTs | Existing selected-map offline mob drops |
-| `161-admin-data.sql` | accounts: 1; characters: 1; inventoryitems: 5; inventoryequipment: 4; keymap: 40; storages: 1 | All 52 bootstrap rows excluded |
+| File under `src/main/resources/db/data/` | Table / rows                                                                                  | Browser reference use                     |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `101-shops-data.sql`                     | shops: 110                                                                                    | NPC-to-shop mapping                       |
+| `102-shopitems-data.sql`                 | shopitems: 3,882                                                                              | Shop inventory and authored price/order   |
+| `111-makercreate-data.sql`               | makercreatedata: 834                                                                          | Maker output requirements                 |
+| `112-makerrecipe-data.sql`               | makerrecipedata: 1,926                                                                        | Recipe input counts                       |
+| `113-makerreward-data.sql`               | makerrewarddata: 98                                                                           | Reward quantities/probabilities           |
+| `114-makerreagent-data.sql`              | makerreagentdata: 45                                                                          | Reagent stat/value data                   |
+| `121-monstercard-data.sql`               | monstercarddata: 343                                                                          | Card-to-mob mapping                       |
+| `131-reactordrops-data.sql`              | reactordrops: 1,116 across four INSERTs                                                       | Reactor item/chance/quest configuration   |
+| `141-specialcashitems-data.sql`          | specialcashitems: 1                                                                           | Server cash configuration only            |
+| `142-nxcoupons-data.sql`                 | nxcoupons: 40                                                                                 | Server coupon schedules only              |
+| `151-global-drop-data.sql`               | drop_data_global: 5                                                                           | Reference only; not automatically enabled |
+| `152-drop-data.sql`                      | drop_data: 22,157 across three INSERTs                                                        | Existing selected-map offline mob drops   |
+| `161-admin-data.sql`                     | accounts: 1; characters: 1; inventoryitems: 5; inventoryequipment: 4; keymap: 40; storages: 1 | All 52 bootstrap rows excluded            |
 
 Total: **30,609 authored tuples**, of which **30,558** are wholly literal. Five admin INSERT statements containing subqueries account for the other **51 tuples**. The one literal account row is also excluded. The five published reference domains therefore contain **30,557 rows**. No database-generated account/character/item IDs are guessed.
 
@@ -105,11 +105,11 @@ The currency metadata smoke additionally loaded the original `Item.wz:Special/09
 
 Executed resource identities:
 
-| Resource | Bytes | SHA-256 |
-| --- | ---: | --- |
-| shops | 305505 | `20d8ec0e58fcd854fce5cbbb864c927485ced8f8ada022bc941124ab22df2b7e` |
-| drops | 2447259 | `1d00f77d513711baacca5d4e70652a089343964b50fa099632785e330cf4ec85` |
-| crafting | 223259 | `94415c242c8d41947a443c131eaf1682d097156dde3cdb4c52540101cf9782d7` |
-| cards | 12296 | `ef50bb78c07884cea87ae9da1b6e1e99d590951d320fb7ee27678fece579b59a` |
-| cash | 3439 | `f003efbb6f4c48de75e53f644d45cd7f3846c0ce6b8e2a313d21faa3ce303b9c` |
-| report | 359575 | `ea762ef1e2f4c980a64b134f60fc25bb9730323e20b077efc019665e85b31c63` |
+| Resource |   Bytes | SHA-256                                                            |
+| -------- | ------: | ------------------------------------------------------------------ |
+| shops    |  305505 | `20d8ec0e58fcd854fce5cbbb864c927485ced8f8ada022bc941124ab22df2b7e` |
+| drops    | 2447259 | `1d00f77d513711baacca5d4e70652a089343964b50fa099632785e330cf4ec85` |
+| crafting |  223259 | `94415c242c8d41947a443c131eaf1682d097156dde3cdb4c52540101cf9782d7` |
+| cards    |   12296 | `ef50bb78c07884cea87ae9da1b6e1e99d590951d320fb7ee27678fece579b59a` |
+| cash     |    3439 | `f003efbb6f4c48de75e53f644d45cd7f3846c0ce6b8e2a313d21faa3ce303b9c` |
+| report   |  359575 | `ea762ef1e2f4c980a64b134f60fc25bb9730323e20b077efc019665e85b31c63` |

@@ -1,4 +1,7 @@
-# Original portal reconstruction
+# Original portal reconstruction evidence
+
+> [!NOTE]
+> Browser-local traversal described below belonged to the removed client. The online server now authorizes portal and scripted travel; current ownership is recorded in [online feature coverage](server/offline-parity.md).
 
 ## Scope and provenance
 
@@ -97,9 +100,9 @@ NPC2007 also exposed a compiler defect: the static output checker combined maxim
 
 The session block is installed only after the local trigger operation succeeds. NPC-opening failure leaves it unblocked and uses the existing failed-overlap exit/reentry and response cooldown policy; cancellation cannot open a stale scene's conversation. No direct travel, reward, level grant or original portal sound is fabricated by the trigger. Other beginner scripts, including `glTutoMsg0`, remain explicit unsupported authority.
 
-Verification recipe after regeneration: launch the actual browser with a fresh level1 local character in `000010000`, allow spawn overlap without pressing Up, and confirm no `server-script-unavailable`, no NPC window, unchanged scene and a settled portal gate. With a second real local character at level30 (clearly label any editor fixture), reload a fresh beginner session: spawn overlap must open NPC2007. Exercise No/Close separately from Yes; Yes must use the faded atomic NPC path to `104000000` portal0. Repeat with destination assets unavailable to confirm the current dialogue/source survive without changing durable location, then with a complete cached release and transport disabled. The focused command `bun test client/test/npc-script-runtime.test.js client/test/portal.test.js` passed **39 tests /181 assertions**, including exact NPC2007 No/Yes behavior and atomic rejection of a dynamically selected double-dialog path. Original WZ and server-source inspection also executed. Browser acceptance and full extraction remain integration-pass evidence, not claims established by these focused tests.
+The retired local-client verification exercised level-gated NPC2007 behavior, No/Yes outcomes and failed destination loading. Its reports remain historical evidence. Current portal/NPC acceptance must use the authoritative online transaction and reconnect procedure; `client/test/portal.test.js` now retains only shared portal-rule regressions.
 
-### Offline Free Market routes
+### Historical local Free Market routes
 
 Native sentinel types7/8/11 admit exactly Cosmic `market01`–`market24`, `market26`, `market52`–`market56` for entry and `market00` for return. This is authorized server-reference policy translated to local authority, not execution of arbitrary scripts or Nexon server code. Entry saves the numeric source map in [schema8](offline-profile.md#schema-8) `savedLocations.FREE_MARKET` and arrives at `910000000/out00`. Return selects the saved map's authored market portal by numeric ID, then clears the saved return. Only an absent saved return uses the original script's `100000000`/portal0 fallback; asset/network failures never substitute a different map.
 

@@ -54,7 +54,7 @@ period = 300 ms
 
 [Scalar bytes](ghidra-drop-chat/shape-scalars.txt) establish `5140d8c0 = 360`, `5140d8c8 = 0`, `5140d8b8 = pi`, and `5140d8e0 = 180`. Positive rotation is clockwise in the downward-Y client/browser coordinates. The original item canvas is centered around its actual width/height, not an assumed 32 px cell. Rotation continues through the fall phase and stops on landing. Mesos use their authored/timed canvas animation instead. The flight, fall, pickup and rounding equations remain in [drop motion](drop-motion.md).
 
-`dropRotation()` now supplies one shared visual equation. Offline drawing includes the fixed-step remainder. Online drawing advances the observed drop age by at most one 90 ms publication interval and freezes extrapolation when the server field is paused. Position, landing state, ownership and pickup rewards remain server decisions. This bounded visual extrapolation does not conceal missing state indefinitely.
+`dropRotation()` supplies one shared visual equation. Online drawing advances the observed drop age by at most one 90 ms publication interval and freezes extrapolation when the server field is paused. Position, landing state, ownership and pickup rewards remain server decisions. This bounded visual extrapolation does not conceal missing state indefinitely.
 
 For future Ghidra work, start disassembly at a real function entry, such as `00505900`, before asking `clientInstructions.java` for `00505f0d:005061b2`. An empty listing in an unanalysed scratch project is not evidence that code is absent. The existing `clientLoginLayout.java` accepts an output path and a comma-separated address list, with at most 24 functions and a 30-second decompiler timeout per function. Run against an owned scratch project with `-readOnly`; use `clientInstructions.java`/`clientBytes.java` to resolve decompiler ambiguities. Constructor `008d01b2` timed out during this pass, so its chat font evidence below is instruction-level evidence. No original Windows runtime screenshot comparison was performed.
 
@@ -74,7 +74,7 @@ Field GM controls no longer reject a request merely because an ordinary player i
 | Pause, step, monster spawn, physics | Shared server field controls for GM; field content/bounds and pause requirements still apply. |
 | Camera, overlays, error records, login animation inspection | Client presentation/diagnostics. They do not change another player's state. |
 | Reconnect/resync | Existing server session and publication recovery. |
-| Offline checkpoint/reset and live placement editor | Still offline-only. Online autosave and server-owned world state cannot be replaced by a browser-local save/reset. These are remaining differences, not implemented GM operations. |
+| Browser-local checkpoint/reset and live placement editor | Removed with the local client. Server-owned world state and persistence remain the only supported authority. |
 
 The two-player run also exposed a logout publication bug: skills are destroyed before the asynchronous checkpoint and lease release remove the avatar from its field. `actorCombatFields()` now omits the destroyed combat runtime during that interval, so another player's field publication cannot suspend the server simulation by dereferencing `actor.skills.resources`.
 

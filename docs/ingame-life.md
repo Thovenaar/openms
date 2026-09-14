@@ -1,6 +1,8 @@
-# In-game life: original metadata and local offline gameplay
+# In-game life: original metadata and server gameplay
 
-Original metadata extraction and inspection use only the supplied `Maplestory-Client` WZ archives and `Maplestory_UNPACKED.exe`. The [offline combat authority](offline-combat.md) implements local mob movement, combat, HP/MP, death/recovery, respawn and progression; it is not original server reconstruction. Per-mob loot now consumes the authorized `/Users/k/Development/tensorfish/MapleStory-Server` Cosmic **server reference**, combined with original WZ item metadata/artwork and local durable pickup rules. Cosmic is not Nexon source or a third-party client implementation. Original evidence and historical preview verification below are retained; no original runtime recording, Windows execution or missing script is fabricated.
+Original metadata extraction and inspection use only the supplied `Maplestory-Client` WZ archives and `Maplestory_UNPACKED.exe`. The online server owns mob movement, combat, HP/MP, death/recovery, respawn and progression while retaining recovered client-side calculation modules where their original behavior applies. Per-mob loot consumes the authorized `/Users/k/Development/tensorfish/MapleStory-Server` Cosmic **server reference**, combined with original WZ item metadata and artwork. Cosmic is not Nexon source or a third-party client implementation. Original evidence and historical preview verification below are retained; no original runtime recording, Windows execution or missing script is fabricated.
+
+Sections describing `OfflineField`, local profile stores or the retired local renderer preserve implementation provenance only. They are not current client authority.
 
 ## Delivered modules and integration
 

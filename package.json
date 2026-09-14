@@ -13,9 +13,8 @@
     "migrate": "bun tools/migrate.js",
     "server:dev": "bun server/tools/dev.js",
     "server:start": "bun server/src/index.js",
-    "client:dev:offline": "bun client/tools/dev.js",
-    "client:dev:online": "bun client/tools/dev-online.js",
-    "client:build:online": "bun client/tools/build-online.js",
+    "client:dev": "bun client/tools/dev-online.js",
+    "client:build": "bun client/tools/build-online.js",
     "dev:docs": "bunx --bun vitepress dev docs",
     "docs:check": "bun docs/tools/check.js",
     "docs:build": "bunx --bun vitepress build docs",
@@ -28,7 +27,7 @@
     "studio:start": "bun studio/tools/dev.js",
     "check:studio": "bun server/tools/check-studio.js",
     "lint": "bunx --bun eslint . --max-warnings 0",
-    "format": "bunx --bun prettier --write 'tools/**/*.js' 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' 'client/public/*.js' 'server/src/**/*.js' 'server/tools/**/*.js' 'server/test/**/*.js' 'content/src/**/*.js' 'content/test/**/*.js' 'studio/src/**/*.js' 'studio/tools/**/*.js' 'studio/test/**/*.js' 'shared/**/*.js' client/public/app.webmanifest client/index.html client/style.css client/online.css studio/index.html studio/style.css eslint.config.js package.json client/package.json server/package.json content/package.json studio/package.json"
+    "format": "bunx --bun prettier --write 'tools/**/*.js' 'client/src/**/*.js' 'client/tools/**/*.js' 'client/test/**/*.js' 'server/src/**/*.js' 'server/tools/**/*.js' 'server/test/**/*.js' 'content/src/**/*.js' 'content/test/**/*.js' 'studio/src/**/*.js' 'studio/tools/**/*.js' 'studio/test/**/*.js' 'shared/**/*.js' client/index.html client/style.css client/online.css studio/index.html studio/style.css eslint.config.js package.json client/package.json server/package.json content/package.json studio/package.json"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

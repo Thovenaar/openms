@@ -61,17 +61,12 @@ export const sidebar = [
   ]),
   group("Client", "game", [
     ["Overview", "/development#client"],
-    ["Online", "/development#online"],
-    ["Offline", "/development#offline"],
+    ["Run", "/development#client"],
     ["Controls", "/development#controls"],
     group("Gameplay", "game", [
-      ["Overview", "/client/offline-gameplay"],
-      ["Combat", "/client/offline-combat"],
       ["Skills", "/client/skills"],
       ["NPCs", "/client/ingame-life"],
       ["Quests", "/client/ingame-quests"],
-      ["Characters", "/client/offline-profile"],
-      ["Saves", "/client/offline-saves"],
       ["Definitions", "/client/offline-data"],
       ["Reactors", "/client/ingame-entities"],
     ]),
@@ -87,7 +82,6 @@ export const sidebar = [
     ]),
     group("Interface", "window", [
       ["Windows", "/client/ingame-ui"],
-      ["Bindings", "/client/offline-binding-actions"],
       ["Login", "/client/login-creation-recovery"],
       ["Shared maps", "/client/login-shared-map"],
       ["Travel", "/client/login-selection-travel"],
@@ -103,7 +97,7 @@ export const sidebar = [
     ]),
     group("Evidence", "search", [
       ["Rendering", "/client/client-evidence"],
-      ["Client audit", "/client/client-audit"],
+      ["Historical client audit", "/client/client-audit"],
       ["Windows gaps", "/client/windows-reference-captures"],
     ]),
   ]),

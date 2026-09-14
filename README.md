@@ -27,7 +27,7 @@ bun run server:dev
 ```
 
 ```sh
-bun run client:dev:online
+bun run client:dev
 ```
 
 Open **http://127.0.0.1:3102**. Sign in with `admin` / `password` or `player` / `password`. Run `migrate` before initial startup and after SQL updates. Applied scripts are tracked in PostgreSQL's `migrations` table. Backend startup checks the schema and provisions development accounts; it does not run migrations. The checked-in `.env.server` and `.env.client` configure these local defaults.

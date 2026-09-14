@@ -1,5 +1,8 @@
 # Offline profile and character development
 
+> [!NOTE]
+> The offline client has been removed. Current character state is server-owned; this page is retained as historical schema and local-development evidence.
+
 ## Schema 8
 
 `profile-validation.js` is the structural save authority. Schema8 retains the schema5 instance/AP/SP/social domains and schema6 pet/mount state, replacing schema7's single `freeMarket` return with source-defined typed saved-location slots:
@@ -24,7 +27,7 @@ The key inventory comes from Cosmic `SavedLocationType`, shared by `profile-doma
 
 `settings.chat` retains original mode 1–3 and integer height 26–507. Original `008d4a6d` writes mode at `DAT_00bebf9c+0x54`, reads height at `+0x5c`, and uses 70 outside that range; rendering adds 2 when height is divisible by 13 without changing the saved value. See the retained [chat-mode consumer](ghidra-client-corrections/fidelity-chat-modes.txt). New helper settings are `{ids:[],auto:true,open:true}`; saved alert thresholds are integers 0–19. GameOpt permissions gate the corresponding local interaction; `allowGame` has no offline minigame consumer.
 
-Ten SP pools and learned/master/expiration records use authorized Cosmic GMSv83 server semantics (`AbstractCharacterObject`, `AssignSPProcessor`, `Character`). Original Skill.wz and executable consumers remain presentation/input authority. Neither source is original Nexon server code or a Windows-runtime comparison.
+Ten SP pools and learned/master/expiration records originate in authorized Cosmic GMSv83 server semantics (`AbstractCharacterObject`, `AssignSPProcessor`, `Character`). Ordinary advancement stages now use separate pools under the [requested SP restriction](character-gameplay-corrections.md#earned-points); Evan's ten-book layout is retained. Original Skill.wz and executable consumers remain presentation/input authority. Neither source is original Nexon server code or a Windows-runtime comparison.
 
 Normal Stat-window AP allocation is implemented through `CharacterDevelopment.spendAp`: STR/DEX/INT/LUK spend one point for one stat; HP/MP require the native warning and catalog/job-aware growth, update base vitals and recalculate equipped maxima. Admission rechecks life, available AP, supported job and caps in the locked draft. Sidebar edits remain explicit development policy, not earned allocation or advancement. See [AP provenance](ghidra-client-corrections/minimap-provenance.json) for the earlier AP/SP distinction; that artifact predates normal allocation.
 

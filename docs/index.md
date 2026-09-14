@@ -32,7 +32,7 @@ bun run migrate --database-url postgres://openms:openms_local_only@127.0.0.1:554
 bun run server:dev
 
 # Terminal 2: enter the same repository root and start the client.
-bun run client:dev:online
+bun run client:dev
 
 # Open http://127.0.0.1:3102 in your browser.
 # Sign in with admin / password or player / password, then select a character.

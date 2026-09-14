@@ -1,5 +1,8 @@
 # Offline character persistence
 
+> [!NOTE]
+> The offline client and its IndexedDB persistence path have been removed. This page is retained only as historical schema and migration evidence.
+
 ## Scope and source boundary
 
 `client/src/profile/profile-store.js` owns browser-local character records in IndexedDB. `profile-validation.js` owns schema8 validation, explicit v1–v7 migration and the local beginner preset; `keymap.js` supplies recovered bindings. Neither persistence module owns gameplay, rendering or a network service. This is a browser format, not a native save file. [Profile/development contracts](offline-profile.md#schema-8) define inventory instances, AP/SP, cash/book/social domains, saved settings/locations and atomic edits.

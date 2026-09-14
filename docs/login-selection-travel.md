@@ -27,7 +27,7 @@ The arrival capture/report deliberately retain the earlier injected404 and `TRAN
 
 The report records matching workspace/served source identity and the unchanged asset catalog, plus identity, acquisition, selection, travel and teardown timings. No asset extraction was needed. These are Chromium checks against recovered binary/asset evidence, not pixel parity against an original Windows runtime capture.
 
-Reproduce the browser case with the dedicated `runOnlineSelectionTravel` module described in [validation method](validation-method.md#native-scenarios-and-replay). Supply a fresh developer account with four characters; accounts that have already traveled or entered combat are not equivalent fresh fixtures. The runner logs out its fixture and closes only its own context.
+Reproduce the browser case with the dedicated `runOnlineSelectionTravel` module described in [validation method](validation-method.md#online-browser-scenarios). Supply a fresh developer account with four characters; accounts that have already traveled or entered combat are not equivalent fresh fixtures. The runner logs out its fixture and closes only its own context.
 
 Scoped checks passed:
 

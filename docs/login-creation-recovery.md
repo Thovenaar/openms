@@ -19,18 +19,18 @@ bun docs/tools/login-assets.js ../Maplestory-Client artifacts/login-assets
 
 [The probe](tools/login-assets.js) opens only `Login.img`, resolves27 fixed canvases through the project's WZ parser, decodes them with the existing canvas decoder, and writes PNGs plus dimensions, origins, optional delays/alpha endpoints and the input SHA-256. It bounds input bytes and canvas pixels, closes its archive, and never changes extraction receipts or the generated game catalog. Compare its hash with [the original manifest](input-manifest.json). The [banner inventory](native-ui-validation/selection-banner/canvases.json) includes the separate selection-scroll frames omitted from the earlier twelve-canvas investigation; the [spotlight inventory](native-ui-validation/selection-spotlight/canvases.json) adds the11 effect frames.
 
-| Path beneath `Login.img` | Size | Origin | Meaning |
-| --- | --- | --- | --- |
-| `CharSelect/charInfo` | 183×115 | (45,57) | Labels, cells and world-ranking strip are already painted |
-| `CharSelect/scroll/0/3` | 217×158 | (0,0) | Fully opened parchment and outer border **behind** the information table |
-| `NewChar/charName` | 201×224 | (0,0) | Name pane including lower action board |
-| `NewChar/charSet` | 225×377 | (0,0) | Appearance pane including lower action board |
-| `NewChar/statTb` | 65×77 | (0,0) | STR/DEX/INT/LUK labels and value cells |
-| `NewChar/scroll/0/3` | 242×210 | (0,0) | Fully opened parchment |
-| `NewChar/dice/0` | 37×26 | (0,−30) | Resting die at the bottom of a common56px animation envelope |
-| `NewChar/dice/1` | 25×54 | (0,−2) | Animated die |
-| `NewChar/dice/2` | 27×56 | (0,0) | Animated die |
-| `NewChar/dice/3` | 28×43 | (0,−13) | Animated die |
+| Path beneath `Login.img` | Size    | Origin  | Meaning                                                                  |
+| ------------------------ | ------- | ------- | ------------------------------------------------------------------------ |
+| `CharSelect/charInfo`    | 183×115 | (45,57) | Labels, cells and world-ranking strip are already painted                |
+| `CharSelect/scroll/0/3`  | 217×158 | (0,0)   | Fully opened parchment and outer border **behind** the information table |
+| `NewChar/charName`       | 201×224 | (0,0)   | Name pane including lower action board                                   |
+| `NewChar/charSet`        | 225×377 | (0,0)   | Appearance pane including lower action board                             |
+| `NewChar/statTb`         | 65×77   | (0,0)   | STR/DEX/INT/LUK labels and value cells                                   |
+| `NewChar/scroll/0/3`     | 242×210 | (0,0)   | Fully opened parchment                                                   |
+| `NewChar/dice/0`         | 37×26   | (0,−30) | Resting die at the bottom of a common56px animation envelope             |
+| `NewChar/dice/1`         | 25×54   | (0,−2)  | Animated die                                                             |
+| `NewChar/dice/2`         | 27×56   | (0,0)   | Animated die                                                             |
+| `NewChar/dice/3`         | 28×43   | (0,−13) | Animated die                                                             |
 
 The scroll-opening sequence has delays250,50,50ms on frames0–2; frame3 has no delay. The dice frames have no authored delays. Do not infer delays from frame dimensions. The whole `NewChar` branch is already included by `client/tools/ui-data.js`; restoring it required no extraction or cache deletion.
 
@@ -57,6 +57,48 @@ Import a new scratch project with `-import ../Maplestory-Client/Maplestory_UNPAC
 
 The native viewport is800×600. `005fc0e4` computes stage camera center Y as `−8 − 600*(stage + creationRaceSubstate)`. Top-left camera subtracts `(400,300)`: selection is `(−400,−1508)`, and Explorer creation (stage4, race1) is `(−400,−3308)`.
 
+### Direct page transitions
+
+OpenMS has no World/race selection step in this login flow. Each visible page retains its original camera coordinates; navigation slides only the departure and destination across one 600px page. Both scene views lease the existing extracted artwork, so browser corrections require no extraction.
+
+The September14 correction keeps **both pages' controls and artwork visible and moving together**, including the selection spotlight when leaving the roster. The destination is painted before exposing it, the outer800×600 book viewport clips every moving layer, and controls remain inert until arrival. Previously only the departure background survived while its controls disappeared, and the unbounded outer window allowed translated controls to escape the book.
+
+The800ms slide uses the native Hermite trajectory until its first arrival, then holds. Native overshoot is appropriate to a continuous world field, but exposes an empty strip between two clipped browser pages. For600px/800ms the curve first reaches its target at normalized time2/3; explicitly holding from there also prevents a floating-point/truncation reversal one pixel before800ms. The original continuous-camera evaluator remains unchanged. Skipping World/race pages and stopping at first arrival are explicit OpenMS presentation policies, not recovered Windows navigation behavior.
+
+### Recovery buttons
+
+`UI.wz:Login.img/Title` contains two original recovery buttons, already present in the generated Login bundle. All normal/hover/pressed/disabled states have origin(0,0). `0062054a` loads strings1348/1349, then creates the controls relative to the account window at screen(410,228). [Retained instruction excerpts](ghidra-client/login-functions/recovery-name-labels.txt) include the resource selection and position arguments.
+
+| Asset                 | Original text | Local position | Screen rectangle |
+| --------------------- | ------------- | -------------- | ---------------- |
+| `Title/BtLoginIDLost` | Find login ID | (144,73)       | (554,301),82×23  |
+| `Title/BtPasswdLost`  | Find P/W      | (226,74)       | (636,302),66×23  |
+
+The buttons now use these extracted states and positions instead of the later plain-text recovery link. Both open the existing Windows95 recovery dialog, with focus trapping, Escape/close, cleared email input and focus restored to the initiating button. Account lookup, tokens and email delivery remain deferred; opening or submitting the dialog sends no email. No new artwork or catalog extraction is required.
+
+### Character name centering
+
+`00606ba9` measures the name and chooses plate width58 when text width is below41, otherwise text width+18. `0060722d..00607263` places the plate at screen x`286+125*slot-trunc(width/2)`, y370. `00605e95..00605eb2` draws text at plate-local x`trunc((width-textWidth)/2)-1`, y2. That native one-pixel text bias and six-pixel plate offset from avatar feet are deliberate recovered values; do not independently center either against a hair bounding box.
+
+The browser previously positioned the plate with integer truncation but centered its HTML text using `translateX(-50%)` on a fractional text width. It now computes both from the same integer plate origin, retaining the native two-pixel vertical inset and clipping the tiled artwork to its width×22 canvas. This removes half-pixel drift for odd text widths. Browser Arial measurement remains a browser font metric, not a claim of identical Windows font rasterization.
+
+Run `bun server/tools/check-login-pages.js --scope controls --output /tmp/openms-login-controls` for this focused check. It exercises both recovery buttons, popup close/focus restoration and three short/long character names in selected/unselected states at1280×800 and800×600. [The report](native-ui-validation/login-controls/report.json), [login artwork](native-ui-validation/login-controls/recovery-1280-82.png) and [character names](native-ui-validation/login-controls/names-800-2.png) retain the source/catalog identity, geometry and captures; no gameplay acceptance is implied.
+
+### Selection page signs
+
+`006042dc` loads strings1315/1316 (`CharSelect/pageL/` and `pageR/`). Its explicit layer placements occur **after** canvas insertion; use those screen positions for the browser control bounds, rather than subtracting the canvas origin again. [Retained instructions](ghidra-client/login-functions/selection-page-signs.txt) include both normal and hover consumers.
+
+| Sign/state   | Native world position | Screen top-left, camera(−400,−1508) | WZ canvas / origin |
+| ------------ | --------------------- | ----------------------------------- | ------------------ |
+| Left normal  | (−260,−1215)          | (140,293)                           | 86×74 / (43,37)    |
+| Left hover   | (−260,−1215)          | (140,293)                           | 87×74 / (43,37)    |
+| Right normal | (188,−1213)           | (588,295)                           | 89×73 / (44,36)    |
+| Right hover  | (188,−1214)           | (588,294)                           | 89×74 / (44,37)    |
+
+Read these four canvases directly from `UI.wz:Login.img` with the same parser used by [the bounded asset probe](tools/login-assets.js). The normal origin supplies the button's internal sprite anchor; each hover frame retains its own WZ origin, naturally giving the right sign its one-pixel lift. Do not add another hover correction. Earlier CSS placed the signs at(97,256)/(545,258), raising them into the class banners.
+
+Reproduce this surface-only check with `bun server/tools/check-login-pages.js --output /tmp/openms-login-pages`. It owns a disposable four-character account/database, uses native login/page/creation/back inputs at1280×800 and800×600, and records bounded animation-frame geometry plus intermediate screenshots. It checks both page directions, matching control/artwork/background offsets, clipping, input locking and source/catalog identity; it does not enter gameplay. Inspect the saved selection and intermediate-frame images as well as the assertions. The final [report](native-ui-validation/login-pages/report.json) and [selection capture](native-ui-validation/login-pages/selection-800.png) retain the focused result. These establish Chromium behavior against recovered layout evidence, not comparison with a Windows runtime recording.
+
 ### Name field and appearance pane
 
 - Explorer name constructor `00617aaa` creates a201×224 window at world `(109,−3213)`, yielding screen `(509,95)`.
@@ -67,15 +109,15 @@ The native viewport is800×600. `005fc0e4` computes stage camera center Y as `�
 
 ### Avatar feet
 
-The call at `005f55d5..005f562b` ultimately enters `0045149f`. Its position arguments are **x22** and **y−2369−600*race**. The later100 is a drawing-order argument, stored separately from position. `0045149f` forwards stack offsets`+0x1c/+0x20` to `004502f8`, which sends them to the coordinate vector at `00450418..00450429`; the100 argument is stored at owner`+0x10f4`.
+The call at `005f55d5..005f562b` ultimately enters `0045149f`. Its position arguments are **x22** and **y−2369−600\*race**. The later100 is a drawing-order argument, stored separately from position. `0045149f` forwards stack offsets`+0x1c/+0x20` to `004502f8`, which sends them to the coordinate vector at `00450418..00450429`; the100 argument is stored at owner`+0x10f4`.
 
 For Explorer race1, feet are world `(22,−2969)`. Subtracting camera `(−400,−3308)` yields **(422,339)**. Earlier code mistook100 for x, producing `(500,339)` and placing the avatar78px too far right. The100×100 preview host now begins `(372,239)` and anchors the composed avatar at its bottom center. Do not align an avatar by its hair bounds or scale it to an arbitrary portrait box.
 
 ### Selection information banner
 
-- `0060292f` places the183×115 information window at world x`−220 + 130*(selectedIndex % 3)`, y`−1348` when ranking detail is absent: screen **(180+130*slot,160)**. Slot avatars use125px spacing; the information window deliberately uses130px. Preserve the distinction.
+- `0060292f` places the183×115 information window at world x`−220 + 130*(selectedIndex % 3)`, y`−1348` when ranking detail is absent: screen **(180+130\*slot,160)**. Slot avatars use125px spacing; the information window deliberately uses130px. Preserve the distinction.
 - **Missing-border correction:** `charInfo` is only the table overlay. Its separators at local y17/35/53, column gaps and ranking separation contain transparent pixels. The original border is a separate parchment layer, `CharSelect/scroll/0`, which the earlier implementation omitted. A yellow backing alone cannot replace it. The prior coordinate/text checks therefore passed while the border was still absent.
-- String2978 (`0xba2`) is `UI/Login.img/CharSelect/scroll/%1d`. Find its PUSH at `00603de2`, then recover the containing entry **`00603dbc`**, not the interior string instruction. [The retained consumer](ghidra-client/login-functions/selection-scroll.txt) selects variant0 without ranking data, variant2 with ranking data. At `00603e3a..00603e6f`, the layer helper receives y`−25`, x`−20`, the information window as origin/overlay and z`−1`. Thus the normal scroll begins at screen **(160+130*slot,135)**. These are local offsets, not WZ-origin corrections.
+- String2978 (`0xba2`) is `UI/Login.img/CharSelect/scroll/%1d`. Find its PUSH at `00603de2`, then recover the containing entry **`00603dbc`**, not the interior string instruction. [The retained consumer](ghidra-client/login-functions/selection-scroll.txt) selects variant0 without ranking data, variant2 with ranking data. At `00603e3a..00603e6f`, the layer helper receives y`−25`, x`−20`, the information window as origin/overlay and z`−1`. Thus the normal scroll begins at screen **(160+130\*slot,135)**. These are local offsets, not WZ-origin corrections.
 - The browser now draws the original fully opened `scroll/0/3` frame before the information backing and table, moves it with the selected slot and hides it with an empty roster. Frame3 is217×158 with origin(0,0); opening frames0–2 carry250/50/50ms delays. This correction restores the settled banner; it does not add opening/closing playback. All four frames were already extracted, so no catalog rebuild is needed.
 - The information window also needs its own stacking context. `0060292f` creates it at z20, above the main selection window's z10 in `00603ff0`. Sharing the decorations' lower artwork plane let the Start/Create/Delete controls and page arrow cover the third slot's scroll edge. The banner now owns one `UISurface` inside its positioned DOM container, with text above that artwork and the entire container above the controls. Move the container once; do not independently move the text, parchment and table.
 - `00602b3b..00602b4f` paints183×112 with ARGB`30ffff00`, then copies `CharSelect/charInfo`. The table labels are original pixels, not text to redraw in HTML. See [paint instructions](ghidra-client/login-functions/information-creation-layout.txt).
@@ -91,11 +133,11 @@ The focused [selection-banner scenario](../client/tools/scenarios/online-selecti
 The spotlight is two original animations, not a CSS gradient or a recolored character. The previous browser composition omitted both even though their frames were already extracted.
 
 1. Find string IDs`0x521` and`0x522` in the decoded pool: `UI/Login.img/CharSelect/effect/0` and`/1`. Their PUSH instructions are`005f6518` and`005f6653`; both belong to function **`005f6482`**, called from`0060599b`. Retain [the complete consumer](ghidra-client/login-functions/selection-spotlight.txt), including its instructions, because its SEH decompilation loses some argument names.
-2. The helper [005fd76d](ghidra-client/login-functions/selection-spotlight-center.txt) returns the graphics singleton pointer at`00bf14ec`. [00444fb6 and004374cb](ghidra-client/login-functions/selection-spotlight-vector.txt) dereference it and obtain the center vector through vtable slot`+0x5c`. At`005f64de..005f64f1`, the consumer supplies **(-140 +125*(selectedIndex%3), -300)** relative to that vector. Adding the800×600 viewport center gives anchor **(260+125*slot,0)**. Do not substitute the avatar's feet anchor`(280+125*slot,370)` or the banner's130px spacing.
+2. The helper [005fd76d](ghidra-client/login-functions/selection-spotlight-center.txt) returns the graphics singleton pointer at`00bf14ec`. [00444fb6 and004374cb](ghidra-client/login-functions/selection-spotlight-vector.txt) dereference it and obtain the center vector through vtable slot`+0x5c`. At`005f64de..005f64f1`, the consumer supplies **(-140 +125\*(selectedIndex%3), -300)** relative to that vector. Simply adding the800×600 viewport center gives `(260+125*slot,0)`, the previous browser anchor. Composite review showed this20px left of the browser's composed avatar. The browser now aligns the beam and gleam at **(280+125\*slot,0)**, directly above its avatar feet `(280+125*slot,370)`. This20px correction is a browser-composition adjustment, not a newly recovered native literal. Preserve125px slot spacing, WZ origins and vertical placement; do not borrow the banner's130px spacing.
 3. The native layer order is`0xc00614a4`, or`-0x40000000+398500`: above field scenery, below login windows. The browser uses a separate full800×600 `UISurface` above `MapLogin` and below the book frame, roster and stat banner. The native negative-selection branch releases both layers; the browser hides them outside a populated selection screen and restarts them when the selected character changes.
 4. `effect/0` uses Animate flag`0x20` (repeat); `effect/1` uses flag`0` (play once, hold final frame). The beam's five delays are150/100/100/100/3000ms; its final image is71×337 with origin(36,0). The gleam has six frames with300/120/120/120/120/0ms delays, negative Y origins and authored alpha endpoints. Preserve a literal zero delay and `a0/a1`; do not replace them with guessed defaults. The [bounded asset report](native-ui-validation/selection-spotlight/canvases.json) retains all11 frames and their original metadata.
 
-Repeat the headless command above with function list`005f6482,005fd76d,00444fb6,004374cb`. Run the fixed asset probe, compare its input hash, then verify the actual composite image. The [selection scenario](../client/tools/scenarios/online-selection-banner.js) now selects all three slots at1280×800/DPR1 and800×600/DPR2 and checks the beam anchor/final-frame/once mode and repeating gleam. Its [report](native-ui-validation/selection-spotlight/browser/report.json) retains the same source/catalog identity as the [NPC check](native-ui-validation/online-npc-dialogue/report.json). Reviewed images include [slot0 at1280×800](native-ui-validation/selection-spotlight/browser/1280x800-slot0.png) and [slot1 at800×600](native-ui-validation/selection-spotlight/browser/800x600-slot1.png). These are browser reconstructions; no new Windows reference capture was obtained.
+Repeat the headless command above with function list`005f6482,005fd76d,00444fb6,004374cb`. Run the fixed asset probe, compare its input hash, then verify the actual composite image. The [selection scenario](../client/tools/scenarios/online-selection-banner.js) selects all three slots at1280×800/DPR1 and800×600/DPR2 and checks the beam anchor/final-frame/once mode and repeating gleam. Its retained [older report](native-ui-validation/selection-spotlight/browser/report.json) and images predate the20px correction and must not be used as current alignment acceptance. Reproduce current alignment and direct navigation with `bun server/tools/check-entry-repairs.js`; captures and the source/catalog-identified report go to `/tmp/openms-entry-repairs`. These are browser reconstructions; no new Windows reference capture was obtained.
 
 Returning to the field during reconnect can cancel a newly preparing login backdrop. `OnlineLogin.startBackdrop` now recognizes cancellation of that backdrop's owned request and prevents its late result from remounting. Actual preparation failures still report. The NPC browser check reads the game error journal as well as uncaught page errors: otherwise this normal cancellation appeared as a false `REQUEST_FAILED` login notification while reconnect itself succeeded.
 

@@ -1,5 +1,8 @@
 # Offline native binding actions
 
+> [!NOTE]
+> The offline client has been removed. This page retains historical input-recovery evidence; current bindings operate through the online client and authoritative server.
+
 ## Source and scope
 
 The original unpacked v83 executable dispatches the packed type-4 binding through `00a07431` (range `0..27`) and `00a0773d`. This table follows the actual calls, **not keyboard icon captions**. `00a04f7a` toggles native window IDs; `00a05ab8` constructs them. UserList is a special branch in `00a04f7a`, not an ordinary constructor-switch case. Raw retained evidence:
@@ -18,36 +21,36 @@ Read-only Ghidra12 analysis was executed on the original unpacked executable; ex
 
 All numeric entries below are **binding IDs**, not native window IDs.
 
-| ID | Native consumer | Exact meaning / runtime route | Authority classification |
-|---:|---|---|---|
-| 0 | window1 → `007fde7c` | Equip | Owned equipment, admitted unequip and pet-equipment attachment; no pet lifecycle grant |
-| 1 | window0 → `0081c414` | Item | Slot/UID-aware inventory, gather/move/use/drop/equip through local authority |
-| 2 | window2 → `008c4842` | Stat | Saved AP allocation and attached derived-stat details |
-| 3 | window3 → `008aa5ad`; special job remap to window33 → `008b981d` | Skill | Learned/SP state, supported casts and attached SkillMacro; special-book distinction remains evidence |
-| 4 | window7, tab0 → `009196f2` | UserList: Buddy | Loaded local friends, reciprocal consent, groups and blacklist/settings gates |
-| 5 | `009e9823` → `009eb366` → `004edba1` | WorldMap | Original regional art, spots, current/NPC markers and native navigation; never teleport |
-| 6 | `0084dd25` → `0084d9ea` → `0084ddb0` | Messenger | Local participant invitations, session messages and leave |
-| 7 | `008590f9` | MiniMap cycle | Compact1 → expanded0 → title-only2; initial compact demand-load is browser policy |
-| 8 | window6 → `0087e8f3` | Quest | Original journal/detail, existing NPC quest authority and helper registration |
-| 9 | window5 → `00832586` | KeyConfig | Live outer binding draft, original notices and explicit durable commit |
-| 10 | key-up → `008d4d43(7)` | ChatAll | Resident-avatar local speech, not server broadcast or fabricated received echo |
-| 11 | key-up → `009e85e7`, `008d4dbf` | ChatWhisper, mode6 | Local editor and selected loaded recipient; original `/whisper` route also selects a recipient |
-| 12 | key-up → `008d4d43(2)` | ChatParty | Admitted loaded local party recipients |
-| 13 | key-up → `008d4d43(0)` | ChatBuddy | Reciprocal loaded local buddy recipients |
-| 14 | `00a06cbc` | ShortCut | Original HUD-anchored shortcut popup |
-| 15 | `008df4b1` | QuickSlot | Original quick-slot visibility and current shared bindings |
-| 16 | `008d4a6d(3/1)`, `009e3264(0)` | ExpandChat | Expansion toggle, not a channel selector |
-| 17 | window7, tab2 → `009196f2` | UserList: Guild | Local guild creation/consent/roles/notice/emblem/board/leave/disband |
-| 18 | key-up → `008d4d43(3)` | ChatGuild | Admitted loaded local guild recipients |
-| 19 | window7, tab1 → `009196f2` | UserList: Party | Local creation/invitations/leadership/expel/leave; PartyHP projection |
-| 20 | resident singleton → `00888230` | QuestAlarm | Persisted helper registration and actual quest progress, not independent completion |
-| 21 | key-up → `008d4d43(5)` | ChatSpouse | Channel exists; no local marriage/spouse authority, so delivery refuses |
-| 22 | window9 → `00861b12`, create `00861e99` | MonsterBook | Original475×349 book, real collected-card counts/cover and unlocked details |
-| 23 | `00a04dca`, opcode`0x28` and cash-stage gates | CashShop | Separate800×600 stage and admitted local commodity/locker/gift transactions; no real payment |
-| 24 | key-up → `008d4d43(4)` | ChatAlliance | Admitted loaded local alliance recipients |
-| 25 | window22 → `0087781d`, literal `L"PartySearch"` | PartySearch | Local registration, criteria and consent-based join/invite; no invented remote results |
-| 26 | window27 → `00808404`, create `0080862b` | Family | Local tree/reputation/entitlements and admitted travel/rate consumers |
-| 27 | window31 → `00840170`, create `0084056b` | Title / medal | Actual owned medals and supported original quest challenge/claim/forfeit/equip |
+|  ID | Native consumer                                                  | Exact meaning / runtime route | Authority classification                                                                             |
+| --: | ---------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
+|   0 | window1 → `007fde7c`                                             | Equip                         | Owned equipment, admitted unequip and pet-equipment attachment; no pet lifecycle grant               |
+|   1 | window0 → `0081c414`                                             | Item                          | Slot/UID-aware inventory, gather/move/use/drop/equip through local authority                         |
+|   2 | window2 → `008c4842`                                             | Stat                          | Saved AP allocation and attached derived-stat details                                                |
+|   3 | window3 → `008aa5ad`; special job remap to window33 → `008b981d` | Skill                         | Learned/SP state, supported casts and attached SkillMacro; special-book distinction remains evidence |
+|   4 | window7, tab0 → `009196f2`                                       | UserList: Buddy               | Loaded local friends, reciprocal consent, groups and blacklist/settings gates                        |
+|   5 | `009e9823` → `009eb366` → `004edba1`                             | WorldMap                      | Original regional art, spots, current/NPC markers and native navigation; never teleport              |
+|   6 | `0084dd25` → `0084d9ea` → `0084ddb0`                             | Messenger                     | Local participant invitations, session messages and leave                                            |
+|   7 | `008590f9`                                                       | MiniMap cycle                 | Compact1 → expanded0 → title-only2; initial compact demand-load is browser policy                    |
+|   8 | window6 → `0087e8f3`                                             | Quest                         | Original journal/detail, existing NPC quest authority and helper registration                        |
+|   9 | window5 → `00832586`                                             | KeyConfig                     | Live outer binding draft, original notices and explicit durable commit                               |
+|  10 | key-up → `008d4d43(7)`                                           | ChatAll                       | Resident-avatar local speech, not server broadcast or fabricated received echo                       |
+|  11 | key-up → `009e85e7`, `008d4dbf`                                  | ChatWhisper, mode6            | Local editor and selected loaded recipient; original `/whisper` route also selects a recipient       |
+|  12 | key-up → `008d4d43(2)`                                           | ChatParty                     | Admitted loaded local party recipients                                                               |
+|  13 | key-up → `008d4d43(0)`                                           | ChatBuddy                     | Reciprocal loaded local buddy recipients                                                             |
+|  14 | `00a06cbc`                                                       | ShortCut                      | Original HUD-anchored shortcut popup                                                                 |
+|  15 | `008df4b1`                                                       | QuickSlot                     | Original quick-slot visibility and current shared bindings                                           |
+|  16 | `008d4a6d(3/1)`, `009e3264(0)`                                   | ExpandChat                    | Expansion toggle, not a channel selector                                                             |
+|  17 | window7, tab2 → `009196f2`                                       | UserList: Guild               | Local guild creation/consent/roles/notice/emblem/board/leave/disband                                 |
+|  18 | key-up → `008d4d43(3)`                                           | ChatGuild                     | Admitted loaded local guild recipients                                                               |
+|  19 | window7, tab1 → `009196f2`                                       | UserList: Party               | Local creation/invitations/leadership/expel/leave; PartyHP projection                                |
+|  20 | resident singleton → `00888230`                                  | QuestAlarm                    | Persisted helper registration and actual quest progress, not independent completion                  |
+|  21 | key-up → `008d4d43(5)`                                           | ChatSpouse                    | Channel exists; no local marriage/spouse authority, so delivery refuses                              |
+|  22 | window9 → `00861b12`, create `00861e99`                          | MonsterBook                   | Original475×349 book, real collected-card counts/cover and unlocked details                          |
+|  23 | `00a04dca`, opcode`0x28` and cash-stage gates                    | CashShop                      | Separate800×600 stage and admitted local commodity/locker/gift transactions; no real payment         |
+|  24 | key-up → `008d4d43(4)`                                           | ChatAlliance                  | Admitted loaded local alliance recipients                                                            |
+|  25 | window22 → `0087781d`, literal `L"PartySearch"`                  | PartySearch                   | Local registration, criteria and consent-based join/invite; no invented remote results               |
+|  26 | window27 → `00808404`, create `0080862b`                         | Family                        | Local tree/reputation/entitlements and admitted travel/rate consumers                                |
+|  27 | window31 → `00840170`, create `0084056b`                         | Title / medal                 | Actual owned medals and supported original quest challenge/claim/forfeit/equip                       |
 
 ## Character bindings and map seats
 

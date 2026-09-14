@@ -8,7 +8,7 @@ No original C/C++ source or Windows runtime was available. Cosmic is an authoriz
 
 ## Recovered equations
 
-Let `q=30ms`, `r(v)=trunc(v + 0.5)` for nonnegative `v`, otherwise `trunc(v - 0.499999999)`. The negative scalar is the actual double at `00af3720`, not JavaScript's asymmetric `Math.round`. Packet positions are integer feet coordinates. The rendered vector subtracts half the canvas height from source and destination Y (`00505f0d..00505f5a`); the canvas is centered around that vector with negative half width/height (`00506054..00506090`). `drop-motion.js` retains packet coordinates; `drop-renderer.js` applies that canvas centering, including before pickup integer division.
+Let `q=30ms`, `r(v)=trunc(v + 0.5)` for nonnegative `v`, otherwise `trunc(v - 0.499999999)`. The negative scalar is the actual double at `00af3720`, not JavaScript's asymmetric `Math.round`. Packet positions are integer feet coordinates. The rendered vector subtracts half the canvas height from source and destination Y (`00505f0d..00505f5a`); the canvas is centered around that vector with negative half width/height (`00506054..00506090`). `drop-motion.js` retains packet coordinates; `client/src/online/scene-drops.js` applies that canvas centering for live server drops.
 
 ### Launch, fanout and landing
 

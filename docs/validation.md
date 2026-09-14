@@ -6,7 +6,7 @@ Read a result together with its **source/catalog identity, fixture, action and l
 
 | Area                                   | Evidence                                                                                                             | Scope                                                                                                  |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Online 100% movement                   | [Movement parity](movement-parity.md#scoped-verification)                                                            | 33 focused tests / 795 assertions; actual server step, offline trajectory and checkpoint continuation. |
+| Online 100% movement                   | [Movement parity](movement-parity.md#scoped-verification)                                                            | Shared-kernel/server steps, browser prediction and checkpoint continuation.                             |
 | Drops, presets and chat                | [Two-player report](native-ui-validation/drop-chat-presets/report.json) · [Recovery](original-resource-audit.md)     | Source-identified native recipients/reconnects; no all-content claim.                                  |
 | NPC, Ability and development tools     | [Native report](native-ui-validation/ui-authority-repairs/report.json) · [Recovery](native-ui-authority-recovery.md) | Repaired native UI and authority paths on its recorded build.                                          |
 | NPC dialogue and shared ambient speech | [Native report](native-ui-validation/online-npc-dialogue/report.json)                                                | Session dialogue, cancel/quest behavior and shared NPC presentation.                                   |
@@ -14,7 +14,7 @@ Read a result together with its **source/catalog identity, fixture, action and l
 | Selection and travel                   | [Focused report and method](login-selection-travel.md)                                                               | Retained native selection/transition checks.                                                           |
 | Original asset inventory               | [Resource audit](original-resource-audit.md)                                                                         | All 16 resource archives inventoried; counts are not runtime completeness.                             |
 | Extraction performance                 | [Measured comparison](#extraction-performance) · [Report](extraction-performance.json)                                | Same 735-map all-hit workload, complete output verification and identical catalog bytes.              |
-| Online surface declarations            | [Feature inventory](server/offline-parity.md)                                                                        | 71 action kinds, 45 social actions, shared hooks; static coverage only.                                |
+| Online surface declarations            | [Feature inventory](server/offline-parity.md)                                                                        | 72 action kinds, 45 social actions, 69 online hooks; static coverage only.                             |
 | Documentation                          | [Maintenance and checks](documentation-guide.md)                                                                     | Source links/routes, current constants, readable navigation and rendered diagrams.                     |
 
 Reports above retain the build they actually measured. A later source edit does not retroactively refresh their results.
@@ -30,7 +30,7 @@ The retained [iteration investigation](archive/validation-history.md#iteration-l
 | Content/rules/map preparation                  | 190 ms               | Online iteration can reuse extracted content.                             |
 | Isolated browser context / login-art readiness | 5 / 353 ms           | Reuse the browser, isolate participants; readiness is not gameplay proof. |
 | Warm extraction integrity / receipt reuse      | 53.565 s / 156 ms    | Preserve the successful-extraction receipt. These are different checks.   |
-| Earlier offline server startup                 | 29.523 s             | Offline integrity/compression is not the online inner loop.               |
+| Retired local-client build startup             | 29.523 s             | Historical measurement; it is not part of the online workflow.            |
 
 The proposed `check online-social` domain command remains **unimplemented**. Use existing scoped checks in the [documented order](validation-method.md#shorten-the-loop). Current source hashing still requires backend/frontend restarts after shared runtime changes; do not weaken identity guards to avoid a restart.
 
@@ -52,7 +52,7 @@ The decoder/recipe change required **one rebuild of all 742 units**, recorded se
 
 All **27 focused tests / 120 assertions** passed, including every 16-bit packed color, transparent RGB, scaled edges, signed checksum overflow, corrupt output/cache repair, nested descriptors, symlink escape refusal and publication binding changes. Scoped Prettier/ESLint checks passed. No gameplay or browser benchmark was needed for this identical-output conversion change.
 
-The optimized warm run still spent **23.34 s** in output-closure verification, including **10.81 s** in reads/path checks and **9.61 s** in JSON decoding/traversal. These nested times are not additive with the total. Explicit extraction remains the integrity/repair operation; unchanged smoke-loop receipt reuse is a separate, much cheaper operation. PNG encoding, metadata serialization and hashing remain costs when units actually rebuild.
+The optimized warm run still spent **23.34 s** in output-closure verification, including **10.81 s** in reads/path checks and **9.61 s** in JSON decoding/traversal. These nested times are not additive with the total. Explicit extraction remains the integrity/repair operation; unchanged receipt probing is a separate, much cheaper operation. PNG encoding, metadata serialization and hashing remain costs when units actually rebuild.
 
 ## Known limits
 
@@ -61,7 +61,7 @@ The optimized warm run still spent **23.34 s** in output-closure verification, i
 | Complete original Windows rendering / native execution      | [Windows reference requests](windows-reference-captures.md)                                     |
 | Every original skill, quest, item, reactor or service       | [Feature gaps](server/offline-parity.md#shared-rules-and-missing-coverage)                      |
 | Production security, durability and deployment readiness    | [Required protocol proof](server/protocol.md#implementation-order-and-required-proof)           |
-| Current full-release installation or world-wide performance | [Historical reports](archive/index.md); these gates must be explicitly rerun for a new release. |
+| Current full-catalog or world-wide performance             | [Historical reports](archive/index.md); these gates must be explicitly rerun for a new release. |
 
 ## Historical results
 

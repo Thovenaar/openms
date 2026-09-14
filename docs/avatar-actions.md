@@ -1,4 +1,7 @@
-# Original avatar actions and offline movement clock
+# Original avatar actions and movement evidence
+
+> [!NOTE]
+> References to the former local runtime below are historical. The online client reuses the extracted artwork and movement presentation while the server owns live action and motion state.
 
 ## Original-source investigation
 

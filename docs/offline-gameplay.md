@@ -1,6 +1,7 @@
 # Offline gameplay guide
 
-Offline play owns one local simulation and durable IndexedDB profile. Online uses the same presentation and shared rules with a different authority; see the [feature map](server/offline-parity.md). Original behavior, emulator rules and browser policies remain distinguished in each domain guide.
+> [!NOTE]
+> The offline client has been removed. This page is retained as historical evidence for earlier builds; current behavior and authority are documented in the [online feature map](server/offline-parity.md).
 
 ## Behavior checklist
 

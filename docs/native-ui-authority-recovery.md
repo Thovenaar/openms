@@ -21,6 +21,23 @@ For an emulator route without an authored label, the browser explicitly says `Ta
 
 The headings already exist in the UtilDlgEx visual bundle. `ui-dialog-art.js` resolves the inline `#f...#` to the existing panel resource and paints the original raster. No replacement icons, CSS text approximations or new heading images are needed. The extraction change supplies metadata only. The existing extractor rebuilt invalidated units and published735maps; its report records738converted units and4reused units. Do not repeat conversion for browser-only validation fixes.
 
+## Online cab continuation and unconditional End Chat
+
+The Henesys Regular Cab route (`1012000`) reproduces a worker-boundary failure: its introduction succeeds, but Next previously returned `CONTENT_MISMATCH`. The reference program keeps destination and fare arrays in globals. Structured cloning between server workers preserves their contents and shared references but removes frozen property descriptors. The next turn therefore failed `validateNpcDraft()` with “NPC array is not immutable and bounded.”
+
+| Boundary | Repair | Retained authority |
+| --- | --- | --- |
+| Worker continuation | Restore nested retained arrays to immutable values before interpreting the next callback. Reuse the existing variable, array-size, depth and total-work limits. | Compiled program, dependencies, markup, profile and effects still validate; malformed/cyclic state is refused. |
+| Dialogue event before opening receipt | Next and cancellation wait for outstanding UI commands to settle. | No duplicate script execution or retry of a possibly committed fare. |
+| Routine persistence overlaps a button | NPC admission awaits the active checkpoint, then rechecks connection ownership and reserves the actor. | The normal transaction and receipt path remains in force. |
+| End Chat | Dismiss immediately, abort pending prose loads, ignore late pages for the dismissed conversation, and send cancellation after current work settles. | Only the authenticated actor's matching conversation ID is cleared. Old step numbers and expired NPC range/lease checks cannot prevent disposal. An old ID cannot close a newer conversation. |
+
+The original [dialogue caller instructions](ghidra-client-features/dialogs/npc-dialog-callers.txt) at `007468c0..007468d9` distinguish Next (`0x2001` → 1), Previous (`0x2000` → 0), and terminal/cancel commands. The [WZ measurements](ghidra-client-corrections/dialog-wz-measurements.json) retain the original 85×18 `UtilDlgEx/BtClose` artwork. The emulator's `NPCMoreTalkHandler` and [packaged cab reference](../infra/gameplay-definitions/npc/1012000.js) establish callback inputs, beginner discounts and destination/fare choices; they are interface/content evidence, not Nexon implementation source.
+
+**Always-available online End Chat is an explicit requested OpenMS policy.** It bypasses script callbacks, does not grant rewards or roll back an already committed action, and remains enabled during an in-flight response or a native non-closeable speaker flag. No/Decline remain distinct authored responses. The shared offline session retains its existing transaction ownership rules.
+
+Run `bun server/tools/check-cab-dialogue.js --output /tmp/openms-cab-dialogue`. It owns a disposable database and isolated browser contexts, uses native clicks, and checks introduction/menu/confirmation cancellation, cancellation during a worker turn and after reconnect, a paid ride to Lith Harbor, persisted fare after reconnect, and the original insufficient-funds refusal. No extraction is needed. Targeted regressions live in `server/test/npc-dialogue.test.js` and `client/test/online-dialogue.test.js`; worker failures retain bounded NPC/error details in development stdout.
+
 ## Ability / Stat detail
 
 The original [Stat constructor008c4c7f](ghidra-ui-repairs/stat-constructor.txt) creates `Stat/BtDetail` unconditionally at **x124,y324**. The pool0x810 reference is at008c4d9d; child construction follows at008c4e1b. The earlier browser implementation incorrectly applied a beginner-job gate to this button. The gate in008c79f5 belongs to AP controls. The [008c5845 refresh consumer](ghidra-ui-repairs/stat-buttons.txt) also does not hide Details for beginners.

@@ -55,7 +55,7 @@ Henesys `hp01(-377,273) -> hp01_1(5801,454)` exposes the distinction between fil
 
 Click/focus the canvas. Arrows move/climb; other actions use the shared active `KeyBindings` map. Recovered defaults are Alt Jump, Control Attack, I/E/S/K windows, Backslash Set Key, Q Quest, [ ShortCut and ] QuickSlot. The old C/H aliases are removed. Down+bound Jump requests dropping; Up requests supported portals before physics. Blur/visibility changes clear input. KeyConfig is nonmodal; dialogue/quick-key popups and focused chat/text input block gameplay. See [UI/input contract](ingame-ui.md).
 
-The sidebar keeps pause/reload/map/input/audio available, with scene/geometry, offline data and runtime diagnostics in advanced sections. Missing original avatar actions are explicitly reported as `actorArtworkUnsupported`, not replaced with fictional art.
+The sidebar keeps pause/reload/map/input/audio available, with scene/geometry, reference data and runtime diagnostics in advanced sections. Missing original avatar actions are explicitly reported as `actorArtworkUnsupported`, not replaced with fictional art.
 
 Camera follow uses the recovered VR center-limit helper documented in [UI](ingame-ui.md), not the earlier65%-height heuristic. Camera buttons and `setCamera` disable follow; re-enabling it recomputes and renders immediately while paused. Other viewport sizes and interpolated presentation remain browser extensions. Hidden tabs reset the elapsed-time baseline.
 

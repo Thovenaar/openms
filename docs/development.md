@@ -71,7 +71,7 @@ To resume after an ordinary stop, start the Podman machine first if needed, then
 podman compose -f infra/compose.yaml up -d --wait --wait-timeout 90
 ```
 
-Run `migrate` if SQL scripts have changed since the last run. Then run `server:dev`, `client:dev:online` and optionally `studio:dev` again in separate terminals. Reuse the existing extracted content and database volume. Do not use `down --volumes` for an ordinary stop: it deletes the saved database.
+Run `migrate` if SQL scripts have changed since the last run. Then run `server:dev`, `client:dev` and optionally `studio:dev` again in separate terminals. Reuse the existing extracted content and database volume. Do not use `down --volumes` for an ordinary stop: it deletes the saved database.
 
 After runtime changes, restart the backend and affected frontend, reload and sign in again. The current rules identity includes shared client code, so game runtime changes require both backend and game frontend to restart. [Restart requirements](validation-method.md#current-invalidation-and-reuse-constraints) explain the boundaries; input changes require a new extraction.
 
@@ -120,7 +120,7 @@ Stop/start the database explicitly with `podman compose -f infra/compose.yaml st
 
 ### Production
 
-Apply database updates with `bun run migrate --database-url URL`, build the online shell with `bun run client:build:online`, then launch the backend with `bun run server:start`. The development launcher and bootstrap accounts are not production entry points.
+Apply database updates with `bun run migrate --database-url URL`, build the browser client with `bun run client:build`, then launch the backend with `bun run server:start`. The development launcher and bootstrap accounts are not production entry points.
 
 | Gate             | Required deployment behavior                                                                                                                                                         |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -128,11 +128,11 @@ Apply database updates with `bun run migrate --database-url URL`, build the onli
 | Studio           | Separate HTTPS origin routes to `bun run studio:start`; configure exact `OPENMS_STUDIO_ORIGIN` on the backend. See [Studio settings](server/studio.md#build-routing-and-validation). |
 | Runtime pin      | Set `OPENMS_RULES_HASH` to the verified 64-character lowercase SHA-256 rules identity.                                                                                               |
 | Configuration    | Required production `DATABASE_URL` and exact public HTTPS `OPENMS_ORIGIN`; securely provision accounts and persistence.                                                              |
-| Static files     | Publish `online.html`, styles, `dist/online/`, generated content; map `/dist/atlas-worker.js` to the online worker output.                                                           |
+| Static files     | Publish `index.html`, styles, `dist/online/`, and generated content; map `/dist/atlas-worker.js` to the worker output.                                                               |
 | Session security | Secure HttpOnly SameSite cookies, CSRF checks and one-use tickets; development endpoint absent.                                                                                      |
 | Recovery         | Explicit migration, backup/recovery and [adversarial/durability proof](server/protocol.md#implementation-order-and-required-proof).                                                  |
 
-Keep `/api/` network-only. Do not install the offline service worker for the online shell. Handler coverage and a matching source hash do not certify production readiness or complete original behavior.
+Keep `/api/` network-only. Handler coverage and a matching source hash do not certify production readiness or complete original behavior.
 
 ### Code {#server-code}
 
@@ -166,7 +166,7 @@ bun tools/openms.js data server --output /tmp/openms-reference-data
 
 The converter reads bounded SQL/schema records and script metadata; it neither starts Cosmic nor supplies its account service. [Reference-data coverage](offline-data.md) records exclusions and [provenance](inputs.md) distinguishes emulator policy from original executable/WZ evidence.
 
-The current extraction command builds a playable offline content package as well as artwork. Shop/drop rows select required item visuals, and supported NPC routes select map, portrait, dialogue-art and quest dependencies. That is why reference conversion currently participates in extraction. Online dialogue execution, purchase admission, reward calculation and transactions belong to the server; browser presentation sends choices and displays server responses. Packaging static definitions is separate from permission to execute them. A future split into independent artwork extraction and server-content compilation must preserve that dependency inventory and the offline package; relocating the definitions removes the external server dependency while preserving the offline content build.
+The extraction command builds the generated asset catalog used by the browser client and server. Shop/drop rows select required item visuals, and supported NPC routes select map, portrait, dialogue-art and quest dependencies. Dialogue execution, purchase admission, reward calculation and transactions belong to the server; browser presentation sends choices and displays server responses. Packaging static definitions does not grant the browser permission to execute them.
 
 ### Authority
 
@@ -175,20 +175,18 @@ The current extraction command builds a playable offline content package as well
 | Predict movement and display received state      | Own positions, velocities, field membership and checkpoints           |
 | Submit a native action or conversation choice    | Validate identity, requirements, costs, clocks and current generation |
 | Display/draft inventory, social and character UI | Commit all affected participants atomically and return receipts       |
-| Reconnect using a fresh ticket                   | Restore current authoritative state; never merge offline earnings     |
+| Reconnect using a fresh ticket                   | Restore the current authoritative state from durable server data      |
 
-See [shared integration](reconstruction-contract.md), [online/offline coverage](server/offline-parity.md) and [validation boundaries](validation-method.md#evidence-boundaries).
+See [client/server integration](reconstruction-contract.md), [feature coverage](server/offline-parity.md) and [validation boundaries](validation-method.md#evidence-boundaries).
 
 ## Client
 
-The browser client uses JavaScript, JSDoc, Bun and PixiJS. Online play uses the server; offline play runs locally. Use a desktop viewport of **800 × 600 or larger**.
-
-### Online
+The browser client uses JavaScript, JSDoc, Bun and PixiJS. All gameplay uses the authoritative server. Use a desktop viewport of **800 × 600 or larger**.
 
 Start the [server](#server-run) first. In a **second terminal**, from the repository root:
 
 ```sh
-bun run client:dev:online
+bun run client:dev
 ```
 
 Wait for **`online client ready`**, then open **http://127.0.0.1:3102**.
@@ -206,17 +204,7 @@ Select the starter character to enter the game. **Register** creates a normal ac
 
 Character creation follows **name → appearance → starting stats**. The server issues each dice result and validates the selected roll on creation. [Login](login-creation-recovery.md) records the exact original assets and placements.
 
-One game tab may own a browser storage origin at a time. Use separate browser profiles or isolated contexts for two-player checks. [Sessions](browser-session.md) explains the boundary. Online play does not import an offline save or keep earning progress while disconnected.
-
-### Offline
-
-After [extracting assets](index.md), start the standalone client:
-
-```sh
-bun run client:dev:offline
-```
-
-Open **http://127.0.0.1:3100**. Offline progress is saved in a local IndexedDB profile; it does not need PostgreSQL or the Bun backend and cannot be imported into online play.
+One game tab may own a browser storage origin at a time. Use separate browser profiles or isolated contexts for two-player checks. [Sessions](browser-session.md) explains the boundary. The client does not continue gameplay while disconnected.
 
 ### Settings {#client-settings}
 
@@ -224,8 +212,7 @@ Configure `.env.client`:
 
 | Setting                      | Default                 | Meaning                  |
 | ---------------------------- | ----------------------- | ------------------------ |
-| `HOST`, `PORT`               | `127.0.0.1`, `3100`     | Offline listener         |
-| `ONLINE_HOST`, `ONLINE_PORT` | `127.0.0.1`, `3102`     | Online listener          |
+| `ONLINE_HOST`, `ONLINE_PORT` | `127.0.0.1`, `3102`     | Browser client listener  |
 | `OPENMS_SERVER_URL`          | `http://127.0.0.1:3200` | Reachable backend origin |
 
 ### Controls
@@ -245,24 +232,23 @@ The [UI guide](ingame-ui.md) covers focus, original windows, tooltips and modal 
 
 ### Code {#client-code}
 
-| Code                                                                                            | Responsibility                                                 | Contract                                       |
-| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------- |
-| `client/src/main.js`, `ingame.js`                                                               | Offline integration and presentation ownership                 | [Integration](reconstruction-contract.md)      |
-| `client/src/online/`                                                                            | Transport, prediction, native UI adapters and received state   | [Protocol](server/protocol.md)                 |
-| `client/src/physics/`, `shared/motion.js`                                                       | Shared 30 ms movement and checkpoints                          | [Movement parity](movement-parity.md)          |
-| `client/src/ui/`, `input/`, `rendering/`, `audio/`                                              | Original interface, input, scene and audio                     | [UI](ingame-ui.md) · [Streaming](streaming.md) |
-| `client/src/character/`, `combat/`, `skills/`, `items/`, `quests/`, `npc/`, `world/`, `social/` | Shared gameplay consumers and local authorities                | [Feature inventory](server/offline-parity.md)  |
-| `client/src/profile/`                                                                           | Schema 8 validation, migrations and offline transactions       | [Saves](offline-saves.md)                      |
-| `client/src/assets/`, `client/tools/`                                                           | Bounded decoding, extraction, development and validation tools | [Asset evidence](asset-evidence.md)            |
-| `server/src/`, `infra/sql/`, `shared/`                                                          | Online authority, persistence and closed protocol              | [Server](#server)                              |
+| Code                                                                                            | Responsibility                                                   | Contract                                       |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------- |
+| `client/src/browser/online/main.js`, `client/src/online/`                                       | Entry point, transport, prediction, native UI and received state | [Protocol](server/protocol.md)                 |
+| `client/src/physics/`, `shared/motion.js`                                                       | Shared 30 ms movement and checkpoints                            | [Movement parity](movement-parity.md)          |
+| `client/src/ui/`, `input/`, `rendering/`, `audio/`                                              | Original interface, input, scene and audio                       | [UI](ingame-ui.md) · [Streaming](streaming.md) |
+| `client/src/character/`, `combat/`, `skills/`, `items/`, `quests/`, `npc/`, `world/`, `social/` | Presentation and rule modules shared with server authority       | [Feature inventory](server/offline-parity.md)  |
+| `client/src/profile/`                                                                           | Character schema validation and server snapshot projections      | [Protocol](server/protocol.md)                 |
+| `client/src/assets/`, `client/tools/`                                                           | Bounded decoding, extraction, development and validation tools   | [Asset evidence](asset-evidence.md)            |
+| `server/src/`, `infra/sql/`, `shared/`                                                          | Online authority, persistence and closed protocol                | [Server](#server)                              |
 
-`client/public/generated/` and `client/dist/` are generated and ignored. Asset caches and character saves have separate ownership; deleting browser site data can remove both.
+`client/public/generated/` and `client/dist/` are generated and ignored. Character progress is stored by the server.
 
 ### Coverage
 
-Use the [gameplay guide](offline-gameplay.md) for implemented local behavior, [online/offline coverage](server/offline-parity.md) for authority and gaps, and [validation results](validation.md) for scoped proof. Recovered motion uses the same **30 ms** quantum in both modes; 100% walking uses **125 px/s**, with the original jump coefficient **555 px/s** before gravity integration.
+Use [feature coverage](server/offline-parity.md) for authority and gaps, and [validation results](validation.md) for scoped proof. Recovered motion uses the original **30 ms** quantum; 100% walking uses **125 px/s**, with the original jump coefficient **555 px/s** before gravity integration.
 
-Choose checks from the [validation method](validation-method.md), rather than running every scenario for each edit. `bun tools/openms.js scenario list` lists available native cases without opening a browser.
+Choose checks from the [validation method](validation-method.md), rather than running every browser scenario for each edit.
 
 ## Studio
 

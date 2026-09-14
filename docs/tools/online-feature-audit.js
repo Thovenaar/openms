@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
+import { format } from "prettier";
 import { OnlineUI } from "../../client/src/online/ui.js";
 import { NativeSocial } from "../../client/src/online/native-social.js";
-import { nativeInterfaceHooks } from "../../client/src/ingame-interfaces.js";
 import { NORMAL_UI_NAMES } from "../../client/src/ui/game-ui.js";
 import { ACTION_KINDS } from "../../shared/protocol.js";
 import { SOCIAL_ACTIONS } from "../../shared/social-protocol.js";
@@ -41,7 +41,6 @@ async function audit() {
   owner.hooks = {};
   owner.social = new NativeSocial(owner);
   const onlineHooks = Object.keys(owner.nativeHooks()).sort();
-  const offlineHooks = Object.keys(nativeInterfaceHooks({})).sort();
   const socialRules = {
     ...CONTACT_ACTIONS,
     ...GROUP_ACTIONS,
@@ -52,14 +51,11 @@ async function audit() {
   const client = await sourceFiles("client/src/online");
   const server = await sourceFiles("server/src");
   return {
-    schema: 1,
+    schema: 2,
     evidence:
       "Static declaration/reference inventory. Runtime admission, recipient delivery, content completeness and original Windows raster parity require separate proof.",
     ordinaryBindings: NORMAL_UI_NAMES,
     onlineHooks,
-    missingOfflineInterfaceHooks: offlineHooks.filter(
-      (key) => !onlineHooks.includes(key),
-    ),
     actions: ACTION_KINDS.map((kind) => ({
       kind,
       browserReferences: references(client, kind),
@@ -72,15 +68,16 @@ async function audit() {
   };
 }
 const result = await audit();
+const outputPath = resolve(ROOT, "docs/server/online-feature-audit.json");
 await Bun.write(
-  resolve(ROOT, "docs/server/online-feature-audit.json"),
-  JSON.stringify(result, null, 2) + "\n",
+  outputPath,
+  await format(JSON.stringify(result), { filepath: outputPath }),
 );
 console.log(
   JSON.stringify({
     actions: result.actions.length,
     socialActions: result.socialActions.length,
-    missingHooks: result.missingOfflineInterfaceHooks,
+    onlineHooks: result.onlineHooks.length,
     missingSocialRules: result.socialActions.filter(
       (entry) => !entry.sharedServerRule,
     ),

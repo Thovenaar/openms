@@ -1,4 +1,7 @@
-# Original quest data and offline quest authority
+# Original quest data and historical local authority
+
+> [!NOTE]
+> The local quest authority described below belonged to the removed client. The extracted records and presentation evidence remain relevant; current quest transactions are server-owned and summarized in [online feature coverage](server/offline-parity.md).
 
 ## Scope and ownership
 
@@ -113,7 +116,7 @@ That selector is conditional on real quest choices. The later empty-quest-list b
 
 Local talk handoff now retains the quest menu until an admitted authored callback supplies its replacement. Previously `startRoute()` closed UtilDlgEx **before** checking the route or its dependencies; a visible but unsupported route therefore erased the conversation and left only a status error. Refusal now returns its reason to the existing native dialog error area, preserving the quest rows and NPC lease. Duplicate clicks and user Close are suspended during the handoff; internal successful replacement remains permitted. A failed initial VM turn never becomes the active session. Supported script, shop and storage routes retain their own destination ownership, and an authored initial disposal may still legitimately close the conversation. No NPC-name row is synthesized when neither a route nor a quest entry exists, and supported talk is not blanket-hidden.
 
-Executed mixed-menu replay: **Robin2003**, map50000, beginner job0 at level1–10 with quest1036 not started: open his quest menu, select Robin under “etc”, select “How do I move?”, and inspect the authored answer; reopening still offers the ordinary quest. His admitted Cosmic `scripts/npc/2003.js` is hashed `1bf6545a13bf10c97d286f626a5eac92aa9f82886fab665c285ec9060ee1e5fc`. Those profile values are explicit setup, not evidence of acquisition. `client/test/npc-script-runtime.test.js` retains isolated blocked-route/menu-retention and admitted callback handoff regressions without depending on a specific live NPC remaining unsupported.
+The historical mixed-menu replay used **Robin2003**, map50000 and quest1036 to exercise the separate “etc” route and authored dialogue. Its profile values were explicit setup, not evidence of acquisition. Current route and callback regressions live with the server interaction tests; the removed local-session test is not a current validation command.
 
 The executed `npc-default-dialogue` native scenario seeds only Robin's active quest1036, answers its original quiz through pointer input, accepts completion, then checks that the last-quest transition and subsequent world click both enter authored topics directly. The existing `npc-talk-menu` scenario intentionally retains its quest1036-plus-talk selector assertion; it is not a default-only case. Both passed native replay. [Integrated validation](archive/validation-history.md#exercised-gameplay-and-development-controls) also records the original shop portrait/name presentation and exact build identity.
 
