@@ -32,6 +32,7 @@ function visualState(position) {
   return {
     action: "default",
     playback: "loop",
+    playbackId: 0,
     sourceFrame: null,
     elapsedMs: 0,
     position,
@@ -77,6 +78,36 @@ test("a new observed actor snaps to its first authenticated position", () => {
   };
   presentation.applyVisual(entry);
   expect(entry.animation.container.position).toEqual({ x: -40, y: 12 });
+});
+
+test("a consecutive pooled cast starts at its own origin even during an unfinished chase", () => {
+  const presentation = new NativeSkillPresentation({});
+  const entry = {
+    state: visualState({ x: 131, y: 243 }),
+    animation: animationDouble(),
+  };
+  presentation.applyVisual(entry);
+  entry.state = visualState({ x: 150, y: 230 });
+  presentation.applyVisual(entry);
+  presentation.chase(entry, 30);
+  entry.state = {
+    ...visualState({ x: 402, y: 200 }),
+    playback: "once",
+    playbackId: 1,
+    // Restart detection must survive a missed early sample, not infer elapsed rollback.
+    elapsedMs: 90,
+    scaleX: -1,
+  };
+  presentation.applyVisual(entry);
+  expect(entry.animation.container.position).toEqual({ x: 402, y: 200 });
+  expect(entry.animation.container.scale.x).toBe(-1);
+  presentation.chase(entry, 30);
+  expect(entry.animation.container.position).toEqual({ x: 402, y: 200 });
+  // Subsequent updates in this playback still interpolate normally.
+  entry.state = { ...entry.state, position: { x: 492, y: 110 } };
+  presentation.applyVisual(entry);
+  presentation.chase(entry, 45);
+  expect(entry.animation.container.position).toEqual({ x: 447, y: 155 });
 });
 
 test("observed skill artwork draws on the native effect layer above actors", () => {

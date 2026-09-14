@@ -26,11 +26,13 @@ Oversized canvases split into lossless parts with exact offsets. Optional `sourc
 
 ## Online runtime ownership
 
-The server snapshot owns the current field, live actors and durable character state. The browser keeps a bounded predicted simulation for its local character, then reconciles against authoritative checkpoints. Remote characters and mobs are presentation projections of server observations.
+The server owns field membership, mobs, combat outcomes and durable character state. The browser owns its character's ordinary XY and velocity and reports them with held input. The server observes those reports, applies the movement watchdog and publishes acknowledgements and controls without correcting ordinary motion. Only initial synchronization and explicitly server-owned transitions replace the local kernel; see [movement ownership](movement-parity.md#client-owned-motion). Remote characters and mobs draw from server observations.
+
+Same-character profile refreshes preserve the current simulation, input history and pending impulses. Flash Jump begins locally at the key press; its accepted server impulse is consumed once. Replayed skill artwork starts at the new cast origin, identified by the published `playbackId`.
 
 A candidate field owns its assets independently. The current complete scene remains visible while a destination loads. A ready candidate commits atomically; failed or superseded candidates release resources without replacing the current scene. Screen UI and audio survive field replacement, while field-owned visuals and effects retire with their scene.
 
-Input is blocked during account/login stages, unresolved field replacement, modal native UI and transport recovery. Connection loss freezes online command admission. Reconnect installs a fresh server baseline before prediction resumes.
+Input is blocked during account/login stages, unresolved field replacement, modal native UI and transport recovery. A same-field skill or inventory refresh does not block movement. Connection loss freezes online command admission. A resumed session can report its local motion for watchdog review; the authenticated baseline then establishes the new connection before prediction resumes.
 
 The browser performs no WZ parsing. PNG decoding runs in a worker; decoded atlas and GPU-upload ownership are bounded. Asset requests have a 30-second idle deadline and five-minute total deadline. Timeout releases request admission and reports a timeout rather than fabricating missing content.
 
@@ -39,7 +41,7 @@ The browser performs no WZ parsing. PNG decoding runs in a worker; decoded atlas
 `window.maple` exposes read-only state and presentation/debug operations:
 
 - `ready`: initialization promise.
-- `snapshot()`: current map, loading/presentation, prediction, camera, UI/audio, entity and bounded diagnostic state.
+- `snapshot()`: current map, loading/presentation, prediction, camera, UI/audio, entity and bounded diagnostic state. `skillVisuals` contains detached effect IDs, source IDs, playback IDs, frame/visibility, rendered position and published target position for appearance checks.
 - `setDebug(boolean)` and `setGeometryReference(id)`: demand-load and select diagnostic geometry.
 - `setAction(id, action)`: presentation-only action override for non-character, non-mob entities. Live actor poses remain server-owned.
 - `setVisible(id, boolean)` and `setLayer(id, z)`: local render previews.

@@ -108,6 +108,8 @@ function validateMobInfo(info) {
     "maxMP",
     "PADamage",
     "PDDamage",
+    "PDRate",
+    "MDRate",
     "MADamage",
     "level",
     "acc",
@@ -552,7 +554,9 @@ function chaseMob(mob, ms, target) {
   setMobAction(mob, mob.x === before ? "stand" : "move");
 }
 
-/** 009bc2bb..3b1 integrates recoil along the foothold tangent, not world X. */
+/** 009bc2bb..392 integrates the grounded scalar speed along the foothold.
+ *  009b1646 reconstructs world XY from its tangent and that distance. The
+ *  separate airborne mode-3 branch in 009bbdfd must not define ground travel. */
 function moveMobRecoil(mob, distance) {
   if (mob.flight) {
     moveMobFlightRecoil(mob, distance);
@@ -563,10 +567,10 @@ function moveMobRecoil(mob, distance) {
   for (let count = 0; count < MOB_POLICY.maxTransitions; count++) {
     const segment = mob.foothold;
     const edge = direction > 0 ? segment.x2 : segment.x1;
-    const available = Math.abs(edge - mob.x) / segment.tx;
+    const available = segment.tx > 0 ? Math.abs(edge - mob.x) / segment.tx : 0;
     if (remaining <= available) {
       mob.x += direction * remaining * segment.tx;
-      mob.y = groundY(segment, mob.x);
+      if (segment.dx > 0) mob.y = groundY(segment, mob.x);
       return;
     }
     mob.x = edge;

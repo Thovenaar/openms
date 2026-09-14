@@ -1,3 +1,4 @@
+import { COMBAT_VALUE_LIMIT } from "../../../shared/combat-formulas.js";
 import { Container, Rectangle, Sprite, Texture } from "pixi.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { check } from "../rendering/stream-network.js";
@@ -9,7 +10,7 @@ import { BALLISTIC_SKILLS } from "../skills/skill-ballistic-rules.js";
 // Cold demand growth;1024 is a failure bound, not an eagerly allocated baseline.
 const BASE_NUMBERS = 32;
 const MAX_NUMBERS = 1024;
-const MAX_DIGITS = 10;
+const MAX_DIGITS = 16;
 const MAX_PROJECTILES = 128; // Shared ordinary and skill ammunition flight residency.
 const MAX_MAGNET_RESULTS = 32;
 const FAMILIES = ["NoRed", "NoBlue", "NoViolet", "NoCri"];
@@ -440,12 +441,12 @@ export class CombatPresentation {
     const placement = this.fixedNumberPlacement(simulation.x, y);
     this.show(Math.abs(amount), amount > 0 ? 1 : 2, placement);
   }
-  onMobHit(mob, damage) {
+  onMobHit(mob, damage, critical = false) {
     const entity = mob.presentation;
     const geometry = entity?.actions.get(entity.action)?.geometry[entity.frame];
     const y = mob.y + (geometry?.y ?? 0) - 15;
     const placement = this.fixedNumberPlacement(mob.x, y);
-    this.show(Math.abs(damage), damage < 0 ? 1 : 0, placement);
+    this.show(Math.abs(damage), damage < 0 ? 1 : critical ? 3 : 0, placement);
   }
 
   onSkillDamageLine(mob, amount, presentation) {
@@ -483,7 +484,7 @@ export class CombatPresentation {
       !this.scene ||
       !Number.isSafeInteger(amount) ||
       amount < 0 ||
-      amount > 9999999999
+      amount > COMBAT_VALUE_LIMIT
     ) {
       return null;
     }

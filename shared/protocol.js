@@ -1,3 +1,4 @@
+import { COMBAT_VALUE_LIMIT } from "./combat-formulas.js";
 import { LIFE_PLACEMENT_PATTERN } from "./content-identity.js";
 import {
   array,
@@ -110,10 +111,10 @@ export {
  *  terminal fall is 20.1 px and one authoritative knockback adds 8.1 px.
  *  `velocityPxPerSecond` 700 is an instantaneous bound, so it does not scale.
  *
- *  Adoption is refused outright whenever the server owns a rule the client cannot know
- *  (seat, movement lock, death, pending hit, pending field transition) and on the tick
- *  that carries an authoritative divert, so no admission, portal or collision rule is
- *  weakened. */
+ *  Adoption is refused only where the server owns a rule the client cannot know (a
+ *  pending field transition, death, a map seat, a ladder attach, or an unpredicted
+ *  movement skill). Those checkpoints carry `authoritative: true`; ordinary checkpoints
+ *  are observations and never reposition the browser. */
 export const MOTION_PLAUSIBILITY = Object.freeze({
   speedPxPerSecond: 900,
   minimumPositionPx: 32,
@@ -135,7 +136,10 @@ export const PROTOCOL = Object.freeze({
   SUBPROTOCOL: "openms.game.v1",
   TICK_MS: 30,
   MAX_CATCH_UP: 4,
-  INPUT_LEAD_TICKS: 4,
+  /** 240 ms of admitted lead. The browser paces presentation from its own clock, so a
+   *  brief server or event-loop delay must not freeze local stepping; the authority
+   *  retires any late hint it cannot place. */
+  INPUT_LEAD_TICKS: 8,
   INPUT_BUFFER_TICKS: 1,
   INPUT_HISTORY: 64,
   MAX_MESSAGE_BYTES: 16384,
@@ -665,7 +669,7 @@ export const domainEventSchema = union("kind", {
       hits: array(
         record({
           targetId: id,
-          damage: u32,
+          damage: number(0, COMBAT_VALUE_LIMIT),
           outcome: enumeration("hit", "miss", "guard"),
         }),
         32,
@@ -768,14 +772,16 @@ const serverBase = {
   serverTick: revision,
 };
 /** One authoritative external impulse (mob hit knockback or a movement skill).
- *  `tick` is the checkpoint tick whose step first integrates the impulse, so the
- *  client can place it in its own history at exactly that tick. */
+ *  `tick` is the field tick that published it; `skillId` is 0 for a mob hit. The
+ *  client owns its own XY, so it merges the vector into its current kernel state at
+ *  receipt through the same `applyExternalImpulse` entry point the authority used
+ *  rather than replaying a pre-impulse checkpoint. */
 const motionDivertSchema = record({
   tick: revision,
   vx: coordinate,
   vy: coordinate,
   source: enumeration("hit", "skill"),
-  before: motionSchema,
+  skillId: u32,
 });
 function serverRecord(type, fields, check = null) {
   return record({ ...serverBase, type: enumeration(type), ...fields }, check);
@@ -789,7 +795,7 @@ export const serverSchema = union("type", {
     worldContentHash: optional(hash),
     serverTime: revision,
     tickMs: enumeration(30),
-    inputLeadTicks: number(0, 4),
+    inputLeadTicks: number(0, 8),
     inputBufferTicks: number(0, 4),
     resume: enumeration("continued", "snapshot"),
     limits: record({
@@ -865,10 +871,13 @@ export const serverSchema = union("type", {
     ackInputSeq: nullable(seq),
     paused: boolean,
     motion: motionSchema,
+    // True only when the server owns this actor's XY for this tick (transition,
+    // death, seat, ladder, or an unpredicted movement skill). Ordinary checkpoints
+    // are observations: the browser is authoritative for its own position.
+    authoritative: boolean,
     // External impulses the authority merged into this tick, in application order.
-    // `before` is the kernel checkpoint from immediately before the merge, so a
-    // client can re-step the suffix with the same kernel entry point instead of
-    // adopting the post-impulse state. Empty on every ordinary tick.
+    // The client merges the same vector into its own state at receipt. Empty on
+    // every ordinary tick.
     diverts: array(motionDivertSchema, 2),
   }),
 });

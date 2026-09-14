@@ -134,7 +134,7 @@ export class SceneEvents {
       const target = this.target(view);
       if (event.skillId) {
         this.combat.onSkillDamageLine(target, event.damage, event);
-      } else this.combat.onMobHit(target, event.damage);
+      } else this.combat.onMobHit(target, event.damage, event.critical);
     } else {
       const animation = view.animation;
       const geometry = animation.current.geometry[animation.frame];

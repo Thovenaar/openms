@@ -31,6 +31,10 @@ import { BALLISTIC_SKILLS } from "./skill-ballistic-rules.js";
 import { SkillChain } from "./skill-chain.js";
 
 const MAX_TARGETS = 30;
+const VENOM_SKILL = Object.freeze({
+  id: 0,
+  properties: Object.freeze({ elemAttr: "s" }),
+});
 const MAX_LINES = 30;
 const MAX_IMPACTS = 120;
 const SPLASH = new Set([3101005, 3111003, 3211003]);
@@ -131,6 +135,9 @@ function impactSlot() {
     generation: 0,
     visual: null,
     projectileId: 0,
+    dotDamage: 0,
+    venomDamage: 0,
+    venomId: 0,
     damage: new Float64Array(MAX_LINES),
     critical: new Uint8Array(MAX_LINES),
     hit: {
@@ -147,6 +154,8 @@ function impactSlot() {
 function createDamageContext(field, use, stats) {
   return {
     generator: field.damageGenerator,
+    skillPercentScale: 1,
+    dotDamage: 0,
     stats,
     effect: { duration: 0, source: 0 },
     aranCombo: 0,
@@ -612,6 +621,7 @@ export class SkillAttack {
   prepareDamageContext(record, count, kind) {
     const context = this.context;
     context.stats = this.stats;
+    context.skillPercentScale = 1;
     context.kind = kind;
     context.summon = kind === "summon";
     context.rank = record.rank;
@@ -669,6 +679,13 @@ export class SkillAttack {
     shot.summon = context.summon;
     shot.luk = this.stats.luk;
     shot.str = this.stats.str;
+    shot.dotDamage = this.damage.dot(
+      shot.skill,
+      shot.info,
+      shot.target.skillStatus.projected,
+      context,
+    );
+    this.prepareVenomDamage(shot);
     this.field.damageGenerator.beginTarget();
     for (let line = 0; line < baseLines; line++) {
       context.line = line;
@@ -678,10 +695,15 @@ export class SkillAttack {
       );
       shot.critical[line] = this.damage.critical ? 1 : 0;
       if (shadow) {
-        shot.damage[line + baseLines] = Math.trunc(
-          (shot.damage[line] * context.temporary.shadowPartnerSkill) / 100,
+        context.skillPercentScale = context.temporary.shadowPartnerSkill / 100;
+        shot.damage[line + baseLines] = this.damage.generate(
+          shot.skill,
+          shot.info,
+          shot.target,
+          context,
         );
-        shot.critical[line + baseLines] = shot.critical[line];
+        shot.critical[line + baseLines] = this.damage.critical ? 1 : 0;
+        context.skillPercentScale = 1;
       }
     }
   }
@@ -696,6 +718,9 @@ export class SkillAttack {
     }
     if (!shot) throw new Error("Admitted skill impact pool exhausted");
     shot.active = true;
+    shot.dotDamage = 0;
+    shot.venomDamage = 0;
+    shot.venomId = 0;
     shot.age = 0;
     shot.skill = record.skill;
     shot.info = record.info;
@@ -775,6 +800,7 @@ export class SkillAttack {
   resolveStatus(shot, total) {
     const target = shot.target;
     const context = this.context;
+    context.dotDamage = shot.dotDamage;
     context.rank = shot.rank;
     context.summon = shot.summon;
     context.str = shot.str;
@@ -1044,17 +1070,30 @@ export class SkillAttack {
     return true;
   }
 
-  applyVenom(shot) {
-    if (shot.target.template.info.boss || !shot.target.alive) return;
-    const type = this.field.combat.weaponType;
-    if (type !== 33 && type !== 47) return;
-    const id =
+  prepareVenomDamage(shot) {
+    const type = this.stats.weaponType;
+    shot.venomId =
       type === 33
         ? 4220005
-        : this.field.hooks.skillLevel?.(4120005)
-          ? 4120005
-          : 14110004;
-    const info = learnedCombatInfo(this.field.hooks, id);
+        : type === 47
+          ? this.field.hooks.skillLevel?.(4120005)
+            ? 4120005
+            : 14110004
+          : 0;
+    const info = learnedCombatInfo(this.field.hooks, shot.venomId);
+    shot.venomDamage = info
+      ? this.damage.dot(
+          VENOM_SKILL,
+          info,
+          shot.target.skillStatus.projected,
+          this.context,
+        )
+      : 0;
+  }
+
+  applyVenom(shot) {
+    if (!shot.target.alive || !shot.venomId || shot.venomDamage <= 0) return;
+    const info = learnedCombatInfo(this.field.hooks, shot.venomId);
     if (
       !info ||
       this.field.damageGenerator.next() % 100 >= skillNumber(info.prop)
@@ -1063,23 +1102,15 @@ export class SkillAttack {
     }
     const state = shot.target.skillStatus;
     state.venomStacks = Math.min(3, state.venomStacks + 1);
-    const low = Math.min(
-      32767,
-      Math.ceil(shot.luk * skillNumber(info.mad) * 0.1),
-    );
-    const high = Math.min(
-      32767,
-      Math.ceil(shot.luk * skillNumber(info.mad) * 0.2),
-    );
-    let damage = 0;
-    for (let index = 0; index < state.venomStacks; index++) {
-      damage +=
-        low + (this.field.damageGenerator.next() % Math.max(1, high - low));
-    }
     const effect = this.context.effect;
     effect.duration = skillNumber(info.time) * 1000;
-    effect.source = id;
-    setMobStatus(shot.target, "poison", Math.min(32767, damage), effect);
+    effect.source = shot.venomId;
+    setMobStatus(
+      shot.target,
+      "poison",
+      shot.venomDamage * state.venomStacks,
+      effect,
+    );
   }
 
   external(skill, info, origin) {
@@ -1098,7 +1129,14 @@ export class SkillAttack {
     this.context.rank = record.rank;
     this.context.summon = false;
     if (origin.kind === "area") {
+      this.prepareDamageContext(record, count, "area");
       for (let index = 0; index < count; index++) {
+        this.context.dotDamage = this.damage.dot(
+          skill,
+          info,
+          this.targets[index].skillStatus.projected,
+          this.context,
+        );
         if (applySkillStatus(this.targets[index], skill, info, this.context)) {
           this.field.hooks.onMobStatus?.(this.targets[index], skill.id);
         }

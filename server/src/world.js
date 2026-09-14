@@ -78,11 +78,11 @@ import {
   destroyFieldReactors,
 } from "./field-reactors.js";
 import {
-  motionDivertPending,
   prepareMotionDiverts,
   releaseMotionDiverts,
   takeMotionDiverts,
 } from "./field-diverts.js";
+import { serverOwnsPosition } from "./motion-authority.js";
 import { MotionWatchdog } from "./watchdog.js";
 
 const MAX_FIELDS = 128;
@@ -122,31 +122,15 @@ function prepareNpcs(manifest, randomUint) {
   return npcs;
 }
 
-/** State in which the server, not the client, decides where this actor is. */
-function serverOwnsPosition(actor, sim) {
-  if (actor.pending || actor.profile.hp <= 0) return true;
-  return sim.seat !== null || sim.movementLocked || sim.ladder !== null;
-}
-
-/** Whether the client's report for this tick may be adopted at all. Every refusal here
- *  is a rule the server owns and the client cannot know, so the client is not trusted
- *  and the authoritative checkpoint keeps correcting it exactly as before. */
+/** Whether the client's report for this tick may be adopted at all. The browser owns
+ *  its own trajectory, so ordinary motion is always adopted; only state the client
+ *  cannot predict is refused here. Those checkpoints are also published with
+ *  `authoritative: true` so the browser follows them. */
 function adoptionPermitted(actor, sim) {
   if (actor.state !== "active" || actor.retiring || actor.deliveryError) {
     return false;
   }
-  if (serverOwnsPosition(actor, sim)) return false;
-  if (
-    actor.skillField?.blocksMovement ||
-    actor.skillField?.hasPendingIncoming
-  ) {
-    return false;
-  }
-  // An authoritative impulse queued for this step owns it: the report extends the
-  // client's pre-impulse trajectory and adopting it would erase the divert. The
-  // publishing checkpoint and the tick after it are refused the same way.
-  if (motionDivertPending(actor, actor.field)) return false;
-  return actor.field.tick - actor.lastDivertTick > 1;
+  return !serverOwnsPosition(actor, sim);
 }
 
 /** Adoption: the client's own trajectory becomes the server's state. Grounded travel is
@@ -211,10 +195,6 @@ function adoptReportedMotion(world, actor, sample) {
   const sim = actor.simulation;
   if (!motion || !sim) return;
   if (!adoptionPermitted(actor, sim)) return;
-  // A report the client admitted before an authoritative impulse extends its
-  // pre-impulse trajectory: adopting it would erase the divert. The client's
-  // post-replay reports carry a higher sequence and are adopted again.
-  if (sample.inputSeq <= (actor.lastDivertInputSeq ?? 0)) return;
   const elapsedMs =
     Math.max(0, sample.targetTick - actor.lastAdoptedTick) * PROTOCOL.TICK_MS;
   const excess = motionExcess(sim, motion, plausiblePositionPx(elapsedMs));
@@ -441,8 +421,6 @@ export class OnlineWorld {
     actor.lastCheckpoint = this.now;
     actor.admission = "OK";
     actor.lastAdoptedTick = field.tick;
-    actor.lastDivertTick = -Infinity;
-    actor.lastDivertInputSeq = 0;
     prepareMotionDiverts(actor, field);
   }
 
@@ -584,24 +562,14 @@ export class OnlineWorld {
     advanceNpcs(this, field);
     for (const actor of field.characters.values()) {
       if (actor.state !== "active" || actor.retiring) continue;
-      const diverts = takeMotionDiverts(actor, field);
-      if (diverts.length) {
-        actor.lastDivertTick = field.tick;
-        // Every input admitted so far was predicted before the client can have seen
-        // this divert, so its report extends the pre-impulse trajectory. Only a later
-        // sequence — the one the client predicts after replaying — may be adopted.
-        actor.lastDivertInputSeq = Math.max(
-          actor.lastDivertInputSeq ?? 0,
-          actor.inputSeq ?? 0,
-        );
-      }
       this.publish(actor, {
         type: "motion",
         fieldEpoch: field.epoch,
         ackInputSeq: actor.ackInputSeq,
         motion: captureMotion(actor.simulation),
         paused: field.paused,
-        diverts,
+        authoritative: serverOwnsPosition(actor, actor.simulation),
+        diverts: takeMotionDiverts(actor, field),
       });
       if (field.tick % 3 === 0) this.publishEntities(actor);
       this.automaticPortal(actor);

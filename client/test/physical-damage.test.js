@@ -1,357 +1,443 @@
 import { expect, test } from "bun:test";
 import { PhysicalDamage } from "../src/combat/physical-damage.js";
+import { SkillDamage, elementalDamage } from "../src/skills/skill-damage.js";
 import {
   createCharacterStats,
   projectCharacterStats,
 } from "../src/character/character-stats.js";
+import {
+  actualDamageMaximum,
+  actualDamageMinimum,
+  shownDamageRange,
+  weaponMultiplier,
+  combatStatValue,
+  combineFinalDamage,
+  combineIgnoreDefense,
+  monsterDefenseMultiplier,
+  levelAdjustedDamage,
+  incomingDamageBounds,
+  defenseLevelFactor,
+  incomingLevelFactor,
+  dodgeChance,
+  DAMAGE_LIMIT,
+} from "../../shared/combat-formulas.js";
+import {
+  createMobSkillStatus,
+  setMobStatus,
+} from "../src/combat/mob-skill-status.js";
 
-// Original starter PAD17 and Red Snail level4/PDD3; character inputs isolate arithmetic.
-const SNAIL = Object.freeze({ level: 4, PDDamage: 3, eva: 0 });
-const HECTOR = Object.freeze({ level: 55, PDDamage: 120, eva: 20 });
-function swordStats(overrides = {}) {
+function stats(overrides = {}) {
   return {
-    level: 1,
-    str: 12,
-    dex: 5,
-    pad: 17,
-    acc: 6,
+    level: 50,
+    job: 100,
+    str: 100,
+    dex: 20,
+    int: 4,
+    luk: 4,
+    pad: 100,
+    mad: 100,
+    padWithoutProjectile: 100,
     mastery: 0,
     weaponType: 30,
+    criticalChance: 0,
+    criticalDamage: 0,
     damageSupported: true,
     ...overrides,
   };
 }
-
-function replay(values) {
-  let index = 0;
-  const source = new PhysicalDamage(Math.random, () => {
-    if (index >= values.length) throw new Error("Replay exhausted");
-    return values[index++];
-  });
-  return source;
+function generator(word = 0) {
+  return new PhysicalDamage(Math.random, () => word);
 }
-
-function profileFixture() {
-  const items = {
-    1302000: { info: { incPAD: 17 } },
-    1002000: {
-      info: { incSTR: 3, incDEX: 2, incLUK: 1, incACC: 2, incPAD: 4 },
-    },
+function target(overrides = {}) {
+  const info = { level: 50, acc: 100, eva: 999, PDDamage: 999, ...overrides };
+  return { hp: 10000, maxHP: 10000, skillStatus: createMobSkillStatus(info) };
+}
+function context(overrides = {}) {
+  return {
+    stats: stats(),
+    use: null,
+    temporary: {},
+    kind: "player",
+    hp: 100,
+    maxHP: 100,
+    combo: 0,
+    line: 0,
+    chargeMs: -1,
+    ...overrides,
   };
+}
+const HOOKS = { skillLevel: () => 0, skillInfo: () => null };
+const BASIC = { id: 0, properties: {} };
+
+test("modern weapon multipliers retain Hero and Paladin overrides", () => {
+  expect(
+    [30, 31, 32, 33, 37, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49].map(
+      (type) => weaponMultiplier(type),
+    ),
+  ).toEqual([
+    1.24, 1.2, 1.2, 1.3, 1.2, 1.2, 1.34, 1.34, 1.34, 1.49, 1.49, 1.3, 1.35,
+    1.75, 1.7, 1.5,
+  ]);
+  expect(weaponMultiplier(30, 112)).toBe(1.34);
+  expect(weaponMultiplier(40, 112)).toBe(1.44);
+  expect(weaponMultiplier(32, 122)).toBe(1.24);
+});
+
+test("job primary and secondary stats distinguish magic, claw, dagger and guns", () => {
+  const input = stats({ str: 10, dex: 20, int: 30, luk: 40 });
+  const jobs = [
+    [100, 30, 60],
+    [200, 37, 160],
+    [300, 45, 90],
+    [410, 47, 180],
+    [420, 33, 190],
+    [520, 49, 90],
+    [510, 48, 60],
+    [1200, 38, 160],
+    [2110, 44, 60],
+    [2200, 38, 160],
+  ];
+  for (const [job, weaponType, value] of jobs) {
+    expect(combatStatValue({ ...input, job, weaponType })).toBe(value);
+  }
+});
+
+test("display rounds the actual range before damage and final damage bonuses", () => {
+  const input = stats({ damagePercent: 20, finalDamagePercent: 50 });
+  expect(actualDamageMaximum(input)).toBe(521);
+  expect(actualDamageMinimum(input, 521)).toBe(104);
+  const output = {};
+  shownDamageRange(input, output);
+  expect(output).toEqual({ damageMin: 188, damageMax: 937 });
+  expect(actualDamageMinimum(stats({ mastery: 100 }), 1000)).toBe(990);
+  expect(
+    actualDamageMaximum(
+      stats({ job: 200, weaponType: 37, int: 100, luk: 20, pad: 9999 }),
+    ),
+  ).toBe(504);
+});
+
+test("unarmed range is zero except for pirates", () => {
+  expect(actualDamageMaximum(stats({ weaponType: 0 }))).toBe(0);
+  expect(actualDamageMaximum(stats({ job: 500, weaponType: 0 }))).toBe(6);
+});
+
+test("normal hits use percentage DEF, no obsolete accuracy roll or flat DEF subtraction", () => {
+  const input = stats();
+  expect(generator().generate(input, target().skillStatus.projected)).toBe(114);
+  expect(
+    generator().generate(input, target({ PDRate: 50 }).skillStatus.projected),
+  ).toBe(57);
+  expect(generator().generate(input, target().skillStatus.projected, 200)).toBe(
+    228,
+  );
+  expect(
+    generator(9999999).generate(input, target().skillStatus.projected),
+  ).toBe(573);
+});
+
+test("normal and boss bonuses add to damage while final damage and IED multiply", () => {
+  expect(combineFinalDamage(20, 30)).toBeCloseTo(56);
+  expect(combineIgnoreDefense(30, 40)).toBeCloseTo(58);
+  expect(monsterDefenseMultiplier({ PDRate: 300 }, 70)).toBeCloseTo(0.1);
+  expect(monsterDefenseMultiplier({ PDRate: 900 }, 90)).toBeCloseTo(0.5);
+  expect(monsterDefenseMultiplier({ PDRate: 300 }, 50)).toBe(0);
+  const input = stats({
+    damagePercent: 20,
+    bossDamagePercent: 50,
+    normalDamagePercent: 10,
+    finalDamagePercent: 50,
+  });
+  expect(generator().generate(input, target().skillStatus.projected)).toBe(223);
+  expect(
+    generator().generate(input, target({ boss: 1 }).skillStatus.projected),
+  ).toBe(291);
+});
+
+test("level advantage follows all boundary bands and truncates only the penalty amount", () => {
+  const rows = [
+    [10, 1200],
+    [5, 1200],
+    [0, 1100],
+    [-1, 1053],
+    [-2, 1007],
+    [-3, 962],
+    [-4, 918],
+    [-5, 875],
+    [-39, 25],
+    [-40, 0],
+    [-60, 0],
+  ];
+  for (const [gap, damage] of rows) {
+    expect(levelAdjustedDamage(1000, 100 + gap, 100)).toBeCloseTo(damage);
+  }
+  expect(levelAdjustedDamage(19, 99, 100)).toBeCloseTo(20.52);
+});
+
+test("skill attacks, magic and summons share the standard range and per-hit critical multiplier", () => {
+  const damage = new SkillDamage(generator(), HOOKS);
+  const ctx = context();
+  expect(damage.generate(BASIC, { damage: 200 }, target(), ctx)).toBe(228);
+  ctx.kind = "summon";
+  expect(damage.generate(BASIC, { pad: 200 }, target(), ctx)).toBe(228);
+  ctx.kind = "player";
+  ctx.stats = stats({
+    job: 200,
+    weaponType: 37,
+    int: 100,
+    luk: 20,
+    criticalChance: 100,
+    criticalDamage: 30,
+  });
+  // 504 upper *25% mastery =126; 200% skill *150% critical *110% level.
+  expect(damage.generate(BASIC, { mad: 200 }, target(), ctx)).toBe(415);
+  expect(damage.critical).toBe(true);
+});
+
+test("native Lucky Seven and Snipe formulas no longer bypass the modern range", () => {
+  const damage = new SkillDamage(generator(), HOOKS);
+  const ctx = context({ stats: stats({ job: 410, weaponType: 47, luk: 100 }) });
+  const ordinary = damage.generate(BASIC, { damage: 150 }, target(), ctx);
+  expect(
+    damage.generate(
+      { id: 4001344, properties: {} },
+      { damage: 150 },
+      target(),
+      ctx,
+    ),
+  ).toBe(ordinary);
+  expect(
+    damage.generate(
+      { id: 3221007, properties: {} },
+      { damage: 150 },
+      target(),
+      ctx,
+    ),
+  ).toBe(ordinary);
+});
+
+test("elemental resistance and immunity honor ignore resistance; weakness remains 150%", () => {
+  for (const [element, expected] of [
+    ["f", 50],
+    ["i", 75],
+    ["l", 150],
+    ["s", 100],
+  ]) {
+    expect(elementalDamage(100, { elemAttr: "F1I2L3" }, element, 50)).toBe(
+      expected,
+    );
+  }
+  expect(elementalDamage(1000000, { elemAttr: "F3" }, "f", 100)).toBe(1500000);
+});
+
+test("DOT uses upper actual damage and excludes mastery, crit, DEF and damage boosts", () => {
+  const damage = new SkillDamage(generator(), HOOKS);
+  const ctx = context({
+    stats: stats({
+      damagePercent: 500,
+      finalDamagePercent: 500,
+      masteryPercent: 99,
+      criticalChance: 100,
+    }),
+  });
+  expect(
+    damage.dot(
+      BASIC,
+      { dot: 200 },
+      target({ PDRate: 500 }).skillStatus.projected,
+      ctx,
+    ),
+  ).toBe(1042);
+  const immune = { id: 1, properties: { elemAttr: "f" } };
+  expect(
+    damage.dot(
+      immune,
+      { dot: 200 },
+      target({ elemAttr: "F1" }).skillStatus.projected,
+      ctx,
+    ),
+  ).toBe(0);
+});
+
+test("fixed and proportional skill damage bypass ordinary range bonuses", () => {
+  const damage = new SkillDamage(generator(), HOOKS);
+  expect(damage.generate(BASIC, { fixdamage: 7 }, target(), context())).toBe(7);
+  expect(damage.generate(BASIC, { damagepc: 10 }, target(), context())).toBe(
+    1000,
+  );
+});
+
+test("large hits reach modern cap and successive attack lines refill random words", () => {
+  const damage = new SkillDamage(generator(9999999), HOOKS);
+  expect(
+    damage.generate(
+      BASIC,
+      { damage: 1000 },
+      target(),
+      context({ stats: stats({ str: 10000000, pad: 10000000 }) }),
+    ),
+  ).toBe(DAMAGE_LIMIT);
+  let draws = 0;
+  const random = new PhysicalDamage(Math.random, () => ++draws);
+  random.beginTarget();
+  const rolls = [];
+  for (let i = 0; i < 14; i++) rolls.push(random.roll(0, 10000000));
+  expect(rolls[0]).toBe(1);
+  expect(rolls[7]).toBe(8);
+  expect(draws).toBe(14);
+});
+
+test("monster attack is linear and defense reductions have separate 68% and 80% caps", () => {
+  const input = stats({ str: 0, dex: 0, luk: 0, pdd: 0 });
+  const mob = target().skillStatus.projected;
+  const bounds = {};
+  incomingDamageBounds(input, mob, 1000, bounds);
+  expect(bounds.minimum).toBeCloseTo(722.5);
+  expect(bounds.maximum).toBeCloseTo(850);
+  input.pdd = 1000;
+  incomingDamageBounds(input, mob, 1000, bounds);
+  expect(bounds.minimum).toBeCloseTo(144.5);
+  expect(bounds.maximum).toBeCloseTo(170);
+  input.level += 10;
+  incomingDamageBounds(input, mob, 1000, bounds);
+  expect(bounds.maximum).toBeCloseTo(155);
+});
+
+test("incoming level factors match table boundaries", () => {
+  for (const [gap, a, b] of [
+    [10, 0.775, 1],
+    [0, 0.85, 1],
+    [-10, 0.85, 0.9],
+    [-11, 0.85, 0.88],
+    [-15, 0.85, 0.8],
+    [-16, 0.8575, 0.78],
+    [-20, 0.8575, 0.7],
+    [-21, 0.865, 0.68],
+    [-30, 0.8725, 0.5],
+    [-31, 0.88, 0.5],
+  ]) {
+    expect(incomingLevelFactor(gap)).toBeCloseTo(a);
+    expect(defenseLevelFactor(gap)).toBeCloseTo(b);
+  }
+});
+
+test("physical and magic dodge use DEX, LUK, accuracy and level with a 90% cap", () => {
+  expect(dodgeChance(stats({ dex: 100, luk: 0 }), { level: 50, acc: 0 })).toBe(
+    10,
+  );
+  expect(dodgeChance(stats({ dex: 100, luk: 0 }), { level: 51, acc: 0 })).toBe(
+    8,
+  );
+  expect(
+    dodgeChance(stats({ dex: 100000, luk: 0 }), { level: 50, acc: 0 }),
+  ).toBe(90);
+  expect(dodgeChance(stats({ dex: 0, luk: 0 }), { level: 50, acc: 100 })).toBe(
+    0,
+  );
+  expect(
+    generator().evades(stats({ dex: 100, luk: 0 }), { level: 50, acc: 0 }),
+  ).toBe(true);
+});
+
+test("incoming magic shares defense and damage reduction; Invincible stays physical", () => {
+  const input = stats({ str: 0, dex: 0, luk: 0, pdd: 0, invincible: 20 });
+  const mob = { level: 50, acc: 100, PADamage: 1000, MADamage: 1000 };
+  expect(generator().receive(input, mob, { magic: false })).toBe(578);
+  expect(generator().receive(input, mob, { magic: true })).toBe(722);
+  input.damageReductionPercent = 50;
+  expect(generator().receive(input, mob, { magic: true })).toBe(361);
+});
+
+function projectionFixture() {
   const profile = {
-    level: 1,
-    job: 0,
-    str: 12,
-    dex: 5,
-    int: 4,
-    luk: 4,
+    level: 50,
+    job: 200,
+    str: 4,
+    dex: 4,
+    int: 100,
+    luk: 20,
     maxHP: 50,
-    maxMP: 5,
+    maxMP: 50,
+    skills: { 2001004: { level: 1 } },
     inventory: [],
     equipment: [
-      { uid: "sword", id: 1302000, count: 1, slot: -11 },
-      { uid: "hat", id: 1002000, count: 1, slot: -1 },
+      { id: 1372000, slot: -11 },
+      { id: 1002000, slot: -1 },
     ],
   };
-  const learned = {};
-  const temporary = { pad: 10, acc: 4 };
+  const items = {
+    1372000: {
+      info: {
+        incMAD: 2000,
+        incPDD: 10,
+        finalDamagePercent: 20,
+        ignoreDefensePercent: 30,
+      },
+    },
+    1002000: {
+      info: {
+        incMAD: 10,
+        incPDD: 20,
+        finalDamagePercent: 30,
+        ignoreDefensePercent: 40,
+      },
+    },
+  };
   const hooks = {
     items,
-    derivedStats: () => temporary,
-    skillLevel: (id) => (learned[id] ? 1 : 0),
-    skillInfo: (id) => learned[id] ?? null,
+    skillLevel: (id) => (id === 2001004 ? 1 : 0),
+    skillInfo: () => ({ mastery: 10 }),
   };
-  return { profile, hooks, learned, temporary };
+  return { profile, hooks };
 }
 
-test("starter sword mastery range permits zero and never the old inflated one-hit kill", () => {
-  const source = replay([0, 0, 0, 0, 0, 0, 0, 0, 0, 9999999, 0, 0, 0, 0]);
-  const stats = swordStats();
-  expect(source.generate(stats, SNAIL)).toBe(0);
-  expect(source.generate(stats, SNAIL)).toBe(7);
+test("projection separates INT from magic attack and publishes the modern range inputs", () => {
+  const { profile, hooks } = projectionFixture();
+  const output = projectCharacterStats(profile, hooks, createCharacterStats());
+  expect(output.mad).toBe(2010);
+  expect(output.defense).toBe(45);
+  expect(output.mdd).toBe(output.pdd);
+  expect(output.masteryPercent).toBe(75);
+  expect(output.criticalChance).toBe(5);
+  expect(output.criticalDamage).toBe(0);
+  expect(output.finalDamagePercent).toBeCloseTo(56);
+  expect(output.ignoreDefensePercent).toBeCloseTo(58);
+  projectCharacterStats(profile, hooks, output);
+  expect(output.defense).toBe(45);
+  expect(output.finalDamagePercent).toBeCloseTo(56);
 });
 
-test("accuracy uses its reserved slot and consumes the seven-word window even on MISS", () => {
-  const source = replay([
-    9999999, 0, 9999999, 0, 0, 0, 0, 0, 9999999, 9999999, 0, 0, 0, 0,
-  ]);
-  const stats = swordStats({ level: 4 });
-  const evasive = { ...SNAIL, eva: 2 };
-  expect(source.generate(stats, evasive)).toBe(0);
-  expect(source.lastOutcome).toBe("accuracy-miss");
-  expect(source.generate(stats, evasive)).toBe(7);
-});
-
-test("defense precedes skill percentage and learned raw mastery changes the lower bound", () => {
-  const source = replay(new Array(14).fill(0));
-  const stats = swordStats({ level: 55, str: 100, dex: 20, pad: 50, acc: 999 });
-  expect(source.generate(stats, HECTOR, 165)).toBe(-52);
-  stats.mastery = 9;
-  expect(source.generate(stats, HECTOR, 165)).toBe(80);
-});
-
-test("independent defense rolls and native level penalty may produce nonpositive lines", () => {
-  const source = replay([
-    0, 0, 9999999, 0, 0, 0, 0, 0, 0, 9999999, 9999999, 0, 0, 0,
-  ]);
-  const stats = swordStats({ level: 55, str: 125, dex: 5, acc: 999 });
-  expect(source.generate(stats, HECTOR)).toBe(25);
-  expect(source.generate(stats, HECTOR)).toBe(13);
-  const distant = new PhysicalDamage(() => 0);
-  expect(
-    distant.generate(swordStats({ str: 100, dex: 20, pad: 500 }), {
-      level: 102,
-      PDDamage: 0,
-      eva: 0,
-    }),
-  ).toBe(-2);
-});
-
-test("equipment instances, temporary contributions and learned mastery are counted once per projection", () => {
-  const { profile, hooks, learned, temporary } = profileFixture();
-  const stats = createCharacterStats();
-  projectCharacterStats(profile, hooks, stats);
-  const source = new PhysicalDamage(Math.random, () => 9999999);
-  expect(source.generate(stats, SNAIL)).toBe(18);
-  expect(stats.acc).toBe(14);
-  learned[1100000] = { mastery: 9, x: 3 };
-  projectCharacterStats(profile, hooks, stats);
-  expect(stats.acc).toBe(17);
-  const lower = new PhysicalDamage(() => 0);
-  expect(lower.generate(stats, SNAIL)).toBe(9);
-  temporary.pad = 0;
-  projectCharacterStats(profile, hooks, stats);
-  expect(source.generate(stats, SNAIL)).toBe(11);
-  expect(profile.str).toBe(12);
-});
-
-test("ranged mastery and projectile PAD do not leak into the close-range fallback", () => {
-  const source = new PhysicalDamage(() => 0);
-  const stats = swordStats({
-    weaponType: 45,
-    level: 4,
-    str: 100,
-    dex: 200,
-    pad: 110,
-    mastery: 9,
-    projectilePAD: 10,
-    padWithoutProjectile: 100,
+test("shadow skill percentage applies before the damage cap and Arrow Bomb scales its own cap", () => {
+  const damage = new SkillDamage(generator(9999999), HOOKS);
+  const ctx = context({
+    stats: stats({ str: 10000000, pad: 10000000 }),
+    skillPercentScale: 0.5,
   });
-  const target = { level: 4, PDDamage: 0, eva: 0 };
+  expect(damage.generate(BASIC, { damage: 1000 }, target(), ctx)).toBe(
+    DAMAGE_LIMIT,
+  );
+  ctx.skillPercentScale = 1;
   expect(
-    source.generate(stats, target, 100, {
-      action: "shoot1",
-      ranged: true,
-      projectilePAD: 10,
-    }),
-  ).toBe(480);
-  expect(
-    source.generate(stats, target, 100, {
-      action: "swingT1",
-      ranged: false,
-      projectilePAD: 0,
-    }),
-  ).toBe(107);
+    damage.generate(
+      { id: 3101005, properties: {} },
+      { damage: 525 },
+      target(),
+      ctx,
+    ),
+  ).toBe(DAMAGE_LIMIT * 5.25);
+  const meso = damage.generate(
+    { id: 4211006, properties: {} },
+    { x: 200 },
+    target(),
+    context(),
+  );
+  expect(meso).toBe(1146);
 });
 
-test("dagger job primary and spear/polearm action coefficients remain distinct", () => {
-  const source = new PhysicalDamage(() => 0);
-  const stats = swordStats({
-    level: 4,
-    str: 100,
-    dex: 200,
-    luk: 300,
-    pad: 100,
-    projectilePAD: 0,
-    padWithoutProjectile: 100,
-  });
-  const target = { level: 4, PDDamage: 0, eva: 0 };
-  stats.weaponType = 33;
-  stats.job = 400;
-  expect(source.generate(stats, target)).toBe(397);
-  stats.job = 100;
-  expect(source.generate(stats, target)).toBe(236);
-  const use = { action: "swingT2", ranged: false, projectilePAD: 0 };
-  stats.weaponType = 43;
-  expect(source.generate(stats, target, 100, use)).toBe(227);
-  stats.weaponType = 44;
-  expect(source.generate(stats, target, 100, use)).toBe(245);
-  use.action = "stabT1";
-  expect(source.generate(stats, target, 100, use)).toBe(227);
-});
-
-test("capped PAD does not debit projectile attack a second time from a melee fallback", () => {
-  const { profile, hooks, temporary } = profileFixture();
-  profile.level = 10;
-  profile.job = 400;
-  profile.luk = 300;
-  profile.equipment[0].id = 1472000;
-  hooks.items[1472000] = { info: { incPAD: 1999 } };
-  hooks.items[2070000] = { info: { incPAD: 15, reqLevel: 10 } };
-  temporary.pad = 0;
-  const source = new PhysicalDamage(() => 0);
-  const use = { action: "stabO1", ranged: false, projectilePAD: 0 };
-  const stats = projectCharacterStats(profile, hooks, createCharacterStats());
-  const withoutStars = source.generate(stats, SNAIL, 100, use);
-  profile.inventory.push({ uid: "stars", id: 2070000, count: 1, slot: 1 });
-  projectCharacterStats(profile, hooks, stats);
-  expect(source.generate(stats, SNAIL, 100, use)).toBe(withoutStars);
-});
-
-test("incoming physical EVA uses four-word windows and integer half-level penalties", () => {
-  const source = replay([4900000, 9999999, 9999999, 9999999, 4900000, 0, 0, 0]);
-  const stats = { level: 9, job: 0, eva: 45 };
-  const info = { level: 10, acc: 20 };
-  expect(source.evades(stats, info)).toBe(true);
-  stats.level = 8;
-  expect(source.evades(stats, info)).toBe(false);
-});
-
-test("incoming physical EVA retains native lower bounds for zero-over-zero", () => {
-  const source = replay([200000, 0, 0, 0, 400000, 0, 0, 0]);
-  const stats = { level: 1, job: 0, eva: 0 };
-  const info = { level: 1, acc: 0 };
-  expect(source.evades(stats, info)).toBe(false);
-  stats.job = 1400;
-  expect(source.evades(stats, info)).toBe(true);
-});
-
-test("incoming physical EVA caps ordinary and thief branches independently", () => {
-  const source = replay([8500000, 0, 0, 0, 8500000, 0, 0, 0]);
-  const stats = { level: 1, job: 0, eva: 999 };
-  const info = { level: 1, acc: 1 };
-  expect(source.evades(stats, info)).toBe(false);
-  stats.job = 400;
-  expect(source.evades(stats, info)).toBe(true);
-});
-
-test("incoming magnitude uses squared attack and matching defense instead of PAD divided by20", () => {
-  const stats = {
-    level: 1,
-    job: 0,
-    str: 0,
-    dex: 0,
-    int: 0,
-    luk: 0,
-    eva: 0,
-    pdd: 0,
-    mdd: 0,
-  };
-  // Controlled defense baseline, not a substitute for packaged StandardPDD.
-  const options = { magic: false, standardPDD: [new Array(201).fill(0)] };
-  const info = { level: 1, acc: 100, PADamage: 100, MADamage: 100 };
-  const source = new PhysicalDamage(Math.random, () => 9999999);
-  expect(source.receive(stats, info, options)).toBe(84);
-  stats.pdd = 100;
-  expect(source.receive(stats, info, options)).toBe(37);
-  stats.str = 250;
-  expect(source.receive(stats, info, options)).toBe(17);
-  options.magic = true;
-  stats.str = 0;
-  expect(source.receive(stats, info, options)).toBe(79);
-  stats.mdd = 100;
-  expect(source.receive(stats, info, options)).toBe(54);
-});
-
-test("below-standard physical defense penalizes higher-level targets without changing attack RNG", () => {
-  const stats = {
-    level: 10,
-    job: 0,
-    str: 12,
-    dex: 5,
-    int: 4,
-    luk: 4,
-    eva: 0,
-    pdd: 10,
-    mdd: 4,
-  };
-  const options = { magic: false, standardPDD: [new Array(201).fill(100)] };
-  const info = { level: 10, acc: 100, PADamage: 100 };
-  const source = new PhysicalDamage(Math.random, () => 9999999);
-  const equal = source.receive(stats, info, options);
-  info.level = 11;
-  expect(source.receive(stats, info, options)).toBeGreaterThan(equal);
-  info.level = 1;
-  expect(source.receive(stats, info, options)).toBeLessThan(equal);
-});
-
-test("magical evasion uses the level-penalized EVA interval and equality boundary", () => {
-  const source = replay([0, 0, 0, 0, 0, 0, 0, 0]);
-  const stats = { level: 10, job: 0, eva: 100 };
-  const info = { level: 10, acc: 10 };
-  expect(source.evades(stats, info, true)).toBe(true);
-  info.level = 12;
-  expect(source.evades(stats, info, true)).toBe(false);
-});
-
-test("equipped and allocated stats enter physical receiving without double-counting temporary defense", () => {
-  const { profile, hooks, temporary } = profileFixture();
-  const stats = createCharacterStats();
-  const options = { magic: false, standardPDD: [new Array(201).fill(7)] };
-  const info = { level: 1, acc: 100, PADamage: 100 };
-  const source = new PhysicalDamage(Math.random, () => 9999999);
-  projectCharacterStats(profile, hooks, stats);
-  const naked = source.receive(stats, info, options);
-  hooks.items[1002000].info.incPDD = 50;
-  projectCharacterStats(profile, hooks, stats);
-  const equipped = source.receive(stats, info, options);
-  expect(equipped).toBeLessThan(naked);
-  temporary.pdd = 50;
-  projectCharacterStats(profile, hooks, stats);
-  const buffed = source.receive(stats, info, options);
-  expect(buffed).toBeLessThan(equipped);
-  profile.str += 100;
-  projectCharacterStats(profile, hooks, stats);
-  expect(source.receive(stats, info, options)).toBeLessThan(buffed);
-});
-
-test("Invincible reduces untruncated physical magnitude once and never reduces magic", () => {
-  const stats = {
-    level: 1,
-    job: 0,
-    str: 0,
-    dex: 0,
-    int: 0,
-    luk: 0,
-    eva: 0,
-    pdd: 0,
-    mdd: 0,
-    invincible: 20,
-  };
-  const options = { magic: false, standardPDD: [new Array(201).fill(0)] };
-  const info = { level: 1, acc: 100, PADamage: 100, MADamage: 100 };
-  const source = new PhysicalDamage(Math.random, () => 9999999);
-  //84.9999995 * .8 truncates to67, not84 - trunc(84 * .2) =68.
-  expect(source.receive(stats, info, options)).toBe(67);
-  options.magic = true;
-  expect(source.receive(stats, info, options)).toBe(79);
-});
-
-test("level-appropriate defense chips while far-below mobs keep native nonpositive MISS", () => {
-  const stats = {
-    level: 1,
-    job: 0,
-    str: 0,
-    dex: 0,
-    int: 0,
-    luk: 0,
-    eva: 0,
-    pdd: 1000,
-    mdd: 1000,
-  };
-  const options = { magic: false, standardPDD: [new Array(201).fill(0)] };
-  const info = { level: 1, acc: 100, PADamage: 100, MADamage: 100 };
-  const source = new PhysicalDamage(Math.random, () => 9999999);
-  // Local minimum-chip policy: a same-level mob cannot be fully blocked by defense.
-  expect(source.receive(stats, info, options)).toBe(1);
-  options.magic = true;
-  expect(source.receive(stats, info, options)).toBe(1);
-  info.MADamage = 0;
-  stats.mdd = 0;
-  expect(source.receive(stats, info, options)).toBe(0);
-  // More than ten levels below the defender, the native nonpositive MISS survives.
-  options.magic = false;
-  stats.mdd = 1000;
-  stats.level = 60;
-  expect(source.receive(stats, info, options)).toBeLessThan(0);
+test("percentage defense debuffs preserve fractional rates", () => {
+  const mob = target({ PDRate: 33, MDRate: 27 });
+  mob.template = { info: { ...mob.skillStatus.projected } };
+  setMobStatus(mob, "wdef", -50, { source: 1, duration: 1000 });
+  expect(mob.skillStatus.projected.PDRate).toBe(16.5);
+  expect(mob.skillStatus.projected.MDRate).toBe(27);
 });

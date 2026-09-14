@@ -55,9 +55,14 @@ export class SkillWorldController {
     this.prepared = new Map();
     this.destination = { x: 0, y: 0, foothold: null };
     this.flashUsed = false;
+    this.flashJumpSequence = null;
     this.impulseCooldown = 0;
     this.dash = { id: 0, remainingMs: 0, direction: 0 };
     this.wings = { remainingMs: 0 };
+    // Relocations the browser does not simulate are published as authoritative
+    // checkpoints for as long as this controller is still moving the actor.
+    this.teleportMs = 0;
+    this.groundMoveMs = 0;
     this.rush = createRushMotion();
     this.rushHit = this.onRushHit.bind(this);
   }
@@ -219,7 +224,11 @@ export class SkillWorldController {
     const sim = this.system.scene.simulation;
     if (this.impulseCooldown > 0) return "Movement skill recovery is active";
     if (FLASH_SKILLS.has(id)) {
-      return sim.state !== "air" || this.flashUsed
+      // Profile transactions can pause this controller across a landing. The
+      // physics jump sequence still advances and identifies the new airborne use.
+      const used =
+        this.flashUsed && this.flashJumpSequence === sim.groundJumpSequence;
+      return sim.state !== "air" || used
         ? "Flash Jump requires an unused airborne jump"
         : null;
     }
@@ -256,11 +265,25 @@ export class SkillWorldController {
     } else if (family === "door") this.door.cast();
   }
 
+  /** True while this controller is relocating the actor through a path the browser
+   *  does not predict (teleport, rush/assault ground travel, dash, wings). The authority
+   *  marks those checkpoints authoritative; everything else belongs to the client. */
+  get ownsMotion() {
+    return (
+      this.teleportMs > 0 ||
+      this.groundMoveMs > 0 ||
+      this.dash.remainingMs > 0 ||
+      this.wings.remainingMs > 0 ||
+      this.rush.remainingMs > 0
+    );
+  }
+
   teleport(id) {
     const sim = this.system.scene.simulation;
     this.visuals.play(id, sim);
     commitTeleport(sim, this.destination);
     this.visuals.play(id, sim, 1);
+    this.teleportMs = 90;
   }
 
   attackAdmission(skill, info, family) {
@@ -275,14 +298,16 @@ export class SkillWorldController {
   }
 
   /** Every movement-skill impulse merges through the shared kernel entry point so
-   *  the predictor and this controller cannot drift. `onExternalImpulse` lets an
-   *  authority publish the exact divert it just applied; offline it is absent. */
-  applyMovementImpulse(sim, vx, vy) {
+   *  the predictor and this controller cannot drift. `skillId` rides the same hook so
+   *  the authority's divert names the skill and the client can retire the exact
+   *  optimistic impulse it already applied. Offline the hook is absent. */
+  applyMovementImpulse(sim, vx, vy, skillId = 0) {
+    const publish = this.system.hooks.onExternalImpulse ?? null;
     applyExternalImpulse(
       sim,
       vx,
       vy,
-      this.system.hooks.onExternalImpulse ?? null,
+      publish ? (target, x, y) => publish(target, x, y, skillId) : null,
     );
   }
 
@@ -295,6 +320,7 @@ export class SkillWorldController {
       sim,
       -sim.facing * (250 + Math.trunc(rank / 4) * 40),
       -(250 + Math.trunc(rank / 4) * 20),
+      skill.id,
     );
     this.impulseCooldown = 2000;
   }
@@ -303,7 +329,7 @@ export class SkillWorldController {
     const sim = this.system.scene.simulation;
     this.visuals.play(id, sim);
     if (id === 21001001) {
-      this.applyMovementImpulse(sim, sim.facing * info.x, 0);
+      this.applyMovementImpulse(sim, sim.facing * info.x, 0, id);
       this.impulseCooldown = 1000; //009535e3.
       return;
     }
@@ -312,8 +338,10 @@ export class SkillWorldController {
       sim,
       sim.facing * (350 + Math.trunc(level / 4) * 40),
       -(250 + Math.trunc(level / 4) * 20),
+      id,
     );
     this.flashUsed = true;
+    this.flashJumpSequence = sim.groundJumpSequence;
     if (id === 11101005) this.impulseCooldown = 1500;
   }
 
@@ -346,6 +374,7 @@ export class SkillWorldController {
     const sim = this.system.scene.simulation;
     if (id === 4211002) {
       moveSkillGround(sim, target.x - sim.x + sim.facing * 30, 120);
+      this.groundMoveMs = 120;
       return;
     }
     if (!RUSH_SKILLS.has(id) || this.rush.remainingMs > 0) return;
@@ -358,6 +387,8 @@ export class SkillWorldController {
     const sim = this.system.scene.simulation;
     if (sim.state === "ground") this.flashUsed = false;
     this.impulseCooldown = Math.max(0, this.impulseCooldown - ms);
+    this.teleportMs = Math.max(0, this.teleportMs - ms);
+    this.groundMoveMs = Math.max(0, this.groundMoveMs - ms);
     this.stepMotion(ms);
     this.summons.step(ms);
     this.areas.step(ms);

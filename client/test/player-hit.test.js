@@ -455,12 +455,13 @@ test("contact during an authored attack does not inherit its impact sound", asyn
   field.destroy();
 });
 
-test("temporary EVA admits physical MISS, expires, and does not consume protected proposals", async () => {
+test("temporary evasion percentage admits physical MISS, expires, and does not consume protected proposals", async () => {
   const field = await fieldFixture();
   const words = [4000000, 0, 0, 0, 9000000, 0, 0, 0, 9000000, 0];
   let cursor = 0;
   field.damageGenerator.nextUint32 = () => words[cursor++];
-  const temporary = { eva: 42 };
+  field.store.profile.dex = 100;
+  const temporary = { evasionPercent: 1000 };
   field.hooks.derivedStats = () => temporary;
   const mob = {
     x: -10,
@@ -475,7 +476,7 @@ test("temporary EVA admits physical MISS, expires, and does not consume protecte
   expect(field.simulation.state).toBe("ground");
   expect(field.hitTimerMs).toBe(-1500);
   expect(cursor).toBe(4);
-  temporary.eva = 0;
+  temporary.evasionPercent = 0;
   expect(field.proposeMobHit(mob, false)).toBe(false);
   expect(cursor).toBe(4);
   field.hitTimerMs = 0;
@@ -516,11 +517,11 @@ test("a level-appropriate low-PAD mob chips through defense instead of recording
     magic: false,
     standardPDD: ZERO_STANDARD_PDD,
   });
-  expect(amount).toBe(1);
+  expect(amount).toBe(2);
   expect(damage.lastEvaded).toBe(false);
 });
 
-test("a mob far below the defender keeps the native non-damaging outcome", () => {
+test("a mob far below the defender still deals the modern defense floor", () => {
   const damage = new PhysicalDamage(
     () => 0.5,
     () => 9999989,
@@ -529,16 +530,17 @@ test("a mob far below the defender keeps the native non-damaging outcome", () =>
     magic: false,
     standardPDD: ZERO_STANDARD_PDD,
   });
-  expect(amount).toBeLessThanOrEqual(0);
+  expect(amount).toBe(1);
 });
 
 test("ordinary contact separates the offline recoil boundary from positive damage and true MISS", async () => {
   for (const [accuracyWord, recoilWord, hp, state, reason, timer] of [
-    [9000000, 89, 79, "air", "ordinary", 1500],
-    [9000000, 90, 79, "ground", "offline-recoil-resistance", 1500],
+    [9000000, 89, 76, "air", "ordinary", 1500],
+    [9000000, 90, 76, "ground", "offline-recoil-resistance", 1500],
     [0, 90, 100, "ground", "nonpositive-damage", -1500],
   ]) {
     const field = await fieldFixture();
+    if (accuracyWord === 0) field.store.profile.luk = 100;
     const words = [accuracyWord, 0, 0, 0, 9000000, recoilWord];
     let cursor = 0;
     field.damageGenerator.nextUint32 = () => words[cursor++];
@@ -596,7 +598,7 @@ test("Guardian uses its reserved per-thousand boundary without turning normal hi
   expect(cursor).toBe(5);
   field.hitTimerMs = 0;
   expect(field.proposeMobHit(mob, false)).toBe(true);
-  expect(field.store.profile.hp).toBe(79);
+  expect(field.store.profile.hp).toBe(76);
   expect(field.simulation.state).toBe("air");
   expect(cursor).toBe(11);
   field.destroy();

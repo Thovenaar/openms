@@ -56,6 +56,8 @@ const DOOM_FIELDS = [
   "level",
   "PADamage",
   "PDDamage",
+  "PDRate",
+  "MDRate",
   "MADamage",
   "MDDamage",
   "acc",
@@ -90,7 +92,7 @@ export function createMobSkillStatus(info) {
     venomStacks: 0,
     dotMs: new Float64Array(STATUS_COUNT),
     application: { duration: 0, source: 0 },
-    presentation: { line: 0, critical: false, skillId: 0 },
+    presentation: { line: 0, critical: false, skillId: 0, hpDamage: 0 },
     projected: { ...info, acc: info.acc ?? info.accuracy, demonWeakness: null },
     changed: false,
   };
@@ -148,7 +150,9 @@ export function elementalEffectiveness(info, element) {
 }
 
 function statusEligible(mob, skill, family) {
-  if (!family || !mob.alive || mob.template.info.boss) return false;
+  if (!family || !mob.alive) return false;
+  if (family === "poison" || family === "ambush") return true;
+  if (mob.template.info.boss) return false;
   const effectiveness = elementalEffectiveness(
     mob.template.info,
     skill.properties.elemAttr ?? "n",
@@ -183,18 +187,15 @@ function applyStatusFamily(mob, family, info, context) {
     setMobStatus(mob, "mdef", value, effect);
   } else {
     let value =
-      family === "ambush"
-        ? Math.trunc(
-            ((context.str + context.luk) * 3.7 * skillNumber(info.damage)) /
-              100,
-          )
-        : statusValue(family, mob, info, context.rank);
+      family === "ambush" || family === "poison"
+        ? context.dotDamage
+        : statusValue(family, mob, info);
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error("Missing admitted status damage");
+    }
     if (effect.source === 5211004) {
-      value = Math.min(
-        32767,
-        Math.ceil(
-          (value * (100 + skillNumber(context.elementalBoost?.x))) / 100,
-        ),
+      value = Math.ceil(
+        value * (1 + skillNumber(context.elementalBoost?.x) / 100),
       );
     }
     setMobStatus(mob, family, value, effect);
@@ -223,11 +224,8 @@ export function applySkillStatus(mob, skill, info, context) {
   return true;
 }
 
-function statusValue(family, mob, info, rank) {
+function statusValue(family, mob, info) {
   if (family === "speed" || family === "imprint") return skillNumber(info.x);
-  if (family === "poison") {
-    return Math.min(32767, Math.ceil(mob.maxHP / (70 - rank)));
-  }
   if (family === "web") return Math.ceil(mob.maxHP / 50);
   return 1;
 }
@@ -258,7 +256,7 @@ export function clearMobBuffs(mob, skillId = 0) {
   return cleared;
 }
 
-function adjusted(mob, field, status) {
+function adjusted(mob, field, status, integer = true) {
   const base =
     mob.template.info[field] ??
     (field === "acc" ? mob.template.info.accuracy : undefined) ??
@@ -266,13 +264,16 @@ function adjusted(mob, field, status) {
   const index = MOB_STATUS[status];
   const value =
     mob.skillStatus.remaining[index] > 0 ? mob.skillStatus.values[index] : 0;
-  return Math.max(0, Math.trunc((base * (100 + value)) / 100));
+  const adjustedValue = Math.max(0, (base * (100 + value)) / 100);
+  return integer ? Math.trunc(adjustedValue) : adjustedValue;
 }
 
 export function projectMobSkillStatus(mob) {
   const info = mob.skillStatus.projected;
   info.PADamage = adjusted(mob, "PADamage", "watk");
   info.PDDamage = adjusted(mob, "PDDamage", "wdef");
+  info.PDRate = adjusted(mob, "PDRate", "wdef", false);
+  info.MDRate = adjusted(mob, "MDRate", "mdef", false);
   info.MDDamage = adjusted(mob, "MDDamage", "mdef");
   info.acc = adjusted(mob, "acc", "accuracy");
   info.demonWeakness = hasMobStatus(mob, "demon")
@@ -306,6 +307,7 @@ export function stepMobSkillStatus(mob, ms, onDamage = null) {
       mob.hp -= amount;
       if (amount > 0) {
         state.presentation.skillId = state.sources[index];
+        state.presentation.hpDamage = amount;
         onDamage?.(mob, amount, state.presentation);
       }
     }

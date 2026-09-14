@@ -4,56 +4,29 @@ import {
   stepMotion,
   createHeldInput,
   assignHeldInput,
+  captureMotion,
 } from "../../../shared/motion.js";
 import { applyExternalImpulse } from "../physics/simulation.js";
+import { FLASH_SKILLS } from "../skills/skill-world-rules.js";
 
 const STALE_OBSERVATION_MS = 1000;
-/** Small server/client disagreement is absorbed by the presentation instead of corrected:
- *  the kernel still adopts the authoritative state, the drawn pose glides to it. */
+/** A server-owned reposition is the only thing that moves the drawn pose without the
+ *  player's own prediction. Small disagreements inside the tolerance are absorbed by
+ *  the presentation instead of snapping; beyond it the correction is immediate. */
 const POSITION_TOLERANCE_PX = 24;
 const CORRECTION_MS = 120;
-/** An authoritative divert explains its own presented offset, so it is not evidence of
- *  a desync. It may therefore exceed POSITION_TOLERANCE_PX up to this bound — the
- *  INPUT_LEAD_TICKS + INPUT_BUFFER_TICKS suffix of the strongest movement impulse
- *  (350 px/s x 150 ms = 52.5 px) fits with headroom. */
-const DIVERT_CORRECTION_MAX_PX = 96;
-/** Removal rate for an explained offset. 0.125 px/ms is exactly walkSpeed, so the
- *  extra drawn travel inside one 30 ms kernel quantum stays at or below 3.75 px and
- *  the player reads a continuous trajectory rather than a rubber-band. */
-const DIVERT_CORRECTION_PX_PER_MS = 0.125;
-/** A replayed divert tick must reproduce the authoritative checkpoint of that tick.
- *  The same deterministic kernel on the same base and the same recorded input is
- *  exact, so only a genuinely server-owned difference (movement lock, seat, retired
- *  input hint) exceeds this and falls back to plain authoritative adoption. */
-const DIVERT_REPLAY_POSITION_PX = 0.5;
-const DIVERT_REPLAY_VELOCITY = 1;
-/** Bound on authoritative impulses described by one motion checkpoint. */
-const MAX_DIVERTS = 2;
-
-/** One checkpoint's divert list is placeable only when it describes this very tick,
- *  within the bound, for a tick that has a retained predecessor. */
-function validDivertRecords(diverts, tick) {
-  if (!Array.isArray(diverts) || diverts.length === 0) return false;
-  if (diverts.length > MAX_DIVERTS) return false;
-  for (const divert of diverts) {
-    if (divert.tick !== tick) return false;
-    if (!Number.isFinite(divert.vx) || !Number.isFinite(divert.vy)) {
-      return false;
-    }
-  }
-  return tick >= 2;
-}
-
-/** The replayed divert tick must reproduce the authoritative checkpoint of that tick. */
-function divertReproduced(probe, motion) {
-  if (!probe.captured) return false;
-  const position = Math.hypot(probe.x - motion.x, probe.y - motion.y);
-  const velocity = Math.hypot(probe.vx - motion.vx, probe.vy - motion.vy);
-  if (!Number.isFinite(position) || !Number.isFinite(velocity)) return false;
-  return (
-    position <= DIVERT_REPLAY_POSITION_PX && velocity <= DIVERT_REPLAY_VELOCITY
-  );
-}
+/** A server-owned reposition explains its own offset, so it may exceed the ordinary
+ *  tolerance up to this bound — the input lead plus one movement impulse fits with
+ *  headroom. Beyond it the pose snaps immediately instead of gliding. */
+const AUTHORITATIVE_CORRECTION_MAX_PX = 96;
+/** Removal rate for an absorbed offset. 0.125 px/ms is exactly walkSpeed, so the extra
+ *  drawn travel inside one 30 ms kernel quantum stays at or below 3.75 px and the player
+ *  reads a continuous trajectory rather than a rubber-band. */
+const CORRECTION_PX_PER_MS = 0.125;
+/** Optimistic movement skills awaiting their authoritative divert. Bounded: a cast
+ *  whose event never arrives cannot grow memory, and an old entry cannot match a
+ *  later cast of the same skill because it is retired by id on arrival or on reject. */
+const MAX_PENDING_IMPULSES = 8;
 
 function normalizeZero(value) {
   return Object.is(value, -0) ? 0 : value;
@@ -67,7 +40,6 @@ function historyEntry() {
     vertical: 0,
     jump: false,
     attack: false,
-    action: null,
     x: 0,
     y: 0,
     vx: 0,
@@ -75,7 +47,16 @@ function historyEntry() {
   };
 }
 
-/** Disposable movement presentation. Call advance from a fixed scheduler, never from RAF. */
+/** Disposable movement presentation. Call advance from a fixed scheduler, never from RAF.
+ *
+ *  The browser is the source of truth for the character's own XY: an ordinary checkpoint
+ *  is an observation that updates timing, acknowledgement and server-owned controls but
+ *  never repositions the prediction. Only a checkpoint the authority marks
+ *  `authoritative` (field transition, death, seat, unpredicted movement skill)
+ *  replaces the local kernel state. External impulses — a mob knockback or a movement
+ *  skill the client did not already predict — merge into the client's *current* state
+ *  through the same kernel entry point the authority used, so the resulting trajectory
+ *  is the original one the player expects. */
 export class OnlinePrediction {
   constructor({ onInput, onResync, onGroundJump } = {}) {
     this.onInput = onInput;
@@ -114,7 +95,9 @@ export class OnlinePrediction {
     this.filledTicks = 0;
     this.arrivalTick = 0;
     this.lastStepAt = 0;
-    this.queuedAction = null;
+    this.pendingImpulses = [];
+    this.flashUsed = false;
+    this.impulseUntilTick = 0;
     this.correctionX = 0;
     this.correctionY = 0;
     this.correctionUntil = 0;
@@ -145,7 +128,8 @@ export class OnlinePrediction {
     }
   }
 
-  /** Import the complete kernel checkpoint before replaying the bounded unacknowledged suffix. */
+  /** Consume one authoritative checkpoint. Ordinary checkpoints are observations; only
+   *  an `authoritative` one (or the first authenticated one) replaces local state. */
   observe(message) {
     if (!this.simulation) return;
     if (!this.acceptObserved(message)) return;
@@ -160,14 +144,20 @@ export class OnlinePrediction {
     const visibleX = this.simulation.x;
     const visibleY = this.simulation.y;
     this.ready = true;
-    // A reported divert is placed at the tick that integrated it and replayed from the
-    // published pre-impulse base, so the suffix is re-derived instead of overwritten.
-    // When it cannot be placed the authoritative state is adopted as before.
-    const explained = !this.paused && this.replayDiverts(message);
-    if (!explained && this.ready) this.adoptCheckpoint(message, message.motion);
-    // Initial synchronization adopts the authoritative state outright; only an
-    // already-presented pose is glided onto a later correction.
-    if (wasReady) this.reconcilePresentation(visibleX, visibleY, explained);
+    this.observeJump(message.motion.groundJumpSequence);
+    // Impulses merge into the client's own trajectory; they never reload it.
+    this.applyDiverts(message.diverts);
+    if (!wasReady || message.authoritative) {
+      this.adoptCheckpoint(message, message.motion);
+      // Initial synchronization adopts outright; only an already-presented pose glides.
+      if (wasReady) {
+        this.corrections++;
+        this.reconcilePresentation(visibleX, visibleY, true);
+      }
+    } else {
+      this.adoptControls(message.motion);
+      this.retireHistoryTo(message.serverTick);
+    }
   }
 
   /** Reject a checkpoint from a retired connection or field, or an old tick. */
@@ -193,7 +183,6 @@ export class OnlinePrediction {
   /** Adopt one authoritative checkpoint wholesale and replay the retained suffix. */
   adoptCheckpoint(message, motion) {
     restoreMotion(this.simulation, motion);
-    this.observeJump(motion.groundJumpSequence);
     assignHeldInput(this.held, motion.held);
     this.held.jumpPressed = false;
     this.held.attackPressed = false;
@@ -206,43 +195,101 @@ export class OnlinePrediction {
     } else this.replay();
   }
 
-  /** Place authoritative diverts at the tick that first integrated them: restore the
-   *  published pre-impulse checkpoint, merge the same vectors through the same kernel
-   *  `applyExternalImpulse`, and re-step the retained input suffix forward. Reports
-   *  false — without committing to the result — when the record cannot be placed
-   *  safely, so the caller keeps the existing authoritative-adoption behaviour. */
-  replayDiverts(message) {
-    const diverts = message.diverts;
-    if (!validDivertRecords(diverts, message.serverTick)) return false;
-    // The impulse is integrated by `tick`, so its own history entry must still be
-    // retained. A retired tick is a resync boundary, never a replayed guess.
-    if (this.entryIndex(message.serverTick) < 0) return false;
-    const before = diverts[0].before;
-    restoreMotion(this.simulation, before);
-    assignHeldInput(this.held, before.held);
-    this.held.jumpPressed = false;
-    this.held.attackPressed = false;
-    this.observeJump(before.groundJumpSequence);
-    this.retireHistoryTo(message.serverTick - 1);
-    this.predictedTick = message.serverTick - 1;
-    for (const divert of diverts) {
-      applyExternalImpulse(this.simulation, divert.vx, divert.vy);
-    }
-    const probe = {
-      tick: message.serverTick,
-      x: 0,
-      y: 0,
-      vx: 0,
-      vy: 0,
-      captured: false,
-    };
-    this.replay({ probe, collapseAcknowledged: false });
-    if (!this.ready || !divertReproduced(probe, message.motion)) return false;
-    this.diverts++;
-    return true;
+  /** Adopt the non-positional state the server owns while the client keeps its own XY.
+   *  Movement coefficients carry buffs, shoes and forms; the lock and seat are
+   *  authoritative transitions rather than free-form position. */
+  adoptControls(motion) {
+    const sim = this.simulation;
+    Object.assign(sim.effectiveSettings, motion.effectiveSettings);
+    const world = sim.worldMovement;
+    world.wingsX = motion.worldMovement.wingsX;
+    world.equipmentFs = motion.worldMovement.equipmentFs;
+    world.equipmentSwim = motion.worldMovement.equipmentSwim;
+    world.form = motion.worldMovement.form
+      ? { ...motion.worldMovement.form }
+      : null;
+    sim.movementLocked = motion.movementLocked;
+    sim.seat = motion.seat === null ? null : { ...motion.seat };
   }
 
-  /** Absorb a bounded server correction in presentation space: the drawn pose stays where
+  /** Merge every announced impulse into the client's own current kernel state. A skill
+   *  the client already predicted optimistically is retired by id and not merged twice. */
+  applyDiverts(diverts) {
+    if (!Array.isArray(diverts) || diverts.length === 0) return 0;
+    let applied = 0;
+    for (const divert of diverts) {
+      if (!Number.isFinite(divert.vx) || !Number.isFinite(divert.vy)) continue;
+      if (
+        divert.source === "skill" &&
+        this.retireOptimisticSkill(divert.skillId)
+      ) {
+        continue;
+      }
+      applyExternalImpulse(this.simulation, divert.vx, divert.vy);
+      applied++;
+    }
+    this.diverts += applied;
+    return applied;
+  }
+
+  /** Apply one movement-skill impulse immediately and remember it so the authoritative
+   *  divert for the same skill is not merged a second time. Returns a token the cast
+   *  path can roll back if the server refuses the cast. */
+  beginOptimistic(action, skillId = 0) {
+    if (!action || action.kind !== "impulse" || !this.simulation) return null;
+    if (!this.canPredictSkill(skillId)) return null;
+    const token = {
+      skillId,
+      vx: action.vx,
+      vy: action.vy,
+      motion: captureMotion(this.simulation),
+      flashUsed: this.flashUsed,
+      impulseUntilTick: this.impulseUntilTick,
+    };
+    applyExternalImpulse(this.simulation, action.vx, action.vy);
+    this.pendingImpulses.push(token);
+    if (FLASH_SKILLS.has(skillId)) this.flashUsed = true;
+    // Original recovery: SkillWorldController.impulse; same 1000/1500-ms durations.
+    const recoveryMs =
+      skillId === 11101005 ? 1500 : skillId === 21001001 ? 1000 : 0;
+    this.impulseUntilTick =
+      this.predictedTick + Math.ceil(recoveryMs / PROTOCOL.TICK_MS);
+    return token;
+  }
+
+  canPredictSkill(skillId) {
+    return (
+      this.pendingImpulses.length < MAX_PENDING_IMPULSES &&
+      !this.pendingImpulses.some((pending) => pending.skillId === skillId) &&
+      !(FLASH_SKILLS.has(skillId) && this.flashUsed) &&
+      this.predictedTick >= this.impulseUntilTick
+    );
+  }
+
+  /** A refused cast restores the exact pre-cast kernel checkpoint, so an unadmitted
+   *  movement impulse cannot survive as free position the authority never granted. */
+  rejectOptimistic(token) {
+    if (!token || !this.simulation) return;
+    const index = this.pendingImpulses.indexOf(token);
+    // An accepted echo or a field replacement retires the token permanently.
+    if (index < 0) return;
+    this.pendingImpulses.splice(index, 1);
+    restoreMotion(this.simulation, token.motion);
+    this.flashUsed = token.flashUsed;
+    this.impulseUntilTick = token.impulseUntilTick;
+  }
+
+  retireOptimisticSkill(skillId) {
+    for (let index = 0; index < this.pendingImpulses.length; index++) {
+      if (this.pendingImpulses[index].skillId === skillId) {
+        this.pendingImpulses.splice(index, 1);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Absorb a server-owned reposition in presentation space: the drawn pose stays where
    *  the player saw it and glides onto the authoritative state over one short interval.
    *  A disagreement beyond the tolerance is a real desync and snaps immediately. */
   reconcilePresentation(visibleX, visibleY, explained = false) {
@@ -252,7 +299,9 @@ export class OnlinePrediction {
     const dx = visibleX - this.simulation.x;
     const dy = visibleY - this.simulation.y;
     const distance = Math.hypot(dx, dy);
-    const limit = explained ? DIVERT_CORRECTION_MAX_PX : POSITION_TOLERANCE_PX;
+    const limit = explained
+      ? AUTHORITATIVE_CORRECTION_MAX_PX
+      : POSITION_TOLERANCE_PX;
     if (!Number.isFinite(distance) || distance > limit) {
       this.correctionX = 0;
       this.correctionY = 0;
@@ -264,14 +313,15 @@ export class OnlinePrediction {
     this.correctionY = dy;
     this.correctionSpan = Math.max(
       CORRECTION_MS,
-      distance / DIVERT_CORRECTION_PX_PER_MS,
+      distance / CORRECTION_PX_PER_MS,
     );
     this.correctionUntil = performance.now() + this.correctionSpan;
   }
 
+  /** Record how far the local report is from the authority's observation. This is
+   *  diagnostics only: an ordinary checkpoint never corrects the browser, and only a
+   *  server-owned reposition increments `corrections`. */
   measure(message) {
-    const diverted =
-      Array.isArray(message.diverts) && message.diverts.length > 0;
     for (let index = 0; index < this.count; index++) {
       const entry = this.history[(this.head + index) % this.history.length];
       if (entry.targetTick !== message.serverTick) continue;
@@ -287,13 +337,6 @@ export class OnlinePrediction {
         this.maximumPositionError,
         this.lastPositionError,
       );
-      // An announced divert is expected divergence and is counted separately.
-      if (
-        !diverted &&
-        (this.lastPositionError > 0.001 || this.lastVelocityError > 0.001)
-      ) {
-        this.corrections++;
-      }
       break;
     }
   }
@@ -311,7 +354,7 @@ export class OnlinePrediction {
     this.retireHistoryTo(this.serverTick);
   }
 
-  /** Retire every entry at or before `tick`; a divert keeps its own entry alive. */
+  /** Retire every entry at or before `tick`. */
   retireHistoryTo(tick) {
     for (let count = 0; count < this.history.length && this.count; count++) {
       const entry = this.history[this.head];
@@ -321,31 +364,17 @@ export class OnlinePrediction {
     }
   }
 
-  /** Index of the retained entry sampled for `tick`, or -1 when it is not retained. */
-  entryIndex(tick) {
-    for (let index = 0; index < this.count; index++) {
-      const entry = this.history[(this.head + index) % this.history.length];
-      if (entry.targetTick === tick) return index;
-      if (entry.targetTick > tick) break;
-    }
-    return -1;
-  }
-
-  /** Re-step the retained suffix. `options.probe` captures the kernel state at one
-   *  tick; `options.collapseAcknowledged` is disabled when reproducing a divert tick
-   *  whose own recorded input must be used rather than the latest held state. */
+  /** Re-step the retained suffix after one authoritative adoption. */
   replay(options = null) {
     const probe = options?.probe ?? null;
-    const collapse = options?.collapseAcknowledged !== false;
     for (let index = 0; index < this.count; index++) {
       const entry = this.history[(this.head + index) % this.history.length];
       if (entry.targetTick !== this.predictedTick + 1) {
         this.requestResync();
         return;
       }
-      this.prepareEntryReplay(entry, collapse);
+      this.prepareEntryReplay(entry);
       assignHeldInput(this.held, entry);
-      this.applyAction(entry);
       stepMotion(this.simulation, this.held);
       this.recordPose(entry);
       this.captureProbe(probe, entry);
@@ -355,9 +384,9 @@ export class OnlinePrediction {
   }
 
   /** An acknowledged input is already reflected in the authoritative checkpoint, so the
-   *  newest held state replaces it; a divert tick keeps its own recorded input. */
-  prepareEntryReplay(entry, collapse) {
-    if (collapse && entry.inputSeq > 0 && entry.inputSeq <= this.ackInputSeq) {
+   *  newest held state replaces it. */
+  prepareEntryReplay(entry) {
+    if (entry.inputSeq > 0 && entry.inputSeq <= this.ackInputSeq) {
       entry.inputSeq = 0;
     }
     if (entry.inputSeq === 0) this.copyHeld(entry);
@@ -370,16 +399,6 @@ export class OnlinePrediction {
     probe.vx = this.simulation.vx;
     probe.vy = this.simulation.vy;
     probe.captured = true;
-  }
-
-  /** Optimistic movement-skill impulse for the next predicted tick; retired with its entry. */
-  queueAction(action) {
-    if (!action) return;
-    this.queuedAction = action;
-  }
-  applyAction(entry) {
-    if (entry.action?.kind !== "impulse") return;
-    applyExternalImpulse(this.simulation, entry.action.vx, entry.action.vy);
   }
 
   /** Admit scheduler work only while the installed simulation has fresh authenticated timing. */
@@ -416,8 +435,9 @@ export class OnlinePrediction {
         (now + timing.oneWayMs + timing.tickOffsetMs) / PROTOCOL.TICK_MS,
       ),
     );
-    // RTT and timer drift are estimates; only received field ticks grant lead.
-    // At high latency the server may retire late hints rather than accept excess lead.
+    // The local clock paces presentation; the authenticated field tick only bounds how
+    // far a sample may lead the input window. A briefly late server tick therefore
+    // stretches the lead instead of freezing the player mid-step.
     const desired = Math.min(
       this.arrivalTick + PROTOCOL.INPUT_BUFFER_TICKS,
       timing.serverTick + PROTOCOL.INPUT_LEAD_TICKS,
@@ -486,12 +506,10 @@ export class OnlinePrediction {
     entry.vertical = sample.vertical;
     entry.jump = sample.jump;
     entry.attack = sample.attack;
-    entry.action = this.queuedAction;
-    this.queuedAction = null;
     assignHeldInput(this.held, sample);
-    this.applyAction(entry);
     stepMotion(this.simulation, this.held);
     this.recordPose(entry);
+    if (this.simulation.state === "ground") this.flashUsed = false;
     this.count++;
     if (!transmit) this.filledTicks++;
     this.predictedTick++;
@@ -555,7 +573,9 @@ export class OnlinePrediction {
     this.ackInputSeq = 0;
     this.catchUpDebt = 0;
     this.lastStepAt = 0;
-    this.queuedAction = null;
+    this.pendingImpulses.length = 0;
+    this.flashUsed = false;
+    this.impulseUntilTick = 0;
     this.correctionX = 0;
     this.correctionY = 0;
     this.correctionUntil = 0;
@@ -581,6 +601,7 @@ export class OnlinePrediction {
       overflows: this.overflows,
       catchUpDebt: this.catchUpDebt,
       diverts: this.diverts,
+      pendingImpulses: this.pendingImpulses.length,
     });
   }
 }

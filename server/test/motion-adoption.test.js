@@ -14,6 +14,7 @@ import {
   plausiblePositionPx,
 } from "../../shared/protocol.js";
 import { recordMotionDivert, takeMotionDiverts } from "../src/field-diverts.js";
+import { serverOwnsPosition } from "../src/motion-authority.js";
 
 const content = await loadContent();
 
@@ -167,22 +168,31 @@ test("a report without motion leaves the authoritative simulation untouched", as
   }
 });
 
-test("a seat, a lock or a pending hit refuses adoption", async () => {
+test("a seat or a pending transition refuses adoption while an ordinary lock does not", async () => {
   const probe = await fixture();
   try {
     const { world, actor } = probe;
-    const report = { x: 5, y: -2, vx: 100, vy: 0 };
+    place(actor, 0, 0);
+    // The browser owns XY during an action lock: the client predicts the same locked
+    // kernel, so its report is adopted as usual.
     actor.simulation.movementLocked = true;
-    world.input(actor, input(actor, report));
+    world.input(actor, input(actor, { x: 5, y: -2, vx: 100, vy: 0 }));
     advance(probe, 1);
-    expect(actor.simulation.x).not.toBe(report.x);
+    expect(actor.simulation.previousX).toBe(5);
     actor.simulation.movementLocked = false;
+    // An authored seat is server-owned and keeps the authority's own state.
     actor.simulation.seat = { x: 0, y: 0 };
     world.input(actor, input(actor, { x: 9, y: -3, vx: 100, vy: 0 }));
     advance(probe, 1);
     expect(actor.simulation.previousX).not.toBe(9);
+    actor.simulation.seat = null;
+    // A pending field transition is server-owned too.
+    actor.pending = true;
+    actor.transition = {};
+    world.input(actor, input(actor, { x: 12, y: -4, vx: 100, vy: 0 }));
+    advance(probe, 1);
+    expect(actor.simulation.previousX).not.toBe(12);
     expect(faults(probe)).toEqual([]);
-    expect(actor.lastAdoptedTick).toBe(0);
   } finally {
     dispose(probe);
   }
@@ -293,6 +303,51 @@ test("position tolerance scales with elapsed time and velocity does not", () => 
   expect(MOTION_PLAUSIBILITY.velocityPxPerSecond).toBe(700);
 });
 
+test("server-owned position is limited to transitions, seats and unpredicted movement skills", async () => {
+  const probe = await fixture();
+  try {
+    const { actor } = probe;
+    expect(serverOwnsPosition(actor, actor.simulation)).toBe(false);
+    actor.simulation.seat = { x: 0, y: 0 };
+    expect(serverOwnsPosition(actor, actor.simulation)).toBe(true);
+    actor.simulation.seat = null;
+    actor.skills.worldController.rush.remainingMs = 100;
+    expect(serverOwnsPosition(actor, actor.simulation)).toBe(true);
+    actor.skills.worldController.rush.remainingMs = 0;
+    actor.skills.worldController.teleportMs = 90;
+    expect(serverOwnsPosition(actor, actor.simulation)).toBe(true);
+    actor.skills.worldController.teleportMs = 0;
+    actor.simulation.ladder = {};
+    expect(serverOwnsPosition(actor, actor.simulation)).toBe(false);
+    actor.simulation.ladder = null;
+    actor.pending = true;
+    expect(serverOwnsPosition(actor, actor.simulation)).toBe(false);
+    actor.transition = {};
+    expect(serverOwnsPosition(actor, actor.simulation)).toBe(true);
+  } finally {
+    dispose(probe);
+  }
+});
+
+test("an ordinary tick publishes an observation while a seat publishes ownership", async () => {
+  const probe = await fixture();
+  try {
+    const { world, field, actor, publications } = probe;
+    const lastMotion = () =>
+      publications.filter((entry) => entry.message.type === "motion").at(-1)
+        .message;
+    field.tick += 1;
+    world.tickField(field);
+    expect(lastMotion().authoritative).toBe(false);
+    actor.simulation.seat = { x: actor.simulation.x, y: actor.simulation.y };
+    field.tick += 1;
+    world.tickField(field);
+    expect(lastMotion().authoritative).toBe(true);
+  } finally {
+    dispose(probe);
+  }
+});
+
 test("a recorded divert is published on the wire and validates as a server frame", async () => {
   const probe = await fixture();
   try {
@@ -303,7 +358,6 @@ test("a recorded divert is published on the wire and validates as a server frame
       vy: -250,
       source: "hit",
     });
-    const before = captureMotion(actor.simulation);
     field.tick += 1;
     world.publish(actor, {
       type: "motion",
@@ -311,6 +365,7 @@ test("a recorded divert is published on the wire and validates as a server frame
       ackInputSeq: actor.ackInputSeq,
       motion: captureMotion(actor.simulation),
       paused: false,
+      authoritative: false,
       diverts: takeMotionDiverts(actor, field),
     });
     const motion = publications.find(
@@ -318,13 +373,13 @@ test("a recorded divert is published on the wire and validates as a server frame
     );
     expect(motion).toBeDefined();
     const divert = motion.message.diverts[0];
-    // The published tick is the one that first integrates the impulse, and `before`
-    // is the checkpoint of the tick before it.
+    // The published tick is the one that first integrates the impulse; only the event
+    // vector, source and skill id cross the wire because the client owns the trajectory.
     expect(divert.tick).toBe(field.tick);
     expect(divert.vx).toBe(300);
     expect(divert.vy).toBe(-250);
     expect(divert.source).toBe("hit");
-    expect(divert.before).toEqual(before);
+    expect(divert.skillId).toBe(0);
     // An empty divert list is the ordinary tick, not an omitted field.
     world.publish(actor, {
       type: "motion",
@@ -332,6 +387,7 @@ test("a recorded divert is published on the wire and validates as a server frame
       ackInputSeq: actor.ackInputSeq,
       motion: captureMotion(actor.simulation),
       paused: false,
+      authoritative: false,
       diverts: takeMotionDiverts(actor, field),
     });
     expect(publications.at(-1).message.diverts).toEqual([]);

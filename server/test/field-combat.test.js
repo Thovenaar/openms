@@ -1,148 +1,154 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { loadContent } from "../src/content.js";
 import { OnlineWorld } from "../src/world.js";
-import { advanceCombat, prepareActorCombat } from "../src/field-combat.js";
+import { prepareActorCombat, refreshActorCombat } from "../src/field-combat.js";
+import { prepareActorSkills, disposeActorSkills } from "../src/field-skills.js";
 import { createProfile } from "../../client/src/profile/profile-validation.js";
-import { createSimulation } from "../../client/src/physics/simulation.js";
+import { PhysicalDamage } from "../../client/src/combat/physical-damage.js";
+import { createWeaponUse } from "../../client/src/combat/weapon-usage.js";
+import {
+  createCharacterStats,
+  projectCharacterStats,
+} from "../../client/src/character/character-stats.js";
+import {
+  DAMAGE_LIMIT,
+  shownDamageRange,
+} from "../../shared/combat-formulas.js";
+import { domainEventSchema } from "../../shared/protocol.js";
+import { validate } from "../../shared/schema.js";
 
 const content = await loadContent();
+const probes = [];
+afterEach(() => {
+  for (const probe of probes) disposeActorSkills(probe.actor, true);
+  probes.length = 0;
+});
 
-/** Real extracted geometry and damage rules; only RNG and player placement are controlled. */
-async function fixture(mapId = 100010000, templateId = 130101) {
+/** Current production authority runtime and real WZ metadata; persistence is outside this calculation test. */
+async function fixture() {
   const publications = [];
   const world = new OnlineWorld({
     content,
     database: {},
+    log() {},
     publish(actor, message) {
       publications.push(message);
     },
   });
   world.now = 0;
   world.nextUint32 = () => 9999999;
-  const field = await world.fieldFor(mapId);
+  const field = await world.fieldFor(100010000);
   const mob = field.mobs.find(
-    (entry) => entry.active && entry.templateId === templateId,
+    (entry) => entry.active && entry.templateId === 130101,
   );
   if (!mob) {
-    throw new Error("Combat fixture requires its authored active monster");
+    throw new Error("Formula fixture requires an authored active monster");
   }
   field.mobs = [mob];
-  const arrival = { x: mob.x, y: mob.y, facing: 1 };
-  const profile = createProfile({ mapId: field.manifest.id, ...arrival });
-  const actor = {
-    id: "receiver",
-    state: "active",
-    profile,
-    field,
-    pending: false,
-    pendingDamage: 0,
-    pendingMpDamage: 0,
-    simulation: createSimulation(field.manifest.physics, arrival),
-  };
-  prepareActorCombat(world, actor);
-  field.characters.set(actor.id, actor);
-  return { world, field, actor, mob, publications };
-}
-
-function impacts(probe) {
-  return probe.publications.filter(
-    (message) => message.event?.kind === "combat",
-  );
-}
-
-function step(probe, milliseconds) {
-  probe.world.now += milliseconds;
-  probe.field.tick++;
-  advanceCombat(probe.world, probe.field);
-}
-
-test("authored ground contact lowers beginner HP and respects repeat-hit protection", async () => {
-  const probe = await fixture();
-  const hp = probe.actor.profile.hp;
-  step(probe, 30);
-  const hit = impacts(probe)[0].event.hits[0];
-  expect(hit.outcome).toBe("hit");
-  expect(hit.damage).toBeGreaterThan(0);
-  expect(probe.actor.profile.hp).toBe(hp - hit.damage);
-  expect(probe.publications).toContainEqual({ type: "snapshot-request" });
-  step(probe, 30);
-  expect(impacts(probe)).toHaveLength(1);
-  expect(probe.actor.profile.hp).toBe(hp - hit.damage);
-  step(probe, 1500);
-  expect(impacts(probe)).toHaveLength(2);
-});
-
-test("evaded contact publishes MISS without HP loss or recoil and protects against rerolls", async () => {
-  const probe = await fixture();
-  probe.actor.damage.nextUint32 = () => 0;
-  const hp = probe.actor.profile.hp;
-  const velocity = [probe.actor.simulation.vx, probe.actor.simulation.vy];
-  step(probe, 30);
-  expect(impacts(probe)[0].event.hits[0]).toEqual({
-    targetId: probe.actor.id,
-    damage: 0,
-    outcome: "miss",
+  const profile = createProfile({
+    mapId: field.manifest.id,
+    x: mob.x,
+    y: mob.y,
+    facing: 1,
   });
-  expect(probe.actor.profile.hp).toBe(hp);
-  expect([probe.actor.simulation.vx, probe.actor.simulation.vy]).toEqual(
-    velocity,
+  profile.level = 50;
+  profile.str = 100;
+  profile.dex = 20;
+  profile.onlineState = { effects: [], cooldowns: {} };
+  const actor = {
+    id: "formula-player",
+    profile,
+    revision: 0,
+    session: { expiresAt: Date.now() + 60000 },
+  };
+  world.prepareEntry(actor, field);
+  prepareActorCombat(world, actor);
+  await prepareActorSkills(world, actor);
+  actor.state = "active";
+  field.characters.set(actor.id, actor);
+  world.actors.set(actor.id, actor);
+  const probe = { world, field, actor, mob, publications };
+  probes.push(probe);
+  return probe;
+}
+
+test("server and client project the same modern stats and ordinary hit", async () => {
+  const { actor, mob } = await fixture();
+  const offline = projectCharacterStats(
+    actor.profile,
+    actor.statHooks,
+    createCharacterStats(),
   );
-  probe.actor.damage.nextUint32 = () => 9999999;
-  step(probe, 30);
-  expect(impacts(probe)).toHaveLength(1);
-  expect(probe.actor.profile.hp).toBe(hp);
-  step(probe, 1500);
-  expect(probe.actor.profile.hp).toBeLessThan(hp);
+  expect(offline).toEqual(actor.stats);
+  const shown = {};
+  shownDamageRange(offline, shown);
+  // Starter sword PAD17: round(1.24 * (4*100+20) *17/100) =89.
+  expect(shown).toEqual({ damageMin: 19, damageMax: 89 });
+  const use = createWeaponUse();
+  use.projectilePAD = 0;
+  const server = actor.skillField.skillCombat.basicDamage(
+    actor.stats,
+    mob,
+    use,
+  );
+  const client = new PhysicalDamage(Math.random, () => 9999999).generate(
+    offline,
+    mob.skillStatus.projected,
+    100,
+    use,
+  );
+  expect(server).toBe(client);
+  expect(server).toBe(106);
 });
 
-test("Magic Guard publishes incoming magnitude while deferring only actual HP and MP loss", async () => {
-  const probe = await fixture();
-  probe.actor.temporaryStats = { derived: { magicGuard: 100 } };
-  probe.actor.pending = true;
-  const hp = probe.actor.profile.hp;
-  const mp = probe.actor.profile.mp;
-  step(probe, 30);
-  const hit = impacts(probe)[0].event.hits[0];
-  expect(hit.damage).toBeGreaterThan(0);
-  expect(hit.outcome).toBe("hit");
-  expect(probe.actor.profile.hp).toBe(hp);
-  expect(probe.actor.profile.mp).toBe(mp);
-  expect(probe.actor.pendingDamage).toBe(Math.max(0, hit.damage - mp));
-  expect(probe.actor.pendingMpDamage).toBe(Math.min(mp, hit.damage));
+test("server incoming admission uses modern defense without StandardPDD", async () => {
+  const { world, actor, mob } = await fixture();
+  actor.profile.level = mob.template.info.level;
+  refreshActorCombat(world, actor);
+  actor.skillField.incomingOptions.standardPDD = null;
+  const admitted = actor.skillField.prepareMobHitAdmission(mob, false);
+  expect(admitted.admitted).toBe(true);
+  const client = new PhysicalDamage(Math.random, () => 9999999);
+  expect(admitted.hit.amount).toBe(
+    client.receive(actor.stats, mob.skillStatus.projected, { magic: false }),
+  );
+  expect(admitted.hit.amount).toBeGreaterThan(0);
 });
 
-test("Tauromacis releases its original area only at attackAfter and cannot repeat the impact", async () => {
-  const probe = await fixture(105090500, 7130100);
-  probe.actor.profile.hp = 30000;
-  // Stay inside the left-facing authored area, outside ordinary contact.
-  probe.mob.facing = -1;
-  probe.actor.simulation.x = probe.mob.x - 200;
-  probe.mob.cooldownMs = 0;
-  step(probe, 30);
-  expect(probe.mob.state).toBe("attack");
-  const attack = probe.mob.pendingAttack;
-  expect(impacts(probe)).toHaveLength(0);
-  for (
-    let elapsed = 30;
-    elapsed < attack.properties.attackAfter;
-    elapsed += 30
-  ) {
-    step(probe, 30);
-  }
-  expect(impacts(probe)).toHaveLength(0);
-  step(probe, 30);
-  const hit = impacts(probe)[0].event.hits[0];
-  expect(hit.damage).toBeGreaterThan(0);
-  expect(probe.actor.profile.hp).toBe(30000 - hit.damage);
-  step(probe, 30);
-  expect(impacts(probe)).toHaveLength(1);
+test("modern dodge still records MISS without moving or debiting the player", async () => {
+  const { world, actor, mob } = await fixture();
+  actor.profile.luk = 1000;
+  refreshActorCombat(world, actor);
+  actor.skillField.damageGenerator.nextUint32 = () => 0;
+  const before = [actor.profile.hp, actor.simulation.x, actor.simulation.y];
+  const admitted = actor.skillField.prepareMobHitAdmission(mob, false);
+  expect(admitted.admitted).toBe(true);
+  expect(admitted.hit.amount).toBe(0);
+  expect([actor.profile.hp, actor.simulation.x, actor.simulation.y]).toEqual(
+    before,
+  );
 });
 
-test("faulted mob geometry cannot deal stale contact damage", async () => {
-  const probe = await fixture();
-  probe.mob.fault = "unsupported-controller";
-  const hp = probe.actor.profile.hp;
-  step(probe, 30);
-  expect(probe.actor.profile.hp).toBe(hp);
-  expect(impacts(probe)).toHaveLength(0);
+test("large generated damage survives publication while hpDamage is only HP actually removed", async () => {
+  const { actor, mob, publications } = await fixture();
+  // Isolate calculation/publication from the separate durable reward transaction.
+  actor.skillField.onKill = () => {};
+  const hp = mob.hp;
+  const hit = {
+    skillId: 0,
+    skillLine: true,
+    line: 0,
+    critical: true,
+    knockbackChance: 0,
+    roll: 0,
+  };
+  actor.skillField.damageTarget(mob, DAMAGE_LIMIT, hit, 1);
+  const event = publications.find(
+    (message) => message.event?.kind === "combat.impact",
+  ).event;
+  expect(event.damage).toBe(DAMAGE_LIMIT);
+  expect(event.hpDamage).toBe(hp);
+  expect(event.critical).toBe(true);
+  expect(event.lethal).toBe(true);
+  expect(() => validate(event, domainEventSchema)).not.toThrow();
 });

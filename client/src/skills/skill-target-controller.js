@@ -3,7 +3,6 @@ import {
   MAX_MESO_PILES,
   MAX_MESO_LINES,
   HYPNOTIZE_HIT_MS,
-  mesoExplosionDamage,
   mesoTouches,
   hypnotizeTarget,
   hypnotizeDamage,
@@ -43,7 +42,6 @@ export class SkillTargetController {
       quantity: 0,
     }));
     this.selected = new Array(MAX_MESO_PILES).fill(null);
-    this.randoms = new Uint32Array(7);
     this.rectangle = rectangleState();
     this.count = 0;
     this.pending = false;
@@ -208,6 +206,7 @@ export class SkillTargetController {
       15,
       Math.max(1, skillNumber(record.info.mobCount, 1)),
     );
+    combat.prepareDamageContext(record, limit, "player");
     let affected = 0;
     for (const mob of this.mobs) {
       if (
@@ -229,16 +228,16 @@ export class SkillTargetController {
           shot = combat.reserveShot(record, mob, this.field.simulation);
           shot.count = 0;
           shot.summon = false;
-          for (let roll = 0; roll < 7; roll++) {
-            this.randoms[roll] = this.field.damageGenerator.next();
-          }
+          this.field.damageGenerator.beginTarget();
         }
-        shot.damage[shot.count] = mesoExplosionDamage(
-          pile.quantity,
-          skillNumber(record.info.x),
-          this.randoms[(shot.count * 2 + 1) % 7],
+        combat.context.line = shot.count;
+        shot.damage[shot.count] = combat.damage.generate(
+          record.skill,
+          record.info,
+          mob,
+          combat.context,
         );
-        shot.critical[shot.count++] = 0;
+        shot.critical[shot.count++] = combat.damage.critical ? 1 : 0;
       }
       if (shot) {
         affected++;
@@ -279,8 +278,9 @@ export class SkillTargetController {
     if (outcome) {
       const generation = target.deaths;
       outcome.effects.push(() => {
-        if (target.deaths === generation && target.alive)
-          {state.receivedMs = HYPNOTIZE_HIT_MS;}
+        if (target.deaths === generation && target.alive) {
+          state.receivedMs = HYPNOTIZE_HIT_MS;
+        }
       });
     } else state.receivedMs = HYPNOTIZE_HIT_MS;
     return hypnotizeDamage(
@@ -303,8 +303,12 @@ export class SkillTargetController {
   step(ms) {
     for (const state of this.stateList) {
       const mob = state.mob;
-      if (this.system.hooks.controlsMob && !this.system.hooks.controlsMob(mob))
-        {continue;}
+      if (
+        this.system.hooks.controlsMob &&
+        !this.system.hooks.controlsMob(mob)
+      ) {
+        continue;
+      }
       if (state.deaths !== mob.deaths) {
         state.receivedMs = 0;
         state.deaths = mob.deaths;
@@ -447,8 +451,9 @@ export class SkillTargetController {
         state.body &&
         (!this.system.hooks.controlsMob ||
           this.system.hooks.controlsMob(state.mob))
-      )
-        {this.endForm(state);}
+      ) {
+        this.endForm(state);
+      }
     }
     if (this.doomSequence) {
       for (const slot of this.doomSequence.slots) {

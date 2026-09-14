@@ -1,5 +1,7 @@
 # Learned skills and original skill coverage
 
+Current damage calculations follow the [modern combat rules](combat-formulas.md) selected by the user. Historical v83 formula descriptions below are superseded by that contract.
+
 ## Sources and coverage
 
 The catalog is extracted from the original `Skill.wz`, `Sound.wz` and `String.wz` inputs associated with the unpacked PE SHA-256 `1198fa57ca5a7c489bae43ec13c69681d9cabe0f96762f3dc0357facf2e7d4df`. No third-party client source is used. The retained complete inventories are `docs/ingame-inventory/Skill.tar.gz` and `Sound.tar.gz`. Cosmic's `AssignSPProcessor`, `GameConstants`, `SkillFactory`, `StatEffect` and `Character` are **authorized emulator references**, not Nexon source.

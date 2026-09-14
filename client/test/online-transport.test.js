@@ -191,16 +191,17 @@ test("inflated arrival timing and repeated neutral events cannot exceed authenti
     // test-runner scheduling; no sleeps or process-global clock replacement.
     transport.timing(timing("source", 13), 0, 300);
     for (let event = 0; event < 16; event++) transport.neutral();
-    expect(sent.map((message) => message.targetTick)).toEqual([
-      13 + PROTOCOL.INPUT_LEAD_TICKS,
-    ]);
-    expect(transport.sendInput(input(18))).toBeNull();
+    // The inflated wall-clock estimate cannot grant lead past the authenticated tick.
+    const leadTick = 13 + PROTOCOL.INPUT_LEAD_TICKS;
+    expect(sent.map((message) => message.targetTick)).toEqual([leadTick]);
+    expect(transport.sendInput(input(leadTick))).toBeNull();
+    expect(transport.sendInput(input(leadTick + 1))).toBeNull();
     transport.timing(timing("source", 14), 1);
-    expect(transport.sendInput(input(18))).toBe(2);
+    expect(transport.sendInput(input(leadTick + 1))).toBe(2);
     expect(sent[1]).toMatchObject({
       type: "input",
       fieldEpoch: "source",
-      targetTick: 18,
+      targetTick: leadTick + 1,
       horizontal: 1,
     });
   } finally {

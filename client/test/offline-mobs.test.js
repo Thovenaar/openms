@@ -329,16 +329,17 @@ test("long authored reactions keep their entire deadline rather than readmitting
   expect(mob.x).toBeLessThan(before);
 });
 
-test("grounded recoil travels along sloped footholds instead of multiplying travel by slope length", () => {
+test("grounded recoil integrates scalar distance along the sloped foothold", () => {
   const flat = groundedMob({ maxHP: 100 }, 600);
   const slope = groundedMob({ maxHP: 100 }, 600, 1);
   damageMob(flat, 1, 1);
   damageMob(slope, 1, 1);
   stepMob(flat, 30);
   stepMob(slope, 30);
-  const tangentDistance = Math.hypot(slope.x - 10, slope.y - 10);
-  expect(tangentDistance).toBeCloseTo(flat.x - 10, 8);
-  expect(slope.x - 10).toBeCloseTo(3.72 / Math.sqrt(2), 8);
+  // 009bc2bb integrates distance; 009b1646 projects it through the tangent.
+  expect(slope.x - 10).toBeCloseTo((flat.x - 10) / Math.SQRT2, 8);
+  expect(Math.hypot(slope.x - 10, slope.y - 10)).toBeCloseTo(flat.x - 10, 8);
+  expect(slope.y - 10).toBeCloseTo(slope.x - 10, 8);
 });
 
 test("knockback crosses patrol limits but respects connected floor ends without teleporting back", () => {

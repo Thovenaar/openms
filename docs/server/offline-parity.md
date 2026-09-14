@@ -1,5 +1,7 @@
 # Online feature coverage
 
+Current damage calculations follow the [modern combat rules](../combat-formulas.md) selected by the user. Historical v83 formula descriptions below are superseded by that contract.
+
 The browser client presents original assets and sends bounded intents, with the **server authorizing gameplay and durable changes**. This is an implementation inventory, not proof that every original skill, quest or multiplayer failure mode has been exercised.
 
 The [remaining-work audit](remaining-work.md) compares current controllers and packaged content with the original resources and Cosmic reference. Its implementation progress records party effects, shared kill credit, quest timing, safe field retirement and MTS. Progression scripts and monster/event controllers remain major gaps.

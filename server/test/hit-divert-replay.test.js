@@ -126,6 +126,7 @@ function sampleFrame(prediction, message, field, tick) {
     ackInputSeq: message.ackInputSeq,
     paused: false,
     motion: message.motion,
+    authoritative: message.authoritative === true,
     diverts: message.diverts,
   });
   const drawn = { x: 0, y: 0 };
@@ -176,7 +177,7 @@ async function lockstep({ lead, ticks, hitAfter }) {
   return { ...probe, prediction, presented };
 }
 
-test("a midair mob knockback is published as a divert the client replays, not adopts", async () => {
+test("a midair mob knockback is published as a divert the client merges, not adopts", async () => {
   const hitAfter = 3;
   const divertTick = hitAfter + 1;
   const result = await lockstep({ lead: 4, ticks: 8, hitAfter });
@@ -185,60 +186,26 @@ test("a midair mob knockback is published as a divert the client replays, not ad
       .filter((entry) => entry.message.type === "motion")
       .map((entry) => entry.message);
     const divertMessage = messages[divertTick - 1];
-    console.log(
-      "divert",
-      JSON.stringify({
-        tick: divertMessage.diverts[0]?.tick,
-        vx: divertMessage.diverts[0]?.vx,
-        vy: divertMessage.diverts[0]?.vy,
-        source: divertMessage.diverts[0]?.source,
-        before: divertMessage.diverts[0]?.before,
-        published: divertMessage.motion,
-      }),
-    );
-    // A committed hit must describe itself: one divert, at the tick that merged it,
-    // carrying the exact vector and the checkpoint of the tick before it.
+    // A committed hit must describe itself: one divert carrying the exact vector and
+    // its source, so the browser can merge it into its own kernel.
     expect(divertMessage.diverts).toHaveLength(1);
     const divert = divertMessage.diverts[0];
     expect(divert.tick).toBe(divertTick);
     expect(divert.source).toBe("hit");
     expect(divert.vx).toBe(270);
     expect(divert.vy).toBe(-270);
-    expect(divert.before).toEqual(messages[divertTick - 2].motion);
-    // The server kept the knockback instead of letting the pre-impulse client report
-    // erase it, so the published tick really contains the merge.
-    expect(divertMessage.motion.vx).toBeGreaterThan(250);
-    expect(divertMessage.motion.vy).toBeLessThan(-180);
-    // The client replayed it from `before` and reproduced that checkpoint instead of
-    // falling back to authoritative adoption.
+    expect(divert.skillId).toBe(0);
+    // The client owns its trajectory: the impulse is merged once into its own current
+    // state and no authoritative checkpoint repositions it.
     const frame = result.presented[divertTick - 1];
-    console.log(
-      "client",
-      JSON.stringify({
-        diverts: result.prediction.snapshot().diverts,
-        corrections: result.prediction.snapshot().corrections,
-        lastPositionError: result.prediction.snapshot().lastPositionError,
-        shown: frame.shown,
-        drawn: frame.drawn,
-      }),
-    );
     expect(result.prediction.snapshot().diverts).toBe(1);
     expect(result.prediction.snapshot().corrections).toBe(0);
-    // The drawn pose starts exactly where the player already saw it and is removed at
-    // no more than one walking quantum per 30 ms frame.
+    // The drawn pose starts exactly where the player already saw it — an impulse is a
+    // velocity change, never a positional correction.
     expect(
       Math.hypot(frame.drawn.x - frame.shown.x, frame.drawn.y - frame.shown.y),
-    ).toBeLessThanOrEqual(3.751);
-    let previous = frame.drawn;
-    for (const step of frame.glide) {
-      const moved = Math.hypot(step.x - previous.x, step.y - previous.y);
-      expect(moved).toBeLessThanOrEqual(3.751);
-      previous = step;
-    }
-    // The pre-impulse reports the client had already queued for the ticks after the
-    // divert were never adopted either: nothing later snapped back onto the plain jump.
-    expect(result.prediction.snapshot().corrections).toBe(0);
-    expect(result.prediction.snapshot().lastPositionError).toBe(0);
+    ).toBeLessThanOrEqual(0.001);
+    expect(frame.glide.at(-1)).toEqual(frame.drawn);
   } finally {
     dispose(result);
   }
@@ -249,20 +216,19 @@ test("an impulse merged after its own step publishes for the tick that integrate
   try {
     const { field, actor } = probe;
     field.tick += 1;
-    const before = captureMotion(actor.simulation);
     // A hit committed during the tick, after that tick's kernel step: the next step merges it.
     actor.motionDiverts.entries.push({
       vx: 200,
       vy: -100,
       source: "hit",
+      skillId: 0,
       tick: field.tick,
-      before,
     });
     expect(takeMotionDiverts(actor, field)).toEqual([]);
     expect(actor.motionDiverts.entries).toHaveLength(1);
     field.tick += 1;
     expect(takeMotionDiverts(actor, field)).toEqual([
-      { tick: field.tick, vx: 200, vy: -100, source: "hit", before },
+      { tick: field.tick, vx: 200, vy: -100, source: "hit", skillId: 0 },
     ]);
     expect(actor.motionDiverts.entries).toEqual([]);
   } finally {

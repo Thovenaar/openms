@@ -1,4 +1,8 @@
 import { weaponType, selectAmmunition } from "../combat/weapon-usage.js";
+import {
+  initializeCombatStats,
+  projectModernCombatStats,
+} from "./modern-combat-stats.js";
 
 const VITAL_CAP = 30000;
 const EQUIPMENT_FIELDS = Object.freeze([
@@ -86,9 +90,9 @@ export function recalculateVitals(profile, items, temporary = null) {
 
 const PRIMARY_STATS = ["str", "dex", "int", "luk"];
 const SECONDARY_CAPS = [
-  ["pdd", 1999],
-  ["mad", 1999],
-  ["mdd", 1999],
+  ["pdd", Number.MAX_SAFE_INTEGER],
+  ["mad", Number.MAX_SAFE_INTEGER],
+  ["mdd", Number.MAX_SAFE_INTEGER],
   ["acc", 999],
   ["eva", 999],
 ];
@@ -136,13 +140,14 @@ export function createCharacterStats() {
     projectilePAD: 0,
     padWithoutProjectile: 0,
     mastery: 0,
-    criticalChance: 0,
-    criticalDamage: 100,
+    criticalChance: 5,
+    criticalDamage: 0,
     hands: 0,
     invincible: 0,
     damageSupported: false,
   };
   for (const [key] of EQUIPMENT_FIELDS) output[key] = 0;
+  initializeCombatStats(output);
   return output;
 }
 
@@ -272,16 +277,19 @@ function projectShieldMastery(profile, hooks, output) {
   }
 }
 
-/** Authored critical total percent; ordinary damage subtracts100 for the extra line modifier. */
+/** Adapt authored total critical percent to a modern bonus over the base 20..50% roll. */
 function projectCritical(hooks, output, temporary) {
-  output.criticalChance = 0;
-  output.criticalDamage = 100;
+  output.criticalChance = 5;
+  output.criticalDamage = 0;
   for (const [id, minimum, maximum] of CRITICAL_PASSIVES) {
     if (output.weaponType < minimum || output.weaponType > maximum) continue;
     const info = learnedInfo(hooks, id);
     if (!info) continue;
-    output.criticalChance = Math.max(output.criticalChance, info.prop);
-    output.criticalDamage = Math.max(output.criticalDamage, info.damage);
+    output.criticalChance = Math.max(
+      output.criticalChance,
+      5 + Number(info.prop),
+    );
+    output.criticalDamage = Math.max(output.criticalDamage, info.damage - 100);
   }
   const sharpEyes = temporary?.sharpEyes ?? 0;
   output.criticalChance = Math.min(
@@ -295,16 +303,16 @@ function projectCritical(hooks, output, temporary) {
 function projectEcho(output, temporary) {
   const percent = temporary?.echo ?? 0;
   output.pad = Math.min(
-    1999,
+    Number.MAX_SAFE_INTEGER,
     output.pad + Math.trunc((output.pad * percent) / 100),
   );
   output.padWithoutProjectile = Math.min(
-    1999,
+    Number.MAX_SAFE_INTEGER,
     output.padWithoutProjectile +
       Math.trunc((output.padWithoutProjectile * percent) / 100),
   );
   output.mad = Math.min(
-    1999,
+    Number.MAX_SAFE_INTEGER,
     output.mad + Math.trunc((output.mad * percent) / 100),
   );
 }
@@ -357,13 +365,8 @@ function projectPrimaryStats(profile, output, temporary) {
   output.str = addStat(output.str, temporary?.morphSTR);
 }
 
-/**
- * Native0077ec9f ->0077f4c9 ->0077df48 consumer projection. The profile contains
- * base stats and equipped instances; hooks.derivedStats returns temporary-only
- * additive fields. Equipment/PAD is summed exactly once. No durable mutation.
- * All native weapon types retain their own mastery; unlearned mastery is zero.
- * Native mastery and authored temporary primary-stat percentages share this projection.
- */
+/** Project retained equipment/skills with modern damage, mastery, critical and defense rules.
+ * Server and offline combat share this function; no durable profile mutation. */
 export function projectCharacterStats(
   profile,
   hooks,
@@ -383,25 +386,24 @@ export function projectCharacterStats(
   output.invincible = temporary?.invincible ?? 0;
   projectEquippedWeapon(profile, hooks, output);
   output.hands = output.dex + output.int + output.luk;
-  output.mad = addStat(output.mad, output.int);
-  output.mdd = addStat(output.mdd, output.int);
   projectBaseAccuracy(output);
   projectPassiveStats(profile, hooks, output);
   projectShieldMastery(profile, hooks, output);
   projectCritical(hooks, output, temporary);
   projectPassiveSpeed(hooks, output);
-  //0077df48 adds temporary PAD and the selected projectile before its final1999 clamp.
-  const equipmentPAD = Math.max(0, Math.min(1999, output.pad));
+  // Modern ATT includes temporary and projectile contributions without the v83 1999 cap.
+  const equipmentPAD = Math.max(0, output.pad);
   output.padWithoutProjectile = addStat(equipmentPAD, temporary?.pad);
   output.pad = Math.max(
     0,
-    Math.min(1999, addStat(output.padWithoutProjectile, output.projectilePAD)),
+    addStat(output.padWithoutProjectile, output.projectilePAD),
   );
   for (const [key, cap] of SECONDARY_CAPS) {
     const base = Math.max(0, Math.min(cap, output[key]));
     output[key] = Math.max(0, Math.min(cap, addStat(base, temporary?.[key])));
   }
   projectEcho(output, temporary);
+  projectModernCombatStats(profile, hooks, temporary, output);
   projectMovementStats(output, temporary);
   output.maxHP = profile.maxHP;
   output.maxMP = profile.maxMP;

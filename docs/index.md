@@ -52,3 +52,5 @@ For other platforms, install [Bun](https://bun.sh/docs/installation), [Podman](h
 | Client    | Serves the game and assets on port **3102**, proxies requests to the server, and uses `.env.client`.                                                              |
 
 Next: [Custom content](custom-content.md). For settings, troubleshooting and production, see [Development](development.md).
+
+Combat mechanics: [modern formulas and content mapping](combat-formulas.md).

@@ -497,20 +497,32 @@ export class OnlineUI {
   }
   cast(skillId) {
     if (this.blocked()) return false;
-    // Movement skills are predicted locally so the arc starts on the key press;
-    // the next authoritative checkpoint confirms or rolls it back.
+    // Movement skills are predicted locally so the arc starts on the key press. The
+    // authoritative divert for the same skill is then not merged twice, and a refused
+    // cast restores the exact pre-cast kernel checkpoint so no unadmitted impulse
+    // survives as free position.
     const impulse = this.optimisticImpulse(skillId);
-    if (impulse) this.hooks.prediction?.queueAction?.(impulse);
-    this.command({ kind: "skill.cast", skillId }).catch((error) =>
-      this.report(error),
-    );
+    const token = impulse
+      ? (this.hooks.prediction?.beginOptimistic?.(impulse, skillId) ?? null)
+      : null;
+    this.command({ kind: "skill.cast", skillId })
+      .then((receipt) => {
+        if (receipt.status !== "committed") this.rollbackOptimistic(token);
+      })
+      .catch((error) => {
+        this.rollbackOptimistic(token);
+        this.report(error);
+      });
     return true;
+  }
+  rollbackOptimistic(token) {
+    if (token) this.hooks.prediction?.rejectOptimistic?.(token);
   }
   optimisticImpulse(skillId) {
     return skillImpulseFor(
       this.store.profile,
       this.catalog,
-      this.hooks.scene?.(),
+      this.scene,
       skillId,
     );
   }

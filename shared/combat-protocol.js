@@ -1,3 +1,4 @@
+import { COMBAT_VALUE_LIMIT } from "./combat-formulas.js";
 import {
   array,
   boolean,
@@ -34,6 +35,7 @@ const skillVisual = record({
   action: actionName,
   elapsedMs: duration,
   playback: enumeration("loop", "once"),
+  playbackId: u32,
   scaleX: number(-100, 100, false),
   scaleY: number(-100, 100, false),
   rotation: number(-1000000, 1000000, false),
@@ -140,7 +142,7 @@ export const COMBAT_EVENT_SCHEMAS = {
     cause: enumeration("basic", "skill", "mob-attack", "contact", "fall"),
     skillId: u32,
     rank: number(0, 32767),
-    damage: u32,
+    damage: number(0, COMBAT_VALUE_LIMIT),
     hpDamage: u32,
     mpDamage: u32,
     mesoDamage: u32,

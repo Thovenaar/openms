@@ -114,6 +114,7 @@ test("Chain Lightning mirrors native first acquisition and hop direction", () =>
 test("Elemental Boost y extends freeze while x increases Flamethrower DOT, not duration", () => {
   const context = {
     rank: 30,
+    dotDamage: 1000,
     elementalBoost: { x: 5, y: 2 },
     generator: { next: () => 0 },
   };
@@ -143,9 +144,10 @@ test("Elemental Boost y extends freeze while x increases Flamethrower DOT, not d
   expect(fire.hp).toBe(36850);
 });
 
-test("Flamethrower status is unconditional but respects fire resistance, bosses and nonlethal DOT", () => {
+test("Flamethrower applies precomputed modern DOT to resistant targets and bosses", () => {
   const context = {
     rank: 30,
+    dotDamage: 1000,
     generator: {
       next() {
         throw new Error("Flamethrower has no authored chance roll");
@@ -155,10 +157,10 @@ test("Flamethrower status is unconditional but respects fire resistance, bosses 
   const skill = { id: 5211004, properties: { elemAttr: "f" } };
   const target = mob(0);
   target.template.info.elemAttr = "F2";
-  expect(applySkillStatus(target, skill, { time: 3 }, context)).toBe(false);
+  expect(applySkillStatus(target, skill, { time: 3 }, context)).toBe(true);
   target.template.info.elemAttr = "";
   target.template.info.boss = 1;
-  expect(applySkillStatus(target, skill, { time: 3 }, context)).toBe(false);
+  expect(applySkillStatus(target, skill, { time: 3 }, context)).toBe(true);
   target.template.info.boss = 0;
   target.hp = 2;
   applySkillStatus(target, skill, { time: 3 }, context);
@@ -250,7 +252,7 @@ test("Spark applies damage at cumulative twice-distance travel deadlines", () =>
 
 test("Reapplying Flamethrower replaces the periodic deadline rather than inheriting a nearly due tick", () => {
   const target = mob(0);
-  const context = { rank: 30, generator: { next: () => 0 } };
+  const context = { rank: 30, dotDamage: 1000, generator: { next: () => 0 } };
   const skill = { id: 5211004, properties: { elemAttr: "f" } };
   applySkillStatus(target, skill, { time: 3 }, context);
   stepMobSkillStatus(target, 999);

@@ -63,6 +63,7 @@ let demand = null;
 let inspectionTimer = null;
 let generation = 0;
 let installing = false;
+let refreshing = false;
 let releasePending = false;
 let destroyed = false;
 let debug = false;
@@ -129,7 +130,7 @@ function clearInput() {
 function isFieldBlocked() {
   return (
     destroyed ||
-    installing ||
+    (installing && !refreshing) ||
     transport.status !== "active" ||
     transport.pendingTravel > 0 ||
     Boolean(ui?.transitions.blocksInput)
@@ -203,18 +204,34 @@ function failedScene(error, owner) {
   prediction.clear();
 }
 
+/** Profile refreshes retain the active clock; entry, travel and recovery reinitialize it. */
+function retainsMotion(snapshot) {
+  return (
+    current?.fieldEpoch === snapshot.fieldEpoch &&
+    current.selfId === snapshot.self.entity.id &&
+    prediction.ready &&
+    prediction.connectionEpoch === transport.connectionEpoch &&
+    transport.status === "active"
+  );
+}
+
+async function refreshScene(snapshot, retainMotion) {
+  await current.queue;
+  await current.replace(snapshot);
+  if (!retainMotion) installPrediction(current, snapshot);
+  await publishNative(snapshot);
+}
+
 /** Stage the authoritative field before replacing any visible field or native-window owner. */
 async function install(snapshot) {
   const token = ++generation;
-
+  const retainMotion = retainsMotion(snapshot);
   installing = true;
+  refreshing = retainMotion;
   try {
     const staged = await ui.transitions.take(snapshot);
     if (!staged && current?.fieldEpoch === snapshot.fieldEpoch) {
-      await current.queue;
-      await current.replace(snapshot);
-      installPrediction(current, snapshot);
-      await publishNative(snapshot);
+      await refreshScene(snapshot, retainMotion);
       return;
     }
     clearInput();
@@ -239,7 +256,10 @@ async function install(snapshot) {
     resize();
     app.canvas.focus();
   } finally {
-    if (token === generation) installing = false;
+    if (token === generation) {
+      installing = false;
+      refreshing = false;
+    }
     if (releasePending && !installing) releaseField();
   }
 }
@@ -417,7 +437,8 @@ function snapshotField(scene) {
     currentMap: scene?.manifest.id ?? null,
     debug,
     follow: current?.follow ?? true,
-    loading: installing || transport.status === "synchronizing",
+    loading:
+      (installing && !refreshing) || transport.status === "synchronizing",
     lastError,
     camera: scene ? { ...scene.camera } : null,
     pendingLoads: scene?.pendingLoads ?? 0,
@@ -443,6 +464,7 @@ function snapshotUI() {
     profile: ui?.store?.profile ?? null,
     ui: ui?.ui.snapshot() ?? null,
     audio: ui?.audio.snapshot() ?? null,
+    skillVisuals: ui?.skillVisuals.snapshot() ?? [],
     hitboxReference: hitboxInspector.selected,
     hitboxes: overlay?.snapshot() ?? null,
   };

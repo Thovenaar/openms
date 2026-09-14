@@ -1,3 +1,7 @@
+const DAMAGE_FORMAT = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
 const AP_TARGETS = ["hp", "mp", "str", "dex", "int", "luk"];
 const AP_ROWS = [117, 135, 247, 265, 283, 301];
 // 008c2870 renders the actual calculated combat values over Stat/backgrnd2.
@@ -116,12 +120,17 @@ export function updateStatDetail(panel) {
   if (!panel.statDetail) return;
   const stats = panel.owner.hooks.characterStats?.();
   const display = stats ? { ...stats } : null;
-  if (display) nativeStatDamage(display, display.mastery);
+  if (display) statDamage(display);
   for (const [key, element] of panel.statDetail.statValues) {
     const value = statDetailValue(display, key);
     element.textContent =
       value === undefined || value === null ? "—" : String(value);
-    element.setAttribute("aria-label", `${key}: ${value ?? "unavailable"}`);
+    const exact =
+      key === "damage" && display
+        ? `${display.damageMin} ~ ${display.damageMax}`
+        : value;
+    element.setAttribute("aria-label", `${key}: ${exact ?? "unavailable"}`);
+    element.setAttribute("title", String(exact ?? "unavailable"));
   }
 }
 
@@ -132,11 +141,11 @@ function statDetailValue(stats, key) {
     Number.isFinite(stats?.damageMin) &&
     Number.isFinite(stats?.damageMax)
   ) {
-    value = `${stats.damageMin} ~ ${stats.damageMax}`;
+    value = `${DAMAGE_FORMAT.format(stats.damageMin)} ~ ${DAMAGE_FORMAT.format(stats.damageMax)}`;
   }
   if ((key === "speed" || key === "jump") && Number.isFinite(value)) {
     value = `${value}%`;
   }
   return value;
 }
-import { nativeStatDamage } from "./ui-stat-damage.js";
+import { statDamage } from "./ui-stat-damage.js";

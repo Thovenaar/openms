@@ -2,8 +2,7 @@ import { FLASH_SKILLS } from "../skills/skill-world-rules.js";
 
 /** Client mirror of the recovered movement-skill impulse
  *  (`SkillWorldController.impulse`, client/src/skills/skill-world-controller.js).
- *  The online predictor replays it locally; the next authoritative checkpoint
- *  overrides it, so a refused cast rolls back without a server round trip in the way. */
+ *  The predictor starts it immediately and consumes its server echo once. */
 export function optimisticSkillImpulse(skillId, info, rank, facing) {
   if (!Number.isSafeInteger(facing) || facing === 0) return null;
   if (skillId === 21001001) {
@@ -27,15 +26,18 @@ function learnedRank(profile, skillId) {
 export function skillImpulseFor(profile, catalog, scene, skillId) {
   const rank = learnedRank(profile, skillId);
   const levels = catalog?.ui?.skills?.[skillId]?.levels;
-  if (rank <= 0 || !levels) return null;
-  return optimisticSkillImpulse(
-    skillId,
-    levels[rank] ?? null,
-    rank,
-    facing(scene),
-  );
+  if (rank <= 0 || !levels?.[rank] || !scene?.simulation) return null;
+  const sim = scene.simulation;
+  if (!eligible(profile, sim, levels[rank], skillId)) return null;
+  return optimisticSkillImpulse(skillId, levels[rank], rank, sim.facing);
 }
 
-function facing(scene) {
-  return scene?.simulation?.facing ?? 0;
+function eligible(profile, sim, info, skillId) {
+  const state = FLASH_SKILLS.has(skillId) ? "air" : "ground";
+  return (
+    sim.state === state &&
+    !sim.movementLocked &&
+    profile.hp > 0 &&
+    profile.mp >= Number(info.mpCon ?? 0)
+  );
 }

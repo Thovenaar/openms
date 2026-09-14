@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { updateStatDetail } from "../src/ui/ui-stat.js";
 
-test("Stat detail formats original damage bounds from immutable server statistics", () => {
+test("Stat detail formats modern damage bounds from immutable server statistics", () => {
   const stats = Object.freeze({
     weaponType: 30,
     mastery: 0,
@@ -22,8 +22,27 @@ test("Stat detail formats original damage bounds from immutable server statistic
       ]),
     },
   });
-  expect(damage.textContent).toBe("1 ~ 9");
-  expect(labels.get("aria-label")).toBe("damage: 1 ~ 9");
+  expect(damage.textContent).toBe("3 ~ 11");
+  expect(labels.get("aria-label")).toBe("damage: 3 ~ 11");
   expect(speed.textContent).toBe("100%");
   expect(Object.hasOwn(stats, "damageMin")).toBe(false);
+});
+
+test("modern large ranges fit the stat window while retaining exact accessible values", () => {
+  const stats = Object.freeze({
+    weaponType: 30,
+    mastery: 0,
+    str: 1000000,
+    dex: 0,
+    pad: 1000000,
+  });
+  const labels = new Map();
+  const damage = { setAttribute: (key, value) => labels.set(key, value) };
+  updateStatDetail({
+    owner: { hooks: { characterStats: () => stats } },
+    statDetail: { statValues: new Map([["damage", damage]]) },
+  });
+  expect(damage.textContent).toBe("9.9B ~ 49.6B");
+  expect(labels.get("title")).toBe("9920000001 ~ 49600000000");
+  expect(labels.get("aria-label")).toBe("damage: 9920000001 ~ 49600000000");
 });

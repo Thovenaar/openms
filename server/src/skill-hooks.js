@@ -24,7 +24,7 @@ function impact(context, target, amount, hit = null) {
     skillId,
     rank: skillId ? actor.skills.level(skillId) : 0,
     damage: Math.max(0, Math.trunc(amount)),
-    hpDamage: Math.max(0, Math.trunc(amount)),
+    hpDamage: impactHpDamage(hit, amount),
     mpDamage: 0,
     mesoDamage: 0,
     line: hit?.line ?? 0,
@@ -34,6 +34,10 @@ function impact(context, target, amount, hit = null) {
     element: 0,
     position: { x: target.x, y: target.y },
   });
+}
+
+function impactHpDamage(hit, amount) {
+  return Math.max(0, Math.trunc(hit?.hpDamage ?? amount));
 }
 
 export function createCombatHooks(world, actor) {
@@ -54,13 +58,14 @@ function combatAdmissionHooks(context) {
   return {
     onMobDamage: (mob, amount) => recordKillDamage(context.actor, mob, amount),
     onMobStatus: (mob, id) => claimMobController(context.actor, mob, id),
-    // A server-owned knockback is published as a divert so the client replays it at the
-    // authoritative tick instead of adopting the post-impulse state wholesale.
-    onExternalImpulse: (simulation, vx, vy) =>
+    // A server-owned knockback is published as a divert so the client merges the exact
+    // vector into its own kernel; the browser owns the resulting trajectory.
+    onExternalImpulse: (simulation, vx, vy, skillId = 0) =>
       recordMotionDivert(context.actor, simulation, {
         vx,
         vy,
         source: "hit",
+        skillId,
       }),
     mobs: actor.field.mobs,
     authoritativePartyHealing: true,
@@ -136,7 +141,7 @@ function combatPublicationHooks(context) {
   return {
     onSkillDamageLine: (target, amount, hit) =>
       impact(context, target, amount, hit),
-    onMobHit: (target, amount) => impact(context, target, amount),
+    onMobHit: (target, amount, hit) => impact(context, target, amount, hit),
     onMagnetResult: (target, success) =>
       emitCombat(world, context.actor, {
         kind: "skill.magnet",

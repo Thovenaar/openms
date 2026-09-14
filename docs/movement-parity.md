@@ -28,30 +28,31 @@ flowchart TD
   Checkpoint --> Predictor
 ```
 
-The browser restores authoritative coefficients from motion checkpoints. Its own motion is the source of truth for its position unless the server owns the transition (see [client-owned motion](#client-owned-motion-and-diverts)) and a watchdog refutes it. The shared helper preserves equipment and buff semantics without expanding the set of supported movement controllers.
+The browser restores authoritative coefficients from motion checkpoints. Its own motion is the source of truth for its position unless the server owns the transition (see [client-owned motion](#client-owned-motion)) and a watchdog refutes it. The shared helper preserves equipment and buff semantics without expanding the set of supported movement controllers.
 
-## Client-owned motion and diverts
+## Client-owned motion
 
-Product priority: fluid client movement beats strict client/server agreement. Nothing that
-diverts the player from the plain jump path — a movement skill, a midair mob hit, a knockback —
-may produce a visible glitch, so the authority no longer publishes positional corrections for
-ordinary play.
+Product priority: the browser is the source of truth for the character's own XY, and the
+authority never corrects an ordinary trajectory. A movement skill, a midair mob hit or a
+knockback must not produce a visible stall, snap or rubber-band, so the client applies
+its own impulses and the server only observes. This also removes the round trip that made
+mid-air skill use feel laggy when the client was connected but not when it ran offline.
 
-| Contract                           | Owner                                                       | Behaviour                                                                                                                                                                                                                                                                                                                                     |
-| ---------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `input.motion` (`x`,`y`,`vx`,`vy`) | `OnlinePrediction.predict` → `OnlineWorld.input`            | Each input sample reports the state it extends (end of `targetTick - 1`), bounded to the same ±1048576 range as a checkpoint. `Transport.neutral` heartbeats omit it.                                                                                                                                                                         |
-| Adoption                           | `adoptReportedMotion` in [world.js](../server/src/world.js) | The report becomes the tick's base; grounded points are re-projected with the kernel's own `009b1553` attach math. The server never glides the client onto its own trajectory.                                                                                                                                                                |
-| Server-owned refusals              | `adoptionPermitted`                                         | Seat, ladder, movement lock, death, pending field transition, pending hit, blocked movement, a pending or just-published authoritative divert, and every report the client predicted before that divert (identified by input sequence) keep the server state and correct as before. No admission, portal or collision rule is weakened.       |
-| Divert                             | `motion.diverts[]` in [protocol.js](../shared/protocol.js)  | A server-owned impulse (mob knockback, movement skill) is published with its exact `{vx, vy}` merge vector, its source, the tick whose kernel step first integrated it — always the step after the merge was recorded, since combat and skills run after `moveActor` — and `before`: the kernel checkpoint from immediately before the merge. |
-| Divert replay                      | `OnlinePrediction.replayDiverts`                            | The client restores `before`, merges the same vector through the same `applyExternalImpulse`, retires history to `tick - 1` and re-steps the retained suffix. The replayed tick must reproduce the published checkpoint, or the divert is rejected.                                                                                           |
-| Divert fallback                    | `adoptCheckpoint`                                           | A retired tick, a stale label, a missing history entry, a changed field epoch or a failed reproduction falls back to authoritative adoption plus the existing bounded glide. A replayed divert may exceed the 24 px snap bound (up to 96 px) but is removed at ≤ 0.125 px/ms (walkSpeed).                                                     |
-| Watchdog                           | [watchdog.js](../server/src/watchdog.js)                    | An isolated deviation is adopted and only recorded; motion the kernel cannot explain is judged against `MOTION_PLAUSIBILITY` (900 px/s of elapsed gap, ≥32 px one-quantum floor, 700 px/s instantaneous). One impossible report, or 6 deviations in 900 ticks, closes the session.                                                            |
+| Contract                           | Owner                                                       | Behaviour                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `input.motion` (`x`,`y`,`vx`,`vy`) | `OnlinePrediction.predict` → `OnlineWorld.input`            | Each input sample reports the state it extends (end of `targetTick - 1`), bounded to the same ±1048576 range as a checkpoint. `Transport.neutral` heartbeats omit it.                                                                                                                                                                            |
+| Adoption                           | `adoptReportedMotion` in [world.js](../server/src/world.js) | Ordinary reports always become the server's tick base; the server keeps its own state only while it owns the position (see below). Grounded points are re-projected with the kernel's own `009b1553` attach math.                                                                                                                               |
+| Server-owned checkpoints           | `serverOwnsPosition` in [motion-authority.js](../server/src/motion-authority.js) | The published `motion` frame carries `authoritative: true` only for a pending field transition, death, an authored seat, or a movement skill the browser does not simulate (teleport, rush/assault, dash, wings) — `SkillWorldController.ownsMotion`. Only those frames replace the client's kernel.                       |
+| Ordinary checkpoints               | `OnlinePrediction.adoptControls`                            | A frame with `authoritative: false` updates timing, acknowledgement and server-owned *controls* — `effectiveSettings` (buff/shoe/form speeds), `worldMovement`, `movementLocked` and `seat` — but never `x`/`y`/`vx`/`vy`. The drawn pose is untouched, so no correction glide can stall the player.                                            |
+| Impulses                           | `motion.diverts[]` in [protocol.js](../shared/protocol.js)  | A server-owned impulse (mob knockback or a movement skill) is published with its exact `{vx, vy}`, its `source` and its `skillId`. The client merges the vector into its **current** kernel state through the same `applyExternalImpulse` entry point, so the trajectory is the original one; it is never restored from a pre-impulse checkpoint. |
+| Optimistic movement skills         | `OnlinePrediction.beginOptimistic`                          | A predicted `impulse` skill is merged at the key press. The matching `source: "skill"` divert is retired by `skillId` and not merged twice. A refused cast calls `rejectOptimistic`, restoring the exact pre-cast checkpoint so an unadmitted impulse cannot survive.                                                                          |
+| Watchdog                           | [watchdog.js](../server/src/watchdog.js)                    | The authority records motion the kernel cannot explain and judges it against `MOTION_PLAUSIBILITY` (900 px/s of elapsed gap, ≥32 px one-quantum floor, 700 px/s instantaneous). One impossible report, or 6 deviations in 900 ticks, closes the session.                                                                                       |
 | Resume                             | `World.adoptResumedMotion`                                  | A resumed client offers its locally presented motion in `hello.resume.motion`; the same watchdog judges it against the disconnect gap, so a player who kept moving resumes where they are instead of snapping back.                                                                                                                           |
 
-`before` is carried rather than derived because `mergeImpulse` is a non-invertible clamp and
-the merge also detaches ground, ladder and seat: the pre-merge kernel state cannot be
-reconstructed from the post-impulse checkpoint. Replaying at the published tick is what keeps
-the client's own lead instead of overwriting its unacknowledged suffix.
+Because the client no longer replays a pre-impulse checkpoint, `before` is gone from the
+divert schema: only the event vector, source and skill id cross the wire. The server no
+longer refuses adoption to protect a divert, and `movementLocked` no longer withholds
+position ownership.
 
 Known limitations:
 
@@ -59,15 +60,44 @@ Known limitations:
   timing, so "walking around while disconnected" is bounded by that window; the resume handoff
   reports wherever the client actually stopped. Continuing local prediction across a longer gap
   is a separate change.
+- Movement skills the browser does not simulate (teleport, rush, dash, wings) remain
+  server-owned and arrive as `authoritative` checkpoints at the 30 ms field cadence rather
+  than as locally predicted motion.
 - Presentation still samples only `presentation.x/y` in `bun tools/openms.js smoothness`, which
-  holds one key. It cannot exercise a divert, so divert continuity is proven by
-  `client/test/divert-alignment.test.js` (synthetic base and vector) and
+  holds one key. Divert continuity is proven by `client/test/divert-alignment.test.js` and
   `server/test/hit-divert-replay.test.js` (a real midair mob knockback published by the
-  production field and replayed by a real predictor) rather than by that tool.
+  production field and merged by a real predictor) rather than by that tool.
 
 ```sh
 bun test client/test/divert-alignment.test.js server/test/hit-divert-replay.test.js server/test/motion-adoption.test.js
 ```
+
+## Skill snapshot continuity
+
+The September 14 follow-up traced three independent failures in the real online path:
+
+- Every paid skill publishes a profile snapshot. `main.install` previously recreated the local physics state even when the character, connection and field had not changed, losing the current impulse, contact state, interpolation anchor and input history. Same-field refreshes now preserve all of these while retaining lifecycle ownership until presentation work completes.
+- `OnlineUI.optimisticImpulse` was passed the `OnlineScene` wrapper, whose physics lives on its nested `scene`. Facing resolved to zero, so the apparent optimistic path never started. It now reads the actual local simulation. Rank-20 Flash Jump begins with the recovered `±550/-350` px/s request before its receipt; its server echo is consumed once.
+- A pending skill or inventory transaction incorrectly asserted position ownership. Only an actual field transition does so. Ordinary action locks and ladder movement retain client XY. The watchdog still records deviations and disconnects impossible or repeated suspicious movement.
+
+The local cast gate avoids grounded, locked and insufficient-MP impulse attempts. A per-airborne-use latch and the original grounded impulse recovery prevent repeated keys from restarting the jump; a response from a departed field cannot restore an obsolete checkpoint.
+
+Consecutive Flash Jump effects retain the same prepared animation resource, but each restart now publishes a distinct `playbackId`. The browser resets the new playback to its own origin instead of interpolating from the previous cast. The original `Effect.wz:BasicEff.img/Flying/` sequence lasts 600 ms; rapid landing/jump repetitions can restart it before expiration. A native keyboard reproduction measured a 221 px offset before this repair. WZ frame offsets and facing remain unchanged. [Original movement-effect dispatch](ghidra-physics-motion/time-loop/0097fdf8.c.txt) selects `Flying`/`Flying1` and the character's position for each trigger. The shared skill controller also records the physics `groundJumpSequence` when consuming Flash Jump, allowing a new ground jump even if a profile transaction suspended the skill clock across the landing.
+
+The focused check below now covers three ordinary airborne casts plus two rapid consecutive casts, inspecting rendered effect origins, replay identity and screenshots. `skill-projectile-chase.test.js` retains interpolation within a playback and verifies that restart cancels an unfinished chase; `skill-visual-replay.test.js` exercises the actual WZ sequence and wire schema.
+
+Flash Jump admission also waits for movement packets already queued ahead of its command to reach their scheduled field tick. Previously an immediate jump/cast could be checked against the preceding grounded state and rejected. The client still applies its impulse at input time; the server never advances physics from a command. The bounded wait captures one target tick, checks field/connection continuity, and rejects stalled or paused clocks before costs are paid.
+
+[Native browser report](validation/skill-motion/report.json) records three successful airborne Flash Jumps in Henesys using real keyboard input, the original packaged WZ artwork, and the production server with disposable account/database state. [Frame samples](validation/skill-motion/frames.json) show zero regressing prediction ticks, zero unready/loading frames and no authoritative position frames during these casts. [Validation results](validation.md#skill-cast-stutter-repair) retain the measurements and earlier failures.
+
+```sh
+bun server/tools/check-skill-motion.js --output /tmp/openms-skill-motion
+bun test client/test/online-skill-motion.test.js client/test/divert-alignment.test.js server/test/motion-adoption.test.js
+```
+
+The original executable was freshly decompiled with `docs/tools/knockbackFocus.java`. [Full output](ghidra-client/knockback-trajectory.txt) retains `007a6353` (player impulse merge), `009bbdfd` (mob recoil), `0066b6fc` (reaction dispatch) and `00950921` (skill dispatch containing the movement branches). Ground recoil at `009bc2bb..392` integrates scalar foothold distance; `009b1646` maps it to world XY using the normalized tangent. A prior partial report misidentified the separate airborne mode-3 branch as ordinary ground recoil; that interpretation and the associated slope test are corrected. Ordinary recoil remains 130 px/s with 400 px/s² braking; strong recoil remains 300/200. Player recoil remains the recovered ±270/-270 impulse, subject to its existing hit/resistance gates.
+
+Original `Skill.wz` supplies Flash Jump 4111006 rank-20 MP cost 13 and prerequisite 4111005 level 5. The supplied Cosmic reference `src/main/java/net/server/channel/handlers/MovePlayerHandler.java:39` reads the player's reported movement, updates the map position and broadcasts it to other players; it is supporting emulator evidence, not Nexon source. No original C/C++ source is present in the supplied client directory. These results do not establish Windows runtime parity or all special mob controllers.
 
 ## Source evidence
 
@@ -77,8 +107,10 @@ bun test client/test/divert-alignment.test.js server/test/hit-divert-replay.test
 | Normal movement and caps            | Native `0094d8f1..0094d9be`                                                                           |
 | Form and shoe coefficients          | Native `0094d3d9`, `005cac3d`, `0094da00`                                                             |
 | Field-limit override                | Native `0094d311`                                                                                     |
+| Player impulse merge                | Native `007a6353` · [Knockback trajectory](ghidra-client/knockback-trajectory.txt)                   |
+| Ground mob recoil                   | Native `0066b6fc` / `009bbdfd` · [Knockback trajectory](ghidra-client/knockback-trajectory.txt)      |
 | Shared implementation               | [skill-movement.js](../client/src/physics/skill-movement.js)                                          |
-| Client / server call sites          | [prediction.js](../client/src/online/prediction.js) · [world.js](../server/src/world.js)              |
+| Client / server call sites          | [prediction.js](../client/src/online/prediction.js) · [world.js](../server/src/world.js) · [motion-authority.js](../server/src/motion-authority.js) |
 | Wire continuation                   | [motion.js](../shared/motion.js) · [Protocol checkpoints](server/protocol.md#motion-checkpoints)      |
 
 ## Scoped verification

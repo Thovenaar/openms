@@ -59,27 +59,6 @@ function sample(tick) {
   };
 }
 
-/** One authoritative segment: the same kernel the client runs, with an impulse merged
- *  at the start of each listed tick exactly as a field tick would merge it. */
-function authority(lastTick, impulses = []) {
-  const sim = createSimulation(world(), { x: 0, y: -10 });
-  const input = createHeldInput();
-  const motion = [captureMotion(sim)];
-  const diverts = [];
-  for (let tick = 1; tick <= lastTick; tick++) {
-    for (const impulse of impulses) {
-      if (impulse.tick !== tick) continue;
-      const before = captureMotion(sim);
-      applyExternalImpulse(sim, impulse.vx, impulse.vy);
-      diverts.push({ ...impulse, before });
-    }
-    assignHeldInput(input, sample(tick));
-    stepMotion(sim, input);
-    motion.push(captureMotion(sim));
-  }
-  return { motion, diverts };
-}
-
 /** Client prediction advanced `lastTick` ticks through the real predictor boundary. */
 function predicting(lastTick) {
   const simulation = createSimulation(world(), { x: 0, y: -10 });
@@ -101,6 +80,7 @@ function predicting(lastTick) {
     ackInputSeq: null,
     paused: false,
     motion: captureMotion(simulation),
+    authoritative: true,
     diverts: [],
   });
   const held = createHeldInput();
@@ -111,14 +91,15 @@ function predicting(lastTick) {
   return { prediction, simulation, sent };
 }
 
-function checkpoint(generated, tick, diverts = []) {
+function checkpoint(simulation, tick, diverts = [], authoritative = false) {
   return {
     connectionEpoch: "epoch",
     fieldEpoch: "field",
     serverTick: tick,
     ackInputSeq: tick,
     paused: false,
-    motion: generated.motion[tick],
+    motion: captureMotion(simulation),
+    authoritative,
     diverts,
   };
 }
@@ -150,171 +131,107 @@ test("a reported sample carries the state it extends, bounded and normalized", (
   });
 });
 
-test("an authoritative midair divert is replayed at its tick, not adopted", () => {
-  const generated = authority(8, [
-    { tick: 4, vx: 300, vy: -250, source: "hit" },
-  ]);
+test("an ordinary checkpoint is an observation and never repositions the client", () => {
   const { prediction, simulation } = predicting(8);
-  const predicted = captureMotion(simulation);
-  prediction.observe(checkpoint(generated, 4, [generated.diverts[0]]));
+  const before = captureMotion(simulation);
+  // The server reports its own (older) trajectory with no impulse; the browser owns XY.
+  const server = createSimulation(world(), { x: 500, y: -10 });
+  server.effectiveSettings.walkSpeed = 200;
+  server.movementLocked = true;
+  prediction.observe(checkpoint(server, 4));
+  expect(simulation.x).toBe(before.x);
+  expect(simulation.y).toBe(before.y);
+  expect(simulation.vx).toBe(before.vx);
+  expect(simulation.vy).toBe(before.vy);
+  // Server-owned controls are still adopted: coefficients, forms and locks.
+  expect(simulation.effectiveSettings.walkSpeed).toBe(200);
+  expect(simulation.movementLocked).toBe(true);
+  expect(prediction.snapshot().diverts).toBe(0);
+  expect(prediction.snapshot().corrections).toBe(0);
+  expect(prediction.snapshot().replayedTicks).toBe(0);
+});
+
+test("an authoritative checkpoint replaces the local kernel exactly", () => {
+  const { prediction, simulation } = predicting(8);
+  const server = createSimulation(world(), { x: 24, y: -10 });
+  // At the predicted tick there is no unacknowledged suffix: adoption is exact.
+  prediction.observe(checkpoint(server, 8, [], true));
+  expect(simulation.x).toBe(24);
+  expect(captureMotion(simulation)).toEqual(captureMotion(server));
+});
+
+test("a mob knockback merges into the client's own current state", () => {
+  const { prediction, simulation } = predicting(8);
+  const before = captureMotion(simulation);
+  // The original impulse vector: horizontal 270 away from the mob, vertical -270.
+  prediction.observe(
+    checkpoint(simulation, 4, [
+      { tick: 4, vx: 270, vy: -270, source: "hit", skillId: 0 },
+    ]),
+  );
+  // The result is the shared kernel merge of the client's own pre-receipt state,
+  // never the authority's post-impulse checkpoint.
+  const reference = createSimulation(world(), { x: 0, y: -10 });
+  restoreMotion(reference, before);
+  applyExternalImpulse(reference, 270, -270);
+  expect(captureMotion(simulation)).toEqual(captureMotion(reference));
   expect(prediction.snapshot().diverts).toBe(1);
   expect(prediction.snapshot().corrections).toBe(0);
-  // Replaying the published pre-impulse base with the same kernel entry point
-  // reproduces the authority's own tick and suffix exactly.
-  expect(captureMotion(simulation)).toEqual(generated.motion[8]);
-  expect(predicted).not.toEqual(captureMotion(simulation));
 });
 
-test("a placed divert presents a continuous trajectory instead of one large jump", () => {
-  const generated = authority(8, [
-    { tick: 4, vx: 350, vy: -250, source: "hit" },
-  ]);
-  const { prediction } = predicting(8);
-  const target = { x: 0, y: 0 };
-  const shown = { x: 0, y: 0 };
-  const now = performance.now();
-  prediction.interpolate(now, shown);
-  const beforeX = prediction.simulation.x;
-  prediction.observe(checkpoint(generated, 4, [generated.diverts[0]]));
-  expect(prediction.snapshot().diverts).toBe(1);
-  prediction.interpolate(now, target);
-  // The drawn pose still starts where the player actually saw it.
-  expect(target.x).toBeCloseTo(shown.x, 6);
-  // Every 30 ms of removal adds no more than one walking quantum (walkSpeed 125 px/s).
-  const quantum = 0.125 * 30;
-  let previous = { x: target.x, y: target.y };
-  let frames = 0;
-  for (let step = 30; step <= 1200; step += 30) {
-    prediction.interpolate(now + step, target);
-    const moved = Math.hypot(target.x - previous.x, target.y - previous.y);
-    expect(moved).toBeLessThanOrEqual(quantum + 0.001);
-    previous = { x: target.x, y: target.y };
-    frames++;
-    if (
-      Math.hypot(
-        target.x - prediction.simulation.x,
-        target.y - prediction.simulation.y,
-      ) < 0.001
-    ) {
-      break;
-    }
-  }
-  expect(frames).toBeGreaterThan(1);
-  expect(prediction.simulation.x).not.toBeCloseTo(beforeX, 6);
-  prediction.interpolate(now + 5000, target);
-  expect(target.x).toBeCloseTo(prediction.simulation.x, 6);
-  expect(target.y).toBeCloseTo(prediction.simulation.y, 6);
-});
-
-test("an unexplained divergence beyond the snap bound is not glided", () => {
-  const { prediction } = predicting(8);
-  const target = { x: 0, y: 0 };
-  prediction.seedCorrection(
-    prediction.simulation.x + 60,
-    prediction.simulation.y,
+test("an optimistic movement skill is applied once and its divert is retired", () => {
+  const { prediction, simulation } = predicting(6);
+  const token = prediction.beginOptimistic(
+    { kind: "impulse", vx: 350, vy: -250 },
+    4111006,
   );
-  prediction.interpolate(performance.now(), target);
-  expect(target.x).toBeCloseTo(prediction.simulation.x, 6);
-});
-
-test("a divert whose tick label is stale falls back to authoritative adoption", () => {
-  const generated = authority(8, [
-    { tick: 4, vx: 300, vy: -250, source: "hit" },
-  ]);
-  const { prediction, simulation } = predicting(8);
-  const stale = checkpoint(generated, 4, [
-    { ...generated.diverts[0], tick: 2 },
-  ]);
-  prediction.observe(stale);
+  expect(token).not.toBeNull();
+  expect(simulation.vx).toBeCloseTo(350, 8);
+  expect(simulation.vy).toBeCloseTo(-250, 8);
+  expect(prediction.snapshot().pendingImpulses).toBe(1);
+  // The authority publishes the same skill impulse; it must not be merged a second time.
+  const before = { vx: simulation.vx, vy: simulation.vy };
+  prediction.observe(
+    checkpoint(simulation, 7, [
+      { tick: 7, vx: 350, vy: -250, source: "skill", skillId: 4111006 },
+    ]),
+  );
+  expect(simulation.vx).toBeCloseTo(before.vx, 8);
+  expect(simulation.vy).toBeCloseTo(before.vy, 8);
+  expect(prediction.snapshot().pendingImpulses).toBe(0);
+  // The retired impulse is counted as announced, not as a correction.
   expect(prediction.snapshot().diverts).toBe(0);
-  expect(captureMotion(simulation)).toEqual(generated.motion[8]);
 });
 
-test("a divert with no retained history entry falls back without diverging", () => {
-  const generated = authority(8, [
-    { tick: 4, vx: 300, vy: -250, source: "hit" },
-  ]);
-  const simulation = createSimulation(world(), { x: 0, y: -10 });
-  const prediction = new OnlinePrediction({});
-  prediction.install(simulation, 4);
-  prediction.observe(checkpoint(generated, 4, [generated.diverts[0]]));
-  expect(prediction.snapshot().diverts).toBe(0);
-  expect(captureMotion(simulation)).toEqual(generated.motion[4]);
-});
-
-test("a divert whose replay disagrees with the checkpoint is rejected", () => {
-  const generated = authority(8, [
-    { tick: 4, vx: 300, vy: -250, source: "hit" },
-  ]);
-  const { prediction, simulation } = predicting(8);
-  const tampered = checkpoint(generated, 4, [generated.diverts[0]]);
-  tampered.motion = { ...generated.motion[4], vx: 0, vy: 0 };
-  prediction.observe(tampered);
-  expect(prediction.snapshot().diverts).toBe(0);
-  // The rejected divert still ends authoritative and bounded: the tampered tick is
-  // adopted and the retained suffix is re-stepped from it.
-  const expected = createSimulation(world(), { x: 0, y: -10 });
-  restoreMotion(expected, tampered.motion);
-  const held = createHeldInput();
-  for (let tick = 5; tick <= 8; tick++) {
-    assignHeldInput(held, sample(tick));
-    stepMotion(expected, held);
-  }
-  expect(captureMotion(simulation)).toEqual(captureMotion(expected));
-});
-
-test("an unplaceable divert inside a changed field epoch resyncs instead", () => {
-  const generated = authority(8, [
-    { tick: 4, vx: 300, vy: -250, source: "hit" },
-  ]);
-  const { prediction } = predicting(8);
-  let resyncs = 0;
-  prediction.onResync = () => resyncs++;
-  prediction.observe(checkpoint(generated, 4, [generated.diverts[0]]));
-  expect(resyncs).toBe(0);
-  prediction.observe({
-    ...checkpoint(generated, 4, [generated.diverts[0]]),
-    fieldEpoch: "other",
-  });
-  expect(resyncs).toBe(1);
-  expect(prediction.snapshot().ready).toBe(false);
-});
-
-test("two diverts on successive ticks merge in order through the shared kernel", () => {
-  const generated = authority(6, [
-    { tick: 3, vx: -200, vy: -180, source: "hit" },
-    { tick: 4, vx: 350, vy: -250, source: "skill" },
-  ]);
-  const { prediction } = predicting(6);
-  prediction.observe({
-    connectionEpoch: "epoch",
-    fieldEpoch: "field",
-    serverTick: 3,
-    ackInputSeq: 3,
-    paused: false,
-    motion: generated.motion[3],
-    diverts: [generated.diverts[0]],
-  });
+test("a skill divert the client did not predict is merged", () => {
+  const { prediction, simulation } = predicting(6);
+  prediction.observe(
+    checkpoint(simulation, 7, [
+      { tick: 7, vx: -200, vy: -180, source: "skill", skillId: 5201006 },
+    ]),
+  );
   expect(prediction.snapshot().diverts).toBe(1);
-  prediction.observe({
-    connectionEpoch: "epoch",
-    fieldEpoch: "field",
-    serverTick: 4,
-    ackInputSeq: 4,
-    paused: false,
-    motion: generated.motion[4],
-    diverts: [generated.diverts[1]],
-  });
-  expect(prediction.snapshot().diverts).toBe(2);
-  expect(captureMotion(prediction.simulation)).toEqual(generated.motion[6]);
 });
 
-test("a checkpoint without diverts keeps the plain authoritative path", () => {
-  const generated = authority(8, []);
+test("a refused optimistic cast restores the exact pre-cast checkpoint", () => {
+  const { prediction, simulation } = predicting(6);
+  const before = captureMotion(simulation);
+  const token = prediction.beginOptimistic(
+    { kind: "impulse", vx: 350, vy: -250 },
+    4111006,
+  );
+  expect(captureMotion(simulation)).not.toEqual(before);
+  prediction.rejectOptimistic(token);
+  expect(captureMotion(simulation)).toEqual(before);
+  expect(prediction.snapshot().pendingImpulses).toBe(0);
+});
+
+test("a checkpoint without diverts is a pure observation", () => {
   const { prediction, simulation } = predicting(8);
-  prediction.observe(checkpoint(generated, 4));
+  const before = captureMotion(simulation);
+  prediction.observe(checkpoint(simulation, 4));
   expect(prediction.snapshot().diverts).toBe(0);
-  expect(captureMotion(simulation)).toEqual(generated.motion[8]);
+  expect(captureMotion(simulation)).toEqual(before);
 });
 
 test("the same history and impulses reproduce captureMotion exactly, once", () => {
@@ -322,8 +239,8 @@ test("the same history and impulses reproduce captureMotion exactly, once", () =
     const simulation = createSimulation(world(), { x: 0, y: -10 });
     const prediction = new OnlinePrediction({ onInput: () => 1 });
     prediction.install(simulation, 0);
+    prediction.beginOptimistic({ kind: "impulse", vx: 400, vy: -250 }, 4111006);
     const held = createHeldInput();
-    prediction.queueAction({ kind: "impulse", vx: 400, vy: -250 });
     expect(prediction.predict(held, true)).toBe(true);
     assignHeldInput(held, {
       horizontal: 1,
@@ -336,7 +253,7 @@ test("the same history and impulses reproduce captureMotion exactly, once", () =
   }
   const first = run();
   expect(run()).toEqual(first);
-  // One merge, not two: the queued impulse applies on its own entry only.
+  // One merge, not two: the optimistic impulse is applied immediately, not per tick.
   const reference = createSimulation(world(), { x: 0, y: -10 });
   applyExternalImpulse(reference, 400, -250);
   const input = createHeldInput();

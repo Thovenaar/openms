@@ -222,18 +222,7 @@ export class NativeSkillPresentation {
           : animation.current.ends[state.sourceFrame - 1],
     );
     animation.holdFrame = state.sourceFrame !== null;
-    // Projectiles are sampled at 11 Hz; chase each published sample across one
-    // publication interval instead of snapping, matching peer/drop presentation.
-    if (entry.positioned) {
-      entry.fromX = animation.container.position.x;
-      entry.fromY = animation.container.position.y;
-      entry.chaseMs = 0;
-    } else {
-      entry.positioned = true;
-      animation.setPosition(state.position.x, state.position.y);
-    }
-    entry.targetX = state.position.x;
-    entry.targetY = state.position.y;
+    this.positionVisual(entry);
     animation.setTint(state.tint);
     animation.container.scale.x = state.scaleX;
     animation.container.scale.y = state.scaleY;
@@ -247,6 +236,22 @@ export class NativeSkillPresentation {
       : null;
     animation.container.zIndex =
       actorDepth === null ? skillEffectDepth(state.depth) : actorDepth;
+  }
+  /** Chase samples within one playback; a pooled restart starts at its new origin. */
+  positionVisual(entry) {
+    const { state, animation } = entry;
+    if (entry.positioned && entry.playbackId === state.playbackId) {
+      entry.fromX = animation.container.position.x;
+      entry.fromY = animation.container.position.y;
+      entry.chaseMs = 0;
+    } else {
+      entry.positioned = true;
+      entry.playbackId = state.playbackId;
+      entry.chaseMs = PUBLISH_MS;
+      animation.setPosition(state.position.x, state.position.y);
+    }
+    entry.targetX = state.position.x;
+    entry.targetY = state.position.y;
   }
   actorDepth(actorId) {
     const depth = this.owner.hooks?.scene?.()?.views?.get(actorId)?.animation
@@ -373,6 +378,27 @@ export class NativeSkillPresentation {
     for (const [id, record] of this.voices) {
       if (record.voice?.ended) this.voices.delete(id);
     }
+  }
+  /** Detached read-only effect origins for appearance checks; bounded by MAX_VISIBLE. */
+  snapshot() {
+    const result = [];
+    for (const entry of this.visuals.values()) {
+      const animation = entry.animation;
+      result.push({
+        id: entry.id,
+        actorId: entry.actorId,
+        sourceId: entry.state.sourceId,
+        elapsedMs: entry.state.elapsedMs,
+        playbackId: entry.state.playbackId,
+        frame: animation?.frame ?? null,
+        visible: animation?.container.visible ?? false,
+        position: animation
+          ? { x: animation.container.x, y: animation.container.y }
+          : null,
+        target: { ...entry.state.position },
+      });
+    }
+    return result;
   }
   releaseOwners(entry) {
     for (const owner of entry.owners) owner.destroy();

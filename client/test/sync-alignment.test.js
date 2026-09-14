@@ -180,25 +180,23 @@ function presentable(onGroundJump) {
   return { prediction, simulation, clock };
 }
 
-test("a queued movement impulse is predicted once and retired by a rejecting checkpoint", () => {
+test("an optimistic movement skill is predicted immediately and rolled back when refused", () => {
   const simulation = createSimulation(world(), { x: 0, y: -10 });
   const prediction = new OnlinePrediction({});
   prediction.install(simulation, 0);
-  prediction.queueAction({ kind: "impulse", vx: 400, vy: -250 });
-  expect(prediction.predict(createHeldInput(), false)).toBe(true);
-  // One 30 ms tick integrates the impulse before this assertion.
+  const before = captureMotion(simulation);
+  const token = prediction.beginOptimistic(
+    { kind: "impulse", vx: 400, vy: -250 },
+    4111006,
+  );
+  expect(token).not.toBeNull();
+  // The impulse is merged at the key press, not one predicted tick later.
   expect(simulation.vx).toBeGreaterThan(390);
   expect(simulation.vy).toBeLessThan(-150);
-  // The optimistic arc is part of the checkpoint the client would send.
-  expect(captureMotion(simulation).vx).toBeGreaterThan(390);
-  // A rejecting authority checkpoint has the pre-impulse velocity and retires the entry.
-  const authority = createSimulation(world(), { x: 0, y: -10 });
-  restoreMotion(simulation, captureMotion(authority));
-  prediction.serverTick = 1;
-  prediction.retireHistory();
-  prediction.replay();
-  expect(Math.abs(simulation.vx)).toBeLessThan(1);
-  expect(Math.abs(simulation.vy)).toBeLessThan(1);
+  // A rejected cast restores the exact pre-cast checkpoint.
+  prediction.rejectOptimistic(token);
+  expect(captureMotion(simulation)).toEqual(before);
+  expect(prediction.snapshot().pendingImpulses).toBe(0);
 });
 
 test("a bounded server correction glides instead of snapping the presented pose", () => {

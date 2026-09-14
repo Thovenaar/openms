@@ -1,5 +1,7 @@
 import { SkillSystem } from "../../client/src/skills/skill-system.js";
 import { SkillCosts } from "../../client/src/skills/skill-costs.js";
+import { FLASH_SKILLS } from "../../client/src/skills/skill-world-rules.js";
+import { awaitSkillInput } from "./skill-input-order.js";
 import { AvatarVisuals } from "../../client/src/character/avatar-visuals.js";
 import { AuthorityCombat } from "./combat-controller.js";
 import { AuthoritySkillResources, authorityLayer } from "./skill-resources.js";
@@ -148,6 +150,18 @@ export async function runSkillOperation(world, actor, operation, run) {
   }
 }
 
+function skillActorBlocked(actor) {
+  return (
+    actor.state !== "active" ||
+    Boolean(
+      actor.retiring ||
+      actor.deliveryError ||
+      actor.tradeId ||
+      actor.conversation,
+    )
+  );
+}
+
 function skillHooks(world, actor, scene) {
   return {
     actor,
@@ -171,14 +185,7 @@ function skillHooks(world, actor, scene) {
       actor.bound !== false && mob.controllerOwnerId === actor.id,
     gameplay: () => actor.skillField,
     drops: () => actor.skillDrops,
-    isBlocked: () =>
-      actor.state !== "active" ||
-      Boolean(
-        actor.retiring ||
-        actor.deliveryError ||
-        actor.tradeId ||
-        actor.conversation,
-      ),
+    isBlocked: () => skillActorBlocked(actor),
     isCurrent: () => actor.field === scene.field && !actor.session.revoked,
     validateCast: () => actor.skillField.skillCastError(),
     supportsAction: (action) =>
@@ -189,10 +196,14 @@ function skillHooks(world, actor, scene) {
     admitAttack: (entry, info, hit) =>
       actor.skillField.beginSkillAttack(entry, info, hit),
     startAction: (action) => actor.skillField.beginSkillPose(action),
-    // Every movement-skill impulse merges through the shared kernel, so recording the
-    // exact vector here is what lets the client replay it at the same tick.
-    onExternalImpulse: (simulation, vx, vy) =>
-      recordMotionDivert(actor, simulation, { vx, vy, source: "skill" }),
+    // The client merges the same vector locally; recording it here names the skill.
+    onExternalImpulse: (simulation, vx, vy, skillId) =>
+      recordMotionDivert(actor, simulation, {
+        vx,
+        vy,
+        source: "skill",
+        skillId,
+      }),
     travelDoor: (destination) => world.travelSkillDoor(actor, destination),
     prepareEnhancement: () => prepareEnhancement(world),
     enhancementError: () =>
@@ -371,6 +382,7 @@ export async function castSkill(world, actor, action, operation) {
   actor.skillExecuting = true;
   let drops = null;
   try {
+    if (FLASH_SKILLS.has(action.skillId)) await awaitSkillInput(world, actor);
     const plan = admitCast(world, actor, action);
     if (plan.controller.basicFallback) {
       return await castBasicFallback(world, actor, plan, operation);

@@ -58,9 +58,9 @@ export const COMBAT_POLICY = Object.freeze({
   authority: "offline-local-policy",
   fixedTickMs: 30,
   playerDamage:
-    "native0078df87 action/weapon-specific damage, mastery/ACC/level/PDD then skill%; nonpositive -> local zero HP debit",
+    "modern shared weapon/stat/mastery range, skill and critical multipliers, percentage DEF and level advantage; see combat-formulas.md",
   incomingDamage:
-    "native0079309f/0079345e physical/magical EVA, squared original attack roll, primary/equipment/temporary defense and StandardPDD job/level adjustment",
+    "modern linear monster ATT, unified defense with level-adjusted caps and DEX/LUK dodge",
   impact:
     "native00406abd authored release boundary; ranged flight trunc(distance*1.5)ms, first fixed tick at/after impact",
   attackMP: 0,
@@ -181,6 +181,7 @@ export class OfflineField {
       this.hooks.nextUint32 ?? null,
     );
     this.damageLines = new Float64Array(MAX_ATTACK_TARGETS);
+    this.damageCritical = new Uint8Array(MAX_ATTACK_TARGETS);
     this.phaseMs = 0;
     this.attack = null;
     this.attackName = null;
@@ -662,6 +663,7 @@ export class OfflineField {
     }
     this.generateDamageLines(count);
     for (let index = 0; index < count; index++) {
+      this.mobHit.critical = !!this.damageCritical[index];
       this.damageTarget(this.attackTargets[index], this.damageLines[index]);
     }
   }
@@ -686,6 +688,7 @@ export class OfflineField {
     if (count) this.generateDamageLines(count);
     const shot = this.prepareProjectile(target, range);
     shot.damage = count ? this.damageLines[0] : 0;
+    shot.hit.critical = count > 0 && !!this.damageCritical[0];
     this.hooks.onProjectile?.(shot);
     shot.hit.knockbackChance = this.mobHit.knockbackChance;
   }
@@ -770,6 +773,7 @@ export class OfflineField {
         this.attackTargets[index],
         this.weaponUse,
       );
+      this.damageCritical[index] = this.skillCombat.damage.critical ? 1 : 0;
     }
     if (count) {
       this.hooks.onEventAttack?.(
@@ -794,13 +798,14 @@ export class OfflineField {
       : 0;
     const beforeHP = target.hp;
     const killed = damageMob(target, amount, facing, hit);
-    this.recordMobDamage(target, beforeHP - target.hp);
+    hit.hpDamage = beforeHP - target.hp;
+    this.recordMobDamage(target, hit.hpDamage);
     if (hit.skillLine && this.hooks.onSkillDamageLine) {
       this.hooks.onSkillDamageLine(target, Math.max(0, generated), hit);
     } else {
       // Display the generated line, not the HP-capped accounting value, so a hit
       // larger than the target's remaining HP does not look like a flat number.
-      this.hooks.onMobHit?.(target, Math.max(0, generated));
+      this.hooks.onMobHit?.(target, Math.max(0, generated), hit);
     }
     if (amount > 0 && hit.skillId === 0) {
       this.skillCombat.basicHit(target, amount);
@@ -809,7 +814,7 @@ export class OfflineField {
       ? "local mob killed; WZ EXP awarded"
       : amount > 0
         ? "local mob hit"
-        : "native physical MISS";
+        : "combat MISS";
     if (killed) this.onKill(target, showdown);
   }
 
@@ -1112,11 +1117,6 @@ export class OfflineField {
     const error = physicalTargetError(info);
     if (error) {
       this.lastStatus = `mob incoming damage unavailable: ${error}`;
-      return false;
-    }
-    if (!this.incomingOptions.magic && !this.incomingOptions.standardPDD) {
-      this.lastStatus =
-        "mob incoming damage unavailable: original StandardPDD missing";
       return false;
     }
     projectCharacterStats(
