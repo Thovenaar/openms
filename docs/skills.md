@@ -2,6 +2,8 @@
 
 Current damage calculations follow the [modern combat rules](combat-formulas.md) selected by the user. Historical v83 formula descriptions below are superseded by that contract.
 
+[Meso Explosion animation placement](meso-explosion-animation.md) documents the recovered per-pile anchor, nine original hit variants, and shared client/server presentation.
+
 ## Sources and coverage
 
 The catalog is extracted from the original `Skill.wz`, `Sound.wz` and `String.wz` inputs associated with the unpacked PE SHA-256 `1198fa57ca5a7c489bae43ec13c69681d9cabe0f96762f3dc0357facf2e7d4df`. No third-party client source is used. The retained complete inventories are `docs/ingame-inventory/Skill.tar.gz` and `Sound.tar.gz`. Cosmic's `AssignSPProcessor`, `GameConstants`, `SkillFactory`, `StatEffect` and `Character` are **authorized emulator references**, not Nexon source.
@@ -141,4 +143,3 @@ The executed `skill-book-equipped-scroll` native scenario seeds an explicitly un
 The [current report](ingame-validation/skill-admission.json) covers71/71 preset jobs and2,879 skill-job pairs:1,051 `ok`,1,828 `by-design`, **0 `gap`**, 0 throws and 0 unevaluated jobs. It uses only packaged content and production modules — no browser, network, database or native Windows proof — and does not replace the selected native gameplay reports above.
 
 The audit exists because that class was real: against the revision preceding the shared default-action rectangle fallback it reported31 `attack-geometry` gaps across14 supported, learnable, job-appropriate skills, including Savage Blow4201005 on jobs420/421/422, Double Uppercut5101003, Recoil Shot5201006, Blast1221009, Taunt4121003/4221003, Barrage5121007/15111004, the Aran tutorial skills20000014/20000015 and the hidden swing activations21110007/21110008/21120009/21120010. `SkillAttack.prepare` resolved `combat.attacks[action]` without the weapon default-action fallback that `prepareActor` already applied; the shared `actionWeapon` fallback removes the whole class. `server/test/skill-admission.test.js` covers the classification table, asserts the packaged catalog produces no gap, and re-injects a missing prepared rectangle to prove the detector fires. `--strict` exits non-zero on any gap, throw or unevaluated job.
-

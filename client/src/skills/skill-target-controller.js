@@ -9,6 +9,7 @@ import {
 } from "./skill-target-rules.js";
 import { hasMobStatus, MOB_STATUS } from "../combat/mob-skill-status.js";
 import { skillNumber } from "./skill-costs.js";
+import { SkillMesoPresentation } from "./skill-meso-presentation.js";
 import { placeBody } from "../world/life-geometry-numeric.js";
 import {
   rectangleState,
@@ -40,12 +41,18 @@ export class SkillTargetController {
       x: 0,
       y: 0,
       quantity: 0,
+      groundX: 0,
+      groundY: 0,
     }));
     this.selected = new Array(MAX_MESO_PILES).fill(null);
     this.rectangle = rectangleState();
     this.count = 0;
     this.pending = false;
     this.onHit = system.hit.bind(system);
+    this.mesoPresentation = new SkillMesoPresentation(
+      system.resources,
+      system.hooks.random,
+    );
     this.doom = null;
     this.doomSequence = null;
     this.states = new Map();
@@ -72,6 +79,12 @@ export class SkillTargetController {
         this.system.info(skill.id, rank),
         rank,
       );
+      if (skill.id === 4211006) {
+        await this.mesoPresentation.prepare(
+          skill,
+          this.system.fullCatalog.ui.dropArtwork,
+        );
+      }
       if (skill.id !== 2311005) continue;
       this.doom = skill;
       this.doomSequence = await this.system.resources.acquireSequence(
@@ -164,7 +177,7 @@ export class SkillTargetController {
         Math.min(MAX_MESO_PILES, Math.max(1, skillNumber(info.attackCount, 1))),
       );
     return this.count
-      ? null
+      ? this.mesoPresentation.admissionError(this.count)
       : "No loose mesos are available in the explosion rectangle";
   }
 
@@ -191,11 +204,19 @@ export class SkillTargetController {
         pile.x = source.x;
         pile.y = source.y;
         pile.quantity = source.quantity;
+        pile.groundX = source.groundX;
+        pile.groundY = source.groundY;
       }
       this.system.hooks.drops().consumeExplosion(this.selected, this.count);
+      this.mesoPresentation.play(skill, this.piles, this.count);
       this.pending = true;
     }
-    this.field.beginTargetSkill(skill, info, this.onHit, this);
+    this.field.beginTargetSkill(
+      skill,
+      info,
+      skill.id === 4211006 ? null : this.onHit,
+      this,
+    );
     return rank > 0;
   }
 
