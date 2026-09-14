@@ -2,8 +2,15 @@ import { expect, test } from "bun:test";
 import { loadContent } from "../src/content.js";
 import { developActor } from "../src/field-development.js";
 import { prepareActorCombat } from "../src/field-combat.js";
+import { prepareActorSkills } from "../src/field-skills.js";
+import { OnlineWorld } from "../src/world.js";
 import { createProfile } from "../../client/src/profile/profile-validation.js";
 import { nearestSavedArrival } from "../../client/src/world/field-arrival.js";
+import {
+  applyJobPresetLoadout,
+  stageJobPreset,
+} from "../../client/src/development/character-presets.js";
+import { createSimulation } from "../../client/src/physics/simulation.js";
 
 const content = await loadContent();
 
@@ -114,6 +121,62 @@ test("every packaged job preset commits with ordinary players present", async ()
     expect(probe.committed).toHaveLength(1);
     expect(probe.committed[0].draft.job).toBe(job);
   }
+});
+
+test("the staged Bandit (420) preset admits its authored Savage Blow attack", async () => {
+  const index = content.catalog.ui;
+  const manifest = await content.map(content.catalog.defaultMap);
+  const base = createProfile({
+    mapId: manifest.id,
+    x: 0,
+    y: 0,
+    facing: 1,
+  });
+  const preset = stageJobPreset(index, base, 420);
+  const profile = structuredClone(base);
+  Object.assign(profile, preset.patch);
+  applyJobPresetLoadout(profile, index, 420);
+  profile.onlineState = { effects: [], cooldowns: {} };
+  expect(profile.job).toBe(420);
+  expect(profile.skills[4201005].level).toBeGreaterThan(0);
+  const weapon = profile.equipment.find((item) => item.slot === -11);
+  expect(weapon.id).toBe(1332000);
+  const combat = index.avatar.entries[weapon.id].combat;
+  expect(combat.weaponType).toBe(33);
+
+  const world = new OnlineWorld({ content, database: {}, publish() {} });
+  world.now = 0;
+  world.nextUint32 = () => 9999999;
+  const field = await world.fieldFor(manifest.id);
+  const actor = {
+    id: "preset-bandit",
+    state: "active",
+    profile,
+    field,
+    pending: false,
+    simulation: createSimulation(field.manifest.physics, {
+      x: 0,
+      y: 0,
+      facing: 1,
+    }),
+    session: { revoked: false },
+  };
+  prepareActorCombat(world, actor);
+  await prepareActorSkills(world, actor, null);
+  const system = actor.skills;
+  const id = 4201005;
+  const rank = system.level(id);
+  const info = system.info(id, rank);
+  const record = actor.skillField.skillCombat.prepared.get(id);
+  // Authored WZ: the dagger (Character.wz:Weapon/01332000.img) authors no `savage`
+  // attack node, so the pose stays `savage` while the admitted rectangle falls back
+  // to the weapon's ordinary action; a missing rectangle refuses the cast.
+  expect(system.castError(system.catalog[id], info)).toBeNull();
+  expect(record.action).toBe("savage");
+  expect(record.rectangle).toEqual(
+    combat.attacks[combat.defaultAction].rectangle,
+  );
+  system.destroy();
 });
 
 test("GM field controls allow other players, while player requests and busy peers are refused", async () => {

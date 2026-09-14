@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { PROTOCOL, protocolError } from "../../shared/protocol.js";
+import {
+  PROTOCOL,
+  plausiblePositionPx,
+  protocolError,
+  MOTION_PLAUSIBILITY,
+} from "../../shared/protocol.js";
 import {
   createHeldInput,
   assignHeldInput,
@@ -72,6 +77,12 @@ import {
   settleFieldReactors,
   destroyFieldReactors,
 } from "./field-reactors.js";
+import {
+  prepareMotionDiverts,
+  releaseMotionDiverts,
+  takeMotionDiverts,
+} from "./field-diverts.js";
+import { MotionWatchdog } from "./watchdog.js";
 
 const MAX_FIELDS = 128;
 const MAX_ACTORS = 128;
@@ -110,13 +121,114 @@ function prepareNpcs(manifest, randomUint) {
   return npcs;
 }
 
-function consumeActorInput(actor) {
+/** State in which the server, not the client, decides where this actor is. */
+function serverOwnsPosition(actor, sim) {
+  if (actor.pending || actor.profile.hp <= 0) return true;
+  return sim.seat !== null || sim.movementLocked || sim.ladder !== null;
+}
+
+/** Whether the client's report for this tick may be adopted at all. Every refusal here
+ *  is a rule the server owns and the client cannot know, so the client is not trusted
+ *  and the authoritative checkpoint keeps correcting it exactly as before. */
+function adoptionPermitted(actor, sim) {
+  if (actor.state !== "active" || actor.retiring || actor.deliveryError) {
+    return false;
+  }
+  if (serverOwnsPosition(actor, sim)) return false;
+  if (
+    actor.skillField?.blocksMovement ||
+    actor.skillField?.hasPendingIncoming
+  ) {
+    return false;
+  }
+  // An authoritative divert published for the previous checkpoint owns the next step:
+  // the report is a pre-impulse prediction and adopting it would erase the divert.
+  return actor.field.tick - actor.lastDivertTick > 1;
+}
+
+/** Adoption: the client's own trajectory becomes the server's state. Grounded travel is
+ *  derived from foothold-relative position, so an adopted world point is re-projected
+ *  with the kernel's own attach math (009b1553); nothing else about the kernel changes. */
+function adoptMotion(sim, motion) {
+  const dx = motion.x - sim.x;
+  const dy = motion.y - sim.y;
+  sim.x = motion.x;
+  sim.y = motion.y;
+  sim.previousX += dx;
+  sim.previousY += dy;
+  sim.vx = motion.vx;
+  sim.vy = motion.vy;
+  if (sim.foothold) {
+    const segment = sim.foothold;
+    sim.position = Math.max(
+      0,
+      Math.min(
+        segment.length,
+        (sim.x - segment.x1) * segment.tx + (sim.y - segment.y1) * segment.ty,
+      ),
+    );
+    sim.speed = sim.vx * segment.tx + sim.vy * segment.ty;
+  }
+}
+
+/** Adopt the client's reported motion for the tick this sample drives. The report is the
+ *  source of truth for its own position and velocity; the watchdog accumulates motion the
+ *  kernel cannot explain and only a frequent or impossible pattern closes the session.
+ *  An isolated deviation is still adopted, so a stall never rubber-bands an honest player.
+ *  Never changes admission. */
+/** Discrepancy between a reported motion and the state it is compared against.
+ *  Returns null for non-finite reports, which are refused without a watchdog verdict. */
+function motionExcess(state, motion, allowedPosition) {
+  const excess = {
+    position: Math.hypot(motion.x - state.x, motion.y - state.y),
+    velocity: Math.hypot(motion.vx - state.vx, motion.vy - state.vy),
+    allowedPosition,
+    allowedVelocity: MOTION_PLAUSIBILITY.velocityPxPerSecond,
+  };
+  if (!Number.isFinite(excess.position) || !Number.isFinite(excess.velocity)) {
+    return null;
+  }
+  return excess;
+}
+
+/** A resume may only be judged against a live, finite, non-seated actor. */
+function resumableResume(actor, motion) {
+  if (!motion || !actor.simulation || !actor.field) return false;
+  if (actor.profile.hp <= 0 || actor.simulation.seat !== null) return false;
+  return (
+    Number.isFinite(motion.x) &&
+    Number.isFinite(motion.y) &&
+    Number.isFinite(motion.vx) &&
+    Number.isFinite(motion.vy)
+  );
+}
+
+function adoptReportedMotion(world, actor, sample) {
+  const motion = sample.motion;
+  const sim = actor.simulation;
+  if (!motion || !sim) return;
+  if (!adoptionPermitted(actor, sim)) return;
+  const elapsedMs =
+    Math.max(0, sample.targetTick - actor.lastAdoptedTick) * PROTOCOL.TICK_MS;
+  const excess = motionExcess(sim, motion, plausiblePositionPx(elapsedMs));
+  if (!excess) return;
+  const verdict = world.watchdog.review(actor.id, sample.targetTick, excess);
+  if (verdict.decision === "fault") {
+    world.faultMotion(actor, { ...excess, elapsedMs, verdict });
+    return;
+  }
+  adoptMotion(sim, motion);
+  actor.lastAdoptedTick = sample.targetTick;
+}
+
+function consumeActorInput(world, actor) {
   const sample = actor.inputQueue.get(actor.field.tick);
   actor.input.jumpPressed = false;
   actor.input.attackPressed = false;
   if (sample) {
     actor.inputQueue.delete(actor.field.tick);
     assignHeldInput(actor.input, sample);
+    adoptReportedMotion(world, actor, sample);
     actor.ackInputSeq = Math.max(actor.ackInputSeq ?? 0, sample.inputSeq);
     actor.lastInputTick = actor.field.tick;
   } else if (actor.field.tick - actor.lastInputTick > 3) {
@@ -157,6 +269,7 @@ export class OnlineWorld {
     this.closed = false;
     this.nextUint32 = serverRandom();
     this.random = () => this.nextUint32() / 0x100000000;
+    this.watchdog = new MotionWatchdog({ log: this.log });
   }
 
   async fieldFor(mapId, realm = "public", retain = false) {
@@ -320,12 +433,42 @@ export class OnlineWorld {
     actor.actionStartTick = field.tick;
     actor.lastCheckpoint = this.now;
     actor.admission = "OK";
+    actor.lastAdoptedTick = field.tick;
+    actor.lastDivertTick = -Infinity;
+    prepareMotionDiverts(actor, field);
+  }
+
+  /** A resumed client is the source of truth for its own position: adopt the motion it
+   *  presented while the socket was gone, judged by the same watchdog against the gap.
+   *  A player who kept walking is restored where they are, not where the server last saw
+   *  them; motion no kernel could have produced in that time closes the session. */
+  adoptResumedMotion(actor, motion) {
+    if (!resumableResume(actor, motion)) return;
+    const elapsedMs =
+      Math.max(0, actor.field.tick - actor.lastAdoptedTick) * PROTOCOL.TICK_MS;
+    const excess = motionExcess(
+      actor.simulation,
+      motion,
+      plausiblePositionPx(elapsedMs),
+    );
+    if (!excess) return;
+    const verdict = this.watchdog.review(actor.id, actor.field.tick, excess);
+    if (verdict.decision === "fault") {
+      this.faultMotion(actor, { ...excess, elapsedMs, verdict });
+      throw protocolError("NOT_ALLOWED");
+    }
+    adoptMotion(actor.simulation, motion);
+    actor.lastAdoptedTick = actor.field.tick;
+    actor.profile.location.x = actor.simulation.x;
+    actor.profile.location.y = actor.simulation.y;
   }
 
   leave(actor) {
     actor.state = "retired";
     releaseInteractions(actor, this);
     clearActorSeat(actor);
+    releaseMotionDiverts(actor);
+    this.watchdog.forget(actor.id);
     destroySocial(actor);
     if (actor.skills) disposeActorSkills(actor, true);
     actor.field?.characters.delete(actor.id);
@@ -433,12 +576,15 @@ export class OnlineWorld {
     advanceNpcs(this, field);
     for (const actor of field.characters.values()) {
       if (actor.state !== "active" || actor.retiring) continue;
+      const diverts = takeMotionDiverts(actor, field);
+      if (diverts.length) actor.lastDivertTick = field.tick;
       this.publish(actor, {
         type: "motion",
         fieldEpoch: field.epoch,
         ackInputSeq: actor.ackInputSeq,
         motion: captureMotion(actor.simulation),
         paused: field.paused,
+        diverts,
       });
       if (field.tick % 3 === 0) this.publishEntities(actor);
       this.automaticPortal(actor);
@@ -450,7 +596,7 @@ export class OnlineWorld {
     if (actor.state !== "active" || actor.retiring || actor.deliveryError) {
       return;
     }
-    consumeActorInput(actor);
+    consumeActorInput(this, actor);
     if (actor.state !== "active" || actor.profile.hp <= 0) {
       this.neutralize(actor);
     }
@@ -478,6 +624,30 @@ export class OnlineWorld {
     actor.profile.location.x = actor.simulation.x;
     actor.profile.location.y = actor.simulation.y;
     actor.profile.location.facing = actor.simulation.facing;
+  }
+
+  /** Motion the kernel cannot explain from the inputs and events this process owns is a
+   *  client fault. The session is closed instead of nudged: the client's trajectory is
+   *  its own source of truth right up to the point where it stops being possible. */
+  faultMotion(actor, detail) {
+    if (actor.retiring) return;
+    actor.retiring = true;
+    actor.admission = "NOT_ALLOWED";
+    this.neutralize(actor);
+    this.log?.("motion.fault", {
+      character: actor.id,
+      map: actor.field?.mapId,
+      position: Math.trunc(detail.position),
+      velocity: Math.trunc(detail.velocity),
+      elapsedMs: detail.elapsedMs,
+      deviations: detail.verdict?.score ?? 0,
+    });
+    this.publish(actor, {
+      type: "closing",
+      code: "NOT_ALLOWED",
+      retryAfterMs: 0,
+    });
+    actor.connection?.close(1011, "NOT_ALLOWED");
   }
 
   checkpoint(actor) {

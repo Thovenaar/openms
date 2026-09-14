@@ -80,6 +80,9 @@ const prediction = new OnlinePrediction({
   onResync: resync,
   onGroundJump: () => ui?.audio.playSound("Game", "Jump").catch(report),
 });
+// A resumed session offers its locally presented motion: the client owns its position
+// across the reconnect gap and the server adopts it instead of snapping the player back.
+transport.resumeMotion = () => prediction.resumeMotion();
 
 function reportCause(error) {
   // The user-facing line stays sanitized; the underlying cause stays in the console log.

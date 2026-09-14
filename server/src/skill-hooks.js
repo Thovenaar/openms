@@ -1,4 +1,5 @@
 import { combatOperation } from "./combat-rewards.js";
+import { recordMotionDivert } from "./field-diverts.js";
 import { familyRate } from "./social-family.js";
 import { MOB_STATUS } from "../../client/src/combat/mob-skill-status.js";
 import { incomingElementCode } from "../../client/src/skills/skill-defenses.js";
@@ -53,6 +54,14 @@ function combatAdmissionHooks(context) {
   return {
     onMobDamage: (mob, amount) => recordKillDamage(context.actor, mob, amount),
     onMobStatus: (mob, id) => claimMobController(context.actor, mob, id),
+    // A server-owned knockback is published as a divert so the client replays it at the
+    // authoritative tick instead of adopting the post-impulse state wholesale.
+    onExternalImpulse: (simulation, vx, vy) =>
+      recordMotionDivert(context.actor, simulation, {
+        vx,
+        vy,
+        source: "hit",
+      }),
     mobs: actor.field.mobs,
     authoritativePartyHealing: true,
     renderer: null,

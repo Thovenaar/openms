@@ -12,6 +12,52 @@ const STALE_OBSERVATION_MS = 1000;
  *  the kernel still adopts the authoritative state, the drawn pose glides to it. */
 const POSITION_TOLERANCE_PX = 24;
 const CORRECTION_MS = 120;
+/** An authoritative divert explains its own presented offset, so it is not evidence of
+ *  a desync. It may therefore exceed POSITION_TOLERANCE_PX up to this bound — the
+ *  INPUT_LEAD_TICKS + INPUT_BUFFER_TICKS suffix of the strongest movement impulse
+ *  (350 px/s x 150 ms = 52.5 px) fits with headroom. */
+const DIVERT_CORRECTION_MAX_PX = 96;
+/** Removal rate for an explained offset. 0.125 px/ms is exactly walkSpeed, so the
+ *  extra drawn travel inside one 30 ms kernel quantum stays at or below 3.75 px and
+ *  the player reads a continuous trajectory rather than a rubber-band. */
+const DIVERT_CORRECTION_PX_PER_MS = 0.125;
+/** A replayed divert tick must reproduce the authoritative checkpoint of that tick.
+ *  The same deterministic kernel on the same base and the same recorded input is
+ *  exact, so only a genuinely server-owned difference (movement lock, seat, retired
+ *  input hint) exceeds this and falls back to plain authoritative adoption. */
+const DIVERT_REPLAY_POSITION_PX = 0.5;
+const DIVERT_REPLAY_VELOCITY = 1;
+/** Bound on authoritative impulses described by one motion checkpoint. */
+const MAX_DIVERTS = 2;
+
+/** One checkpoint's divert list is placeable only when it describes this very tick,
+ *  within the bound, for a tick that has a retained predecessor. */
+function validDivertRecords(diverts, tick) {
+  if (!Array.isArray(diverts) || diverts.length === 0) return false;
+  if (diverts.length > MAX_DIVERTS) return false;
+  for (const divert of diverts) {
+    if (divert.tick !== tick) return false;
+    if (!Number.isFinite(divert.vx) || !Number.isFinite(divert.vy)) {
+      return false;
+    }
+  }
+  return tick >= 2;
+}
+
+/** The replayed divert tick must reproduce the authoritative checkpoint of that tick. */
+function divertReproduced(probe, motion) {
+  if (!probe.captured) return false;
+  const position = Math.hypot(probe.x - motion.x, probe.y - motion.y);
+  const velocity = Math.hypot(probe.vx - motion.vx, probe.vy - motion.vy);
+  if (!Number.isFinite(position) || !Number.isFinite(velocity)) return false;
+  return (
+    position <= DIVERT_REPLAY_POSITION_PX && velocity <= DIVERT_REPLAY_VELOCITY
+  );
+}
+
+function normalizeZero(value) {
+  return Object.is(value, -0) ? 0 : value;
+}
 
 function historyEntry() {
   return {
@@ -45,6 +91,7 @@ export class OnlinePrediction {
       vertical: 0,
       jump: false,
       attack: false,
+      motion: { x: 0, y: 0, vx: 0, vy: 0 },
     };
     this.head = 0;
     this.count = 0;
@@ -71,6 +118,8 @@ export class OnlinePrediction {
     this.correctionX = 0;
     this.correctionY = 0;
     this.correctionUntil = 0;
+    this.correctionSpan = CORRECTION_MS;
+    this.diverts = 0;
   }
 
   /** Simulation must be built only from the authoritative field's immutable physics. */
@@ -99,21 +148,7 @@ export class OnlinePrediction {
   /** Import the complete kernel checkpoint before replaying the bounded unacknowledged suffix. */
   observe(message) {
     if (!this.simulation) return;
-    if (
-      this.connectionEpoch &&
-      (message.connectionEpoch !== this.connectionEpoch ||
-        message.fieldEpoch !== this.fieldEpoch)
-    ) {
-      this.requestResync();
-      return;
-    }
-    if (message.serverTick < this.serverTick) return;
-    if (
-      message.ackInputSeq !== null &&
-      message.ackInputSeq < this.ackInputSeq
-    ) {
-      throw new Error("Input acknowledgement regressed");
-    }
+    if (!this.acceptObserved(message)) return;
     this.measure(message);
     this.connectionEpoch = message.connectionEpoch;
     this.fieldEpoch = message.fieldEpoch;
@@ -124,49 +159,119 @@ export class OnlinePrediction {
     const wasReady = this.ready;
     const visibleX = this.simulation.x;
     const visibleY = this.simulation.y;
-    restoreMotion(this.simulation, message.motion);
-    this.observeJump(message.motion.groundJumpSequence);
-    assignHeldInput(this.held, message.motion.held);
+    this.ready = true;
+    // A reported divert is placed at the tick that integrated it and replayed from the
+    // published pre-impulse base, so the suffix is re-derived instead of overwritten.
+    // When it cannot be placed the authoritative state is adopted as before.
+    const explained = !this.paused && this.replayDiverts(message);
+    if (!explained && this.ready) this.adoptCheckpoint(message, message.motion);
+    // Initial synchronization adopts the authoritative state outright; only an
+    // already-presented pose is glided onto a later correction.
+    if (wasReady) this.reconcilePresentation(visibleX, visibleY, explained);
+  }
+
+  /** Reject a checkpoint from a retired connection or field, or an old tick. */
+  acceptObserved(message) {
+    if (
+      this.connectionEpoch &&
+      (message.connectionEpoch !== this.connectionEpoch ||
+        message.fieldEpoch !== this.fieldEpoch)
+    ) {
+      this.requestResync();
+      return false;
+    }
+    if (message.serverTick < this.serverTick) return false;
+    if (
+      message.ackInputSeq !== null &&
+      message.ackInputSeq < this.ackInputSeq
+    ) {
+      throw new Error("Input acknowledgement regressed");
+    }
+    return true;
+  }
+
+  /** Adopt one authoritative checkpoint wholesale and replay the retained suffix. */
+  adoptCheckpoint(message, motion) {
+    restoreMotion(this.simulation, motion);
+    this.observeJump(motion.groundJumpSequence);
+    assignHeldInput(this.held, motion.held);
     this.held.jumpPressed = false;
     this.held.attackPressed = false;
     this.retireHistory();
     this.predictedTick = message.serverTick;
-    this.ready = true;
     if (this.paused) {
       this.head = 0;
       this.count = 0;
       this.catchUpDebt = 0;
     } else this.replay();
-    // Initial synchronization adopts the authoritative state outright; only an
-    // already-presented pose is glided onto a later correction.
-    if (wasReady) this.reconcilePresentation(visibleX, visibleY);
+  }
+
+  /** Place authoritative diverts at the tick that first integrated them: restore the
+   *  published pre-impulse checkpoint, merge the same vectors through the same kernel
+   *  `applyExternalImpulse`, and re-step the retained input suffix forward. Reports
+   *  false — without committing to the result — when the record cannot be placed
+   *  safely, so the caller keeps the existing authoritative-adoption behaviour. */
+  replayDiverts(message) {
+    const diverts = message.diverts;
+    if (!validDivertRecords(diverts, message.serverTick)) return false;
+    // The impulse is integrated by `tick`, so its own history entry must still be
+    // retained. A retired tick is a resync boundary, never a replayed guess.
+    if (this.entryIndex(message.serverTick) < 0) return false;
+    const before = diverts[0].before;
+    restoreMotion(this.simulation, before);
+    assignHeldInput(this.held, before.held);
+    this.held.jumpPressed = false;
+    this.held.attackPressed = false;
+    this.observeJump(before.groundJumpSequence);
+    this.retireHistoryTo(message.serverTick - 1);
+    this.predictedTick = message.serverTick - 1;
+    for (const divert of diverts) {
+      applyExternalImpulse(this.simulation, divert.vx, divert.vy);
+    }
+    const probe = {
+      tick: message.serverTick,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      captured: false,
+    };
+    this.replay({ probe, collapseAcknowledged: false });
+    if (!this.ready || !divertReproduced(probe, message.motion)) return false;
+    this.diverts++;
+    return true;
   }
 
   /** Absorb a bounded server correction in presentation space: the drawn pose stays where
    *  the player saw it and glides onto the authoritative state over one short interval.
    *  A disagreement beyond the tolerance is a real desync and snaps immediately. */
-  reconcilePresentation(visibleX, visibleY) {
-    this.seedCorrection(visibleX, visibleY);
+  reconcilePresentation(visibleX, visibleY, explained = false) {
+    this.seedCorrection(visibleX, visibleY, explained);
   }
-  seedCorrection(visibleX, visibleY) {
+  seedCorrection(visibleX, visibleY, explained = false) {
     const dx = visibleX - this.simulation.x;
     const dy = visibleY - this.simulation.y;
-    if (
-      !Number.isFinite(dx) ||
-      !Number.isFinite(dy) ||
-      Math.hypot(dx, dy) > POSITION_TOLERANCE_PX
-    ) {
+    const distance = Math.hypot(dx, dy);
+    const limit = explained ? DIVERT_CORRECTION_MAX_PX : POSITION_TOLERANCE_PX;
+    if (!Number.isFinite(distance) || distance > limit) {
       this.correctionX = 0;
       this.correctionY = 0;
       this.correctionUntil = 0;
+      this.correctionSpan = CORRECTION_MS;
       return;
     }
     this.correctionX = dx;
     this.correctionY = dy;
-    this.correctionUntil = performance.now() + CORRECTION_MS;
+    this.correctionSpan = Math.max(
+      CORRECTION_MS,
+      distance / DIVERT_CORRECTION_PX_PER_MS,
+    );
+    this.correctionUntil = performance.now() + this.correctionSpan;
   }
 
   measure(message) {
+    const diverted =
+      Array.isArray(message.diverts) && message.diverts.length > 0;
     for (let index = 0; index < this.count; index++) {
       const entry = this.history[(this.head + index) % this.history.length];
       if (entry.targetTick !== message.serverTick) continue;
@@ -182,7 +287,11 @@ export class OnlinePrediction {
         this.maximumPositionError,
         this.lastPositionError,
       );
-      if (this.lastPositionError > 0.001 || this.lastVelocityError > 0.001) {
+      // An announced divert is expected divergence and is counted separately.
+      if (
+        !diverted &&
+        (this.lastPositionError > 0.001 || this.lastVelocityError > 0.001)
+      ) {
         this.corrections++;
       }
       break;
@@ -199,32 +308,68 @@ export class OnlinePrediction {
   }
 
   retireHistory() {
+    this.retireHistoryTo(this.serverTick);
+  }
+
+  /** Retire every entry at or before `tick`; a divert keeps its own entry alive. */
+  retireHistoryTo(tick) {
     for (let count = 0; count < this.history.length && this.count; count++) {
       const entry = this.history[this.head];
-      if (entry.targetTick > this.serverTick) break;
+      if (entry.targetTick > tick) break;
       this.head = (this.head + 1) % this.history.length;
       this.count--;
     }
   }
 
-  replay() {
+  /** Index of the retained entry sampled for `tick`, or -1 when it is not retained. */
+  entryIndex(tick) {
+    for (let index = 0; index < this.count; index++) {
+      const entry = this.history[(this.head + index) % this.history.length];
+      if (entry.targetTick === tick) return index;
+      if (entry.targetTick > tick) break;
+    }
+    return -1;
+  }
+
+  /** Re-step the retained suffix. `options.probe` captures the kernel state at one
+   *  tick; `options.collapseAcknowledged` is disabled when reproducing a divert tick
+   *  whose own recorded input must be used rather than the latest held state. */
+  replay(options = null) {
+    const probe = options?.probe ?? null;
+    const collapse = options?.collapseAcknowledged !== false;
     for (let index = 0; index < this.count; index++) {
       const entry = this.history[(this.head + index) % this.history.length];
       if (entry.targetTick !== this.predictedTick + 1) {
         this.requestResync();
         return;
       }
-      if (entry.inputSeq > 0 && entry.inputSeq <= this.ackInputSeq) {
-        entry.inputSeq = 0;
-      }
-      if (entry.inputSeq === 0) this.copyHeld(entry);
+      this.prepareEntryReplay(entry, collapse);
       assignHeldInput(this.held, entry);
       this.applyAction(entry);
       stepMotion(this.simulation, this.held);
       this.recordPose(entry);
+      this.captureProbe(probe, entry);
       this.predictedTick = entry.targetTick;
       this.replayedTicks++;
     }
+  }
+
+  /** An acknowledged input is already reflected in the authoritative checkpoint, so the
+   *  newest held state replaces it; a divert tick keeps its own recorded input. */
+  prepareEntryReplay(entry, collapse) {
+    if (collapse && entry.inputSeq > 0 && entry.inputSeq <= this.ackInputSeq) {
+      entry.inputSeq = 0;
+    }
+    if (entry.inputSeq === 0) this.copyHeld(entry);
+  }
+
+  captureProbe(probe, entry) {
+    if (!probe || probe.captured || entry.targetTick !== probe.tick) return;
+    probe.x = this.simulation.x;
+    probe.y = this.simulation.y;
+    probe.vx = this.simulation.vx;
+    probe.vy = this.simulation.vy;
+    probe.captured = true;
   }
 
   /** Optimistic movement-skill impulse for the next predicted tick; retired with its entry. */
@@ -313,7 +458,8 @@ export class OnlinePrediction {
     target.y = sim.previousY + (sim.y - sim.previousY) * alpha;
     const remaining = this.correctionUntil - now;
     if (remaining > 0) {
-      const fraction = remaining / CORRECTION_MS;
+      let fraction = remaining / this.correctionSpan;
+      if (fraction > 1) fraction = 1;
       target.x += this.correctionX * fraction;
       target.y += this.correctionY * fraction;
     }
@@ -324,6 +470,10 @@ export class OnlinePrediction {
     const sample = this.sample;
     sample.targetTick = this.predictedTick + 1;
     this.copyInput(sample, transmit ? held : this.held);
+    // The state this sample extends, at the end of targetTick - 1: the server compares
+    // it with its own simulation for the same tick before stepping. -0 is not a legal
+    // wire scalar, so it is normalized here rather than rejected at encode time.
+    this.copyMotion(sample.motion);
     const inputSeq = transmit ? this.onInput?.(sample) : 0;
     if (inputSeq === null || inputSeq === undefined) return false;
     if (!Number.isSafeInteger(inputSeq) || inputSeq < (transmit ? 1 : 0)) {
@@ -360,6 +510,25 @@ export class OnlinePrediction {
     this.copyInput(target, this.held);
   }
 
+  /** Locally predicted motion for a resume handshake. The client is the source of truth
+   *  for its own position, so a reconnect offers where it actually is instead of being
+   *  snapped back to the last state the server happened to checkpoint. */
+  resumeMotion() {
+    if (!this.simulation) return null;
+    const motion = { x: 0, y: 0, vx: 0, vy: 0 };
+    this.copyMotion(motion);
+    return motion;
+  }
+
+  /** Bounded local prediction for the server's adoption check; never a rule input. */
+  copyMotion(target) {
+    const sim = this.simulation;
+    target.x = normalizeZero(sim.x);
+    target.y = normalizeZero(sim.y);
+    target.vx = normalizeZero(sim.vx);
+    target.vy = normalizeZero(sim.vy);
+  }
+
   recordPose(entry) {
     entry.x = this.simulation.x;
     entry.y = this.simulation.y;
@@ -390,6 +559,7 @@ export class OnlinePrediction {
     this.correctionX = 0;
     this.correctionY = 0;
     this.correctionUntil = 0;
+    this.correctionSpan = CORRECTION_MS;
   }
 
   snapshot() {
@@ -410,6 +580,7 @@ export class OnlinePrediction {
       filledTicks: this.filledTicks,
       overflows: this.overflows,
       catchUpDebt: this.catchUpDebt,
+      diverts: this.diverts,
     });
   }
 }

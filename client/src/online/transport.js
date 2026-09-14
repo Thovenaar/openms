@@ -132,6 +132,9 @@ export class OnlineTransport {
     this.characters = [];
     this.connectionEpoch = null;
     this.playSession = null;
+    // Installed by the browser entry: reports the locally presented motion a resume
+    // handshake should offer, or null when no simulation is installed.
+    this.resumeMotion = null;
     this.serverTick = 0;
     this.lastEventSeq = 0;
     this.seq = 0;
@@ -468,9 +471,11 @@ export class OnlineTransport {
         : {}),
     };
     if (this.playSession && this.lastEventSeq > 0) {
+      const motion = this.resumeMotion?.() ?? null;
       hello.resume = {
         playSession: this.playSession,
         lastEventSeq: this.lastEventSeq,
+        ...(motion ? { motion } : {}),
       };
     }
     try {
@@ -906,9 +911,14 @@ export class OnlineTransport {
       !sample ||
       Object.keys(sample).some(
         (key) =>
-          !["targetTick", "horizontal", "vertical", "jump", "attack"].includes(
-            key,
-          ),
+          ![
+            "targetTick",
+            "horizontal",
+            "vertical",
+            "jump",
+            "attack",
+            "motion",
+          ].includes(key),
       )
     ) {
       throw failure("INVALID_INPUT");

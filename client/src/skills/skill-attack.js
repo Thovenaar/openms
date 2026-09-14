@@ -93,6 +93,15 @@ function attackRectangle(info, weapon) {
     bottom: info.rb.y,
   };
 }
+/**
+ * Weapon attack node for an action, else the weapon's ordinary action. Authored WZ:
+ * Savage Blow 4201005 names the body pose `savage`, which the equipped dagger
+ * (Character.wz:Weapon/01332000.img) authors no attack node for; the weapon's
+ * default action rectangle is therefore the admitted melee geometry.
+ */
+function actionWeapon(combat, action) {
+  return combat?.attacks[action] ?? combat?.attacks[combat?.defaultAction];
+}
 function impactSlot() {
   return {
     active: false,
@@ -210,7 +219,7 @@ export class SkillAttack {
     if (!spec) return;
     const action = this.actionName(skill, info, spec, this.field.combat);
     const actor = this.field.scene.actor.actions.get(action);
-    const weapon = this.field.combat?.attacks[action];
+    const weapon = actionWeapon(this.field.combat, action);
     const rectangle = attackRectangle(info, weapon);
     this.prepared.set(skill.id, {
       skill,
@@ -257,10 +266,7 @@ export class SkillAttack {
         // Authored skill rectangles win; a skill whose action has no authored
         // rectangle (e.g. Savage Blow's dagger `savage`) uses the equipped
         // weapon's ordinary rectangle while keeping the skill action for the pose.
-        rectangle: attackRectangle(
-          record.info,
-          combat?.attacks[action] ?? combat?.attacks[combat?.defaultAction],
-        ),
+        rectangle: attackRectangle(record.info, actionWeapon(combat, action)),
         duration: actor.actions.get(action)?.duration ?? 0,
       });
     }

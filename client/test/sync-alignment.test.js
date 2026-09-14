@@ -346,7 +346,7 @@ test("prediction sends usable input within authenticated lead despite inflated a
   const simulation = createSimulation(world(), { x: 0, y: -10 });
   const prediction = new OnlinePrediction({
     onInput(sample) {
-      sent.push({ ...sample });
+      sent.push({ ...sample, motion: { ...sample.motion } });
       return sent.length;
     },
   });
@@ -371,15 +371,20 @@ test("prediction sends usable input within authenticated lead despite inflated a
   for (let step = 0; step < 10; step++) {
     prediction.advance(now + step * PROTOCOL.TICK_MS, held);
   }
-  expect(sent).toEqual([
-    {
-      targetTick: observation.serverTick + PROTOCOL.INPUT_LEAD_TICKS,
-      horizontal: 1,
-      vertical: 0,
-      jump: false,
-      attack: false,
-    },
-  ]);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({
+    targetTick: observation.serverTick + PROTOCOL.INPUT_LEAD_TICKS,
+    horizontal: 1,
+    vertical: 0,
+    jump: false,
+    attack: false,
+  });
+  // The same sample reports the bounded motion state it extends, for the server's
+  // adoption check; the values are asserted by the divert-alignment suite.
+  expect(Object.keys(sent[0].motion).sort()).toEqual(["vx", "vy", "x", "y"]);
+  for (const value of Object.values(sent[0].motion)) {
+    expect(Number.isFinite(value)).toBe(true);
+  }
   expect(simulation.x).toBeGreaterThan(observation.motion.x);
 });
 
@@ -388,7 +393,7 @@ test("a freshly installed predictor waits for matching field timing", () => {
   const simulation = createSimulation(world(), { x: 0, y: -10 });
   const prediction = new OnlinePrediction({
     onInput(sample) {
-      sent.push({ ...sample });
+      sent.push({ ...sample, motion: { ...sample.motion } });
       return sent.length;
     },
   });

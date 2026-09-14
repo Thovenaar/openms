@@ -274,12 +274,24 @@ export class SkillWorldController {
     return this.system.hooks.validateAttack(skill, info);
   }
 
+  /** Every movement-skill impulse merges through the shared kernel entry point so
+   *  the predictor and this controller cannot drift. `onExternalImpulse` lets an
+   *  authority publish the exact divert it just applied; offline it is absent. */
+  applyMovementImpulse(sim, vx, vy) {
+    applyExternalImpulse(
+      sim,
+      vx,
+      vy,
+      this.system.hooks.onExternalImpulse ?? null,
+    );
+  }
+
   attackCast(skill, info, rank) {
     this.system.hooks.admitAttack(skill, info, this.rushHit);
     if (skill.id !== 5201006) return;
     const sim = this.system.scene.simulation;
     //00955537..009555c9: Recoil Shot reverses the horizontal rank impulse.
-    applyExternalImpulse(
+    this.applyMovementImpulse(
       sim,
       -sim.facing * (250 + Math.trunc(rank / 4) * 40),
       -(250 + Math.trunc(rank / 4) * 20),
@@ -291,12 +303,12 @@ export class SkillWorldController {
     const sim = this.system.scene.simulation;
     this.visuals.play(id, sim);
     if (id === 21001001) {
-      applyExternalImpulse(sim, sim.facing * info.x, 0);
+      this.applyMovementImpulse(sim, sim.facing * info.x, 0);
       this.impulseCooldown = 1000; //009535e3.
       return;
     }
     const level = id === 11101005 ? rank * 2 : rank;
-    applyExternalImpulse(
+    this.applyMovementImpulse(
       sim,
       sim.facing * (350 + Math.trunc(level / 4) * 40),
       -(250 + Math.trunc(level / 4) * 20),

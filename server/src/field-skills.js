@@ -16,6 +16,7 @@ import {
 import { rebuildActorEffects, syncActorEffects } from "./action-character.js";
 import { admitActor, ruleError } from "./action-rules.js";
 import { prepareActorCombat } from "./field-combat.js";
+import { recordMotionDivert } from "./field-diverts.js";
 import { protocolError } from "../../shared/schema.js";
 import {
   preparePartyVisual,
@@ -188,6 +189,10 @@ function skillHooks(world, actor, scene) {
     admitAttack: (entry, info, hit) =>
       actor.skillField.beginSkillAttack(entry, info, hit),
     startAction: (action) => actor.skillField.beginSkillPose(action),
+    // Every movement-skill impulse merges through the shared kernel, so recording the
+    // exact vector here is what lets the client replay it at the same tick.
+    onExternalImpulse: (simulation, vx, vy) =>
+      recordMotionDivert(actor, simulation, { vx, vy, source: "skill" }),
     travelDoor: (destination) => world.travelSkillDoor(actor, destination),
     prepareEnhancement: () => prepareEnhancement(world),
     enhancementError: () =>

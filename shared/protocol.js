@@ -93,6 +93,42 @@ export {
   animationName,
 } from "./motion-schema.js";
 
+/** Plausibility envelope for the motion a client reports for its own actor. Browser
+ *  trust policy, not a recovered original constant.
+ *
+ *  The authority deliberately does **not** correct a client's position or velocity: it
+ *  adopts the report so the client's own trajectory is the source of truth and movement
+ *  is never rubber-banded. This envelope is only a watchdog for motion the kernel cannot
+ *  explain from the inputs the server consumed; a report outside it is a client fault
+ *  and the session is closed, never nudged.
+ *
+ *  Sizing (`speedPxPerSecond` 900 = the fastest combination the kernel can author —
+ *  terminal fall 670 px/s, plus a horizontal movement skill 350 px/s, hypot 756 — with
+ *  headroom): a report is judged against the time since the last adopted report, so the
+ *  same rule covers one tick of jitter and a reconnect gap where the player kept moving.
+ *  `minimumPositionPx` 32 keeps a single 30 ms quantum from ever tripping it: one tick of
+ *  terminal fall is 20.1 px and one authoritative knockback adds 8.1 px.
+ *  `velocityPxPerSecond` 700 is an instantaneous bound, so it does not scale.
+ *
+ *  Adoption is refused outright whenever the server owns a rule the client cannot know
+ *  (seat, movement lock, death, pending hit, pending field transition) and on the tick
+ *  that carries an authoritative divert, so no admission, portal or collision rule is
+ *  weakened. */
+export const MOTION_PLAUSIBILITY = Object.freeze({
+  speedPxPerSecond: 900,
+  minimumPositionPx: 32,
+  velocityPxPerSecond: 700,
+});
+
+/** Largest gap-scaled displacement allowed for a report spanning `elapsedMs`,
+ *  measured from the last adopted report; never below one quantum of headroom. */
+export function plausiblePositionPx(elapsedMs) {
+  const scaled = Number.isFinite(elapsedMs)
+    ? (MOTION_PLAUSIBILITY.speedPxPerSecond * Math.max(0, elapsedMs)) / 1000
+    : MOTION_PLAUSIBILITY.minimumPositionPx;
+  return Math.max(MOTION_PLAUSIBILITY.minimumPositionPx, scaled);
+}
+
 /** Initial engineering policy, not original server constants. */
 export const PROTOCOL = Object.freeze({
   VERSION: 1,
@@ -147,6 +183,14 @@ const mesos = number(0, 2147483647);
 const template = u32;
 const facing = enumeration(-1, 1);
 const axis = enumeration(-1, 0, 1);
+/** Client-predicted kernel scalars for one sampled tick; same bounded range as a
+ *  motion checkpoint so neither side can report a coordinate the kernel rejects. */
+const reportedMotion = record({
+  x: coordinate,
+  y: coordinate,
+  vx: coordinate,
+  vy: coordinate,
+});
 const tab = enumeration("equip", "use", "setup", "etc", "cash");
 const channel = enumeration(...SOCIAL_CHAT_CHANNELS);
 const operationId = string(
@@ -296,7 +340,16 @@ const clientSchema = union("type", {
     rulesHash: hash,
     assetBuildId: hash,
     worldContentHash: optional(hash),
-    resume: optional(record({ playSession: id, lastEventSeq: seq })),
+    resume: optional(
+      record({
+        playSession: id,
+        lastEventSeq: seq,
+        // Locally presented motion at reconnect. A resumed client that kept moving
+        // (or was frozen ahead of the server) is the source of truth for its own
+        // position, so the server adopts this instead of snapping the player back.
+        motion: optional(reportedMotion),
+      }),
+    ),
   }),
   input: clientRecord("input", {
     fieldEpoch: id,
@@ -306,6 +359,9 @@ const clientSchema = union("type", {
     vertical: axis,
     jump: boolean,
     attack: boolean,
+    // State the sample extends, at the end of targetTick - 1. `neutral` heartbeats
+    // carry no prediction and omit it, so the server adopts only real predictions.
+    motion: optional(reportedMotion),
   }),
   command: clientRecord("command", {
     fieldEpoch: id,
@@ -711,6 +767,16 @@ const serverBase = {
   connectionEpoch: id,
   serverTick: revision,
 };
+/** One authoritative external impulse (mob hit knockback or a movement skill).
+ *  `tick` is the checkpoint tick whose step first integrates the impulse, so the
+ *  client can place it in its own history at exactly that tick. */
+const motionDivertSchema = record({
+  tick: revision,
+  vx: coordinate,
+  vy: coordinate,
+  source: enumeration("hit", "skill"),
+  before: motionSchema,
+});
 function serverRecord(type, fields, check = null) {
   return record({ ...serverBase, type: enumeration(type), ...fields }, check);
 }
@@ -799,6 +865,11 @@ export const serverSchema = union("type", {
     ackInputSeq: nullable(seq),
     paused: boolean,
     motion: motionSchema,
+    // External impulses the authority merged into this tick, in application order.
+    // `before` is the kernel checkpoint from immediately before the merge, so a
+    // client can re-step the suffix with the same kernel entry point instead of
+    // adopting the post-impulse state. Empty on every ordinary tick.
+    diverts: array(motionDivertSchema, 2),
   }),
 });
 

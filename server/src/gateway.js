@@ -215,13 +215,18 @@ export class GameplayGateway {
     }
   }
 
-  async resumeActor(socket, actor, characterId, resume) {
-    if (
-      actor.id !== characterId ||
+  /** A resume must present the same live play session on the same account socket. */
+  admitsResume(socket, actor, characterId, resume) {
+    return !(
       !resume ||
+      actor.id !== characterId ||
       resume.playSession !== actor.playSession ||
       actor.sessionId !== socket.data.session.id
-    ) {
+    );
+  }
+
+  async resumeActor(socket, actor, characterId, resume) {
+    if (!this.admitsResume(socket, actor, characterId, resume)) {
       throw protocolError("CHARACTER_BUSY");
     }
     if (
@@ -236,6 +241,9 @@ export class GameplayGateway {
     if (resume.lastEventSeq > actor.eventSeq) {
       throw protocolError("INVALID_MESSAGE");
     }
+    // The client owns its own position across the gap; adopt it before the snapshot
+    // describes the field, so nothing snaps the player back on reconnect.
+    this.world.adoptResumedMotion(actor, resume.motion ?? null);
     if (actor.connection) {
       this.publications.close(actor.connection, "STALE_CONNECTION");
     }

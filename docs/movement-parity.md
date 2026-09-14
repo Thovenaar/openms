@@ -28,7 +28,44 @@ flowchart TD
   Checkpoint --> Predictor
 ```
 
-The browser restores authoritative coefficients from motion checkpoints. It never submits its own speed, jump height or position as an authoritative result. The shared helper preserves equipment and buff semantics without expanding the set of supported movement controllers.
+The browser restores authoritative coefficients from motion checkpoints. Its own motion is the source of truth for its position unless the server owns the transition (see [client-owned motion](#client-owned-motion-and-diverts)) and a watchdog refutes it. The shared helper preserves equipment and buff semantics without expanding the set of supported movement controllers.
+
+## Client-owned motion and diverts
+
+Product priority: fluid client movement beats strict client/server agreement. Nothing that
+diverts the player from the plain jump path — a movement skill, a midair mob hit, a knockback —
+may produce a visible glitch, so the authority no longer publishes positional corrections for
+ordinary play.
+
+| Contract                           | Owner                                                       | Behaviour                                                                                                                                                                                                                                                                                 |
+| ---------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `input.motion` (`x`,`y`,`vx`,`vy`) | `OnlinePrediction.predict` → `OnlineWorld.input`            | Each input sample reports the state it extends (end of `targetTick - 1`), bounded to the same ±1048576 range as a checkpoint. `Transport.neutral` heartbeats omit it.                                                                                                                     |
+| Adoption                           | `adoptReportedMotion` in [world.js](../server/src/world.js) | The report becomes the tick's base; grounded points are re-projected with the kernel's own `009b1553` attach math. The server never glides the client onto its own trajectory.                                                                                                            |
+| Server-owned refusals              | `adoptionPermitted`                                         | Seat, ladder, movement lock, death, pending field transition, pending hit, blocked movement and the tick after an authoritative divert keep the server state and correct as before. No admission, portal or collision rule is weakened.                                                   |
+| Divert                             | `motion.diverts[]` in [protocol.js](../shared/protocol.js)  | A server-owned impulse (mob knockback, movement skill) is published with its exact `{vx, vy}` merge vector, its source, the tick that first integrated it, and `before`: the kernel checkpoint from immediately before the merge.                                                         |
+| Divert replay                      | `OnlinePrediction.replayDiverts`                            | The client restores `before`, merges the same vector through the same `applyExternalImpulse`, retires history to `tick - 1` and re-steps the retained suffix. The replayed tick must reproduce the published checkpoint, or the divert is rejected.                                       |
+| Divert fallback                    | `adoptCheckpoint`                                           | A retired tick, a stale label, a missing history entry, a changed field epoch or a failed reproduction falls back to authoritative adoption plus the existing bounded glide. A replayed divert may exceed the 24 px snap bound (up to 96 px) but is removed at ≤ 0.125 px/ms (walkSpeed). |
+| Watchdog                           | [watchdog.js](../server/src/watchdog.js)                    | An isolated deviation is adopted and only recorded; motion the kernel cannot explain is judged against `MOTION_PLAUSIBILITY` (900 px/s of elapsed gap, ≥32 px one-quantum floor, 700 px/s instantaneous). One impossible report, or 6 deviations in 900 ticks, closes the session.        |
+| Resume                             | `World.adoptResumedMotion`                                  | A resumed client offers its locally presented motion in `hello.resume.motion`; the same watchdog judges it against the disconnect gap, so a player who kept moving resumes where they are instead of snapping back.                                                                       |
+
+`before` is carried rather than derived because `mergeImpulse` is a non-invertible clamp and
+the merge also detaches ground, ladder and seat: the pre-merge kernel state cannot be
+reconstructed from the post-impulse checkpoint. Replaying at the published tick is what keeps
+the client's own lead instead of overwriting its unacknowledged suffix.
+
+Known limitations:
+
+- The client still freezes prediction after `STALE_OBSERVATION_MS` (1 s) without authenticated
+  timing, so "walking around while disconnected" is bounded by that window; the resume handoff
+  reports wherever the client actually stopped. Continuing local prediction across a longer gap
+  is a separate change.
+- Presentation still samples only `presentation.x/y` in `bun tools/openms.js smoothness`, which
+  holds one key. It cannot exercise a divert, so divert continuity is proven by
+  `client/test/divert-alignment.test.js` rather than by that tool.
+
+```sh
+bun test client/test/divert-alignment.test.js server/test/motion-adoption.test.js
+```
 
 ## Source evidence
 
