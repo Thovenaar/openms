@@ -505,6 +505,7 @@ async function publishReport(catalog, reports) {
 async function extractMaps(character, combat) {
   const maps = Object.create(null),
     monsters = Object.create(null),
+    spawns = Object.create(null),
     reports = [];
   const selectedMaps = new Set(mapIds);
   const prerequisites = {
@@ -534,10 +535,16 @@ async function extractMaps(character, combat) {
     for (const monster of result.monsters) {
       monsters[monster.id] ??= { ...monster, mapId: id };
     }
+    for (const spawn of result.spawns ?? []) {
+      (spawns[spawn.id] ??= []).push({ mapId: id, count: spawn.count });
+    }
     completed++;
     progress(`Map ${completed}/${mapIds.length} complete: ${id}`);
   }
-  return { maps, monsters, reports };
+  for (const rows of Object.values(spawns)) {
+    rows.sort((a, b) => a.mapId.localeCompare(b.mapId, "en"));
+  }
+  return { maps, monsters, spawns, reports };
 }
 
 async function packagedMap(id, character, combat) {
@@ -558,6 +565,7 @@ async function packagedMap(id, character, combat) {
     descriptor: result.descriptor,
     neighbors,
     monsters: mapMonsterEntries(result.manifest),
+    spawns: mapSpawnEntries(result.manifest),
     report: {
       id,
       entities: scene.entities.length,
@@ -582,6 +590,18 @@ function mapMonsterEntries(manifest) {
     });
   }
   return result;
+}
+
+/** Authored life placements are the spawn authority; templates only prove the artwork exists. */
+function mapSpawnEntries(manifest) {
+  const counts = new Map();
+  for (const placement of manifest.life.placements ?? []) {
+    if (placement.kind !== "mob") continue;
+    const id = Number(placement.authored?.id);
+    if (!Number.isSafeInteger(id) || id <= 0) continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return [...counts].map(([id, count]) => ({ id, count }));
 }
 
 async function cached(name, prerequisites, build) {
@@ -676,7 +696,7 @@ async function run() {
   );
   const { quests, combat, drops, serverData, mapNames, ui, audiovisual } =
     await extractionStage(timings, "sharedMs", () => sharedCatalog(converted));
-  const { maps, monsters, reports } = await extractionStage(
+  const { maps, monsters, spawns, reports } = await extractionStage(
     timings,
     "mapsMs",
     () => extractMaps(character, combat),
@@ -699,6 +719,7 @@ async function run() {
     maps,
     mapNames,
     monsters,
+    spawns: { schemaVersion: 1, mobs: spawns },
     originalSources,
     loadingDecoration,
     hitboxes,

@@ -33,8 +33,12 @@ export class AssetRegistry {
   async resolve(ref) {
     validateAssetRef(ref);
     let result;
-    if (ref.kind === "map") result = { manifest: await this.map(ref.id) };
-    else if (ref.kind === "mob") result = await this.monster(ref);
+    if (ref.kind === "map") {
+      result = {
+        name: this.catalog.mapNames?.[Number(ref.id)] ?? ref.id,
+        manifest: await this.map(ref.id),
+      };
+    } else if (ref.kind === "mob") result = await this.monster(ref);
     else if (ref.kind === "npc") result = await this.npc(ref);
     else if (ref.kind === "entity") result = await this.entity(ref);
     else result = await this.catalogResource(ref);
@@ -63,6 +67,22 @@ export class AssetRegistry {
       name: entry.name,
       template,
       visual: visualResources(renderable.entity, manifest),
+    };
+  }
+
+  /** Read-only aggregation for browsing: stats, original drops, spawn maps and quests. */
+  async monsterDetail(ref) {
+    const monster = await this.monster(ref);
+    const id = String(ref.id);
+    return {
+      ref: { ...ref },
+      name: monster.name,
+      stats: statSummary(monster.template.info),
+      visual: monster.visual,
+      sourceMapId: this.catalog.monsters?.[id]?.mapId ?? null,
+      drops: dropRows(this.catalog, id),
+      spawns: spawnMaps(this.catalog, id),
+      quests: questRefs(this.catalog, id),
     };
   }
 
@@ -136,6 +156,63 @@ export class AssetRegistry {
     if (!descriptor) assetNotFound(ref);
     return { descriptor };
   }
+}
+
+/** Stats a mob author can override; only original numeric values are copied. */
+const MOB_STATS = [
+  "maxHP",
+  "maxMP",
+  "level",
+  "exp",
+  "PADamage",
+  "PDDamage",
+  "MADamage",
+  "MDDamage",
+  "acc",
+  "eva",
+  "pushed",
+  "speed",
+  "bodyAttack",
+  "undead",
+];
+
+function statSummary(info) {
+  const stats = {};
+  for (const key of MOB_STATS) {
+    if (Number.isFinite(info?.[key])) stats[key] = info[key];
+  }
+  return stats;
+}
+
+function dropRows(catalog, mobId) {
+  const items = catalog.ui?.items ?? {};
+  const rows = catalog.drops?.mobs?.[mobId]?.rows ?? [];
+  return list(rows, 512).map((row) => ({
+    itemId: row.itemId,
+    itemName: items[row.itemId]?.name ?? String(row.itemId),
+    minimum: row.minimum ?? 1,
+    maximum: row.maximum ?? row.minimum ?? 1,
+    questId: row.questId ?? 0,
+    chance: row.chance,
+  }));
+}
+
+function spawnMaps(catalog, mobId) {
+  const rows = catalog.spawns?.mobs?.[mobId] ?? [];
+  return list(rows, 1024).map((row) => ({
+    mapId: row.mapId,
+    mapName: catalog.mapNames?.[Number(row.mapId)] ?? row.mapId,
+    count: row.count ?? 1,
+  }));
+}
+
+function questRefs(catalog, mobId) {
+  const records = catalog.quests?.records ?? {};
+  const rows = catalog.quests?.content?.mobs?.[mobId] ?? [];
+  return list(rows, 256).map((id) => ({
+    id: String(id),
+    name: records[id]?.name ?? String(id),
+  }));
 }
 
 /** Borrow precisely the entity's resources; atlas coordinates never become authoring identities. */

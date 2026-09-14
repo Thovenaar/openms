@@ -5,9 +5,11 @@ import { createStaticResources } from "../../client/tools/static-resources.js";
 /** Closed static surface: no filesystem URL mapping or authoring secrets enter the browser bundle. */
 export async function createStudioHttp(config) {
   const assets = await buildStudio();
+  // Studio serves its own shell from the bundle; this helper only exposes /generated.
   const resources = createStaticResources({
     root: resolve(import.meta.dir, "../../client"),
     generatedRoot: config.contentRoot,
+    html: "",
   });
   return async (request) => {
     const url = new URL(request.url);

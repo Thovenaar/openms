@@ -9,6 +9,7 @@ function createSidebar(app) {
     ]),
     element("p", { class: "nav-label", text: "WORKSPACE" }),
     button("▦  My creations", () => app.show("library"), "nav-button"),
+    button("❖  World", () => app.run(() => app.openBrowse()), "nav-button"),
     button("✎  Workbench", () => app.show("editor"), "nav-button"),
     button(
       "◉  Shared world",
@@ -38,10 +39,12 @@ export function createShell(app) {
     text: "Your original assets are ready to explore.",
   });
   app.libraryHost = element("section", { class: "library-view" });
+  app.browseHost = element("section", { class: "browse-view", hidden: true });
   app.releaseHost = element("section", { class: "release-view", hidden: true });
   const workbench = createWorkbench(app);
   app.views = {
     library: app.libraryHost,
+    browse: app.browseHost,
     editor: workbench,
     release: app.releaseHost,
   };
@@ -68,6 +71,7 @@ export function createShell(app) {
         ]),
         app.message,
         app.libraryHost,
+        app.browseHost,
         workbench,
         app.releaseHost,
       ]),

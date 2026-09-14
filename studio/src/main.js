@@ -5,6 +5,7 @@ import { AssetBrowser } from "./assets.js";
 import { createShell } from "./shell.js";
 import { renderLibrary, documentToolbar } from "./library.js";
 import { openRelease } from "./release.js";
+import { openBrowse } from "./browse.js";
 import { newDocument, editDocument, addPlacement, original } from "./models.js";
 import { mapEditor } from "./editor-map.js";
 import { mobEditor } from "./editor-mob.js";
@@ -26,6 +27,15 @@ class Studio {
     this.draft = null;
     this.dirty = false;
     this.pending = false;
+    this.browseKind = "mob";
+    this.browseQuery = "";
+    this.browseOffset = 0;
+    this.browseRows = [];
+    this.browseTotal = 0;
+    this.browseLoaded = false;
+    this.browseGrid = null;
+    this.browseDetail = null;
+    this.browseSelected = null;
     this.root.addEventListener("studio-error", (event) =>
       this.notice(event.detail.message, "error"),
     );
@@ -100,6 +110,7 @@ class Studio {
     }
     this.heading.textContent = {
       library: "My creations",
+      browse: "World",
       editor: "Workbench",
       release: "Shared world",
     }[view];
@@ -203,7 +214,6 @@ class Studio {
       drops: dropsEditor,
       dialogue: dialogueEditor,
     };
-    if (this.draft.kind === "dialogue") this.refreshNpcLabel();
     this.editorHost.replaceChildren(
       ...editors[this.draft.kind](this),
       this.definitionEditor(),
@@ -330,22 +340,9 @@ class Studio {
   async resolveName(ref) {
     try {
       const asset = await this.api.resolve(ref);
-      return asset.record?.name ?? asset.descriptor?.name ?? null;
+      return asset.name ?? asset.record?.name ?? asset.descriptor?.name ?? null;
     } catch {
       return null;
-    }
-  }
-
-  async refreshNpcLabel() {
-    const target = this.draft.definition.target;
-    const key = `${target.source}:${target.id}:${target.mapId ?? ""}`;
-    if (this.npcLabelKey === key) return;
-    this.npcLabelKey = key;
-    this.npcLabel = "";
-    const name = await this.resolveName(target);
-    if (name && this.draft?.kind === "dialogue") {
-      this.npcLabel = `${name} · ${target.id}`;
-      this.renderEditor();
     }
   }
 
@@ -459,6 +456,19 @@ class Studio {
 
   openRelease() {
     return openRelease(this);
+  }
+
+  openBrowse() {
+    return openBrowse(this);
+  }
+
+  /** Start a creation from a browsed original, then hand it to the matching editor. */
+  async createFrom(kind, mutate) {
+    await this.create(kind);
+    if (!this.draft || this.draft.kind !== kind) return;
+    mutate(this.draft.definition);
+    this.changed();
+    await this.loadBase();
   }
 
   async signOut() {

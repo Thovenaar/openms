@@ -6,26 +6,20 @@ import { protocolError } from "../../shared/protocol.js";
 function fixture(role = "player") {
   const calls = [];
   const session = { accountId: "owner", role };
-  const auth = {
-    session(request) {
-      if (request.headers.get("cookie") !== "session") {
-        throw protocolError("UNAUTHENTICATED");
-      }
-      return session;
-    },
-    origin(request) {
-      if (request.headers.get("origin") !== "http://localhost") {
-        throw protocolError("NOT_ALLOWED");
-      }
-    },
-    csrf(_, token) {
-      if (token !== "csrf") throw protocolError("NOT_ALLOWED");
-    },
-  };
+  const auth = fixtureAuth(session);
   const service = {
     async preview(owner, input) {
       calls.push({ owner, input, preview: true });
       return { kind: input.kind };
+    },
+    async registry(buildId) {
+      calls.push({ buildId, registry: true });
+      return {
+        monsterDetail: (ref) => {
+          calls.push({ ref, monsterDetail: true });
+          return { name: "Snail", ref };
+        },
+      };
     },
     async save(owner, input, admit) {
       admit();
@@ -57,6 +51,25 @@ function fixture(role = "player") {
     }),
   });
   return { http, calls };
+}
+
+function fixtureAuth(session) {
+  return {
+    session(request) {
+      if (request.headers.get("cookie") !== "session") {
+        throw protocolError("UNAUTHENTICATED");
+      }
+      return session;
+    },
+    origin(request) {
+      if (request.headers.get("origin") !== "http://localhost") {
+        throw protocolError("NOT_ALLOWED");
+      }
+    },
+    csrf(_, token) {
+      if (token !== "csrf") throw protocolError("NOT_ALLOWED");
+    },
+  };
 }
 
 test("private preview is available to ordinary authors but world activation requires developer admission", async () => {
@@ -137,6 +150,28 @@ test("authoring rejects foreign origins, missing sessions, CSRF failures and cal
     (await http.handle(request({ ...body, owner: "victim" }))).status,
   ).toBe(400);
   expect(calls).toHaveLength(0);
+});
+
+test("monster detail is served through the bounded asset route", async () => {
+  const { http, calls } = fixture();
+  const ref = { source: "original", kind: "mob", id: "100100" };
+  const result = await http.handle(
+    new Request("http://localhost/api/v1/custom-content/assets/monster", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "http://localhost",
+        cookie: "session",
+      },
+      body: JSON.stringify({ csrfToken: "csrf", buildId: "a".repeat(64), ref }),
+    }),
+  );
+  expect(result.status).toBe(200);
+  expect(await result.json()).toEqual({ name: "Snail", ref });
+  expect(calls).toEqual([
+    { buildId: "a".repeat(64), registry: true },
+    { ref, monsterDetail: true },
+  ]);
 });
 
 test("revision reads retain owner scope and JSON requests have a bounded size", async () => {

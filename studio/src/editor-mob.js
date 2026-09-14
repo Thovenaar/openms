@@ -1,4 +1,5 @@
-import { element, field, input, number, section, button } from "./dom.js";
+import { element, field, number, section, button } from "./dom.js";
+import { assetSearch } from "./picker.js";
 import { spriteEditor } from "./sprites.js";
 
 export function mobEditor(app) {
@@ -7,15 +8,17 @@ export function mobEditor(app) {
     "Original base",
     [
       field(
-        "Mob ID",
-        input(
-          definition.base.id,
-          (id) => {
-            definition.base.id = id;
-            app.changed();
-          },
-          { "aria-label": "Base mob ID" },
-        ),
+        "Base mob",
+        assetSearch(app, {
+          kind: "mob",
+          value: definition.base.id,
+          choose: (ref) =>
+            app.run(async () => {
+              definition.base.id = ref.id;
+              app.changed();
+              await app.loadBase();
+            }),
+        }),
       ),
       button("Load base mob", () => app.run(() => app.loadBase())),
     ],

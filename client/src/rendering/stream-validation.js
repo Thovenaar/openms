@@ -100,6 +100,7 @@ export function catalog(value) {
   if (value.originalSources !== undefined) resource(value.originalSources);
   if (value.ui !== undefined) uiCatalog(value.ui);
   if (value.monsters !== undefined) monsterCatalog(value.monsters, value.maps);
+  if (value.spawns !== undefined) spawnCatalog(value.spawns, value.maps);
   return value;
 }
 
@@ -116,6 +117,28 @@ function monsterCatalog(monsters, maps) {
       !Object.hasOwn(maps, monster.mapId)
     ) {
       throw new Error("Invalid development monster catalog entry");
+    }
+  }
+}
+
+/** Spawn placements reference maps inside the selected closure; counts stay small integers. */
+function spawnCatalog(spawns, maps) {
+  if (spawns?.schemaVersion !== 1) {
+    throw new Error("Unsupported spawn catalog version");
+  }
+  for (const [id, rows] of entries(spawns.mobs, LIMITS.uiArtwork)) {
+    if (!/^[1-9]\d{0,8}$/.test(id)) {
+      throw new Error("Invalid spawn monster identity");
+    }
+    for (const row of array(rows, LIMITS.maps)) {
+      if (
+        typeof row.mapId !== "string" ||
+        !Object.hasOwn(maps, row.mapId) ||
+        !Number.isSafeInteger(row.count) ||
+        row.count < 1
+      ) {
+        throw new Error("Invalid spawn map entry");
+      }
     }
   }
 }

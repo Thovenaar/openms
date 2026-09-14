@@ -1,12 +1,5 @@
-import {
-  element,
-  field,
-  input,
-  number,
-  select,
-  button,
-  section,
-} from "./dom.js";
+import { element, field, number, select, button, section } from "./dom.js";
+import { referenceField } from "./picker.js";
 import { original } from "./models.js";
 
 export function questEditor(app) {
@@ -50,47 +43,12 @@ export function questEditor(app) {
 }
 
 function npcEditor(app, label, ref) {
-  const choices = element("select", {
-    "aria-label": `${label} choices`,
-    onchange: (event) => {
-      ref.id = event.target.value;
-      app.changed();
-      app.renderEditor();
-    },
-  });
-  const load = async () => {
-    const { manifest } = await app.api.resolve(original("map", ref.mapId));
-    const templates = Object.values(manifest.life.templates).filter(
-      (row) => row.kind === "npc",
-    );
-    choices.replaceChildren(
-      ...templates.map((row) =>
-        element("option", {
-          value: String(Number(row.originalId)),
-          text: `${row.name} · ${Number(row.originalId)}`,
-        }),
-      ),
-    );
-    choices.value = ref.id;
-  };
   return element("div", { class: "npc-editor" }, [
     element("strong", { text: label }),
-    field(
-      "Source map ID",
-      input(ref.mapId, (value) => {
-        ref.mapId = value;
-        app.changed();
-      }),
-    ),
-    field(
-      "NPC ID",
-      input(ref.id, (value) => {
-        ref.id = value;
-        app.changed();
-      }),
-    ),
-    button("Browse NPCs in map", () => app.run(load)),
-    choices,
+    referenceField(app, ref, "npc", () => {
+      app.changed();
+      app.renderEditor();
+    }),
   ]);
 }
 
@@ -173,28 +131,10 @@ function targetControls(app, ref, kind) {
         app.renderEditor();
       }),
     ),
-    field(
-      "Asset ID",
-      input(ref.id, (id) => {
-        ref.id = id;
-        app.changed();
-      }),
-    ),
-    ...(ref.source === "custom"
-      ? [
-          field(
-            "Published revision",
-            number(
-              ref.revision,
-              (next) => {
-                ref.revision = next;
-                app.changed();
-              },
-              { min: 1 },
-            ),
-          ),
-        ]
-      : []),
+    referenceField(app, ref, kind, () => {
+      app.changed();
+      app.renderEditor();
+    }),
   ];
 }
 
@@ -267,13 +207,10 @@ function rewards(app) {
 function rewardRow(app, row, index) {
   const rewards = app.draft.definition.rewards;
   return element("div", { class: "reward-row" }, [
-    field(
-      "Item ID",
-      input(row.item.id, (value) => {
-        row.item.id = value;
-        app.changed();
-      }),
-    ),
+    referenceField(app, row.item, "item", () => {
+      app.changed();
+      app.renderEditor();
+    }),
     field(
       "Count",
       number(

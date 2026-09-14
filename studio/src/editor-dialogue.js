@@ -1,5 +1,5 @@
 import { element, field, input, text, select, button, section } from "./dom.js";
-import { original } from "./models.js";
+import { referenceField } from "./picker.js";
 
 const MAX_NODES = 16;
 const MAX_OPTIONS = 6;
@@ -16,51 +16,13 @@ export function dialogueEditor(app) {
 }
 
 function targetSection(app, value) {
-  const ref = value.target;
-  const choices = element("select", {
-    class: "form-select",
-    "aria-label": "NPCs in the source map",
-    onchange: (event) => {
-      value.target = original("npc", event.target.value, ref.mapId);
-      app.changed();
-      app.renderEditor();
-    },
-  });
-  const load = async () => {
-    const { manifest } = await app.api.resolve(original("map", ref.mapId));
-    const templates = Object.values(manifest.life.templates).filter(
-      (row) => row.kind === "npc",
-    );
-    choices.replaceChildren(
-      ...templates.map((row) =>
-        element("option", {
-          value: String(Number(row.originalId)),
-          text: `${row.name} · ${Number(row.originalId)}`,
-        }),
-      ),
-    );
-    choices.value = String(ref.id);
-  };
-  const id = (key, label) =>
-    field(
-      label,
-      input(ref[key], (next) => {
-        ref[key] = next;
-        app.changed();
-      }),
-    );
   return section(
     "NPC",
     [
-      element("div", { class: "form-grid" }, [
-        id("mapId", "Source map ID"),
-        id("id", "NPC ID"),
-      ]),
-      element("div", { class: "tool-grid" }, [
-        button("Browse NPCs in map", () => app.run(load), "secondary"),
-      ]),
-      choices,
-      element("small", { class: "hint", text: app.npcLabel ?? "" }),
+      referenceField(app, value.target, "npc", () => {
+        app.changed();
+        app.renderEditor();
+      }),
     ],
     "This conversation replaces whatever the NPC would otherwise say, until you remove it from the release.",
   );

@@ -8,6 +8,7 @@ import {
   section,
   table,
 } from "./dom.js";
+import { assetSearch, referenceField } from "./picker.js";
 import { original } from "./models.js";
 
 /** MapleStory v83 explorer job ids; a condition matches the character's exact job id. */
@@ -57,18 +58,142 @@ const JOBS = [
 ];
 
 const MAX_ROWS = 64;
-const itemNames = new Map();
 
 export function dropsEditor(app) {
   const value = app.draft.definition;
   return [
     targetSection(app, value),
+    originalSection(app, value),
     rowsSection(app, value),
     element("p", {
       class: "hint",
       text: "Conditional rows are checked on the server with the killing character's class, level and the current time.",
     }),
   ];
+}
+
+/** The extracted table stays visible so authors tune real odds instead of guessing. */
+function originalSection(app, value) {
+  const box = element("div");
+  const ref = value.target;
+  if (ref.source !== "original") {
+    box.append(
+      element("p", {
+        class: "hint",
+        text: "Custom monsters have no original drop table.",
+      }),
+    );
+  } else {
+    box.append(
+      element("p", { class: "hint", text: "Loading the original table…" }),
+    );
+    loadOriginal(app, value, original("mob", ref.id), box);
+  }
+  return section(
+    "Original drops",
+    [box],
+    "Copy a row to tune its odds, or start from the whole original table in Replace mode.",
+  );
+}
+
+async function loadOriginal(app, value, ref, box) {
+  try {
+    const detail = await app.api.post("assets/monster", {
+      buildId: app.api.config.assetBuildId,
+      ref,
+    });
+    box.replaceChildren(...originalContent(app, value, detail));
+  } catch (error) {
+    box.replaceChildren(element("p", { class: "hint", text: error.message }));
+  }
+}
+
+function originalContent(app, value, detail) {
+  if (!detail.drops.length) {
+    return [
+      element("p", {
+        class: "hint",
+        text: "This monster has no extracted drop rows.",
+      }),
+    ];
+  }
+  const rows = detail.drops.map((row) =>
+    element("tr", {}, [
+      element("td", {}, [
+        element("strong", { text: row.itemName }),
+        element("small", { class: "hint", text: ` · ${row.itemId}` }),
+      ]),
+      element("td", { text: formatChance(row.chance) }),
+      element("td", {
+        text:
+          row.minimum === row.maximum
+            ? String(row.minimum)
+            : `${row.minimum}–${row.maximum}`,
+      }),
+      element("td", { text: row.questId ? String(row.questId) : "—" }),
+      element("td", {}, [
+        button("Copy", () => copyRow(app, value, row), "subtle"),
+      ]),
+    ]),
+  );
+  return [
+    table(["Item", "Chance", "Quantity", "Quest", ""], rows),
+    element("div", { class: "tool-grid" }, [
+      button(
+        "Start from the original table",
+        () => copyAll(app, value, detail.drops),
+        "secondary",
+      ),
+    ]),
+    element("p", {
+      class: "hint",
+      text: `${detail.drops.length} original rows · chance is per kill.`,
+    }),
+  ];
+}
+
+function formatChance(chance) {
+  if (!chance) return "never";
+  const percent = Number((chance / 10000).toFixed(3));
+  return `${percent}% · 1 in ${Math.round(999999 / chance)}`;
+}
+
+function rowCopy(row) {
+  return {
+    itemId: row.itemId,
+    chance: row.chance,
+    minimum: row.minimum,
+    maximum: row.maximum,
+    questId: row.questId ?? 0,
+  };
+}
+
+function copyRow(app, value, row) {
+  if (value.rows.length >= MAX_ROWS) {
+    throw new Error(`A drop table supports at most ${MAX_ROWS} rows.`);
+  }
+  value.rows.push(rowCopy(row));
+  app.changed();
+  app.renderEditor();
+  app.notice(
+    `${row.itemName} copied into your rows. Replace mode keeps only your table.`,
+  );
+}
+
+function copyAll(app, value, rows) {
+  if (rows.length > MAX_ROWS) {
+    throw new Error(
+      `The original table has ${rows.length} rows; Studio supports ${MAX_ROWS}.`,
+    );
+  }
+  value.mode = "replace";
+  value.rows = rows.map(rowCopy);
+  app.changed();
+  app.renderEditor();
+  app.notice(
+    `Copied ${rows.length} original rows. Your table now replaces the original.`,
+    "success",
+  );
 }
 
 function targetSection(app, value) {
@@ -130,28 +255,10 @@ function targetFields(app, value, ref) {
         },
       ),
     ),
-    field(
-      "Monster ID",
-      input(ref.id, (id) => {
-        ref.id = id;
-        app.changed();
-      }),
-    ),
-    ...(ref.source === "custom"
-      ? [
-          field(
-            "Published revision",
-            number(
-              ref.revision,
-              (next) => {
-                ref.revision = next;
-                app.changed();
-              },
-              { min: 1 },
-            ),
-          ),
-        ]
-      : []),
+    referenceField(app, ref, "mob", () => {
+      app.changed();
+      app.renderEditor();
+    }),
   ];
 }
 
@@ -217,15 +324,17 @@ function removeRow(app, value, index) {
 }
 
 function itemCell(app, row) {
-  const cell = element("td", {}, [
-    input(row.itemId, (id) => {
-      row.itemId = Number(id);
-      app.changed();
+  return element("td", {}, [
+    assetSearch(app, {
+      kind: "item",
+      value: row.itemId,
+      compact: true,
+      choose: (ref) => {
+        row.itemId = Number(ref.id);
+        app.changed();
+      },
     }),
-    element("small", { class: "hint", text: itemLabel(row.itemId) }),
   ]);
-  resolveItemName(app, row.itemId, cell);
-  return cell;
 }
 
 function chanceCell(app, row) {
@@ -414,26 +523,6 @@ function levelSummary(condition) {
     limits.push(`level ${condition.maxLevel} or lower`);
   }
   return limits.join(" · ");
-}
-
-function itemLabel(itemId) {
-  const name = itemNames.get(Number(itemId));
-  return name ? `${name} · ${itemId}` : `item ${itemId}`;
-}
-
-/** Item names are decoration: resolve once per id and patch the cell in place. */
-function resolveItemName(app, itemId, cell) {
-  const id = Number(itemId);
-  if (!Number.isSafeInteger(id) || id <= 0 || itemNames.has(id)) return;
-  itemNames.set(id, null);
-  app
-    .resolveName(original("item", id))
-    .then((name) => {
-      itemNames.set(id, name ?? "");
-      const label = cell.querySelector("small");
-      if (label) label.textContent = itemLabel(id);
-    })
-    .catch(() => itemNames.set(id, ""));
 }
 
 function toLocalInput(ms) {

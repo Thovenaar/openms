@@ -172,12 +172,13 @@ export class ContentHttp {
   }
 
   async assets(path, body) {
-    const key = path === "assets/resolve" ? "ref" : "query";
-    closedRecord(body, ["csrfToken", "buildId", key]);
+    const query = path === "assets/search" || path === "assets/scene";
+    closedRecord(body, ["csrfToken", "buildId", query ? "query" : "ref"]);
     const registry = await this.service.registry(body.buildId);
     if (path === "assets/search") return registry.search(body.query);
     if (path === "assets/scene") return sceneAssets(registry, body.query);
     if (path === "assets/resolve") return registry.resolve(body.ref);
+    if (path === "assets/monster") return registry.monsterDetail(body.ref);
     throw contentError("CONTENT_NOT_FOUND", "Asset endpoint was not found");
   }
 
