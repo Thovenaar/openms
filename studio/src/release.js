@@ -58,7 +58,7 @@ function releaseSelection(app) {
       ? `Activate ${app.selected.size} selected creations`
       : "Deactivate custom content",
     () => app.run(() => activate(app)),
-    "button primary",
+    "primary",
   );
   activation.disabled =
     app.api.config.role !== "developer" || state.busy || state.players > 0;

@@ -61,6 +61,7 @@ test("dedicated listener serves dashboard, worker and original resources without
     "/studio/",
     "/studio/main.js",
     "/studio/style.css",
+    "/studio/tabler.min.css",
     "/studio/atlas-worker.js",
   ]) {
     const response = await request(path);

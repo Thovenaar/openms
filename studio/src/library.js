@@ -1,13 +1,27 @@
 import { element, button, empty, field, input } from "./dom.js";
 
-export function renderLibrary(app) {
-  const create = element("div", { class: "creation-cards" });
-  for (const [kind, glyph, title, description] of [
-    ["map", "▧", "Create a map", "Give familiar places a new story."],
-    ["mob", "♟", "Create a mob", "A familiar face. A new challenge."],
-    ["quest", "◇", "Create a quest", "Turn an idea into an adventure."],
-  ]) {
-    create.append(
+const CREATION_KINDS = [
+  ["map", "▧", "Create a map", "Give familiar places a new story."],
+  ["mob", "♟", "Create a mob", "A familiar face. A new challenge."],
+  ["quest", "◇", "Create a quest", "Turn an idea into an adventure."],
+  [
+    "drops",
+    "◈",
+    "Edit monster drops",
+    "Decide what a monster drops, and when.",
+  ],
+  [
+    "dialogue",
+    "❞",
+    "Write an NPC conversation",
+    "Give an NPC something to say.",
+  ],
+];
+
+function creationCards(app) {
+  const cards = element("div", { class: "creation-cards" });
+  for (const [kind, glyph, title, description] of CREATION_KINDS) {
+    cards.append(
       element(
         "button",
         {
@@ -24,6 +38,10 @@ export function renderLibrary(app) {
       ),
     );
   }
+  return cards;
+}
+
+export function renderLibrary(app) {
   const rows = element("div", { class: "content-list" });
   for (const row of app.rows) rows.append(contentRow(app, row));
   if (!app.rows.length) {
@@ -39,7 +57,7 @@ export function renderLibrary(app) {
       class: "intro",
       text: "Build with the assets you love. Publish when you’re ready.",
     }),
-    create,
+    creationCards(app),
     element("div", { class: "section-heading" }, [
       element("h2", { text: "In this project" }),
       button("Refresh", () => app.run(() => app.reload())),
@@ -61,7 +79,9 @@ function contentRow(app, row) {
     [
       element("span", {
         class: `asset-glyph ${row.kind}`,
-        text: { map: "▧", mob: "♟", quest: "◇" }[row.kind],
+        text: { map: "▧", mob: "♟", quest: "◇", drops: "◈", dialogue: "❞" }[
+          row.kind
+        ],
       }),
       element("div", { class: "content-name" }, [
         element("strong", { text: row.name }),
@@ -113,7 +133,7 @@ export function renderCustomPalette(app) {
               revision: row.revision,
             },
           }),
-        "button custom-asset",
+        "secondary custom-asset",
       ),
     );
   }
@@ -172,10 +192,6 @@ export function documentToolbar(app) {
     app.saveState,
     button("Update preview", () => app.run(() => app.updatePreview())),
     button("Save draft", () => app.run(() => app.save())),
-    button(
-      "Publish revision",
-      () => app.run(() => app.publish()),
-      "button primary",
-    ),
+    button("Publish revision", () => app.run(() => app.publish()), "primary"),
   );
 }

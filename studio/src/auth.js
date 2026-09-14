@@ -40,7 +40,7 @@ export function loginScreen(api, ready) {
   let name = "",
     password = "";
   const notice = element("p", { class: "auth-notice", role: "status" });
-  const submit = button("Sign in to Studio", () => {}, "button primary");
+  const submit = button("Sign in to Studio", () => {}, "primary");
   submit.type = "submit";
   const onsubmit = async (event) => {
     event.preventDefault();

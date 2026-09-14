@@ -25,11 +25,16 @@ export async function buildStudio({ write = false } = {}) {
       type: "text/javascript",
     });
   }
-  for (const [path, type] of [
-    ["index.html", "text/html"],
-    ["style.css", "text/css"],
+  for (const [url, path, type] of [
+    ["/studio/", "index.html", "text/html"],
+    ["/studio/style.css", "style.css", "text/css"],
+    [
+      "/studio/tabler.min.css",
+      "node_modules/@tabler/core/dist/css/tabler.min.css",
+      "text/css",
+    ],
   ]) {
-    assets.set(path === "index.html" ? "/studio/" : `/studio/${path}`, {
+    assets.set(url, {
       bytes: await Bun.file(resolve(root, path)).arrayBuffer(),
       type,
     });

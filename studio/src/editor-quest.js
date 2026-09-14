@@ -133,7 +133,7 @@ function objectives(app) {
           app.changed();
           app.renderEditor();
         },
-        "button danger subtle",
+        "danger",
       ),
     ]),
   );

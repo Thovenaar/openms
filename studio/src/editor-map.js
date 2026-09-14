@@ -164,7 +164,7 @@ function placement(app, row, type, remove) {
           ),
         ]),
     button("Focus", () => app.focus(row)),
-    button("Remove", remove, "button danger subtle"),
+    button("Remove", remove, "danger"),
   ]);
 }
 

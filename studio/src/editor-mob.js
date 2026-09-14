@@ -80,7 +80,7 @@ function artworkEditor(app) {
           app.changed();
           app.renderEditor();
         },
-        "button subtle",
+        "subtle",
       ),
     );
   }

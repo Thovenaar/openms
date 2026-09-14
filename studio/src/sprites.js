@@ -159,6 +159,6 @@ function frameRow(frame, index, remove, changed) {
       );
     }
   }
-  controls.push(button("Remove frame", remove, "button danger subtle"));
+  controls.push(button("Remove frame", remove, "danger"));
   return element("div", { class: "frame-row" }, controls);
 }

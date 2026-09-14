@@ -8,7 +8,7 @@ export function original(kind, id, mapId) {
 }
 
 export function newDocument(kind, projectId, buildId) {
-  if (!["map", "mob", "quest"].includes(kind)) {
+  if (!["map", "mob", "quest", "drops", "dialogue"].includes(kind)) {
     throw new Error("Unknown content type");
   }
   return {
@@ -40,6 +40,16 @@ const definitions = {
       progress: "Come back when you are ready.",
       complete: "Thank you for your help.",
     },
+  }),
+  drops: () => ({
+    target: original("mob", 100101),
+    mode: "merge",
+    rows: [],
+  }),
+  dialogue: () => ({
+    target: original("npc", 1012108, "100000000"),
+    start: 0,
+    nodes: [{ id: 0, text: "", options: [] }],
   }),
 };
 

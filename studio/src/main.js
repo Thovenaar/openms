@@ -9,6 +9,8 @@ import { newDocument, editDocument, addPlacement, original } from "./models.js";
 import { mapEditor } from "./editor-map.js";
 import { mobEditor } from "./editor-mob.js";
 import { questEditor } from "./editor-quest.js";
+import { dropsEditor } from "./editor-drops.js";
+import { dialogueEditor } from "./editor-dialogue.js";
 import { element, button, empty } from "./dom.js";
 import { decodeJson } from "../../shared/json.js";
 
@@ -194,7 +196,14 @@ class Studio {
       );
       return;
     }
-    const editors = { map: mapEditor, mob: mobEditor, quest: questEditor };
+    const editors = {
+      map: mapEditor,
+      mob: mobEditor,
+      quest: questEditor,
+      drops: dropsEditor,
+      dialogue: dialogueEditor,
+    };
+    if (this.draft.kind === "dialogue") this.refreshNpcLabel();
     this.editorHost.replaceChildren(
       ...editors[this.draft.kind](this),
       this.definitionEditor(),
@@ -241,6 +250,7 @@ class Studio {
   }
 
   async loadBase() {
+    const definition = this.draft.definition;
     if (this.draft.kind === "quest") {
       await this.preview.ready;
       this.preview.clear();
@@ -249,12 +259,38 @@ class Studio {
         "Set the quest giver, objectives, rewards, and dialogue in the editor.";
       return;
     }
-    const base = await this.api.resolve(this.draft.definition.base);
+    if (this.draft.kind === "dialogue") {
+      await this.preview.ready;
+      this.preview.clear();
+      this.previewTitle.textContent = this.draft.name || "NPC conversation";
+      this.previewHint.textContent =
+        "Each node is a message with replies. The player view shows the first path through it.";
+      return;
+    }
+    let base;
+    try {
+      base = await this.api.resolve(definition.base ?? definition.target);
+    } catch (error) {
+      if (["map", "mob"].includes(this.draft.kind)) throw error;
+      this.preview.clear();
+      this.previewTitle.textContent = this.draft.name || "No artwork to show";
+      this.previewHint.textContent =
+        "This subject has no preview in the loaded world; the edit still applies to it.";
+      this.base = null;
+      this.renderEditor();
+      return;
+    }
     this.previewTitle.textContent = this.draft.name || "Original asset preview";
     if (this.draft.kind === "map") {
-      this.assets.mapId = this.draft.definition.base.id;
-      await this.preview.map(base.manifest, this.draft.definition);
-    } else await this.preview.visual(base.visual);
+      this.assets.mapId = definition.base.id;
+      await this.preview.map(base.manifest, definition);
+    } else {
+      if (this.draft.kind === "drops") {
+        this.previewHint.textContent =
+          "Rows apply when a player kills this monster. Conditions use the killer's class, level and the current time.";
+      }
+      await this.preview.visual(base.visual);
+    }
     this.base = base;
     this.renderEditor();
   }
@@ -277,6 +313,39 @@ class Studio {
     if (runtime.kind === "mob") await this.preview.visual(runtime.visual);
     if (runtime.kind === "quest") {
       this.previewHint.textContent = `“${runtime.record.stages[0].say.pages[0].text}”`;
+    }
+    if (runtime.kind === "drops") {
+      this.previewHint.textContent = `${runtime.rows.length} drop rows · ${
+        runtime.mode === "replace"
+          ? "replacing the original table"
+          : "added to the original table"
+      }`;
+    }
+    if (runtime.kind === "dialogue") {
+      this.previewHint.textContent = `${runtime.nodes.length} nodes · starts at node ${runtime.start}`;
+    }
+  }
+
+  /** Asset names are decoration for the editors; failures stay silent. */
+  async resolveName(ref) {
+    try {
+      const asset = await this.api.resolve(ref);
+      return asset.record?.name ?? asset.descriptor?.name ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async refreshNpcLabel() {
+    const target = this.draft.definition.target;
+    const key = `${target.source}:${target.id}:${target.mapId ?? ""}`;
+    if (this.npcLabelKey === key) return;
+    this.npcLabelKey = key;
+    this.npcLabel = "";
+    const name = await this.resolveName(target);
+    if (name && this.draft?.kind === "dialogue") {
+      this.npcLabel = `${name} · ${target.id}`;
+      this.renderEditor();
     }
   }
 

@@ -4,6 +4,7 @@
   "type": "module",
   "description": "OpenMS content authoring dashboard",
   "dependencies": {
+    "@tabler/core": "1.5.1",
     "pixi.js": "8.17.1"
   },
   "scripts": {
