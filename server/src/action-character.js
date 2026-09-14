@@ -10,7 +10,11 @@ import {
   allocateSkill,
   profileSkillLevel,
 } from "../../client/src/skills/skill-allocation-rules.js";
-import { consumeItem } from "../../client/src/items/inventory-model.js";
+import {
+  consumeItem,
+  inventoryType,
+} from "../../client/src/items/inventory-model.js";
+import { setSimulationSeat } from "../../client/src/physics/simulation.js";
 import {
   prepareItemSpec,
   applyAlchemist,
@@ -164,6 +168,41 @@ function alchemist(profile, context) {
 }
 
 /** Validated item effect publication is represented durably before its live stat projection. */
+function isChairItem(template, itemId) {
+  return (
+    inventoryType(itemId) === 3 &&
+    Math.floor(itemId / 10000) === 301 &&
+    template?.id === itemId
+  );
+}
+
+function useChairItem(item, context) {
+  const sim = context.actor.simulation;
+  if (sim.seat) {
+    setSimulationSeat(sim, null);
+    return { value: { kind: "chair.toggle", templateId: item.id } };
+  }
+  if (
+    context.actor.profile.hp <= 0 ||
+    context.actor.attackState?.active ||
+    (context.actor.skillField?.phase &&
+      context.actor.skillField.phase !== "idle") ||
+    context.world.now < (context.actor.castUntil ?? 0) ||
+    context.actor.alertUntil > context.world.now ||
+    sim.state !== "ground" ||
+    sim.vx !== 0 ||
+    sim.vy !== 0
+  ) {
+    reject("REQUIREMENTS_NOT_MET", "Stand still on the ground before sitting.");
+  }
+  setSimulationSeat(sim, {
+    id: item.id,
+    x: Math.trunc(sim.x),
+    y: Math.trunc(sim.y),
+  });
+  return { value: { kind: "chair.toggle", templateId: item.id } };
+}
+
 export function useItem(profile, action, context) {
   const item = ownedItem(profile, context.actor, action.itemId, context.now);
   const otherTarget =
@@ -176,11 +215,13 @@ export function useItem(profile, action, context) {
       "The admitted consumable is an owned inventory self-use item.",
     );
   }
+  const template = context.items[item.id];
+  if (isChairItem(template, item.id)) return useChairItem(item, context);
   const state = onlineState(profile);
   if ((state.cooldowns["item.use"] ?? 0) > context.now) {
     reject("COOLDOWN", "Item-use admission interval is active.");
   }
-  const effect = prepareItemSpec(context.items[item.id]);
+  const effect = prepareItemSpec(template);
   if (!effect) {
     reject(
       "REQUIREMENTS_NOT_MET",

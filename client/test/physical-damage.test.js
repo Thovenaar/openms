@@ -327,7 +327,7 @@ test("Invincible reduces untruncated physical magnitude once and never reduces m
   expect(source.receive(stats, info, options)).toBe(79);
 });
 
-test("sufficient physical defense permits native nonpositive MISS while magic keeps its separate minimum", () => {
+test("level-appropriate defense chips while far-below mobs keep native nonpositive MISS", () => {
   const stats = {
     level: 1,
     job: 0,
@@ -342,10 +342,16 @@ test("sufficient physical defense permits native nonpositive MISS while magic ke
   const options = { magic: false, standardPDD: [new Array(201).fill(0)] };
   const info = { level: 1, acc: 100, PADamage: 100, MADamage: 100 };
   const source = new PhysicalDamage(Math.random, () => 9999999);
-  expect(source.receive(stats, info, options)).toBe(-391);
+  // Local minimum-chip policy: a same-level mob cannot be fully blocked by defense.
+  expect(source.receive(stats, info, options)).toBe(1);
   options.magic = true;
   expect(source.receive(stats, info, options)).toBe(1);
   info.MADamage = 0;
   stats.mdd = 0;
   expect(source.receive(stats, info, options)).toBe(0);
+  // More than ten levels below the defender, the native nonpositive MISS survives.
+  options.magic = false;
+  stats.mdd = 1000;
+  stats.level = 60;
+  expect(source.receive(stats, info, options)).toBeLessThan(0);
 });

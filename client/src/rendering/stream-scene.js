@@ -250,7 +250,9 @@ export class StreamScene {
   /** Initialize and update the same pose contract, including paused map entry. */
   updateActor(pose) {
     const actor = this.actor;
-    const action = avatarAction(actor, pose.action ?? this.simulation.action);
+    let action = avatarAction(actor, pose.action ?? this.simulation.action);
+    if (!actor.actions.has(action))
+      action = actor.avatar?.standAction ?? "stand1";
     actor.setPosition(pose.x, pose.y);
     // Original extracted artwork faces left; positive direction mirrors it.
     actor.container.scale.x = pose.facing > 0 ? -1 : 1;

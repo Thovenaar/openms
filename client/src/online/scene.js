@@ -20,6 +20,7 @@ import { PlayerName } from "../character/player-name.js";
 import { currencyEntity, itemEntity } from "../world/drop-artwork.js";
 import { SceneEvents } from "./scene-events.js";
 import { SceneDrops } from "./scene-drops.js";
+import { SceneChairs } from "./scene-chairs.js";
 import { SceneLife } from "./scene-life.js";
 import { observeWorldCharacter } from "./native-world-actions.js";
 import { createMobNameLabel } from "../combat/offline-mob-renderer.js";
@@ -76,6 +77,7 @@ export class OnlineScene {
     this.scene.onEntitiesChanged = () => this.refreshNpcs();
     this.events = new SceneEvents(this, app);
     this.drops = new SceneDrops(this);
+    this.chairs = new SceneChairs(this);
     this.observedSimulation = Object.create(null);
     this.simulationSource = null;
     this.selfPose = { x: 0, y: 0 };
@@ -489,9 +491,12 @@ export class OnlineScene {
     const { entity, animation } = view;
     if (entity.kind === "drop") return "default";
     const action = animationName(entity.action);
-    if (action === "stand1") return animation.avatar?.standAction ?? action;
-    if (action === "walk1") return animation.avatar?.walkAction ?? action;
-    return action;
+    let pose = action;
+    if (action === "stand1") pose = animation.avatar?.standAction ?? action;
+    if (action === "walk1") pose = animation.avatar?.walkAction ?? action;
+    return animation.actions.has(pose)
+      ? pose
+      : (animation.avatar?.standAction ?? "stand1");
   }
   posePlayback(entity) {
     return (entity.combatState && entity.combatState.phase !== "idle") ||
@@ -605,6 +610,7 @@ export class OnlineScene {
       presentation: { ...this.presentation },
       entityCount: this.views.size,
       npcs: this.npcs.size,
+      chairs: this.chairs.seats.size,
       npcPresentation: this.native?.snapshotNpcs() ?? [],
       combat: this.events.combat.snapshot(),
       enhancements: this.events.enchant.snapshot(),
@@ -626,6 +632,7 @@ export class OnlineScene {
     this.native?.update(elapsed);
     this.events.draw(elapsed);
     this.drops.draw(elapsed);
+    this.chairs.draw(elapsed);
     if (this.geometry.visible) this.showGeometry(true);
     this.drawScenery(elapsed, active);
   }
@@ -641,6 +648,7 @@ export class OnlineScene {
     if (view.entity.kind === "drop") {
       this.drops.observe(view, view.drawX, view.drawY);
     }
+    this.chairs.observe(view, view.drawX, view.drawY);
   }
   interpolateView(view, now) {
     const self = view.entity.id === this.selfId;
@@ -786,6 +794,7 @@ export class OnlineScene {
     this.scene.onEntitiesChanged = null;
     this.events.destroy();
     this.drops.destroy();
+    this.chairs.destroy();
     this.native?.destroy();
     this.native = null;
     for (const id of this.views.keys()) this.remove(id);

@@ -72,6 +72,49 @@ test("valid crowded field snapshots split by UTF-8 wire bytes without losing ent
   expect(decoded.every((frame) => frame.parts === decoded.length)).toBe(true);
 });
 
+test("published chair seat remains a closed wire record", () => {
+  const entity = actorEntity({
+    id: crypto.randomUUID(),
+    actionStartTick: 0,
+    simulation: {
+      x: 10,
+      y: 20,
+      vx: 0,
+      vy: 0,
+      facing: 1,
+      action: "sit",
+      seat: { id: 3010000, x: 10, y: 20 },
+    },
+    profile: {
+      hp: 50,
+      name: "chair",
+      gender: 0,
+      appearance: { skin: 0, face: 20000, hair: 30000 },
+      equipment: [],
+    },
+  });
+  expect(
+    validate({ kind: "entities", entities: [entity] }, snapshotPartSchema),
+  ).toEqual({ kind: "entities", entities: [entity] });
+});
+
+test("committed chair receipts decode as published inventory results", () => {
+  const message = {
+    v: 1,
+    type: "result",
+    connectionEpoch: "connection",
+    serverTick: 33,
+    eventSeq: 12,
+    operationId: crypto.randomUUID(),
+    status: "committed",
+    code: "OK",
+    domainRevision: 4,
+    transactionId: crypto.randomUUID(),
+    value: { kind: "chair.toggle", templateId: 3010000 },
+  };
+  expect(decodeServer(JSON.stringify(message))).toEqual(message);
+});
+
 test("oversized entity deltas fall back before advancing the baseline or sending partial state", () => {
   const f = fixture();
   f.publications.motion = () => {};

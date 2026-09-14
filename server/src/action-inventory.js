@@ -201,21 +201,23 @@ export async function executeInventory(actor, message, world, operation) {
       }
     },
   );
-  if (
-    receipt.status === "committed" &&
-    receipt.applied &&
-    receipt.value?.kind === "equipment.enhancement"
-  ) {
-    world.broadcast(field, {
-      type: "event",
-      fieldEpoch: field.epoch,
-      event: {
-        kind: "equipment.enhancement",
-        eventId: operation.operationId,
-        actorId: actor.id,
-        outcome: receipt.value.outcome,
-      },
-    });
+  if (receipt.status === "committed" && receipt.applied) {
+    if (receipt.value?.kind === "chair.toggle") {
+      actor.actionStartTick = actor.field.tick;
+      world.invalidateField(field);
+    }
+    if (receipt.value?.kind === "equipment.enhancement") {
+      world.broadcast(field, {
+        type: "event",
+        fieldEpoch: field.epoch,
+        event: {
+          kind: "equipment.enhancement",
+          eventId: operation.operationId,
+          actorId: actor.id,
+          outcome: receipt.value.outcome,
+        },
+      });
+    }
   }
   return receipt;
 }

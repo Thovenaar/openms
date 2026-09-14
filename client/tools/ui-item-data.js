@@ -230,11 +230,38 @@ async function iconBundle(context, input) {
   if (!assets[`${input.kind}/${input.id}/icon`]) {
     throw new Error(`Missing original icon ${input.source}`);
   }
+  // Install chairs carry their seated artwork as a top-level effect animation.
+  if (input.effect) {
+    const record = await context.effectRecord(
+      context,
+      input.effect,
+      `${input.kind}/${input.id}/effect`,
+      entities.length,
+    );
+    entities.push(record.entity);
+  }
   return context.bundle({
     id: `ui:${input.kind}:${input.id}`,
     entities,
     metadata: { source: input.source, assets },
   });
+}
+
+/** Only authored Install chair effects become world artwork; other item branches stay metadata. */
+function chairEffect(node, entry, id) {
+  if (entry.archive !== "Item" || Math.floor(id / 10000) !== 301) return null;
+  const child = node.children.effect;
+  if (!child) return null;
+  const effect = resolveNode(child);
+  const frames = Object.keys(effect.children).filter((key) =>
+    /^\d+$/.test(key),
+  );
+  if (!frames.length) return null;
+  // A nested/aliased branch is out of scope; keep the authored metadata only.
+  for (const key of frames) {
+    if (resolveNode(effect.children[key]).type !== "Canvas") return null;
+  }
+  return effect;
 }
 
 /** Character actions are artwork; retain only Item branches as effect metadata. */
@@ -286,6 +313,7 @@ async function itemRecord(context, id, entry, strings) {
     node: info,
     source,
     icons: ["icon", "iconRaw"],
+    effect: chairEffect(node, entry, id),
   });
   const iconMetadata = itemIconMetadata(info, id);
   return {

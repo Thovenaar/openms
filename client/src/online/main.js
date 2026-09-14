@@ -265,6 +265,10 @@ async function loadScene(snapshot, descriptor, loadingOwner) {
 }
 
 function installPrediction(candidate, snapshot) {
+  // Preserve the pose the player was already seeing across a field swap; the predictor
+  // glides onto the authoritative arrival instead of stepping visibly backwards.
+  const presented = prediction.simulation ? { x: 0, y: 0 } : null;
+  if (presented) prediction.interpolate(performance.now(), presented);
   prediction.install(
     createSimulation(
       candidate.scene.manifest.physics,
@@ -273,6 +277,7 @@ function installPrediction(candidate, snapshot) {
     snapshot.serverTick,
   );
   candidate.syncPrediction(prediction, false);
+  if (presented) prediction.seedCorrection(presented.x, presented.y);
 }
 
 async function publishNative(snapshot) {

@@ -91,7 +91,7 @@ export function createMobSkillStatus(info) {
     dotMs: new Float64Array(STATUS_COUNT),
     application: { duration: 0, source: 0 },
     presentation: { line: 0, critical: false, skillId: 0 },
-    projected: { ...info, demonWeakness: null },
+    projected: { ...info, acc: info.acc ?? info.accuracy, demonWeakness: null },
     changed: false,
   };
 }
@@ -259,7 +259,10 @@ export function clearMobBuffs(mob, skillId = 0) {
 }
 
 function adjusted(mob, field, status) {
-  const base = mob.template.info[field] ?? 0;
+  const base =
+    mob.template.info[field] ??
+    (field === "acc" ? mob.template.info.accuracy : undefined) ??
+    0;
   const index = MOB_STATUS[status];
   const value =
     mob.skillStatus.remaining[index] > 0 ? mob.skillStatus.values[index] : 0;

@@ -81,6 +81,14 @@ Character metadata coverage is broader than guaranteed live animation compatibil
 
 Domain extraction probes establish only their own decode coverage, not current resident GPU/PCM usage. Build identity, final acceptance totals and performance are maintained centrally in [validation](validation.md); no original Windows-runtime comparison follows from browser screenshots.
 
+## Install chair use
+
+An authored `Item.wz:Install/0301…` chair is used through the ordinary inventory double-click path (`item.use`). `server/src/action-character.js` admits it with the same recovered admission as an authored map seat — alive, idle phase, zero alert timer, grounded, zero velocity — then seats the actor at its own truncated position instead of consuming the stack, and wraps the existing server seat as the same `simulation.seat` state. The receipt value is `chair.toggle`; it is registered in `shared/world-protocol.js` because a result value outside the shared union is rejected by the client's strict `decodeServer` and tears down the whole connection.
+
+The seat is published on the entity (`actorWorldFields`), so **every client on the field** receives `seat: {id,x,y}` with the Install template. The owning client's predictor imports the seat through the motion checkpoint (a point, without the template), and `client/src/online/scene-chairs.js` renders the chair for self and peers by demand-loading the item bundle's `item/<id>/effect` animation, drawn on the actor's foothold depth minus one. The Install `effect` branch is extracted into that bundle by `client/tools/ui-data.js`/`ui-item-data.js`; the catalog metadata `properties.effect` alone carries no pixels. Movement clears the seat through the existing `beforePhysics`/transition paths.
+
+`server/tools/check-chair.js` verifies the whole slice against a disposable database: a seeded chair sits through the native setup tab without a reconnect, the published entity retains `seat.id`, and a second client on the same map observes the seat plus seated pose and builds the chair artwork.
+
 ## Reproduction and lookup
 
 ```sh

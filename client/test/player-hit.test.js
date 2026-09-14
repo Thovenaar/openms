@@ -13,6 +13,25 @@ import {
 } from "../src/physics/simulation.js";
 import { attachGround } from "../src/physics/geometry.js";
 import { createMobSkillStatus } from "../src/combat/mob-skill-status.js";
+import { PhysicalDamage } from "../src/combat/physical-damage.js";
+
+const ZERO_STANDARD_PDD = Array.from({ length: 6 }, () =>
+  new Array(201).fill(0),
+);
+const BEGINNER_DEFENDER = Object.freeze({
+  job: 0,
+  level: 1,
+  str: 5,
+  dex: 5,
+  int: 5,
+  luk: 5,
+  pdd: 7,
+  mdd: 0,
+  eva: 3,
+  acc: 20,
+  invincible: 0,
+});
+const SNAIL = Object.freeze({ level: 1, acc: 20, PADamage: 12 });
 
 const actors = [];
 afterEach(() => {
@@ -466,6 +485,51 @@ test("temporary EVA admits physical MISS, expires, and does not consume protecte
   expect(field.lastDamage).toBeGreaterThan(0);
   expect(cursor).toBe(10);
   field.destroy();
+});
+
+test("mob incoming accuracy accepts original accuracy field, not only normalized acc", async () => {
+  const field = await fieldFixture();
+  const words = [9000000, 0, 0, 0, 9000000, 90];
+  let cursor = 0;
+  field.damageGenerator.nextUint32 = () => words[cursor++];
+  const mob = {
+    x: -10,
+    alive: true,
+    active: true,
+    template: { info: { level: 1, accuracy: 20, PADamage: 50 } },
+  };
+  mob.skillStatus = createMobSkillStatus(mob.template.info);
+  expect(mob.skillStatus.projected.acc).toBe(20);
+  expect(field.proposeMobHit(mob, false)).toBe(true);
+  expect(field.store.profile.hp).toBeLessThan(100);
+  expect(field.lastDamage).toBeGreaterThan(0);
+  expect(cursor).toBe(6);
+  field.destroy();
+});
+
+test("a level-appropriate low-PAD mob chips through defense instead of recording MISS", () => {
+  const damage = new PhysicalDamage(
+    () => 0.5,
+    () => 9999989,
+  );
+  const amount = damage.receive(BEGINNER_DEFENDER, SNAIL, {
+    magic: false,
+    standardPDD: ZERO_STANDARD_PDD,
+  });
+  expect(amount).toBe(1);
+  expect(damage.lastEvaded).toBe(false);
+});
+
+test("a mob far below the defender keeps the native non-damaging outcome", () => {
+  const damage = new PhysicalDamage(
+    () => 0.5,
+    () => 9999989,
+  );
+  const amount = damage.receive({ ...BEGINNER_DEFENDER, level: 60 }, SNAIL, {
+    magic: false,
+    standardPDD: ZERO_STANDARD_PDD,
+  });
+  expect(amount).toBeLessThanOrEqual(0);
 });
 
 test("ordinary contact separates the offline recoil boundary from positive damage and true MISS", async () => {

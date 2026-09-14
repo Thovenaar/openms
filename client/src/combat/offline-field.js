@@ -794,7 +794,11 @@ export class OfflineField {
     this.recordMobDamage(target, beforeHP - target.hp);
     if (hit.skillLine && this.hooks.onSkillDamageLine) {
       this.hooks.onSkillDamageLine(target, Math.max(0, generated), hit);
-    } else this.hooks.onMobHit?.(target, amount);
+    } else {
+      // Display the generated line, not the HP-capped accounting value, so a hit
+      // larger than the target's remaining HP does not look like a flat number.
+      this.hooks.onMobHit?.(target, Math.max(0, generated));
+    }
     if (amount > 0 && hit.skillId === 0) {
       this.skillCombat.basicHit(target, amount);
     }

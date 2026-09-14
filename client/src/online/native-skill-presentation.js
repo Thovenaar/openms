@@ -1,11 +1,22 @@
 import { EntityAnimation } from "../rendering/animation.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { composeRiding } from "../skills/skill-riding-composition.js";
+import { PROTOCOL } from "../../../shared/protocol.js";
 
 const MAX_VISIBLE = 4096;
 const MAX_SOUNDS = 8192;
 const DESTROY = Object.freeze({ children: true });
 const EMPTY_ROWS = Object.freeze([]);
+/** Server entity/visual publications land every third field tick. */
+const PUBLISH_MS = PROTOCOL.TICK_MS * 3;
+/** 0093780b native effect layer shared by every other online effect owner.
+ *  Server skill sequences publish their authored intra-effect z, not an absolute world z. */
+const EFFECT_LAYER = 398500;
+
+/** Skill artwork draws above map objects and actors, in its authored effect order. */
+export function skillEffectDepth(depth) {
+  return EFFECT_LAYER + (Number.isSafeInteger(depth) ? depth : 0);
+}
 
 /** One native resource/display owner for observed server controllers; never executes a cast. */
 export class NativeSkillPresentation {
@@ -34,8 +45,9 @@ export class NativeSkillPresentation {
     this.setScene(this.owner.scene);
     if (!this.scene) return;
     const source = this.owner.state;
-    if (source)
-      {await this.observe([source.self.entity, ...this.owner.entities]);}
+    if (source) {
+      await this.observe([source.self.entity, ...this.owner.entities]);
+    }
   }
   async observe(entities) {
     this.setScene(this.owner.scene);
@@ -55,8 +67,9 @@ export class NativeSkillPresentation {
     await completed;
   }
   observePlayer(entity, observation) {
-    if (entity.id === this.owner.store.id)
+    if (entity.id === this.owner.store.id) {
       this.selfDoor = entity.skillDoor ?? null;
+    }
     const base = this.owner.hooks.scene()?.views.get(entity.id)?.animation;
     if (base && entity.combatState) {
       base.container.renderable = entity.combatState.actorVisible;
@@ -69,7 +82,12 @@ export class NativeSkillPresentation {
     for (const voice of entity.skillVoices ?? EMPTY_ROWS) {
       observation.retainedVoices.add(voice.voiceId);
       observation.pending.push(
-        this.sound({ actorId: entity.id, ...voice, loop: true, stopped: false }),
+        this.sound({
+          actorId: entity.id,
+          ...voice,
+          loop: true,
+          stopped: false,
+        }),
       );
     }
   }
@@ -78,8 +96,9 @@ export class NativeSkillPresentation {
       if (!observation.retained.has(id)) this.releaseVisual(entry);
     }
     for (const [voiceId, record] of this.voices) {
-      if (record.loop && !observation.retainedVoices.has(voiceId))
+      if (record.loop && !observation.retainedVoices.has(voiceId)) {
         observation.pending.push(this.sound({ voiceId, stopped: true }));
+      }
     }
   }
   async visual(event) {
@@ -106,8 +125,9 @@ export class NativeSkillPresentation {
       entry = null;
     }
     if (!entry) {
-      if (this.visuals.size >= MAX_VISIBLE)
-        {throw new Error("Observed skill actor budget exceeded");}
+      if (this.visuals.size >= MAX_VISIBLE) {
+        throw new Error("Observed skill actor budget exceeded");
+      }
       entry = {
         id: state.id,
         actorId: event.actorId,
@@ -142,14 +162,18 @@ export class NativeSkillPresentation {
             ),
             textures: owner.textures,
           };
-      if (!prepared.entity)
-        {throw new Error("Authoritative skill actor has no original entity");}
+      if (!prepared.entity) {
+        throw new Error("Authoritative skill actor has no original entity");
+      }
       if (entry.disposed || entry.generation !== this.generation) {
         this.releaseOwners(entry);
         return;
       }
       entry.animation = new EntityAnimation(prepared.entity, prepared.textures);
-      this.scene.addWorldContainer(entry.animation.container, state.depth);
+      this.scene.addWorldContainer(
+        entry.animation.container,
+        skillEffectDepth(state.depth),
+      );
     } catch (error) {
       this.releaseVisual(entry);
       throw error;
@@ -167,10 +191,11 @@ export class NativeSkillPresentation {
       entry.owners.push(saddle);
     }
     const rider = entry.rider;
-    if (!rider)
-      {throw new Error(
+    if (!rider) {
+      throw new Error(
         "Observed riding actor lacks its current avatar resource",
-      );}
+      );
+    }
     const entity = composeRiding(
       mount.manifest.metadata.riding,
       saddle?.manifest.metadata.riding,
@@ -179,8 +204,9 @@ export class NativeSkillPresentation {
     );
     const textures = new Map(rider.textures);
     for (const [id, texture] of mount.textures) textures.set(id, texture);
-    for (const [id, texture] of saddle?.textures ?? [])
-      {textures.set(id, texture);}
+    for (const [id, texture] of saddle?.textures ?? []) {
+      textures.set(id, texture);
+    }
     return { entity, textures };
   }
   applyVisual(entry) {
@@ -196,25 +222,69 @@ export class NativeSkillPresentation {
           : animation.current.ends[state.sourceFrame - 1],
     );
     animation.holdFrame = state.sourceFrame !== null;
-    animation.setPosition(state.position.x, state.position.y);
+    // Projectiles are sampled at 11 Hz; chase each published sample across one
+    // publication interval instead of snapping, matching peer/drop presentation.
+    if (entry.positioned) {
+      entry.fromX = animation.container.position.x;
+      entry.fromY = animation.container.position.y;
+      entry.chaseMs = 0;
+    } else {
+      entry.positioned = true;
+      animation.setPosition(state.position.x, state.position.y);
+    }
+    entry.targetX = state.position.x;
+    entry.targetY = state.position.y;
     animation.setTint(state.tint);
     animation.container.scale.x = state.scaleX;
     animation.container.scale.y = state.scaleY;
     animation.container.rotation = state.rotation;
     animation.container.alpha = state.opacity;
     animation.container.visible = true;
-    animation.container.zIndex = state.depth;
+    // A mount/morph visual replaces its actor and shares the actor's world depth;
+    // every other effect draws on the native effect layer above characters.
+    const actorDepth = state.replacesActor
+      ? this.actorDepth(entry.actorId)
+      : null;
+    animation.container.zIndex =
+      actorDepth === null ? skillEffectDepth(state.depth) : actorDepth;
+  }
+  actorDepth(actorId) {
+    const depth = this.owner.hooks?.scene?.()?.views?.get(actorId)?.animation
+      ?.container?.zIndex;
+    return Number.isSafeInteger(depth) ? depth : null;
+  }
+  /** Advance one chased visual by the render delta; never a simulation step. */
+  chase(entry, ms) {
+    const animation = entry.animation;
+    if (
+      !animation ||
+      entry.chaseMs === undefined ||
+      entry.chaseMs >= PUBLISH_MS
+    ) {
+      return;
+    }
+    entry.chaseMs = Math.min(PUBLISH_MS, entry.chaseMs + ms);
+    const fraction = entry.chaseMs / PUBLISH_MS;
+    animation.setPosition(
+      entry.fromX + (entry.targetX - entry.fromX) * fraction,
+      entry.fromY + (entry.targetY - entry.fromY) * fraction,
+    );
   }
   async prepareSound(skillId, leaf) {
     const audio = this.owner.audio.audio;
+    if (audio.context?.state !== "running") {
+      // A cast is a trusted gesture: enable once and keep the cue instead of dropping it.
+      await Promise.resolve(this.owner.audio.enableAudio?.()).catch(() => {});
+    }
     if (audio.context?.state !== "running") return null;
     const sound = this.owner.catalog.ui.skills[skillId]?.sounds.leaves[leaf];
     if (!sound?.available) return null;
     const key = `${skillId}:${leaf}`;
     let entry = this.sounds.get(key);
     if (!entry) {
-      if (this.sounds.size >= MAX_SOUNDS)
-        {throw new Error("Observed skill sound budget exceeded");}
+      if (this.sounds.size >= MAX_SOUNDS) {
+        throw new Error("Observed skill sound budget exceeded");
+      }
       entry = { entry: null, pending: null };
       const generation = this.generation;
       this.sounds.set(key, entry);
@@ -247,16 +317,19 @@ export class NativeSkillPresentation {
     this.voices.set(event.voiceId, record);
     const entry = await this.prepareSound(event.skillId, event.leaf);
     if (!entry || record.stopped || generation !== this.generation) {
-      if (this.voices.get(event.voiceId) === record)
-        {this.voices.delete(event.voiceId);}
+      if (this.voices.get(event.voiceId) === record) {
+        this.voices.delete(event.voiceId);
+      }
       return;
     }
     entry.users++;
     record.voice = this.owner.audio.audio.start(entry, "SE", event.loop);
   }
   async cast(event) {
-    if (!this.owner.catalog.ui.skills[event.skillId]?.levels[event.rank])
-      {throw new Error("Server cast rank unavailable in original catalog");}
+    if (!this.owner.catalog.ui.skills[event.skillId]?.levels[event.rank]) {
+      throw new Error("Server cast rank unavailable in original catalog");
+    }
+    // The server publishes the Use voice event; warm the decoded entry, never start it here.
     await this.prepareSound(event.skillId, "Use");
   }
   async enableAudio() {
@@ -273,8 +346,9 @@ export class NativeSkillPresentation {
       !position ||
       Math.abs(position.x - door.position.x) >= 20 ||
       Math.abs(position.y - door.position.y) >= 50
-    )
-      {return false;}
+    ) {
+      return false;
+    }
     this.owner
       .request({ kind: "skill.door" })
       .then((result) => {
@@ -289,10 +363,12 @@ export class NativeSkillPresentation {
       return;
     }
     for (const entry of this.visuals.values()) {
+      this.chase(entry, ms);
       if (!entry.animation || entry.state.sourceFrame !== null) continue;
       entry.animation.advance(ms);
-      if (entry.animation.completed && entry.state.playback === "once")
-        {entry.animation.container.visible = false;}
+      if (entry.animation.completed && entry.state.playback === "once") {
+        entry.animation.container.visible = false;
+      }
     }
     for (const [id, record] of this.voices) {
       if (record.voice?.ended) this.voices.delete(id);
@@ -321,8 +397,9 @@ export class NativeSkillPresentation {
       if (voice.voice) this.owner.audio.audio.stopVoice(voice.voice);
     }
     this.voices.clear();
-    for (const sound of this.sounds.values())
-      {if (sound.entry) sound.entry.users--;}
+    for (const sound of this.sounds.values()) {
+      if (sound.entry) sound.entry.users--;
+    }
     this.sounds.clear();
     this.observation.retained.clear();
     this.observation.retainedVoices.clear();

@@ -5,7 +5,11 @@ const SAMPLE_COUNT = 7;
 const UINT32_SCALE = 0x100000000;
 const INCOMING_SAMPLE_COUNT = 4;
 const UINT32_MAX = UINT32_SCALE - 1;
-//0078ea..fe: [swing, stab] coefficients; class/posture overrides follow below.
+/** Local policy, not a recovered native constant: a non-evaded ordinary physical hit from a mob
+ *  no more than ten levels below the defender lands for at least one. Far-below-level mobs keep
+ *  the native non-damaging outcome, so walking through old content stays harmless. */
+const LEVEL_APPROPRIATE_GAP = 10;
+// 0078ea..fe: [swing, stab] coefficients; class/posture overrides follow below.
 const WEAPON_COEFFICIENTS = Object.freeze({
   30: [4, 4],
   31: [4.4, 3.2],
@@ -222,6 +226,7 @@ export class PhysicalDamage {
     return finishIncomingDamage(
       rolled * attack * 0.01 - reduction,
       stats,
+      info,
       options.magic,
     );
   }
@@ -302,11 +307,17 @@ export class PhysicalDamage {
   }
 }
 
-function finishIncomingDamage(damage, stats, magic) {
+function finishIncomingDamage(damage, stats, info, magic) {
+  // A level-appropriate mob always chips through equipment defense; the native
+  // nonpositive result only survives for mobs far below the defender.
+  const value =
+    !magic && damage <= 0 && info.level + LEVEL_APPROPRIATE_GAP >= stats.level
+      ? 1
+      : damage;
   //007933b2..3df applies physical Invincible before the single __ftol.
   const guarded = magic
-    ? damage
-    : damage - damage * (stats.invincible ?? 0) * 0.01;
+    ? value
+    : value - value * (stats.invincible ?? 0) * 0.01;
   const generated = Math.trunc(guarded);
   //0095848f records physical nonpositive outcomes as MISS. The magic branch
   //00958422..34 alone preserves a nonzero hit with a minimum of1.

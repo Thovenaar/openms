@@ -107,6 +107,9 @@ export class SkillDamage {
 
   physicalBase(skill, info, target, context) {
     const stats = context.stats;
+    // Native's weapon switch default yields no damage for an unsupported/unarmed
+    // weapon instead of dereferencing a missing coefficient row.
+    if (!stats.damageSupported || !stats.weaponType) return 0;
     let base = LUCKY.has(skill.id)
       ? (this.generator.roll(stats.luk * 0.5, stats.luk) * 5 * stats.pad) / 100
       : this.generator.weaponDamage(stats, context.use);

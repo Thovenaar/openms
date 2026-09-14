@@ -160,6 +160,12 @@ export const WORLD_RESULT_SCHEMAS = {
     kind: enumeration("world.character-action"),
     action: enumeration("expression.use", "expression.cash", "seat.toggle"),
   }),
+  // Inventory-domain chair use publishes the same seat state as an authored map seat,
+  // but retains the Install template so every client draws the owning chair artwork.
+  "chair.toggle": record({
+    kind: enumeration("chair.toggle"),
+    templateId: number(3010000, 3019999),
+  }),
   "world.reactor-offer": record({
     kind: enumeration("world.reactor-offer"),
     accepted: enumeration(true),

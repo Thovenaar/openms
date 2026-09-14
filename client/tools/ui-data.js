@@ -116,6 +116,30 @@ async function canvasRecord(context, node, path, order) {
   };
 }
 
+/** Install chairs keep their authored effect branch as one animation entity drawn behind the seated player. */
+async function effectRecord(context, node, path, order) {
+  const frames = await originalFrames(
+    node,
+    (canvas) => context.part(canvas),
+    () => path,
+  );
+  return {
+    entity: {
+      id: path,
+      kind: "ui",
+      order,
+      x: 0,
+      y: 0,
+      z: order,
+      visible: true,
+      flip: false,
+      opacity: 1,
+      action: "default",
+      actions: { default: frames },
+    },
+  };
+}
+
 /** Load authored branch roots in order before the bounded depth-first canvas traversal. */
 async function branchRoots(context, { imageName, branch, extras }) {
   const root = await context.image("UI", imageName);
@@ -696,7 +720,7 @@ export async function extractGameUI(context) {
   const minimaps = await minimapBundles(context);
   const strings = await itemLabels(context);
   const templates = await extractItemSkillUI(
-    { ...context, cashShop, monsterBook },
+    { ...context, cashShop, monsterBook, effectRecord },
     strings.details,
     canvasRecord,
   );

@@ -5,8 +5,13 @@ import {
   createHeldInput,
   assignHeldInput,
 } from "../../../shared/motion.js";
+import { applyExternalImpulse } from "../physics/simulation.js";
 
 const STALE_OBSERVATION_MS = 1000;
+/** Small server/client disagreement is absorbed by the presentation instead of corrected:
+ *  the kernel still adopts the authoritative state, the drawn pose glides to it. */
+const POSITION_TOLERANCE_PX = 24;
+const CORRECTION_MS = 120;
 
 function historyEntry() {
   return {
@@ -16,6 +21,7 @@ function historyEntry() {
     vertical: 0,
     jump: false,
     attack: false,
+    action: null,
     x: 0,
     y: 0,
     vx: 0,
@@ -61,6 +67,10 @@ export class OnlinePrediction {
     this.filledTicks = 0;
     this.arrivalTick = 0;
     this.lastStepAt = 0;
+    this.queuedAction = null;
+    this.correctionX = 0;
+    this.correctionY = 0;
+    this.correctionUntil = 0;
   }
 
   /** Simulation must be built only from the authoritative field's immutable physics. */
@@ -111,6 +121,9 @@ export class OnlinePrediction {
     this.lastObservedAt = performance.now();
     this.ackInputSeq = message.ackInputSeq ?? this.ackInputSeq;
     this.paused = message.paused;
+    const wasReady = this.ready;
+    const visibleX = this.simulation.x;
+    const visibleY = this.simulation.y;
     restoreMotion(this.simulation, message.motion);
     this.observeJump(message.motion.groundJumpSequence);
     assignHeldInput(this.held, message.motion.held);
@@ -124,6 +137,33 @@ export class OnlinePrediction {
       this.count = 0;
       this.catchUpDebt = 0;
     } else this.replay();
+    // Initial synchronization adopts the authoritative state outright; only an
+    // already-presented pose is glided onto a later correction.
+    if (wasReady) this.reconcilePresentation(visibleX, visibleY);
+  }
+
+  /** Absorb a bounded server correction in presentation space: the drawn pose stays where
+   *  the player saw it and glides onto the authoritative state over one short interval.
+   *  A disagreement beyond the tolerance is a real desync and snaps immediately. */
+  reconcilePresentation(visibleX, visibleY) {
+    this.seedCorrection(visibleX, visibleY);
+  }
+  seedCorrection(visibleX, visibleY) {
+    const dx = visibleX - this.simulation.x;
+    const dy = visibleY - this.simulation.y;
+    if (
+      !Number.isFinite(dx) ||
+      !Number.isFinite(dy) ||
+      Math.hypot(dx, dy) > POSITION_TOLERANCE_PX
+    ) {
+      this.correctionX = 0;
+      this.correctionY = 0;
+      this.correctionUntil = 0;
+      return;
+    }
+    this.correctionX = dx;
+    this.correctionY = dy;
+    this.correctionUntil = performance.now() + CORRECTION_MS;
   }
 
   measure(message) {
@@ -179,11 +219,22 @@ export class OnlinePrediction {
       }
       if (entry.inputSeq === 0) this.copyHeld(entry);
       assignHeldInput(this.held, entry);
+      this.applyAction(entry);
       stepMotion(this.simulation, this.held);
       this.recordPose(entry);
       this.predictedTick = entry.targetTick;
       this.replayedTicks++;
     }
+  }
+
+  /** Optimistic movement-skill impulse for the next predicted tick; retired with its entry. */
+  queueAction(action) {
+    if (!action) return;
+    this.queuedAction = action;
+  }
+  applyAction(entry) {
+    if (entry.action?.kind !== "impulse") return;
+    applyExternalImpulse(this.simulation, entry.action.vx, entry.action.vy);
   }
 
   /** Admit scheduler work only while the installed simulation has fresh authenticated timing. */
@@ -260,6 +311,12 @@ export class OnlinePrediction {
     }
     target.x = sim.previousX + (sim.x - sim.previousX) * alpha;
     target.y = sim.previousY + (sim.y - sim.previousY) * alpha;
+    const remaining = this.correctionUntil - now;
+    if (remaining > 0) {
+      const fraction = remaining / CORRECTION_MS;
+      target.x += this.correctionX * fraction;
+      target.y += this.correctionY * fraction;
+    }
     return target;
   }
 
@@ -279,7 +336,10 @@ export class OnlinePrediction {
     entry.vertical = sample.vertical;
     entry.jump = sample.jump;
     entry.attack = sample.attack;
+    entry.action = this.queuedAction;
+    this.queuedAction = null;
     assignHeldInput(this.held, sample);
+    this.applyAction(entry);
     stepMotion(this.simulation, this.held);
     this.recordPose(entry);
     this.count++;
@@ -326,6 +386,10 @@ export class OnlinePrediction {
     this.ackInputSeq = 0;
     this.catchUpDebt = 0;
     this.lastStepAt = 0;
+    this.queuedAction = null;
+    this.correctionX = 0;
+    this.correctionY = 0;
+    this.correctionUntil = 0;
   }
 
   snapshot() {

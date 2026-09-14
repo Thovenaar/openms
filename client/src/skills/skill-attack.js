@@ -254,7 +254,13 @@ export class SkillAttack {
       prepared.set(id, {
         ...record,
         action,
-        rectangle: attackRectangle(record.info, combat?.attacks[action]),
+        // Authored skill rectangles win; a skill whose action has no authored
+        // rectangle (e.g. Savage Blow's dagger `savage`) uses the equipped
+        // weapon's ordinary rectangle while keeping the skill action for the pose.
+        rectangle: attackRectangle(
+          record.info,
+          combat?.attacks[action] ?? combat?.attacks[combat?.defaultAction],
+        ),
         duration: actor.actions.get(action)?.duration ?? 0,
       });
     }

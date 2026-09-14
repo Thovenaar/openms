@@ -108,6 +108,17 @@ Incoming outcomes carry explicit `attackAction` provenance from the accepted aut
 
 `009894f3` gives a distance **volume scalar, not pan**: `sqrt(dx²+dy²+0.001)`, below250→100, above1000→40, otherwise `trunc(120−0.08×distance)`. `0043fdab` truncates `master×percent/100` before the recovered backend gain curve. Active voices recompute that composition when settings change. [Combat evidence](ghidra-client-corrections/combat-summary.json) retains addresses and separates recovered values from local event scheduling.
 
+### Observed server skill presentation
+
+The server publishes authored skill sequences as `skill.visual` rows whose `depth` is the effect's **intra-sequence** z (`server/src/skill-resources.js` `animationView`), not an absolute world z. The browser used to apply it literally, so every observed effect landed at world 0 behind the map and actors. `client/src/online/native-skill-presentation.js` now composes it onto the native effect layer **398500** — the same layer the gameplay-effect, combat-presentation and audiovisual owners already use — via `skillEffectDepth`. A mount/morph visual (`replacesActor`) instead borrows its caster's current entity depth so it replaces that actor rather than covering the field.
+
+Skill `Use` voices arrive as separate `skill.sound` events; `cast()` only warms the decoded entry and must never start a second voice for the same cast, or the cue plays twice. `prepareSound` also no longer drops a cue when the AudioContext is still resuming: a cast is a trusted gesture, so it awaits `enableAudio()` once and keeps the voice instead of silently discarding it. Ordinary ranged impact cues and the per-projectile/per-mob impact selection remain qualified below.
+
+Projectile visuals are sampled at the 11 Hz publication cadence, so the client now chases each published sample across one publication interval (matching peer positions and drop rotation) instead of snapping, which removed the visible 90 ms teleport stagger on thrown skills such as Three Snails.
+
+Observed skill artwork is verified by `server/tools/check-skill-effects.js` (isolated database, native cast of a seeded learned skill, resident visual plus started Use voice) and visual evidence in a Chromium session; the layering math is pinned by `client/test/skill-projectile-chase.test.js`.
+
+
 ## Quest requirements met before turn-in
 
 `QuestSystem.isReady()` projects the active quest's completion-stage Check and action gates at its authored NPC endpoint, without requiring the avatar to stand beside that NPC. It includes item stock (and equipment), kill counts, prerequisite quest state, level/job/fame and mesos; unknown supportedness gates remain refusals. It never applies rewards or changes quest state. `readinessChanges()` consumes only false-to-true durable readiness edges. Losing stock, changing a requirement, completing or giving up retracts the notice; a later genuine unmet-to-met transition re-arms it. Cloning or refreshing an unchanged profile does not re-announce.

@@ -5,6 +5,7 @@ import { allocationPoints } from "../skills/skill-allocation-rules.js";
 import { mountQuestJournal } from "../ui/ui-quest-window.js";
 import { QuestReadyNotification } from "../ui/ui-quest-ready-notification.js";
 import { NativeAvatarPortrait } from "../ui/ui-avatar-portrait.js";
+import { skillImpulseFor } from "./optimistic-skill.js";
 import { AvatarVisuals } from "../character/avatar-visuals.js";
 import { AudiovisualSystem } from "../audio/audiovisual-system.js";
 import {
@@ -496,10 +497,22 @@ export class OnlineUI {
   }
   cast(skillId) {
     if (this.blocked()) return false;
+    // Movement skills are predicted locally so the arc starts on the key press;
+    // the next authoritative checkpoint confirms or rolls it back.
+    const impulse = this.optimisticImpulse(skillId);
+    if (impulse) this.hooks.prediction?.queueAction?.(impulse);
     this.command({ kind: "skill.cast", skillId }).catch((error) =>
       this.report(error),
     );
     return true;
+  }
+  optimisticImpulse(skillId) {
+    return skillImpulseFor(
+      this.store.profile,
+      this.catalog,
+      this.hooks.scene?.(),
+      skillId,
+    );
   }
   interact(id) {
     if (this.blocked()) return false;

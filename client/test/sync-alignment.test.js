@@ -180,6 +180,46 @@ function presentable(onGroundJump) {
   return { prediction, simulation, clock };
 }
 
+test("a queued movement impulse is predicted once and retired by a rejecting checkpoint", () => {
+  const simulation = createSimulation(world(), { x: 0, y: -10 });
+  const prediction = new OnlinePrediction({});
+  prediction.install(simulation, 0);
+  prediction.queueAction({ kind: "impulse", vx: 400, vy: -250 });
+  expect(prediction.predict(createHeldInput(), false)).toBe(true);
+  // One 30 ms tick integrates the impulse before this assertion.
+  expect(simulation.vx).toBeGreaterThan(390);
+  expect(simulation.vy).toBeLessThan(-150);
+  // The optimistic arc is part of the checkpoint the client would send.
+  expect(captureMotion(simulation).vx).toBeGreaterThan(390);
+  // A rejecting authority checkpoint has the pre-impulse velocity and retires the entry.
+  const authority = createSimulation(world(), { x: 0, y: -10 });
+  restoreMotion(simulation, captureMotion(authority));
+  prediction.serverTick = 1;
+  prediction.retireHistory();
+  prediction.replay();
+  expect(Math.abs(simulation.vx)).toBeLessThan(1);
+  expect(Math.abs(simulation.vy)).toBeLessThan(1);
+});
+
+test("a bounded server correction glides instead of snapping the presented pose", () => {
+  const { prediction, simulation } = presentable();
+  const target = { x: 0, y: 0 };
+  const now = performance.now();
+  simulation.x = 100;
+  simulation.previousX = 100;
+  // The player was shown x=94; the server says 100.
+  prediction.seedCorrection(94, 0);
+  prediction.interpolate(now, target);
+  expect(target.x).toBeCloseTo(94, 0);
+  // The correction window ends with the presentation on the authoritative state.
+  prediction.interpolate(now + 200, target);
+  expect(target.x).toBeCloseTo(100, 6);
+  // A disagreement beyond the tolerance is a real desync and snaps.
+  prediction.seedCorrection(50, 0);
+  prediction.interpolate(now + 201, target);
+  expect(target.x).toBeCloseTo(100, 6);
+});
+
 test("presented pose stays inside the newest two kernel states", () => {
   const { prediction, simulation, clock } = presentable();
   const target = { x: 0, y: 0 };

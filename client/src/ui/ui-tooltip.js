@@ -348,7 +348,9 @@ function renderItemArtwork(owner, item, source, offset) {
 function itemTextRow(owner, entry) {
   const row = document.createElement("div");
   const color = COLORS[entry.tone] || COLORS.normal;
-  row.style.cssText = `color:${color};font:12px/16px Arial,sans-serif;`;
+  // 008f36a1 row indices 0xe/0x10 select the 9px Arial label/value slots.
+  const font = entry.stat ? "9px/13px" : "12px/16px";
+  row.style.cssText = `color:${color};font:${font} Arial,sans-serif;`;
   if (entry.authored) {
     renderQuestText(row, entry.text, owner.quests, { color, tooltip: true });
   } else row.textContent = entry.text.slice(0, MAX_TOOLTIP_TEXT);
