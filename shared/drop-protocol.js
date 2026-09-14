@@ -77,6 +77,12 @@ export const DROP_RESULT_SCHEMAS = {
   }),
 };
 export const DROP_EVENT_SCHEMAS = {
+  "equipment.enhancement": record({
+    kind: enumeration("equipment.enhancement"),
+    eventId: id,
+    actorId: id,
+    outcome: enumeration("success", "failure", "curse"),
+  }),
   "drop.pickup": record({
     kind: enumeration("drop.pickup"),
     ...identity,

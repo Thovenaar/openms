@@ -50,11 +50,19 @@ export async function boundedNpcTurn(world, request) {
   let worker;
   let timer;
   let termination;
+  let settled = false;
   try {
     worker = new Worker(new URL("./interaction-worker.js", import.meta.url));
     return await new Promise((resolve, reject) => {
-      function failed(code) {
-        const error = new Error(code);
+      function failed(code, reason) {
+        if (settled) return;
+        settled = true;
+        world.log?.("npc.turn.failed", {
+          source: request.environment.npcId,
+          code,
+          reason,
+        });
+        const error = new Error(code, { cause: reason });
         error.code = code;
         reject(error);
       }
@@ -64,10 +72,17 @@ export async function boundedNpcTurn(world, request) {
         termination.catch(reject);
         failed("SERVER_BUSY");
       }, INTERACTION_LIMITS.workerMs);
-      worker.once("error", () => failed("CONTENT_MISMATCH"));
-      worker.once("exit", () => failed("CONTENT_MISMATCH"));
+      worker.once("error", (error) =>
+        failed("CONTENT_MISMATCH", error.message),
+      );
+      worker.once("exit", (code) =>
+        failed("CONTENT_MISMATCH", `Worker exited with code ${code}`),
+      );
       worker.once("message", (response) => {
-        if (!response?.ok) return failed(workerFailure(response?.code));
+        if (!response?.ok) {
+          return failed(workerFailure(response?.code), response?.reason);
+        }
+        settled = true;
         resolve(response.value);
       });
       worker.postMessage(request);

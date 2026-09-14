@@ -7,6 +7,7 @@ import {
 } from "../src/kill-credit.js";
 import { rewardKill } from "../src/combat-rewards.js";
 import { ownsDrop } from "../src/field-drops.js";
+import { experienceRequired } from "../../client/src/character/offline-progression.js";
 
 function monster() {
   return {
@@ -107,4 +108,29 @@ test("one kill receipt commits every eligible recipient once and validates the w
   expect(first.profile.exp).toBe(50);
   expect(member.profile.exp).toBe(50);
   expect(first.field.dropReservations).toBe(0);
+});
+
+test("a level-up reward publishes its original foreign effect to the whole field", async () => {
+  const { world, actors } = await fixture();
+  const [first, member, distant, outsider] = actors;
+  const mob = monster();
+  recordKillDamage(first, mob, 60);
+  recordKillDamage(outsider, mob, 40);
+  first.profile.exp = experienceRequired(first.profile.level) - 30;
+  mob.alive = false;
+  mob.deaths = 1;
+  const publications = [];
+  world.publish = (recipient, message) => {
+    publications.push({ recipient: recipient.id, message });
+  };
+  await rewardKill(world, outsider, mob);
+  const effects = publications.filter(
+    ({ message }) => message.event?.kind === "combat.level-up",
+  );
+  expect(effects.map(({ recipient }) => recipient).sort()).toEqual(
+    [first, member, distant, outsider].map((actor) => actor.id).sort(),
+  );
+  expect(
+    effects.every(({ message }) => message.event.actorId === first.id),
+  ).toBe(true);
 });

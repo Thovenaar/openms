@@ -1,3 +1,5 @@
+import { rewardReactor } from "./reactor-rewards.js";
+import { reactorReward } from "../../client/src/world/reactor-rewards.js";
 import { randomUUID } from "node:crypto";
 import { ReactorSystem } from "../../client/src/world/reactor-system.js";
 import { protocolError } from "../../shared/schema.js";
@@ -19,8 +21,9 @@ export async function createFieldReactors(world, field) {
   const required = new Set(
     placements.map((entry) => entry.entityId).filter(Boolean),
   );
-  if (field.manifest.regions.length > MAX_REGIONS)
-    {throw protocolError("CONTENT_MISMATCH");}
+  if (field.manifest.regions.length > MAX_REGIONS) {
+    throw protocolError("CONTENT_MISMATCH");
+  }
   const textures = new Map(Object.entries(field.manifest.textures));
   for (const descriptor of field.manifest.regions) {
     if (required.size === 0) break;
@@ -82,7 +85,12 @@ class FieldReactors extends ReactorSystem {
                 accepted: true,
                 consumed: context.offer.event.count,
                 reactorId: context.offer.record.id,
-                scriptRewards: false,
+                scriptRewards: Boolean(
+                  reactorReward(
+                    world.content.catalog.drops.reactors,
+                    context.offer.record.template.descriptor,
+                  ),
+                ),
               },
             };
           },
@@ -95,10 +103,13 @@ class FieldReactors extends ReactorSystem {
     this.context = context;
     this.world = world;
     this.field = field;
+    this.rewardJobs = new Set();
   }
   applyTransition(record, event, target) {
     const state = record.state?.id ?? -1;
+    if (event.type !== 101) record.rewardActor = this.context.actor;
     super.applyTransition(record, event, target);
+    if (!target || !target.events.length) rewardReactor(this, record);
     this.world.broadcast(this.field, {
       type: "event",
       fieldEpoch: this.field.epoch,
@@ -110,9 +121,24 @@ class FieldReactors extends ReactorSystem {
         state: record.state?.id ?? -1,
         generation: record.transitions,
         impactTick: this.field.tick,
-        scriptRewards: false,
+        scriptRewards: Boolean(
+          reactorReward(
+            this.world.content.catalog.drops.reactors,
+            record.template.descriptor,
+          ),
+        ),
       },
     });
+  }
+  stepRecord(record, ms) {
+    if (!record.rewardPending) super.stepRecord(record, ms);
+  }
+  eligible(record) {
+    return !record.rewardPending && super.eligible(record);
+  }
+  async waitForIdle() {
+    await super.waitForIdle();
+    await Promise.allSettled([...this.rewardJobs]);
   }
   async acceptOffer(record, event, request) {
     this.context.offer = { record, event };
@@ -164,11 +190,12 @@ export async function offerReactor(actor, message, world) {
       actorId: actor.id,
       uid: message.action.itemId,
     });
-    if (!result.ok)
-      {throw ruleError({
+    if (!result.ok) {
+      throw ruleError({
         code: result.code,
         message: result.reason ?? result.code,
-      });}
+      });
+    }
     world.invalidateField(actor.field);
     return controller.context.receipt;
   } finally {
@@ -211,7 +238,12 @@ export function reactorEntities(field) {
       repeat: record.phase === "idle" && Boolean(record.state?.repeat),
       visible: Boolean(record.animation?.container.visible),
       generation: record.transitions,
-      scriptRewards: false,
+      scriptRewards: Boolean(
+        reactorReward(
+          field.reactors.world.content.catalog.drops.reactors,
+          record.template.descriptor,
+        ),
+      ),
     },
   }));
 }

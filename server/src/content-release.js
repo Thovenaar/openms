@@ -90,24 +90,41 @@ export async function prepareRelease(service, owner, input, original) {
   validateRelease(input);
   const rows = await releaseRows(service, owner, input, original.assetBuildId);
   const context = { resources: new Map(), bytes: 0 };
+  const overlay = await collectOverlay(rows, {
+    service,
+    owner,
+    context,
+    assetBuildId: original.assetBuildId,
+  });
+  return {
+    overlay,
+    resources: context.resources,
+    selection: rows.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      name: row.name,
+      revision: row.revision,
+      runtimeId: row.runtimeId,
+      publicationHash: row.publicationHash,
+    })),
+  };
+}
+
+async function collectOverlay(rows, { service, owner, context, assetBuildId }) {
   const overlay = {
     schemaVersion: 1,
-    baseAssetBuildId: original.assetBuildId,
+    baseAssetBuildId: assetBuildId,
     maps: {},
     baseMaps: {},
     mapNames: {},
     monsters: {},
     quests: {},
     mobNames: {},
+    drops: {},
+    dialogues: {},
   };
   for (const row of rows) {
-    if (row.kind === "map") {
-      await releaseMap(row, service, owner, { context, overlay });
-    }
-    if (row.kind === "quest") {
-      overlay.quests[row.runtimeId] = row.runtime.record;
-    }
-    if (row.kind === "mob") overlay.mobNames[row.runtimeId] = row.name;
+    await addReleaseRow(row, overlay, { service, owner, context });
   }
   for (const row of rows.filter((entry) => entry.kind === "mob")) {
     const map = rows.find(
@@ -124,17 +141,39 @@ export async function prepareRelease(service, owner, input, original) {
       };
     }
   }
-  return {
-    overlay,
-    resources: context.resources,
-    selection: rows.map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      name: row.name,
-      revision: row.revision,
-      runtimeId: row.runtimeId,
-      publicationHash: row.publicationHash,
-    })),
+  return overlay;
+}
+
+function addReleaseRow(row, overlay, { service, owner, context }) {
+  if (row.kind === "map") {
+    return releaseMap(row, service, owner, { context, overlay });
+  }
+  if (row.kind === "quest") overlay.quests[row.runtimeId] = row.runtime.record;
+  if (row.kind === "mob") overlay.mobNames[row.runtimeId] = row.name;
+  if (row.kind === "drops") addDropTable(row, overlay);
+  if (row.kind === "dialogue") addDialogue(row, overlay);
+}
+
+function addDropTable(row, overlay) {
+  const id = row.runtime.target.mobId;
+  requireContent(
+    !Object.hasOwn(overlay.drops, id),
+    "Release selects conflicting drop tables for one monster",
+    row.id,
+  );
+  overlay.drops[id] = { mode: row.runtime.mode, rows: row.runtime.rows };
+}
+
+function addDialogue(row, overlay) {
+  const id = row.runtime.npcId;
+  requireContent(
+    !Object.hasOwn(overlay.dialogues, id),
+    "Release selects conflicting conversations for one NPC",
+    row.id,
+  );
+  overlay.dialogues[id] = {
+    start: row.runtime.start,
+    nodes: row.runtime.nodes,
   };
 }
 

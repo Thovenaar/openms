@@ -32,7 +32,11 @@ export function startQuestDialogue(actor, world, lease, questId) {
   requireInteraction(
     record?.supported &&
       state < 2 &&
-      isNpcEndpoint(record.stages[state], lease.npcTemplateId) &&
+      isNpcEndpoint(
+        record.stages[state],
+        lease.npcTemplateId,
+        record.stages[0],
+      ) &&
       (state === 1 || status(record, lease.npcTemplateId, actor.profile).ok),
     "REQUIREMENTS_NOT_MET",
   );

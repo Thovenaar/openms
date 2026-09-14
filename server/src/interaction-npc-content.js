@@ -1,5 +1,6 @@
 import { shopRows } from "../../client/src/npc/npc-shop-rules.js";
 import { interactionState, requireInteraction } from "./interaction-common.js";
+import { admitAuthoredDialogue } from "./interaction-npc-authored.js";
 
 const MAX_ROUTES = 10000;
 const MAX_SHOP_ROWS = 200000;
@@ -46,6 +47,14 @@ export async function npcReferences(world) {
   return references;
 }
 
+/**
+ * Runtime precedence, extending the compiled NPC_ROUTING_POLICY precedence
+ * (client/tools/npc-script-routes.js) with an authored overlay between the
+ * name override and the compiled numeric script:
+ * duey -> gachapon -> maple-tv-name -> authored-dialogue -> numeric-script ->
+ * standard-shop-fallback. The two hard-coded policy routes and the Maple TV
+ * name override keep their original authority over authored dialogue.
+ */
 export function resolveNpcRoute(references, npc, catalog) {
   const route = references.routes.get(npc.templateId);
   if (route && ["duey", "gachapon"].includes(route.precedence)) return route;
@@ -59,6 +68,15 @@ export function resolveNpcRoute(references, npc, catalog) {
     const named = references.data.namedScripts?.[override.script];
     requireInteraction(named, "CONTENT_MISMATCH");
     return named;
+  }
+  const dialogue = admitAuthoredDialogue(catalog.dialogues?.[npc.templateId]);
+  if (dialogue) {
+    return {
+      status: "supported",
+      precedence: "authored-dialogue",
+      npcId: npc.templateId,
+      dialogue,
+    };
   }
   return route ?? null;
 }

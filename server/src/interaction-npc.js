@@ -8,6 +8,10 @@ import { boundedNpcTurn, replayNpcPlan } from "./interaction-npc-executor.js";
 import { openShop, admitShop } from "./interaction-shop.js";
 import { questOffers } from "./interaction-quest.js";
 import { publishNpcMenu, answerNpcMenu } from "./interaction-npc-menu.js";
+import {
+  startAuthoredDialogue,
+  answerAuthoredDialogue,
+} from "./interaction-npc-authored.js";
 import { answerQuestDialogue } from "./interaction-quest-dialogue.js";
 import { operationFor } from "./action-rules.js";
 import { admitActor } from "./action-rules.js";
@@ -36,6 +40,9 @@ import {
 
 export async function executeNpc(actor, message, world) {
   if (message.action.kind === "npc.open") return openNpc(actor, message, world);
+  if (message.action.answer.kind === "cancel") {
+    return cancelNpc(actor, message, world);
+  }
   const lease = actor.conversation;
   currentNpc(world, actor, lease);
   requireInteraction(
@@ -44,12 +51,23 @@ export async function executeNpc(actor, message, world) {
       message.expectedRevision === lease.step,
     "STALE_REVISION",
   );
+  if (lease.unavailable) {
+    requireInteraction(
+      ["cancel", "next"].includes(message.action.answer.kind),
+      "NOT_ALLOWED",
+    );
+    closeConversation(actor, world);
+    return interactionReceipt(lease.step + 1);
+  }
   if (lease.questDialogue) {
     return answerQuestDialogue(actor, message, world, lease);
   }
   if (lease.menu) {
     const receipt = answerNpcMenu(actor, message, world, lease);
     return receipt ?? runRoute(actor, message, world, lease);
+  }
+  if (lease.authored) {
+    return answerAuthoredDialogue(actor, message, world, lease);
   }
   requireInteraction(lease.view, "NOT_ALLOWED");
   if (lease.view.kind === "storage") {
@@ -68,6 +86,17 @@ export async function executeNpc(actor, message, world) {
   return runTurn(actor, message, world, { lease, input });
 }
 
+/** Cancel has no script effects and is idempotent for this actor's conversation ID. */
+function cancelNpc(actor, message, world) {
+  admitActor(actor, world, actor.field.epoch);
+  const lease = actor.conversation;
+  if (lease?.id !== message.action.conversationId) {
+    return interactionReceipt(actor.revision);
+  }
+  closeConversation(actor, world);
+  return interactionReceipt(lease.step + 1);
+}
+
 async function openNpc(actor, message, world) {
   requireCharacterRevision(actor, message);
   requireInteraction(!actor.tradeId && actor.profile.hp > 0, "CHARACTER_BUSY");
@@ -78,11 +107,9 @@ async function openNpc(actor, message, world) {
   currentNpc(world, actor, lease);
   const route = resolveNpcRoute(references, npc, world.content.catalog);
   const offers = questOffers(actor, world, lease);
-  requireInteraction(
-    offers.length || route?.status === "supported",
-    "CONTENT_MISMATCH",
-  );
   closeConversation(actor, world);
+  // Like the offline interaction, no talk endpoint and no quest is a no-op.
+  if (!offers.length && !route) return interactionReceipt(actor.revision);
   actor.conversation = lease;
   actor.shop = null;
   lease.route = route;
@@ -110,8 +137,9 @@ export async function openPortalNpc(actor, portal, world) {
     !characters.some(
       (entry) => entry.level >= program.openNpc.minimumAccountLevel,
     )
-  )
-    {return;}
+  ) {
+    return;
+  }
   if (actor.conversation) return;
   const lease = virtualNpcLease(actor, program.openNpc.npcId, {
     kind: "portal",
@@ -147,7 +175,14 @@ export async function openPortalNpc(actor, portal, world) {
 
 async function runRoute(actor, message, world, lease) {
   const route = lease.route;
+  if (route?.status === "blocked") return unavailableNpc(actor, world, lease);
   requireInteraction(route?.status === "supported", "CONTENT_MISMATCH");
+  if (route.precedence === "authored-dialogue") {
+    const step = startAuthoredDialogue(actor, world, lease, route);
+    return interactionReceipt(
+      message.action.kind === "npc.open" ? actor.revision : step,
+    );
+  }
   if (route.precedence === "standard-shop-fallback") {
     lease.step++;
     await openShop(actor, world, lease, route.shopId);
@@ -163,6 +198,28 @@ async function runRoute(actor, message, world, lease) {
     route,
   );
   return runTurn(actor, message, world, { lease, input: { start: true } });
+}
+
+/** Server availability feedback is explicit; it does not invent an authored script or reward. */
+async function unavailableNpc(actor, world, lease) {
+  world.log?.("npc.unavailable", {
+    source: lease.npcTemplateId,
+    reason: lease.route.blockers
+      ?.slice(0, 8)
+      .map((blocker) => `${blocker.source}:${blocker.line} ${blocker.reason}`)
+      .join("; "),
+  });
+  lease.unavailable = true;
+  lease.step++;
+  lease.view = {
+    kind: "say",
+    speaker: 0,
+    prev: false,
+    next: false,
+    text: "#eService unavailable#n\r\nThis NPC's service is not available on this server yet.",
+  };
+  await publishNpcView(actor, world, lease);
+  return interactionReceipt(actor.revision);
 }
 
 function wireResponse(lease, answer) {
@@ -290,7 +347,10 @@ async function prepareTurnPlan(actor, world, turn, draft) {
   currentNpc(world, actor, lease, Boolean(destination));
   requireInteraction(actor.conversation === lease, "SESSION_EXPIRED");
   if (message.action.kind === "npc.answer") {
-    requireInteraction(message.expectedRevision === lease.step, "STALE_REVISION");
+    requireInteraction(
+      message.expectedRevision === lease.step,
+      "STALE_REVISION",
+    );
   }
   const request = { ...turn.request, profile: scriptProfile(draft) };
   const prepared = await boundedNpcTurn(world, request);
@@ -311,10 +371,18 @@ async function prepareTurnPlan(actor, world, turn, draft) {
 
 async function replayTurnPlan(actor, world, turn, profiles) {
   const draft = profiles.get(actor.id);
-  const { request, prepared } = await prepareTurnPlan(actor, world, turn, draft);
+  const { request, prepared } = await prepareTurnPlan(
+    actor,
+    world,
+    turn,
+    draft,
+  );
   const previousLevel = draft.level;
   turn.result = replayNpcPlan(draft, request, prepared);
-  const familyProgress = { now: world.now, operationId: turn.message.operationId };
+  const familyProgress = {
+    now: world.now,
+    operationId: turn.message.operationId,
+  };
   for (let level = previousLevel + 1; level <= draft.level; level++) {
     applyOnlineFamilyProgress(
       profiles,
@@ -325,7 +393,9 @@ async function replayTurnPlan(actor, world, turn, profiles) {
   }
   return {
     domainRevision:
-      turn.message.action.kind === "npc.answer" ? turn.lease.step + 1 : undefined,
+      turn.message.action.kind === "npc.answer"
+        ? turn.lease.step + 1
+        : undefined,
     value: {
       kind: "npc.turn",
       conversationId: turn.lease.id,
@@ -336,14 +406,19 @@ async function replayTurnPlan(actor, world, turn, profiles) {
 }
 
 async function commitTurn(actor, message, world, execution) {
-  const destination = execution.result.effects.find((effect) => effect.kind === "warp");
+  const destination = execution.result.effects.find(
+    (effect) => effect.kind === "warp",
+  );
   const turn = {
     ...execution,
     message,
     destination,
     view: execution.result.view,
   };
-  const operation = { ...operationFor(message), domainRevision: turn.lease.step };
+  const operation = {
+    ...operationFor(message),
+    domainRevision: turn.lease.step,
+  };
   const ids = [actor.id, ...familyProgressIds(actor.profile)];
   const mutate = (profiles) => replayTurnPlan(actor, world, turn, profiles);
   let receipt;
@@ -353,8 +428,9 @@ async function commitTurn(actor, message, world, execution) {
       ids,
       mutate,
     });
-  } else
-    {receipt = await world.participants.commit(actor, operation, ids, mutate);}
+  } else {
+    receipt = await world.participants.commit(actor, operation, ids, mutate);
+  }
   if (receipt.status === "committed") {
     try {
       world.publish(actor, { type: "snapshot-request" });

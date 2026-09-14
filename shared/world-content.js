@@ -16,6 +16,9 @@ function validateOverlay(base, overlay) {
   ]) {
     validateIndex(overlay[key]);
   }
+  for (const key of ["drops", "dialogues"]) {
+    validateTargetIndex(overlay[key] ?? {});
+  }
   for (const [key, original] of [
     ["maps", base.maps],
     ["monsters", base.monsters],
@@ -45,6 +48,23 @@ function validateIndex(value) {
   }
 }
 
+/** Drop tables and conversations address original and custom runtime identities alike. */
+function validateTargetIndex(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).length > 128
+  ) {
+    throw new Error("World release index exceeds bounds");
+  }
+  for (const id of Object.keys(value)) {
+    if (!/^[1-9]\d{1,8}$/.test(id)) {
+      throw new Error("Invalid world content target identity");
+    }
+  }
+}
+
 export function applyWorldContent(base, overlay) {
   validateOverlay(base, overlay);
   const presentation = inheritedMapPresentation(base, overlay);
@@ -54,6 +74,8 @@ export function applyWorldContent(base, overlay) {
     maps: { ...base.maps, ...overlay.maps },
     mapNames: { ...base.mapNames, ...overlay.mapNames },
     monsters: { ...base.monsters, ...overlay.monsters },
+    drops: mergedDrops(base, overlay.drops ?? {}),
+    dialogues: { ...(base.dialogues ?? {}), ...overlay.dialogues },
     quests: {
       ...base.quests,
       records: { ...base.quests.records, ...overlay.quests },
@@ -67,6 +89,20 @@ export function applyWorldContent(base, overlay) {
       name: overlay.mapNames[id],
     })),
   };
+}
+
+/** Authored rows extend the original table or replace it wholesale for that target. */
+function mergedDrops(base, overlay) {
+  const mobs = { ...base.drops?.mobs };
+  for (const [id, entry] of Object.entries(overlay)) {
+    const inherited = base.drops?.mobs?.[id];
+    const rows =
+      entry.mode === "replace"
+        ? entry.rows
+        : [...(inherited?.rows ?? []), ...entry.rows];
+    mobs[id] = { ...inherited, rows };
+  }
+  return { schemaVersion: base.drops?.schemaVersion ?? 1, ...base.drops, mobs };
 }
 
 function inheritedMapPresentation(base, overlay) {

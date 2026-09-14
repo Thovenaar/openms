@@ -1,4 +1,4 @@
-import { ServerContent } from "./content.js";
+import { OriginalContent } from "@openms/content/original";
 import { WorldContentStore } from "@openms/content/world-store";
 import { contentError, digest } from "@openms/content";
 import { applyWorldContent } from "../../shared/world-content.js";
@@ -7,7 +7,7 @@ import { prepareRelease } from "./content-release.js";
 import { canRetireField, retireIdleField } from "./field-retirement.js";
 
 /** One installed release owns its cache; generated resources remain owned by the original reader. */
-export class WorldContent extends ServerContent {
+export class WorldContent extends OriginalContent {
   constructor(original, store) {
     super(original.root);
     this.original = original;

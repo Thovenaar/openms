@@ -5,6 +5,9 @@ import { freshLease } from "../src/interaction-common.js";
 import { executeNpc } from "../src/interaction-npc.js";
 import { questOffers, executeQuest } from "../src/interaction-quest.js";
 import { startQuestDialogue } from "../src/interaction-quest-dialogue.js";
+import { createDevelopmentLog } from "../../shared/development-log.js";
+import { executeAction } from "../src/actions.js";
+import { OnlineWorld } from "../src/world.js";
 
 const content = await loadContent();
 
@@ -116,18 +119,147 @@ test("unfinished quests remain browsable but cannot grant a completion lease or 
   expect(latest(probe).kind).toBe("dialogue.closed");
 });
 
-test("menu cancellation validates the conversation step and clears reconnect presentation", async () => {
+test("menu choices require the current step; cancellation clears even a stale displayed step", async () => {
   const probe = fixture();
   probe.lease.menu = questOffers(probe.actor, probe.world, probe.lease);
   probe.lease.step = 4;
-  await expect(answer(probe, { kind: "cancel" }, 3)).rejects.toMatchObject({
+  await expect(
+    answer(probe, { kind: "choice", choiceId: 0 }, 3),
+  ).rejects.toMatchObject({
     code: "STALE_REVISION",
   });
   expect(probe.actor.conversation).toBe(probe.lease);
-  await answer(probe, { kind: "cancel" });
+  await answer(probe, { kind: "cancel" }, 3);
   expect(probe.actor.conversation).toBeNull();
   expect(latest(probe)).toEqual({
     kind: "dialogue.closed",
     conversationId: probe.lease.id,
   });
+});
+
+function open(probe) {
+  probe.actor.conversation = null;
+  return executeNpc(
+    probe.actor,
+    {
+      expectedRevision: probe.actor.revision,
+      action: { kind: "npc.open", npcId: "npc:fixture" },
+    },
+    probe.world,
+  );
+}
+
+test("an NPC with no available quest or talk endpoint is an empty interaction", async () => {
+  const probe = fixture(null, 1010100); // Original Rina, level-one beginner.
+  const before = structuredClone(probe.actor.profile);
+  expect((await open(probe)).status).toBe("committed");
+  expect(probe.actor.conversation).toBeNull();
+  expect(probe.events).toEqual([]);
+  expect(probe.actor.profile).toEqual(before);
+});
+
+test("Regular Cab advances from introduction to all five original destinations", async () => {
+  const probe = fixture(null, 1012000);
+  expect((await open(probe)).status).toBe("committed");
+  probe.lease = probe.actor.conversation;
+  expect(probe.lease.view.kind).toBe("say");
+  expect((await answer(probe, { kind: "next" })).status).toBe("committed");
+  expect(probe.lease.view.kind).toBe("choice");
+  expect(latest(probe).choices).toEqual([0, 1, 2, 3, 4]);
+  await answer(probe, { kind: "choice", choiceId: 0 });
+  expect(probe.lease.view.kind).toBe("yes-no");
+  expect(probe.lease.view.text).toContain("100 mesos");
+  await answer(probe, { kind: "yesno", value: true });
+  expect(probe.lease.view.text).toContain("don't have enough mesos");
+  await answer(probe, { kind: "cancel" });
+  expect(probe.actor.conversation).toBeNull();
+});
+
+test("End Chat clears expired or failed script leases without executing callbacks or changing a profile", async () => {
+  const probe = fixture();
+  const before = structuredClone(probe.actor.profile);
+  probe.lease.expiresAt = 0;
+  probe.lease.view = { kind: "choice" };
+  probe.world.npc = () => {
+    throw new Error("Expired NPC must not be consulted for cancellation");
+  };
+  expect((await answer(probe, { kind: "cancel" })).status).toBe("committed");
+  expect(probe.actor.conversation).toBeNull();
+  expect((await answer(probe, { kind: "cancel" })).status).toBe("committed");
+  const replacement = freshLease(probe.actor, {
+    id: "new-npc",
+    templateId: 1012000,
+  });
+  probe.actor.conversation = replacement;
+  await answer(probe, { kind: "cancel" });
+  expect(probe.actor.conversation).toBe(replacement);
+  expect(probe.actor.profile).toEqual(before);
+});
+
+test("NPC cancellation waits for an active persistence checkpoint before reserving the actor", async () => {
+  const probe = fixture();
+  const saved = Promise.withResolvers();
+  const { actor, world } = probe;
+  Object.assign(actor, {
+    connection: { data: { epoch: "test", ready: true } },
+    lastCheckpoint: 0,
+  });
+  world.now = 1000;
+  world.database = {
+    checkpoint: () => saved.promise,
+    receipt: async () => null,
+  };
+  world.participants = {
+    producedPending: () => false,
+    signalIdle: () => {},
+    busy: (current) => current.pending,
+    reconcile: async (current, receipt) => receipt,
+  };
+  OnlineWorld.prototype.checkpoint.call(world, actor);
+  expect(actor.pending).toBe(true);
+  const receipt = executeAction(
+    actor,
+    {
+      operationId: crypto.randomUUID(),
+      connectionEpoch: "test",
+      fieldEpoch: actor.field.epoch,
+      expectedRevision: 0,
+      action: {
+        kind: "npc.answer",
+        conversationId: probe.lease.id,
+        step: 0,
+        answer: { kind: "cancel" },
+      },
+    },
+    world,
+  );
+  await Promise.resolve();
+  expect(actor.conversation).toBe(probe.lease);
+  saved.resolve();
+  expect((await receipt).status).toBe("committed");
+  expect(actor.pending).toBe(false);
+  expect(actor.checkpointTask).toBeNull();
+  expect(actor.conversation).toBeNull();
+});
+
+test("known blocked NPC services show a closable availability notice without mutation", async () => {
+  const probe = fixture(null, 9209000); // Abdula's unsupported service route.
+  const logs = [];
+  probe.world.log = createDevelopmentLog("npc-test", {
+    write: (line) => logs.push(line),
+  });
+  const before = structuredClone(probe.actor.profile);
+  expect((await open(probe)).status).toBe("committed");
+  expect(logs[0]).toContain("9209000");
+  expect(logs[0]).toContain("cm.getPlayer().isCygnus");
+  probe.lease = probe.actor.conversation;
+  expect(probe.lease.unavailable).toBe(true);
+  expect(latest(probe).native).toMatchObject({ kind: "say", next: false });
+  expect(probe.lease.view.text).toContain("Service unavailable");
+  await expect(
+    answer(probe, { kind: "choice", choiceId: 1 }),
+  ).rejects.toMatchObject({ code: "NOT_ALLOWED" });
+  await answer(probe, { kind: "next" });
+  expect(probe.actor.conversation).toBeNull();
+  expect(probe.actor.profile).toEqual(before);
 });

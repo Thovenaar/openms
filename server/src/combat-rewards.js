@@ -18,6 +18,7 @@ import {
 } from "./kill-credit.js";
 import { protocolError } from "../../shared/schema.js";
 import { commitPickpocketDrops, releaseSkillDrops } from "./skill-drops.js";
+import { broadcastLevelUp } from "./field-effects.js";
 
 export function combatOperation(actor, kind, operationId = randomUUID()) {
   return {
@@ -143,6 +144,7 @@ function publishKillReward(world, actor, reward, field) {
       levels: reward.levels,
     },
   });
+  broadcastLevelUp(world, actor, reward.levels);
   for (const questId of reward.newlyReady) {
     world.publish(actor, {
       type: "event",

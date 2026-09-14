@@ -70,7 +70,7 @@ test("migration inventory only admits bounded consecutive PostgreSQL files", asy
 test("default migration inventory matches the runtime schema requirement", async () => {
   const migrations = await readMigrations();
   expect(migrations).toHaveLength(DATABASE_SCHEMA_VERSION);
-  expect(migrations.at(-1).filename).toBe("006-world.sql");
+  expect(migrations.at(-1).filename).toBe("007-content-kinds.sql");
 });
 
 async function withDatabase(run) {
@@ -128,7 +128,7 @@ async function checkFreshDatabase({ sql, url }) {
     await sql`SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'`;
   expect(empty[0].n).toBe(0);
   const first = await cliMigration(url);
-  expect(first.applied).toHaveLength(6);
+  expect(first.applied).toHaveLength(7);
   expect(first.skipped).toHaveLength(0);
   await sql`INSERT INTO account(id,name,password_hash,role) VALUES('kept','kept','unused','player')`;
   const before =
@@ -140,7 +140,7 @@ async function checkFreshDatabase({ sql, url }) {
   ).toEqual(before);
   const second = await cliMigration(url);
   expect(second.applied).toHaveLength(0);
-  expect(second.skipped).toHaveLength(6);
+  expect(second.skipped).toHaveLength(7);
   expect((await sql`SELECT name FROM account WHERE id='kept'`)[0].name).toBe(
     "kept",
   );
@@ -151,8 +151,8 @@ async function checkAtomicFailure({ sql, url }) {
   const broken = [
     ...migrations,
     {
-      version: 7,
-      filename: "007-broken.sql",
+      version: 8,
+      filename: "008-broken.sql",
       sha256: "a".repeat(64),
       sql: "CREATE TABLE rollback_probe(id integer); SELECT * FROM missing_migration_table;",
     },
@@ -172,7 +172,7 @@ async function checkAtomicFailure({ sql, url }) {
   await expect(applyMigrations(sql, changed)).rejects.toThrow(
     "Applied migration changed",
   );
-  expect((await sql`SELECT count(*)::int AS n FROM migrations`)[0].n).toBe(6);
+  expect((await sql`SELECT count(*)::int AS n FROM migrations`)[0].n).toBe(7);
 }
 
 async function checkLegacyDatabase({ sql, url }) {
@@ -184,8 +184,8 @@ async function checkLegacyDatabase({ sql, url }) {
     migrateDatabase({ databaseUrl: url, sqlRoot }),
     migrateDatabase({ databaseUrl: url, sqlRoot }),
   ]);
-  expect(runs.flatMap((run) => run.applied)).toHaveLength(6);
-  expect(runs.flatMap((run) => run.skipped)).toHaveLength(6);
+  expect(runs.flatMap((run) => run.applied)).toHaveLength(7);
+  expect(runs.flatMap((run) => run.skipped)).toHaveLength(7);
   expect((await sql`SELECT name FROM account WHERE id='legacy'`)[0].name).toBe(
     "legacy",
   );

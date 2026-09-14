@@ -50,7 +50,10 @@ function questAdmission(record, profile, npcId, stage) {
     "REQUIREMENTS_NOT_MET",
   );
   const endpoint = record.stages[stage];
-  requireInteraction(isNpcEndpoint(endpoint, npcId), "NOT_ALLOWED");
+  requireInteraction(
+    isNpcEndpoint(endpoint, npcId, record.stages[0]),
+    "NOT_ALLOWED",
+  );
   const context = { questId: record.id, npcId };
   requireInteraction(
     checkConditions(endpoint.check, profile, context).ok &&

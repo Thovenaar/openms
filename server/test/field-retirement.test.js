@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { OnlineWorld } from "../src/world.js";
-import { ServerContent } from "../src/content.js";
+import { OriginalContent } from "@openms/content/original";
 import { canRetireField } from "../src/field-retirement.js";
 
 function field(mapId) {
@@ -95,7 +95,7 @@ test("a fully reserved world rejects another load without evicting live state", 
 });
 
 test("content LRU releases cache references without mutating manifests retained by fields", async () => {
-  const content = new ServerContent("unused-test-root");
+  const content = new OriginalContent("unused-test-root");
   let loads = 0;
   content.loadMap = async (id) => {
     loads++;

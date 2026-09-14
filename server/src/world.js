@@ -499,7 +499,7 @@ export class OnlineWorld {
     actor.pendingOwner = null;
     const dirty = actor.runtimeDirty;
     actor.runtimeDirty = false;
-    this.database
+    actor.checkpointTask = this.database
       .checkpoint(actor)
       .then(() => {
         if (dirty) return this.participants.deliver([actor.id]);
@@ -523,6 +523,7 @@ export class OnlineWorld {
       })
       .finally(() => {
         actor.pending = false;
+        actor.checkpointTask = null;
         this.participants.signalIdle();
       });
   }

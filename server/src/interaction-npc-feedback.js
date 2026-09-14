@@ -2,6 +2,7 @@ import {
   INTERACTION_LIMITS,
   requireInteraction,
 } from "./interaction-common.js";
+import { broadcastLevelUp } from "./field-effects.js";
 
 const REWARDS_PER_EVENT = 128;
 
@@ -37,8 +38,9 @@ export function npcRewardEvents(lease, result) {
   for (const effect of result.effects) {
     if (effect.kind === "item" && effect.show && effect.delta > 0) {
       items.push({ itemId: effect.itemId, amount: effect.delta });
-    } else if (effect.kind === "meso" && effect.delta > 0)
-      {mesos += effect.delta;}
+    } else if (effect.kind === "meso" && effect.delta > 0) {
+      mesos += effect.delta;
+    }
   }
   if (!items.length && !mesos) return [];
   return rewardEvents({
@@ -72,6 +74,7 @@ export function questRewardEvents(record, stage, result) {
 /** Outbox effects are published only by the freshly committed turn, never receipt replay. */
 export function publishNarrativeEvents(actor, receipt, world) {
   if (!receipt.applied) return;
+  let levels = 0;
   for (const event of receipt.events) {
     try {
       world.publish(actor, {
@@ -79,9 +82,11 @@ export function publishNarrativeEvents(actor, receipt, world) {
         fieldEpoch: actor.field.epoch,
         event,
       });
+      levels += event.levels ?? 0;
     } catch (error) {
       world.deliveryFailed(actor, error);
       return;
     }
   }
+  broadcastLevelUp(world, actor, levels);
 }

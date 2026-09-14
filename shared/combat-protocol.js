@@ -164,6 +164,10 @@ export const COMBAT_EVENT_SCHEMAS = {
     amount: u32,
     levels: number(0, 200),
   }),
+  "combat.level-up": record({
+    kind: enumeration("combat.level-up"),
+    actorId: id,
+  }),
   "combat.recovery": record({
     kind: enumeration("combat.recovery"),
     actorId: id,

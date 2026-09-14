@@ -8,7 +8,8 @@ export function canRetireField(world, field) {
     field.travelReservations ||
     field.dropReservations ||
     field.drops.size ||
-    field.reactors.pending
+    field.reactors.pending ||
+    field.reactors.rewardJobs?.size
   ) {
     return false;
   }

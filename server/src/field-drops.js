@@ -48,6 +48,7 @@ function createDropContents(request) {
     itemId: request.item?.id ?? 0,
     durableEntitlement: request.durableEntitlement === true && !disappearing,
     disappearing,
+    playerDrop: request.playerDrop === true,
   };
 }
 
@@ -60,7 +61,9 @@ export function prepareFieldDrop(world, actor, request) {
   drop.active = true;
   drop.ownerId = request.ownerId ?? actor.id;
   drop.ownerPartyId = actor.profile.social?.party?.id ?? null;
-  drop.ownerUntil = createdAt + DROP_OWNER_MS;
+  // Cosmic InventoryManipulator passes ffaDrop=true for player-created drops;
+  // majority-owned monster/reactor loot retains MapItem's 15-second protection.
+  drop.ownerUntil = createdAt + (drop.playerDrop ? 0 : DROP_OWNER_MS);
   drop.createdAt = createdAt;
   drop.expiresAt =
     createdAt +
@@ -78,7 +81,7 @@ export function prepareFieldDrop(world, actor, request) {
 export function publishFieldDrop(field, drop, now) {
   if (field.drops.has(drop.id)) return field.drops.get(drop.id);
   drop.createdAt = now;
-  drop.ownerUntil = now + DROP_OWNER_MS;
+  drop.ownerUntil = now + (drop.playerDrop ? 0 : DROP_OWNER_MS);
   drop.expiresAt =
     now +
     (drop.disappearing
@@ -166,12 +169,47 @@ function admittedRows(world, mob) {
   return admitted;
 }
 
+/** Authored windows are epoch-ms: inclusive start, exclusive end. */
+function conditionApplies(condition, job, level, now) {
+  const window = condition.window;
+  if (window && !(now >= window.start && now < window.end)) return false;
+  const jobs = condition.jobs;
+  if (jobs && !jobs.includes(job)) return false;
+  if (condition.minLevel !== undefined && level < condition.minLevel) {
+    return false;
+  }
+  if (condition.maxLevel !== undefined && level > condition.maxLevel) {
+    return false;
+  }
+  return true;
+}
+
+/** Failing conditions leave the captured set in place at accepted impact. */
+function applyDropConditions(rows, actor, now) {
+  if (!rows) return rows;
+  const { job, level } = actor.profile;
+  let kept = 0;
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index];
+    if (row.condition && !conditionApplies(row.condition, job, level, now)) {
+      continue;
+    }
+    rows[kept++] = row;
+  }
+  rows.length = kept;
+  return rows;
+}
+
 /** Capture accepted-impact rates before a queued durable reward can outlive its temporary sources. */
 export function captureKillDropRates(world, actor, mob) {
   refreshPickupConditions(actor);
   const effects = actor.skills?.effects ?? actor.temporaryStats;
   const cardDropRates = Object.create(null);
-  const killDropRows = admittedRows(world, mob);
+  const killDropRows = applyDropConditions(
+    admittedRows(world, mob),
+    actor,
+    world.now,
+  );
   for (const row of killDropRows ?? []) {
     cardDropRates[row.itemId] = effects?.cardRate(row.itemId) ?? 1;
   }
@@ -246,6 +284,16 @@ function prepareKillBatch(world, actor, mob, output) {
 /** Lethal owner includes grantEntitlements and value.dropPlanId in its one reward transaction. */
 export function prepareKillDrops(world, actor, mob) {
   refreshPickupConditions(actor);
+  const rows =
+    mob.killDropRows === undefined
+      ? admittedRows(world, mob)
+      : mob.killDropRows;
+  const output = rows ? rollKillDrops(world, actor, mob, rows) : null;
+  return prepareDropPlan(world, actor, mob, output);
+}
+
+/** Shared bounded escrow for admitted monster or reactor rolls, before anything reaches the field. */
+export function prepareDropPlan(world, actor, source, output) {
   const field = actor.field;
   const plan = {
     id: randomUUID(),
@@ -257,15 +305,10 @@ export function prepareKillDrops(world, actor, mob) {
     reserved: 0,
     refusal: null,
   };
-  const rows =
-    mob.killDropRows === undefined
-      ? admittedRows(world, mob)
-      : mob.killDropRows;
-  if (!rows) {
+  if (!output) {
     plan.refusal = "unsupported-mob";
     return plan;
   }
-  const output = rollKillDrops(world, actor, mob, rows);
   if (
     output.count < 0 ||
     output.count > MAX_FIELD_DROPS - field.drops.size - field.dropReservations
@@ -274,7 +317,7 @@ export function prepareKillDrops(world, actor, mob) {
     return plan;
   }
   try {
-    plan.requests = prepareKillBatch(world, actor, mob, output);
+    plan.requests = prepareKillBatch(world, actor, source, output);
   } catch (error) {
     if (error.code !== "REQUIREMENTS_NOT_MET") throw error;
     plan.refusal = "no-drop-ground";

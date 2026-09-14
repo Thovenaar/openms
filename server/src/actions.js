@@ -217,6 +217,11 @@ async function prepareAction(actor, message, world) {
     ? null
     : await world.database.receipt(actor, operation);
   if (previous) return { receipt: previous, replayed: true };
+  // Routine persistence is not a reason to reject an NPC button. Wait before
+  // rechecking the connection and reserving the actor; never replay a paid turn.
+  if (message.action.kind.startsWith("npc.") && actor.checkpointTask) {
+    await actor.checkpointTask;
+  }
   if (
     !actor.connection ||
     actor.connection.data.closed ||

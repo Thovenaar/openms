@@ -117,7 +117,7 @@ export const WORLD_ENTITY_FIELDS = {
       repeat: boolean,
       visible: boolean,
       generation: revision,
-      scriptRewards: enumeration(false),
+      scriptRewards: boolean,
     }),
   ),
 };
@@ -130,7 +130,7 @@ export const WORLD_EVENT_SCHEMAS = {
     state: number(-1, 255),
     generation: revision,
     impactTick: revision,
-    scriptRewards: enumeration(false),
+    scriptRewards: boolean,
   }),
   "world.teleport": record({
     kind: enumeration("world.teleport"),
@@ -152,6 +152,10 @@ export const WORLD_EVENT_SCHEMAS = {
   }),
 };
 export const WORLD_RESULT_SCHEMAS = {
+  "reactor.reward": record({
+    kind: enumeration("reactor.reward"),
+    dropPlanId: id,
+  }),
   "world.character-action": record({
     kind: enumeration("world.character-action"),
     action: enumeration("expression.use", "expression.cash", "seat.toggle"),
@@ -161,7 +165,7 @@ export const WORLD_RESULT_SCHEMAS = {
     accepted: enumeration(true),
     consumed: number(1, 2147483647),
     reactorId: id,
-    scriptRewards: enumeration(false),
+    scriptRewards: boolean,
   }),
   "world.travel": record({
     kind: enumeration("world.travel"),

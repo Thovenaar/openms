@@ -5,6 +5,7 @@ import {
   validateNpcEnvironment,
   admitNpcForceQuests,
   validateNpcDraft,
+  restoreNpcGlobals,
 } from "../../client/src/npc/npc-script-authority.js";
 import { requireNpc } from "../../client/src/npc/npc-script-values.js";
 
@@ -57,6 +58,7 @@ function execute(request) {
     craftingScroll: false,
     savedMapIds: [],
   };
+  restoreNpcGlobals(state.globals);
   const turn = executeNpcTurn(context, state, request.profile, {
     ...request.input,
     environment,
@@ -82,7 +84,11 @@ function receive(request) {
   try {
     parentPort.postMessage({ ok: true, value: execute(request) });
   } catch (error) {
-    parentPort.postMessage({ ok: false, code: error.code ?? "npc-dependency" });
+    parentPort.postMessage({
+      ok: false,
+      code: error.code ?? "npc-dependency",
+      reason: String(error.message).slice(0, 200),
+    });
   }
 }
 

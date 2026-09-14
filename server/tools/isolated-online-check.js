@@ -1,6 +1,6 @@
 import { migrateDatabase } from "../../tools/migrate.js";
 import { SQL } from "bun";
-import { acquireBrowser } from "../../client/tools/native-scenario-runner.js";
+import { acquireBrowser } from "../../client/tools/browser-acquisition.js";
 import { loadEnvironment } from "../../shared/environment.js";
 import { serverConfig } from "../src/config.js";
 import { loadContent } from "../src/content.js";
