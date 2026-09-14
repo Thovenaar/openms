@@ -592,3 +592,51 @@ test.skipIf(!databaseUrl)(
   },
   30000,
 );
+
+/** A pooled client can already have executed a statement when a transaction
+ *  begins, so SERIALIZABLE must be part of BEGIN rather than a later
+ *  `SET TRANSACTION ISOLATION LEVEL`, which PostgreSQL rejects with 25001. */
+async function proveSerializableTransactionsUnderPoolContention(database) {
+  const workers = 24;
+  const steps = 20;
+  const levels = new Set();
+  const failures = [];
+  const run = async (index) => {
+    try {
+      if (index % 2 === 0) {
+        await database.transaction(async (tx) => {
+          const [row] =
+            await tx`SELECT current_setting('transaction_isolation') AS iso`;
+          levels.add(row.iso);
+          await tx`SELECT 1`;
+        });
+      } else {
+        // A plain pooled parameterized read, like the delivery path's directory lookups.
+        await database.searchParticipants({ limit: 1 });
+      }
+    } catch (error) {
+      failures.push(error.message);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: workers }, (_, worker) =>
+      (async () => {
+        for (let step = 0; step < steps; step++) {
+          await run(worker * steps + step);
+        }
+      })(),
+    ),
+  );
+  expect(failures.filter((message) => /ISOLATION LEVEL/.test(message))).toEqual(
+    [],
+  );
+  expect(levels).toEqual(new Set(["serializable"]));
+}
+
+test.skipIf(!databaseUrl)(
+  "PostgreSQL begins SERIALIZABLE with the transaction under pool contention",
+  async () => {
+    await withDatabase(proveSerializableTransactionsUnderPoolContention);
+  },
+  30000,
+);

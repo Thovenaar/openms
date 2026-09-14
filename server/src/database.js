@@ -516,13 +516,19 @@ export class Database {
   async transaction(work) {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
       try {
-        return await this.sql.begin(async (tx) => {
-          await tx`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`;
-          await tx`SET LOCAL lock_timeout='2s'`;
-          await tx`SET LOCAL statement_timeout='5s'`;
-          await tx`SET LOCAL idle_in_transaction_session_timeout='5s'`;
-          return work(tx);
-        });
+        // The isolation level belongs to BEGIN itself. A separate
+        // `SET TRANSACTION ISOLATION LEVEL` statement is only legal before any
+        // query in the transaction, and a pooled client reused mid-flight can
+        // already have run one, which made every retry fail with 25001.
+        return await this.sql.begin(
+          "ISOLATION LEVEL SERIALIZABLE",
+          async (tx) => {
+            await tx`SET LOCAL lock_timeout='2s'`;
+            await tx`SET LOCAL statement_timeout='5s'`;
+            await tx`SET LOCAL idle_in_transaction_session_timeout='5s'`;
+            return work(tx);
+          },
+        );
       } catch (error) {
         const code = error.errno ?? error.code;
         if (code === "23505" && error.constraint === "character_active_name") {

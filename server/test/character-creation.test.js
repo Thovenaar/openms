@@ -193,7 +193,8 @@ test("PostgreSQL serialization errors use SQLSTATE errno rather than Bun's wrapp
     },
   );
   const sql = {
-    async begin(work) {
+    async begin(options, work) {
+      expect(options).toBe("ISOLATION LEVEL SERIALIZABLE");
       if (first) {
         first = false;
         throw serializationError;
