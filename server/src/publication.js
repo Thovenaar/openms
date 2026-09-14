@@ -82,6 +82,9 @@ export class Publications {
       paused: actor.field.paused,
       ackInputSeq: actor.ackInputSeq ?? null,
       motion: captureMotion(actor.simulation),
+      // This immediate post-snapshot checkpoint applies no external impulse, but the
+      // wire record requires the bounded divert array on every motion frame.
+      diverts: [],
     });
   }
 

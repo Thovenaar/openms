@@ -1,11 +1,16 @@
 import { LoadingDecoration } from "../delivery/loading-decoration.js";
 
+/** A required login resource failed; a manual reload is the only bounded recovery. */
+export const STARTUP_ASSET_FAILURE_MESSAGE =
+  "The game files needed for the sign in page could not be loaded. Reload this page to try again.";
+
 /** Browser-only loading presentation; tokens own real async preparation, never progress. */
 export class OnlineLoading {
   constructor(viewport, signal) {
     this.owners = new Set();
     this.maps = new Set();
     this.destroyed = false;
+    this.failure = null;
     this.overlay = document.createElement("section");
     this.overlay.id = "delivery-startup";
     this.overlay.hidden = true;
@@ -70,12 +75,41 @@ export class OnlineLoading {
   }
 
   refresh() {
-    if (this.destroyed) return;
+    // A required-asset failure owns the surface until the page is reloaded; later
+    // map tokens and cache hits must not replace its message or hide it.
+    if (this.destroyed || this.failure) return;
     let fullscreen = false;
     for (const map of this.maps) fullscreen ||= map.downloading;
     this.overlay.hidden = !fullscreen;
     this.indicator.hidden = fullscreen || this.owners.size === 0;
     this.status.textContent = "Loading map assets…";
+  }
+
+  /**
+   * Required login-page resources (catalog, UI or login bundles) failed to load.
+   * Keep this one loading surface with an explicit message instead of exposing a
+   * login page without art. The optional mushroom image simply stays absent when
+   * its own decoration never decoded, so the message remains readable on its own.
+   */
+  failStartup(message = STARTUP_ASSET_FAILURE_MESSAGE) {
+    if (this.destroyed) return;
+    this.failure = message;
+    this.overlay.dataset.state = "error";
+    this.overlay.dataset.art =
+      this.decoration?.image?.hidden === false ? "shown" : "missing";
+    this.overlay.setAttribute("aria-label", "Game files unavailable");
+    this.overlay.hidden = false;
+    this.indicator.hidden = true;
+    this.status.textContent = message;
+  }
+
+  /** Read-only diagnostics; `failure` distinguishes the fallback from ordinary loading. */
+  snapshot() {
+    return {
+      visible: !this.overlay.hidden,
+      failure: this.failure,
+      art: this.failure ? (this.overlay.dataset.art ?? null) : null,
+    };
   }
 
   destroy() {

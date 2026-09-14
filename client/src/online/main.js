@@ -24,6 +24,7 @@ import { OnlineUI } from "./ui.js";
 import { OnlineInspection } from "./inspection.js";
 import { OnlineLogin } from "./login.js";
 import { OnlineLoading } from "./loading.js";
+import { prepareLoginStartup } from "./login-startup.js";
 import { NativeOperationRefusal } from "./native-source.js";
 import { portalEntryContains } from "../world/portal-presentation.js";
 import { applyWorldContent } from "../../../shared/world-content.js";
@@ -394,6 +395,7 @@ function snapshot() {
     },
     online: transport.snapshot(),
     prediction: prediction.snapshot(),
+    delivery: loading.snapshot(),
   };
 }
 
@@ -542,12 +544,19 @@ function initializeInterfaces() {
   );
 }
 
-async function initialize() {
-  await initializeBrowserSurface(app, viewport);
-  if (destroyed) throw new DOMException("Client closed", "AbortError");
-  services.atlases = new AtlasStore(app.renderer, network);
-  initializeInterfaces();
-  await transport.initialize();
+/**
+ * A required login-page resource (catalog, UI bundle or login artwork) failed to
+ * prepare. Transient failures before this phase (browser surface, server
+ * bootstrap) keep their existing report-only path.
+ */
+function loginResourceFailure(error) {
+  report(error);
+  login?.destroy();
+  login = null;
+}
+
+/** Catalog, shared UI bundles and login artwork, in their required order. */
+async function prepareLoginPage() {
   catalog = await loadCatalog();
   communityMaps = new CommunityMaps(catalog, {
     intent,
@@ -558,7 +567,20 @@ async function initialize() {
   await ui.prepare(catalog, controller.signal);
   startPresentation();
   await login.prepare(catalog, controller.signal);
-  status(transport.snapshot());
+}
+
+async function initialize() {
+  await initializeBrowserSurface(app, viewport);
+  if (destroyed) throw new DOMException("Client closed", "AbortError");
+  services.atlases = new AtlasStore(app.renderer, network);
+  initializeInterfaces();
+  await transport.initialize();
+  const ready = await prepareLoginStartup({
+    prepare: prepareLoginPage,
+    loading,
+    onFailure: loginResourceFailure,
+  });
+  if (ready) status(transport.snapshot());
 }
 
 function startPresentation() {

@@ -3,6 +3,9 @@ import { Publications } from "../src/publication.js";
 import { actorEntity } from "../src/field-views.js";
 import { decodeServer, snapshotPartSchema } from "../../shared/protocol.js";
 import { validate } from "../../shared/schema.js";
+import { loadContent } from "../src/content.js";
+import { createSimulation } from "../../client/src/physics/simulation.js";
+import { captureMotion } from "../../shared/motion.js";
 
 function fixture() {
   const sent = [];
@@ -126,6 +129,40 @@ test("oversized entity deltas fall back before advancing the baseline or sending
   expect(f.actor.eventSeq).toBe(1);
   expect(f.socket.data.baselines.size).toBe(1);
   expect(f.socket.data.knownEntities.size).toBe(100);
+});
+
+test("the immediate post-snapshot motion checkpoint is a complete wire record", async () => {
+  const content = await loadContent();
+  const manifest = await content.map(content.catalog.defaultMap);
+  const simulation = createSimulation(manifest.physics, {
+    x: 0,
+    y: 0,
+    facing: 1,
+  });
+  const sent = [];
+  const actor = {
+    field: { epoch: "field", tick: 123, paused: false },
+    state: "active",
+    eventSeq: 0,
+    ackInputSeq: 4,
+    simulation,
+    connection: {
+      data: { epoch: "connection", closed: false },
+      getBufferedAmount: () => 0,
+      send(text) {
+        sent.push(text);
+        return text.length;
+      },
+    },
+  };
+  new Publications({}).motion(actor);
+  expect(sent).toHaveLength(1);
+  const frame = decodeServer(sent[0]);
+  expect(frame.type).toBe("motion");
+  // Server-issued checkpoints carry no external impulse, but the closed record still
+  // requires the divert array the movement contract added.
+  expect(frame.diverts).toEqual([]);
+  expect(frame.motion).toEqual(captureMotion(simulation));
 });
 
 test("an indivisible oversized view and excessive aggregate snapshot remain explicit errors", () => {
