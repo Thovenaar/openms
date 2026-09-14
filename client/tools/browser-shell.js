@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 
 /** Derive the online field chrome from the sole authored offline shell. */
 export async function onlineShell(root) {
-  const counts = { title: 0, entry: 0, manifest: 0, download: 0 };
+  const counts = { title: 0, entry: 0, manifest: 0, download: 0, icon: 0 };
   const response = new HTMLRewriter()
     .on("title", {
       element(node) {
@@ -14,6 +14,14 @@ export async function onlineShell(root) {
       element(node) {
         counts.manifest++;
         node.remove();
+      },
+    })
+    .on('link[rel="icon"]', {
+      element(node) {
+        counts.icon++;
+        node.setAttribute("href", "/openms-icon.png");
+        node.setAttribute("type", "image/png");
+        node.setAttribute("sizes", "500x500");
       },
     })
     .on("#offline-inspection", {

@@ -9,6 +9,7 @@
     "studio"
   ],
   "scripts": {
+    "extract": "bun tools/openms.js extract",
     "migrate": "bun tools/migrate.js",
     "server:dev": "bun server/tools/dev.js",
     "server:start": "bun server/src/index.js",

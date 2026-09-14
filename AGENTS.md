@@ -24,9 +24,9 @@ Keep static extraction reusable across sessions. `smoke` checks original/referen
 
 ## Documentation
 
-- [Documentation home: Client and Server sections](docs/index.md)
-- [Client: overview, setup, scope, and limitations](docs/README.md)
-- [Quick Start: server setup, workspace, reference data, and authority boundaries](docs/server/index.md)
+- [Quick Start: documentation homepage and local setup](docs/index.md)
+- [Client: modes, controls, code, and coverage](docs/development.md#client)
+- [Server: database, settings, deployment, and authority](docs/development.md#server)
 - [Required coding style for all coding agents](docs/coding-style.md)
 - [Original inputs and provenance](docs/inputs.md)
 - [Original file hashes](docs/input-manifest.json)

@@ -1,6 +1,7 @@
 // Decorative SVGs are paired with readable labels; no icon font or remote assets.
 const icons = {
-  start: '<path d="m3 10 9-7 9 7v10H3zm6 10v-7h6v7"/>',
+  start: '<path d="m13 2-9 12h7l-1 8 10-12h-7z"/>',
+  edit: '<path d="m16 3 5 5-12 12-6 1 1-6zM14 5l5 5"/>',
   code: '<path d="m8 5-6 7 6 7m8-14 6 7-6 7m-2-16-4 18"/>',
   server:
     '<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6h.01M7 17h.01m4-11h6m-6 11h6"/>',
@@ -14,90 +15,115 @@ const icons = {
   check: '<path d="m3 12 6 6L21 6"/>',
 };
 
+/** Pair a static navigation label with its decorative sidebar icon. */
+function iconLabel(title, icon) {
+  return `<span class="service-label"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${icons[icon]}</svg><span>${title}</span></span>`;
+}
+
 function group(title, icon, pages, collapsed = true) {
   return {
-    text: `<span class="service-label"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${icons[icon]}</svg><span>${title}</span></span>`,
+    text: iconLabel(title, icon),
     collapsed,
-    items: pages.map(([text, link]) => ({ text, link })),
+    items: pages.map((page) =>
+      Array.isArray(page) ? { text: page[0], link: page[1] } : page,
+    ),
   };
 }
 
-/** One level of topic groups keeps all services within reach on every page. */
+/** Quick Start leads into authoring; client/server details share a reference. */
+export const nav = [
+  { text: "Quick Start", link: "/" },
+  { text: "Server", link: "/development#server" },
+  { text: "Client", link: "/development#client" },
+  { text: "Studio", link: "/development#studio" },
+  { text: "Contribute", link: "/client/documentation-guide" },
+];
+
 export const sidebar = [
-  group(
-    "Start & contribute",
-    "start",
-    [
-      ["Documentation home", "/"],
-      ["Run the client", "/client/"],
-      ["Quick Start", "/server/"],
-      ["Inputs & provenance", "/client/inputs"],
-      ["Coding style", "/client/coding-style"],
-      ["Maintain these docs", "/client/documentation-guide"],
+  {
+    items: [
+      { text: iconLabel("Quick Start", "start"), link: "/" },
+      { text: iconLabel("Custom content", "edit"), link: "/custom-content" },
     ],
-    false,
-  ),
-  group("Architecture & tools", "code", [
-    ["Shared integration contract", "/client/reconstruction-contract"],
-    ["Scene & inspection API", "/client/scene-contract"],
-    ["Development inspection", "/client/inspection-tools"],
-    ["Agent actions & experiments", "/client/agent-interface"],
-    ["Browser session ownership", "/client/browser-session"],
+  },
+  group("Server", "server", [
+    ["Overview", "/development#server"],
+    ["Database", "/development#database"],
+    ["Migrations", "/development#migrations"],
+    ["Settings", "/development#server-settings"],
+    ["Troubleshooting", "/development#troubleshooting"],
+    ["Production", "/development#production"],
+    ["Protocol", "/server/protocol"],
+    ["Content", "/server/content"],
+    ["Coverage", "/server/offline-parity"],
+    ["Roadmap", "/server/remaining-work"],
+    ["Market", "/server/market"],
   ]),
-  group("Server & multiplayer", "server", [
-    ["Quick Start & operations", "/server/"],
-    ["Studio dashboard", "/server/studio"],
-    ["Custom content & world releases", "/server/content"],
-    ["Protocol & transactions", "/server/protocol"],
-    ["Online/offline coverage", "/server/offline-parity"],
-    ["Remaining implementation work", "/server/remaining-work"],
-    ["Trading system & recovery", "/server/market"],
-    ["Login & shared maps", "/client/login-shared-map"],
+  group("Client", "game", [
+    ["Overview", "/development#client"],
+    ["Online", "/development#online"],
+    ["Offline", "/development#offline"],
+    ["Controls", "/development#controls"],
+    group("Gameplay", "game", [
+      ["Overview", "/client/offline-gameplay"],
+      ["Combat", "/client/offline-combat"],
+      ["Skills", "/client/skills"],
+      ["NPCs", "/client/ingame-life"],
+      ["Quests", "/client/ingame-quests"],
+      ["Characters", "/client/offline-profile"],
+      ["Saves", "/client/offline-saves"],
+      ["Definitions", "/client/offline-data"],
+      ["Reactors", "/client/ingame-entities"],
+    ]),
+    group("Movement", "motion", [
+      ["Online", "/client/movement-parity"],
+      ["Evidence", "/client/physics-evidence"],
+      ["Properties", "/client/physics-options"],
+      ["Refinements", "/client/physics-refinements"],
+      ["Hitboxes", "/client/hitboxes"],
+      ["Actions", "/client/avatar-actions"],
+      ["Drops", "/client/drop-motion"],
+      ["Portals", "/client/ingame-portals"],
+    ]),
+    group("Interface", "window", [
+      ["Windows", "/client/ingame-ui"],
+      ["Bindings", "/client/offline-binding-actions"],
+      ["Login", "/client/login-creation-recovery"],
+      ["Shared maps", "/client/login-shared-map"],
+      ["Travel", "/client/login-selection-travel"],
+      ["Dialogs", "/client/native-ui-authority-recovery"],
+      ["Audio & effects", "/client/ingame-audiovisual"],
+    ]),
+    group("Assets", "image", [
+      ["Decoding", "/client/asset-evidence"],
+      ["Resources", "/client/original-resource-audit"],
+      ["Inventory", "/client/ingame-inventory"],
+      ["Extraction", "/client/asset-delivery"],
+      ["Streaming", "/client/streaming"],
+    ]),
+    group("Evidence", "search", [
+      ["Rendering", "/client/client-evidence"],
+      ["Client audit", "/client/client-audit"],
+      ["Windows gaps", "/client/windows-reference-captures"],
+    ]),
   ]),
-  group("Gameplay & persistence", "game", [
-    ["Gameplay guide", "/client/offline-gameplay"],
-    ["Combat & progression", "/client/offline-combat"],
-    ["Skills & effects", "/client/skills"],
-    ["NPCs & life", "/client/ingame-life"],
-    ["Quests", "/client/ingame-quests"],
-    ["Character & presets", "/client/offline-profile"],
-    ["Saves & transactions", "/client/offline-saves"],
-    ["Server reference data", "/client/offline-data"],
-    ["Reactors & entity families", "/client/ingame-entities"],
+  group("Studio", "window", [
+    ["Overview", "/development#studio"],
+    ["Authoring", "/server/studio"],
+    ["Publishing", "/server/content"],
   ]),
-  group("Movement & physics", "motion", [
-    ["Online movement parity", "/client/movement-parity"],
-    ["Original motion evidence", "/client/physics-evidence"],
-    ["Properties & defaults", "/client/physics-options"],
-    ["Motion refinements", "/client/physics-refinements"],
-    ["Hitboxes", "/client/hitboxes"],
-    ["Avatar actions & clock", "/client/avatar-actions"],
-    ["Drop motion & pickup", "/client/drop-motion"],
-    ["Portals & camera", "/client/ingame-portals"],
+  group("Development", "code", [
+    ["Architecture", "/client/reconstruction-contract"],
+    ["Scene API", "/client/scene-contract"],
+    ["Inspection", "/client/inspection-tools"],
+    ["Agent API", "/client/agent-interface"],
+    ["Sessions", "/client/browser-session"],
+    ["Coding style", "/client/coding-style"],
+    ["Documentation", "/client/documentation-guide"],
   ]),
-  group("Interface & audio", "window", [
-    ["In-game windows & input", "/client/ingame-ui"],
-    ["Bindings & world map", "/client/offline-binding-actions"],
-    ["Login & character creation", "/client/login-creation-recovery"],
-    ["Selection & travel", "/client/login-selection-travel"],
-    ["NPC & development UI recovery", "/client/native-ui-authority-recovery"],
-    ["Audio & visual effects", "/client/ingame-audiovisual"],
-  ]),
-  group("Assets & delivery", "image", [
-    ["Original decoding", "/client/asset-evidence"],
-    ["Resource & property audit", "/client/original-resource-audit"],
-    ["Asset inventory", "/client/ingame-inventory"],
-    ["Extraction & offline delivery", "/client/asset-delivery"],
-    ["Streaming & resource lifetime", "/client/streaming"],
-  ]),
-  group("Reverse engineering", "search", [
-    ["Client & rendering evidence", "/client/client-evidence"],
-    ["Systematic client audit", "/client/client-audit"],
-    ["Windows reference gaps", "/client/windows-reference-captures"],
-  ]),
-  group("Validation & history", "check", [
-    ["Choose a scoped check", "/client/validation-method"],
-    ["Results & known limits", "/client/validation"],
-    ["Historical reports", "/archive/"],
+  group("Validation", "check", [
+    ["Method", "/client/validation-method"],
+    ["Results", "/client/validation"],
+    ["Archive", "/archive/"],
   ]),
 ];

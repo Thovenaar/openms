@@ -5,15 +5,19 @@ import {
   repositoryUrl,
 } from "./repository-links.js";
 import { configureDiagrams } from "./diagrams.js";
-import { sidebar } from "./navigation.js";
+import { nav, sidebar } from "./navigation.js";
 
 export default defineConfig({
   lang: "en-US",
-  title: "openms.dev",
+  title: "docs.openms.dev",
   description:
     "Build and understand the MapleStory browser client: setup, shared gameplay, server authority, and original-source evidence.",
   ignoreDeadLinks: false,
   rewrites: documentationRoute,
+  sitemap: { hostname: "https://docs.openms.dev" },
+  head: [
+    ["link", { rel: "icon", type: "image/png", href: "/openms-icon.png" }],
+  ],
   markdown: {
     config(markdown) {
       configureRepositoryLinks(markdown);
@@ -21,16 +25,11 @@ export default defineConfig({
     },
   },
   themeConfig: {
-    nav: [
-      { text: "Start here", link: "/" },
-      { text: "Client", link: "/client/" },
-      { text: "Server", link: "/server/" },
-      { text: "Feature coverage", link: "/server/offline-parity" },
-      { text: "Contribute", link: "/client/documentation-guide" },
-    ],
+    logo: { src: "/openms-icon.png", alt: "OpenMS" },
+    nav,
     sidebar,
     search: { provider: "local" },
-    outline: { level: [2, 3], label: "On this page" },
+    outline: { level: [2, 4], label: "On this page" },
     socialLinks: [{ icon: "github", link: repositoryUrl }],
     editLink: {
       pattern: `${repositoryUrl}/edit/main/docs/:path`,

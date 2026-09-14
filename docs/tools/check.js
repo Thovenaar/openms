@@ -2,7 +2,7 @@ import { statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { createMarkdownRenderer, disposeMdItInstance } from "vitepress";
 import { documentationRoute } from "../.vitepress/repository-links.js";
-import { sidebar } from "../.vitepress/navigation.js";
+import { nav, sidebar } from "../.vitepress/navigation.js";
 import { PROFILE_VERSION } from "../../client/src/profile/profile-validation.js";
 import { PROTOCOL } from "../../shared/protocol.js";
 
@@ -95,6 +95,24 @@ function checkLink(href, source, context) {
   }
 }
 
+/** Check both navigation trees, including nested sections and page anchors. */
+function checkNavigation(context) {
+  const pending = [...nav, ...sidebar];
+  for (let index = 0; index < pending.length; index++) {
+    if (pending.length > MAX_LINKS) {
+      throw new Error("Documentation navigation bound exceeded");
+    }
+    const item = pending[index];
+    if (item.link) checkLink(item.link, ".vitepress/navigation.js", context);
+    for (const child of item.items ?? []) {
+      if (pending.length >= MAX_LINKS) {
+        throw new Error("Documentation navigation bound exceeded");
+      }
+      pending.push(child);
+    }
+  }
+}
+
 async function check() {
   const markdown = await createMarkdownRenderer(ROOT);
   const documents = await pages(markdown);
@@ -110,11 +128,7 @@ async function check() {
     linkCount += page.links.length;
     for (const link of page.links) checkLink(link, source, context);
   }
-  for (const group of sidebar) {
-    for (const item of group.items) {
-      checkLink(item.link, ".vitepress/navigation.js", context);
-    }
-  }
+  checkNavigation(context);
   disposeMdItInstance();
   const workspace = await Bun.file(resolve(ROOT, "../package.json")).json();
   console.log(

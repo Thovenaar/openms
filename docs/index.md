@@ -1,53 +1,54 @@
----
-layout: home
-hero:
-  name: openms.dev
-  text: A MapleStory browser client
-  tagline: Original assets. Shared gameplay. Server-owned online state. Find the setup, contracts, and evidence behind the reconstruction.
-  actions:
-    - theme: brand
-      text: Quick Start
-      link: /server/
-    - theme: alt
-      text: Client modes & controls
-      link: /client/
-features:
-  - icon: 🎮
-    title: Play & develop
-    details: Offline and online entry points, controls, development accounts, and inspection tools.
-    link: /client/
-  - icon: 🧭
-    title: Understand the system
-    details: One movement kernel, explicit state owners, and the path from input to a durable result.
-    link: /client/reconstruction-contract
-  - icon: 🛡️
-    title: Check feature coverage
-    details: Which native features have online authority, where the code lives, and what remains unavailable.
-    link: /server/offline-parity
-  - icon: 🔎
-    title: Recover original behavior
-    details: WZ properties, executable consumers, Ghidra findings, and reproducible resource audits.
-    link: /client/original-resource-audit
-  - icon: ✅
-    title: Validate a change
-    details: Choose the smallest relevant check. Keep measured evidence separate from implementation claims.
-    link: /client/validation-method
-  - icon: 📚
-    title: Maintain these docs
-    details: Canonical pages, source links, diagrams, and the documentation audit command.
-    link: /client/documentation-guide
----
+# Quick Start
 
-## Find the right guide
+On macOS with [Homebrew](https://brew.sh/):
 
-| I want to…                              | Start here                                                                                                                |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Run locally or fix a login problem      | [Quick Start](server/index.md) · [Troubleshooting](server/index.md#troubleshooting)                     |
-| Change a gameplay feature               | [Integration and ownership](reconstruction-contract.md) · [Feature map](server/offline-parity.md)                         |
-| Match the original appearance or motion | [UI recovery](login-creation-recovery.md) · [Movement](movement-parity.md) · [Resource audit](original-resource-audit.md) |
-| Inspect a character or map              | [Development inspection](inspection-tools.md) · [Agent interface](agent-interface.md)                                     |
-| Find a test, capture, or known gap      | [Validation results](validation.md) · [Historical reports](archive/index.md)                                              |
+```sh
+# Install Bun, Podman, Compose and Git.
+brew install oven-sh/bun/bun podman docker-compose git
 
-## Evidence matters
+# Create and start the Podman machine; skip init if it already exists.
+podman machine init
+podman machine start
 
-Original WZ assets and executable consumers establish client behavior. The authorized Cosmic server reference supplies separately labeled server policies. Implemented code, classified assets, and exercised behavior are different claims; the guides name their boundaries. See [input provenance](inputs.md).
+# Clone the repository and install dependencies.
+git clone https://github.com/tensorfish/openms.git
+cd openms
+bun install --frozen-lockfile
+
+# Download and unpack the original assets beside the repository.
+curl --fail --location --output ../Maplestory-Assets.zip \
+  http://bucket.openms.dev/Maplestory-Assets.zip
+unzip -n ../Maplestory-Assets.zip -d .. -x '__MACOSX/*'
+
+# Generate client/public/generated/ and wait for "Extraction succeeded".
+bun extract --assets ../Maplestory-Client
+
+# Start PostgreSQL and apply the database schema.
+podman compose -f infra/compose.yaml up -d --build --wait --wait-timeout 90
+bun run migrate --database-url postgres://openms:openms_local_only@127.0.0.1:55432/openms
+
+# Terminal 1: start the server and wait for "authoritative server ready".
+# Leave this running, then open a second terminal.
+bun run server:dev
+
+# Terminal 2: enter the same repository root and start the client.
+bun run client:dev:online
+
+# Open http://127.0.0.1:3102 in your browser.
+# Sign in with admin / password or player / password, then select a character.
+```
+
+For other platforms, install [Bun](https://bun.sh/docs/installation), [Podman](https://podman.io/docs/installation) and a [Compose provider](https://docs.podman.io/en/latest/markdown/podman-compose.1.html); keep Git, `curl` and `unzip` available, then continue from checkout.
+
+## Components
+
+| Component | What it does                                                                                                                                                      |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bun       | Installs dependencies and runs the tools, server and client development listener.                                                                                 |
+| Assets    | The ZIP unpacks original WZ files into `../Maplestory-Client/`. Extraction converts them and the repository gameplay definitions into `client/public/generated/`. |
+| Podman    | Runs PostgreSQL and retains its data in a persistent volume.                                                                                                      |
+| Migrate   | Applies `infra/sql/*.sql` and records history in PostgreSQL's `migrations` table. Server startup only checks the schema.                                          |
+| Server    | Owns gameplay and saved state on port **3200**, using `.env.server`.                                                                                              |
+| Client    | Serves the game and assets on port **3102**, proxies requests to the server, and uses `.env.client`.                                                              |
+
+Next: [Custom content](custom-content.md). For settings, troubleshooting and production, see [Development](development.md).

@@ -4,7 +4,7 @@ A browser reconstruction of MapleStory v83, with a Bun server and PostgreSQL per
 
 ## Quick Start
 
-Follow the **[Quick Start](docs/server/index.md)** for prerequisites, a fresh checkout, asset extraction, explicit database migration and your first login.
+Start at **[docs.openms.dev](https://docs.openms.dev/)**. The [Quick Start source](docs/index.md) covers prerequisites, asset extraction, database migration and login, with server and client instructions on the same page.
 
 With Bun, Podman, a Compose provider, `curl` and `unzip` installed, run from the repository root. On macOS/Windows, initialize and start the Podman machine first as described in Quick Start.
 
@@ -13,7 +13,7 @@ bun install --frozen-lockfile
 curl --fail --location --output ../Maplestory-Assets.zip \
   http://bucket.openms.dev/Maplestory-Assets.zip
 unzip -n ../Maplestory-Assets.zip -d .. -x '__MACOSX/*'
-bun tools/openms.js extract --assets ../Maplestory-Client
+bun extract --assets ../Maplestory-Client
 podman compose -f infra/compose.yaml up -d --build --wait --wait-timeout 90
 bun run migrate --database-url postgres://openms:openms_local_only@127.0.0.1:55432/openms
 ```
@@ -34,4 +34,4 @@ Open **http://127.0.0.1:3102**. Sign in with `admin` / `password` or `player` / 
 
 Optional: run `bun run studio:dev` in another terminal and open **http://127.0.0.1:3103**. Studio has its own `.env.studio` and stores custom content in PostgreSQL.
 
-[Quick Start, configuration and troubleshooting](docs/server/index.md) · [Client modes and controls](docs/README.md) · [Studio](docs/server/studio.md) · [Validation](docs/validation-method.md)
+[Quick Start](docs/index.md) · [Server](docs/development.md#server) · [Client](docs/development.md#client) · [Custom content](docs/custom-content.md) · [Validation](docs/validation-method.md)

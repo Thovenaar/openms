@@ -6,8 +6,9 @@
 
 | Information                                | Canonical page                                                                   | Avoid duplicating                            |
 | ------------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------- |
-| Run commands, controls and code map        | [Client setup](README.md)                                                        | Server environment and release checklists    |
-| Quick Start, database, accounts, deployment | [Server Quick Start](server/index.md)                                                  | Protocol payload specifications              |
+| Initial setup and extraction               | [Quick Start](index.md)                                                          | Separate setup entry pages                   |
+| Client modes, controls and code            | [Client](development.md#client)                                                  | Server configuration                         |
+| Database, configuration and deployment     | [Server](development.md#server)                                                  | Protocol payload specifications              |
 | Shared owners, clock and commit boundaries | [Integration contract](reconstruction-contract.md)                               | Full schema dumps maintained elsewhere       |
 | Current online feature owners and gaps     | [Feature coverage](server/offline-parity.md)                                     | Old correction narratives                    |
 | Exact original behavior and provenance     | Domain evidence page, e.g. [movement](physics-evidence.md) or [UI](ingame-ui.md) | Unlabeled emulator policy or inference       |
@@ -15,7 +16,7 @@
 | What was actually exercised                | [Validation index](validation.md) and source-identified report                   | Treating historical counts as current totals |
 | Earlier builds, failures and measurements  | [Archive](archive/index.md)                                                      | Current navigation/search results            |
 
-The former offline integration page now points to the shared contract. Client setup no longer repeats site maintenance or all validation commands. The feature inventory consolidates overlapping native-surface tables. Earlier validation/gameplay/UI narratives live in the archive, with their original evidence intact.
+Quick Start contains only the commands to get running, followed by short component descriptions. Custom content is the next entry in the same navigation group. Client and server references share the Development page; detailed contracts stay in their domain pages. The feature inventory consolidates overlapping native-surface tables. Earlier validation/gameplay/UI narratives live in the archive, with their original evidence intact.
 
 ## Write for humans and agents
 
@@ -30,9 +31,15 @@ The former offline integration page now points to the shared contract. Client se
 
 Keep one canonical page per contract. Link to a more detailed page instead of copying a paragraph that will drift. Update an existing contract when behavior changes; retain historical measurements with their original identities. Do not delete raw evidence merely because an older guide is superseded.
 
+Keep headings and navigation labels short: **Server → Settings → Network**, **Client → Online → Login**. Use nested sections for detail instead of long titles.
+
 ## Site and diagrams
 
+The documentation site is [docs.openms.dev](https://docs.openms.dev/). [Quick Start](index.md) is the command-first entry point at `/`, followed by [Custom content](custom-content.md). [Server](development.md#server) and [Client](development.md#client) share the Development reference. The old `/client/` and `/server/` entry routes redirect to those reference sections. Inputs and provenance remains a source reference, excluded from navigation and local search.
+
 The site uses pinned VitePress, Vue and Mermaid packages from `bun.lock`. It builds without original game assets. No diagram CDN or hosted renderer is used.
+
+The approved mushroom-house icon is `docs/public/openms-icon.png`, used for the header and favicon. Keep it identical to `client/public/openms-icon.png`, which is served and packaged as the online client's favicon.
 
 ```sh
 bun run dev:docs
@@ -41,7 +48,7 @@ bun run docs:build
 bun run docs:preview
 ```
 
-Development defaults to port 5173 and preview to 4173. Generated output/cache stays under `docs/.vitepress/`. Navigation has one level of topic groups with decorative SVG icons and readable labels. The content supports the project's desktop minimum of 800 × 600.
+Development defaults to port 5173 and preview to 4173. Generated output/cache stays under `docs/.vitepress/`. Navigation starts with Quick Start and Custom content in one group, then groups detailed guides under Server, Client, Studio, Development and Validation. Nested groups use short labels and decorative SVG icons. The page outline includes headings through level four. The content supports the project's desktop minimum of 800 × 600.
 
 Write ordinary Mermaid fences. Each renders as SVG after page load, updates with light/dark theme and offers **Diagram source**. Server-rendered content keeps the source available before JavaScript loads; rendering failure exposes a readable error and source.
 
@@ -56,19 +63,22 @@ flowchart TD
 
 ### Routes and links
 
-| Source                 | Published route  |
-| ---------------------- | ---------------- |
-| `docs/index.md`        | `/`              |
-| `docs/README.md`       | `/client/`       |
-| Other top-level guides | `/client/<name>` |
-| `docs/server/`         | `/server/`       |
-| `docs/archive/`        | `/archive/`      |
+| Source                   | Published route                                   |
+| ------------------------ | ------------------------------------------------- |
+| `docs/index.md`          | `/`                                               |
+| `docs/custom-content.md` | `/custom-content`                                 |
+| `docs/development.md`    | `/development`, including `#server` and `#client` |
+| `docs/README.md`         | `/client/` → `/development#client`                |
+| `docs/server/index.md`   | `/server/` → `/development#server`                |
+| Other top-level guides   | `/client/<name>`                                  |
+| Other server guides      | `/server/<name>`                                  |
+| `docs/archive/`          | `/archive/`                                       |
 
 Use source-relative Markdown links in prose and canonical routes in navigation. The [resolver](.vitepress/repository-links.js) converts source links to site routes, checks raw file targets and points repository evidence to `tensorfish/openms`. Embedded images remain local assets. Missing link targets fail validation/build; do not disable dead-link checking.
 
 ## Audit and validation
 
-`bun run docs:check` scans every Markdown page and the sidebar, checks local targets and fragments, and reports profile/protocol/package facts directly from code. Work and file sizes are bounded. It does not start the game, extract assets or certify gameplay. The existing `bun docs/tools/online-feature-audit.js` checks native hooks and declared action wiring; use it when changing the coverage inventory.
+`bun run docs:check` scans every Markdown page, top navigation and nested sidebar, checks local targets and fragments, and reports profile/protocol/package facts directly from code. Work and file sizes are bounded. It does not start the game, extract assets or certify gameplay. The existing `bun docs/tools/online-feature-audit.js` checks native hooks and declared action wiring; use it when changing the coverage inventory.
 
 | Change                             | Smallest appropriate check                                                                   |
 | ---------------------------------- | -------------------------------------------------------------------------------------------- |

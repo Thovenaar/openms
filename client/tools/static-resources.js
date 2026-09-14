@@ -16,7 +16,11 @@ const OFFLINE_SHELL = new Map([
   ["/offline-manifest.js", "public"],
   ["/app.webmanifest", "public"],
 ]);
-const ONLINE_SHELL = new Map([...COMMON_SHELL, ["/online.css", "."]]);
+const ONLINE_SHELL = new Map([
+  ...COMMON_SHELL,
+  ["/online.css", "."],
+  ["/openms-icon.png", "public"],
+]);
 const WORKERS = new Set([
   "/dist/atlas-worker.js",
   "/dist/audio-capture-worklet.js",

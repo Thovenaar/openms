@@ -11,7 +11,10 @@ export const repositoryUrl = "https://github.com/tensorfish/openms";
  */
 export function documentationRoute(path) {
   if (path === "README.md") return "client/index.md";
-  if (path === "index.md" || /^(client|server|archive)\//.test(path)) {
+  if (
+    /^(index|development|custom-content)\.md$/.test(path) ||
+    /^(client|server|archive)\//.test(path)
+  ) {
     return path;
   }
   return `client/${path}`;

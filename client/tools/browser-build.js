@@ -75,7 +75,7 @@ export async function sourceIdentity() {
 
 /** All tool recipes and shared rules are source inputs, never generated world cache inputs. */
 async function appendOnlineSources(paths) {
-  paths.push("client/online.css");
+  paths.push("client/online.css", "client/public/openms-icon.png");
   for (const pattern of ["shared/**/*.js", "client/tools/**/*.js"]) {
     const sources = new Bun.Glob(pattern);
     for await (const path of sources.scan({
@@ -214,7 +214,7 @@ async function onlineShellInputs(content) {
   for (const [url, path] of [
     ["/style.css", "style.css"],
     ["/online.css", "online.css"],
-    ["/app-icon.svg", "public/app-icon.svg"],
+    ["/openms-icon.png", "public/openms-icon.png"],
     ["/generated/catalog.json", "public/generated/catalog.json"],
   ]) {
     shell.set(

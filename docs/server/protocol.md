@@ -1,6 +1,6 @@
 # Authoritative browser-game protocol
 
-**Status: runtime contract with explicit validation gates.** The Bun server and separate online browser implement this web-native authority boundary; offline play remains independent. Start with `bun run server:dev` and `bun run client:dev:online`; see [configuration and production gates](index.md). This is not a claim of complete original-server fidelity or an anti-cheat certification. Development/reference rules are versioned policies, not recovered Nexon server equations. Required adversarial/durability checks below remain requirements unless the [measured validation record](../validation.md) reports their execution.
+**Status: runtime contract with explicit validation gates.** The Bun server and separate online browser implement this web-native authority boundary; offline play remains independent. Start with `bun run server:dev` and `bun run client:dev:online`; see [settings and production](../development.md#server-settings). This is not a claim of complete original-server fidelity or an anti-cheat certification. Development/reference rules are versioned policies, not recovered Nexon server equations. Required adversarial/durability checks below remain requirements unless the [measured validation record](../validation.md) reports their execution.
 
 ## Decisions and research
 
@@ -69,7 +69,7 @@ The online entry uses separate transport, prediction, read models and presentati
 
 ### HTTP endpoints
 
-All authenticated responses use `Cache-Control: no-store`; service workers cache only public immutable shell/content, never session or online state. Same-origin policy and exact configured HTTPS origins apply in production. Explicit development mode permits the exact `localhost`, `127.0.0.1` and `[::1]` aliases of a configured loopback origin, preserving its scheme and port; non-loopback origins remain exact. Every Origin check below uses that bounded allowlist. Missing/null/foreign origins remain rejected, and the proxy preserves the browser's Origin rather than rewriting it. See [development setup and diagnosis](index.md).
+All authenticated responses use `Cache-Control: no-store`; service workers cache only public immutable shell/content, never session or online state. Same-origin policy and exact configured HTTPS origins apply in production. Explicit development mode permits the exact `localhost`, `127.0.0.1` and `[::1]` aliases of a configured loopback origin, preserving its scheme and port; non-loopback origins remain exact. Every Origin check below uses that bounded allowlist. Missing/null/foreign origins remain rejected, and the proxy preserves the browser's Origin rather than rewriting it. See [troubleshooting](../development.md#troubleshooting).
 
 The optional `OPENMS_STUDIO_ORIGIN` adds a separate browser origin for config, challenges, sessions and `/api/v1/custom-content/` only. It uses the same exact-origin and bounded development-loopback rules. Registration, character creation, development commands, play tickets and gameplay upgrades still require the game origin. Studio's dedicated listener proxies only its authoring/session routes and serves its own dashboard and original-asset previews; see [Studio routing](studio.md#build-routing-and-validation).
 

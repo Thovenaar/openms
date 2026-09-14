@@ -1,6 +1,6 @@
 # Studio: `@openms/studio`
 
-Complete [Quick Start](index.md) through asset extraction, PostgreSQL startup and the explicit database migration. Then open **http://127.0.0.1:3103** after starting these commands in separate terminals:
+Complete [Quick Start](../index.md) through asset extraction, PostgreSQL startup and the explicit database migration. Then open **http://127.0.0.1:3103** after starting these commands in separate terminals:
 
 ```sh
 bun run server:dev
