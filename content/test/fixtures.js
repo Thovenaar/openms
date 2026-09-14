@@ -62,6 +62,48 @@ export function questDefinition(target = originalRef("mob", 100101)) {
   };
 }
 
+export function dropsDefinition(
+  target = originalRef("mob", 100100),
+  patch = {},
+) {
+  return {
+    target,
+    mode: "merge",
+    rows: [
+      { itemId: 2000000, chance: 20000, minimum: 1, maximum: 1 },
+      {
+        itemId: 4000019,
+        chance: 600000,
+        condition: { minLevel: 10, jobs: [0, 1] },
+      },
+    ],
+    ...patch,
+  };
+}
+
+export function dialogueDefinition(
+  target = { source: "original", kind: "npc", id: 1012108 },
+  patch = {},
+) {
+  return {
+    target,
+    start: 0,
+    nodes: [
+      {
+        id: 0,
+        text: "Welcome back, traveler.",
+        options: [{ label: "Who are you?", next: 1 }],
+      },
+      {
+        id: 1,
+        text: "Nobody important.",
+        options: [{ label: "Goodbye.", next: null }],
+      },
+    ],
+    ...patch,
+  };
+}
+
 export function draftRow(input, runtimeId = 800000000) {
   return {
     ...input,

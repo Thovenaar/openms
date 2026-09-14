@@ -2,6 +2,8 @@ import { AssetRegistry } from "./asset-registry.js";
 import { compileMap } from "./compile-map.js";
 import { compileMob } from "./compile-mob.js";
 import { compileQuest } from "./compile-quest.js";
+import { compileDrops } from "./compile-drops.js";
+import { compileDialogue } from "./compile-dialogue.js";
 import { imageAppearance } from "./appearance.js";
 import {
   definitionReferences,
@@ -101,6 +103,10 @@ export class ContentService {
       );
     }
     if (row.kind === "quest") runtime = compileQuest(row, dependencies);
+    if (row.kind === "drops") {
+      runtime = compileDrops(row, dependencies, registry);
+    }
+    if (row.kind === "dialogue") runtime = compileDialogue(row, registry);
     runtime.schemaVersion = 1;
     runtime.identity = {
       projectId: row.projectId,

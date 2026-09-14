@@ -6,6 +6,7 @@
   "description": "Versioned PostgreSQL content and original asset resolution for OpenMS",
   "exports": {
     ".": "./src/index.js",
+    "./original": "./src/original.js",
     "./postgres": "./src/postgres.js",
     "./world-store": "./src/world-store.js"
   },

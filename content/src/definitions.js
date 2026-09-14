@@ -14,8 +14,16 @@ import {
 } from "./validation.js";
 import { validateMap } from "./map-definition.js";
 import { validateQuest } from "./quest-definition.js";
+import { validateDropDefinition } from "./drop-definition.js";
+import { validateDialogueDefinition } from "./dialogue-definition.js";
 
-export const CONTENT_KINDS = Object.freeze(["map", "mob", "quest"]);
+export const CONTENT_KINDS = Object.freeze([
+  "map",
+  "mob",
+  "quest",
+  "drops",
+  "dialogue",
+]);
 const STATS = [
   "maxHP",
   "maxMP",
@@ -38,6 +46,8 @@ export function validateDefinition(kind, value) {
   if (kind === "map") validateMap(value);
   if (kind === "mob") validateMob(value);
   if (kind === "quest") validateQuest(value);
+  if (kind === "drops") validateDropDefinition(value);
+  if (kind === "dialogue") validateDialogueDefinition(value);
   return structuredClone(value);
 }
 
@@ -182,6 +192,7 @@ export function definitionReferences(kind, value) {
     for (const objective of value.objectives) refs.push(objective.target);
     for (const reward of value.rewards.items) refs.push(reward.item);
   }
+  if (kind === "drops") refs.push(value.target);
   return refs;
 }
 
