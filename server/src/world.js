@@ -78,6 +78,7 @@ import {
   destroyFieldReactors,
 } from "./field-reactors.js";
 import {
+  motionDivertPending,
   prepareMotionDiverts,
   releaseMotionDiverts,
   takeMotionDiverts,
@@ -141,8 +142,10 @@ function adoptionPermitted(actor, sim) {
   ) {
     return false;
   }
-  // An authoritative divert published for the previous checkpoint owns the next step:
-  // the report is a pre-impulse prediction and adopting it would erase the divert.
+  // An authoritative impulse queued for this step owns it: the report extends the
+  // client's pre-impulse trajectory and adopting it would erase the divert. The
+  // publishing checkpoint and the tick after it are refused the same way.
+  if (motionDivertPending(actor, actor.field)) return false;
   return actor.field.tick - actor.lastDivertTick > 1;
 }
 
@@ -208,6 +211,10 @@ function adoptReportedMotion(world, actor, sample) {
   const sim = actor.simulation;
   if (!motion || !sim) return;
   if (!adoptionPermitted(actor, sim)) return;
+  // A report the client admitted before an authoritative impulse extends its
+  // pre-impulse trajectory: adopting it would erase the divert. The client's
+  // post-replay reports carry a higher sequence and are adopted again.
+  if (sample.inputSeq <= (actor.lastDivertInputSeq ?? 0)) return;
   const elapsedMs =
     Math.max(0, sample.targetTick - actor.lastAdoptedTick) * PROTOCOL.TICK_MS;
   const excess = motionExcess(sim, motion, plausiblePositionPx(elapsedMs));
@@ -435,6 +442,7 @@ export class OnlineWorld {
     actor.admission = "OK";
     actor.lastAdoptedTick = field.tick;
     actor.lastDivertTick = -Infinity;
+    actor.lastDivertInputSeq = 0;
     prepareMotionDiverts(actor, field);
   }
 
@@ -577,7 +585,16 @@ export class OnlineWorld {
     for (const actor of field.characters.values()) {
       if (actor.state !== "active" || actor.retiring) continue;
       const diverts = takeMotionDiverts(actor, field);
-      if (diverts.length) actor.lastDivertTick = field.tick;
+      if (diverts.length) {
+        actor.lastDivertTick = field.tick;
+        // Every input admitted so far was predicted before the client can have seen
+        // this divert, so its report extends the pre-impulse trajectory. Only a later
+        // sequence — the one the client predicts after replaying — may be adopted.
+        actor.lastDivertInputSeq = Math.max(
+          actor.lastDivertInputSeq ?? 0,
+          actor.inputSeq ?? 0,
+        );
+      }
       this.publish(actor, {
         type: "motion",
         fieldEpoch: field.epoch,

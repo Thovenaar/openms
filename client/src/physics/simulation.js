@@ -232,15 +232,16 @@ export function setSimulationSeat(sim, seat) {
 /** Original 007a6353: detach contact, enter air, merge requested px/s components.
  *  Grounded motion starts from zero; airborne motion keeps stronger aligned speed.
  *  Clearing the separate browser ladder reference maps the same air transition.
- *  `onBeforeImpulse(vx, vy)` runs with the pre-merge state still intact and must not
- *  mutate it: an authority uses it to publish the exact divert it is about to apply.
+ *  `onBeforeImpulse(sim, vx, vy)` runs with the pre-merge state still intact and must
+ *  not mutate it: an authority uses it to publish the exact divert it is about to
+ *  apply, so it receives the same simulation and vector that are merged here.
  *  This single entry point is the only place an external impulse is merged, so the
  *  replayed client segment and the authoritative segment share one implementation. */
 export function applyExternalImpulse(sim, vx, vy, onBeforeImpulse = null) {
   if (!Number.isFinite(vx) || !Number.isFinite(vy)) {
     throw new Error("Invalid external motion impulse");
   }
-  if (onBeforeImpulse !== null) onBeforeImpulse(vx, vy);
+  if (onBeforeImpulse !== null) onBeforeImpulse(sim, vx, vy);
   sim.seat = null;
   if (sim.state === "ground") {
     sim.vx = 0;

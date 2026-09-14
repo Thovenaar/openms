@@ -329,6 +329,34 @@ test("external hits detach moving ground contact before applying the ordinary im
   expect(sim.footholdId).toBe(0);
 });
 
+test("the pre-impulse hook sees the simulation and vector before the merge", () => {
+  const sim = createSimulation(world(), { x: 0, y: -100 });
+  sim.vx = -350;
+  sim.vy = 80;
+  let seen = null;
+  applyExternalImpulse(sim, -200, -200, (target, vx, vy) => {
+    seen = {
+      same: target === sim,
+      x: target.x,
+      y: target.y,
+      vx: target.vx,
+      vy: target.vy,
+      mergedVx: vx,
+      mergedVy: vy,
+    };
+  });
+  expect(seen).toEqual({
+    same: true,
+    x: 0,
+    y: -100,
+    vx: -350,
+    vy: 80,
+    mergedVx: -200,
+    mergedVy: -200,
+  });
+  expect({ vx: sim.vx, vy: sim.vy }).toEqual({ vx: -350, vy: -120 });
+});
+
 test("airborne hit components retain stronger aligned motion and combine opposing motion", () => {
   const sim = createSimulation(world(), { x: 0, y: -100 });
   sim.vx = -350;

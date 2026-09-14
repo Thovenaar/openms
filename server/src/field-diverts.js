@@ -34,27 +34,45 @@ export function prepareMotionDiverts(actor, field) {
   actor.motionDiverts = { field, entries: [] };
 }
 
-/** Stamp the diverts this tick's published checkpoint first reflects. A divert is
- *  applied either during the tick (after its step) or between ticks, so `before` is
- *  always the checkpoint of `tick - 1` and the impulse is integrated by `tick`.
- *  Entries the client can no longer place are dropped, never mislabelled. */
+/** Stamp the diverts this tick's published checkpoint first reflects. An impulse is only
+ *  ever merged after its own tick's kernel step (combat and skills run after `moveActor`)
+ *  or between ticks, so it is always integrated by the step of `entry.tick + 1`, whose
+ *  `before` is the checkpoint of `entry.tick`. An entry recorded during the tick that has
+ *  not stepped past it yet is retained for the next publication rather than mislabelled;
+ *  entries the client can no longer place are dropped. */
 export function takeMotionDiverts(actor, field) {
   const pending = actor.motionDiverts;
   if (!pending || pending.field !== field) return [];
   const published = [];
+  let keep = 0;
   for (const entry of pending.entries) {
-    if (field.tick - entry.tick <= MAX_DIVERT_AGE_TICKS) {
-      published.push({
-        tick: field.tick,
-        vx: entry.vx,
-        vy: entry.vy,
-        source: entry.source,
-        before: entry.before,
-      });
+    if (field.tick - entry.tick > MAX_DIVERT_AGE_TICKS) continue;
+    if (field.tick < entry.tick + 1) {
+      pending.entries[keep++] = entry;
+      continue;
     }
+    published.push({
+      tick: entry.tick + 1,
+      vx: entry.vx,
+      vy: entry.vy,
+      source: entry.source,
+      before: entry.before,
+    });
   }
-  pending.entries.length = 0;
+  pending.entries.length = keep;
   return published;
+}
+
+/** Whether an impulse is queued for the step this actor is about to take. The client's
+ *  report for that tick extends its pre-impulse trajectory, so adopting it would erase
+ *  the divert before the checkpoint that describes it is published. */
+export function motionDivertPending(actor, field) {
+  const pending = actor.motionDiverts;
+  if (!pending || pending.field !== field) return false;
+  for (const entry of pending.entries) {
+    if (field.tick - entry.tick <= MAX_DIVERT_AGE_TICKS) return true;
+  }
+  return false;
 }
 
 /** Drop any unpublishable divert when the actor leaves its field. */
