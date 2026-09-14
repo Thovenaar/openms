@@ -24,6 +24,7 @@ function nativeName(view, id) {
 
 function setPending(view) {
   view.layout.setPending(busy(view));
+  if (view.context.onCancel) view.layout.controls.close.setDisabled(false);
   const next = view.layout.controls.next;
   if (view.displayed?.kind === "choice") {
     next.setDisabled(busy(view) || view.selected === null);
@@ -33,7 +34,7 @@ function setPending(view) {
 function setControls(view, current) {
   const layout = view.layout;
   layout.hideControls();
-  if (!(current.speaker & 1)) {
+  if (view.context.onCancel || !(current.speaker & 1)) {
     layout.show("close", () => respond(view, "close"));
   }
   if (current.kind === "say") {
@@ -294,11 +295,19 @@ function responseError(view, reason) {
   if (!view.destroyed) view.layout.setError(reason);
 }
 
+function responseBlocked(view, action) {
+  return busy(view) || (action === "close" && view.displayed.speaker & 1);
+}
+
 /** Never retries a committed callback. A failed response keeps the exact current DOM, draft and selection. */
 async function respond(view, action, value) {
-  if (view.destroyed || busy(view)) return false;
+  if (view.destroyed) return false;
   const current = view.displayed;
-  if (!current || (action === "close" && current.speaker & 1)) return false;
+  if (!current) return false;
+  if (action === "close" && view.context.onCancel) {
+    return (await view.context.onCancel(current.sessionId)).ok;
+  }
+  if (responseBlocked(view, action)) return false;
   const response = {
     sessionId: current.sessionId,
     revision: current.revision,
@@ -465,7 +474,7 @@ export function mountNpcScriptDialogue(panel, session, context) {
     return true;
   };
   cleanup.refresh = () => refreshSafely(view);
-  cleanup.canClose = () => !busy(view);
+  cleanup.canClose = () => Boolean(context.onCancel) || !busy(view);
   cleanup.requestClose = () => respond(view, "close");
   cleanup.update = (ms) => {
     view.playerPortrait?.update(ms);

@@ -155,9 +155,7 @@ export class NativeScrollbar {
     event.preventDefault();
     event.stopPropagation();
     this.pointerPoint = this.coordinate(event);
-    if (event.isTrusted || !this.panel.owner.replayingNativeInput) {
-      this.hit.setPointerCapture(event.pointerId);
-    }
+    this.hit.setPointerCapture(event.pointerId);
     const part = this.partAt(this.pointerPoint);
     if (part === "thumb") {
       this.drag = { point: this.pointerPoint, position: this.position };

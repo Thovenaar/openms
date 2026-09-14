@@ -11,7 +11,7 @@ import {
   finite,
   LIMITS,
 } from "../rendering/stream-validation.js";
-import { resourceByteLimit } from "../../public/offline-manifest.js";
+import { resourceByteLimit } from "../assets/resource-validation.js";
 import { createSimulation, snapshotSimulation } from "../physics/simulation.js";
 import { createPlayerInput } from "../input/player-input.js";
 import { createPlayerActions } from "../input/player-actions.js";
@@ -24,6 +24,7 @@ import { OnlineUI } from "./ui.js";
 import { OnlineInspection } from "./inspection.js";
 import { OnlineLogin } from "./login.js";
 import { OnlineLoading } from "./loading.js";
+import { NativeOperationRefusal } from "./native-source.js";
 import { portalEntryContains } from "../world/portal-presentation.js";
 import { applyWorldContent } from "../../../shared/world-content.js";
 import { CommunityMaps } from "./community-maps.js";
@@ -32,7 +33,7 @@ const app = new Application();
 const controller = new AbortController();
 const viewport = document.querySelector("#viewport");
 const loading = new OnlineLoading(viewport, controller.signal);
-const network = new Network();
+const network = new Network(undefined, loading);
 const services = { network, atlases: null };
 const hitboxInspector = new HitboxInspector(network);
 const neutral = Object.freeze({
@@ -77,14 +78,23 @@ const transport = new OnlineTransport({
 const prediction = new OnlinePrediction({
   onInput: sendInput,
   onResync: resync,
+  onGroundJump: () => ui?.audio.playSound("Game", "Jump").catch(report),
 });
 
-function report(error) {
-  if (error?.name === "AbortError" || destroyed) return;
+function reportCause(error) {
   // The user-facing line stays sanitized; the underlying cause stays in the console log.
   if (error?.cause) {
     console.error("Online failure cause:", error.cause?.stack ?? error.cause);
   }
+}
+
+function report(error) {
+  if (error?.name === "AbortError" || destroyed) return;
+  if (error instanceof NativeOperationRefusal) {
+    ui?.ui.status(error.message);
+    return;
+  }
+  reportCause(error);
   lastError = error instanceof Error ? error.message : String(error);
   document.querySelector("#ui-status").textContent = lastError;
   if (ui) ui.ui.recordError(error);
@@ -180,9 +190,7 @@ function failedScene(error, owner) {
 /** Stage the authoritative field before replacing any visible field or native-window owner. */
 async function install(snapshot) {
   const token = ++generation;
-  const loadingOwner = ui.transitions.active
-    ? null
-    : loading.begin("Preparing field, avatar and game interface…");
+
   installing = true;
   try {
     const staged = await ui.transitions.take(snapshot);
@@ -215,7 +223,6 @@ async function install(snapshot) {
     resize();
     app.canvas.focus();
   } finally {
-    if (loadingOwner) loading.end(loadingOwner);
     if (token === generation) installing = false;
   }
 }
@@ -224,9 +231,22 @@ async function prepareScene(snapshot) {
   const descriptor =
     catalog.maps[String(snapshot.field.mapId).padStart(9, "0")];
   if (!descriptor) throw new Error("Server field is not in this asset catalog");
+  const changingMap =
+    current?.scene.manifest.id !==
+    String(snapshot.field.mapId).padStart(9, "0");
+  const owner = changingMap ? loading.beginMap(descriptor) : null;
+  try {
+    return await loadScene(snapshot, descriptor, owner);
+  } finally {
+    if (owner) loading.endMap(owner);
+  }
+}
+
+async function loadScene(snapshot, descriptor, loadingOwner) {
   const manifest = validateManifest(
     await network.json(descriptor, controller.signal),
   );
+  loading.includeMap(loadingOwner, manifest);
   const candidate = new OnlineScene({
     app,
     manifest,
@@ -251,10 +271,6 @@ function installPrediction(candidate, snapshot) {
       snapshot.self.entity.position,
     ),
     snapshot.serverTick,
-  );
-  prediction.simulation.movementLocked = Boolean(
-    snapshot.self.entity.seat ||
-    snapshot.self.entity.combatState?.movementLocked,
   );
   candidate.syncPrediction(prediction, false);
 }
@@ -307,12 +323,6 @@ function entryPortal(portals, position) {
 function advance() {
   if (destroyed || transport.status !== "active" || document.hidden) return;
   try {
-    if (prediction.simulation) {
-      const self = transport.model.self.entity;
-      prediction.simulation.movementLocked = Boolean(
-        self.seat || self.combatState?.movementLocked,
-      );
-    }
     if (input.state.upPressed && !isBlocked()) portal();
     const steps = prediction.advance(
       performance.now(),
@@ -389,7 +399,7 @@ function snapshotField(scene) {
     camera: scene ? { ...scene.camera } : null,
     pendingLoads: scene?.pendingLoads ?? 0,
     ...current?.inspectionSnapshot(),
-    // Shared scene controls read the offline entity-id array contract; the count is entityCount.
+    // Shared scene controls read the entity-id array contract; the count is entityCount.
     entities: entityIds(),
   };
 }
@@ -409,6 +419,7 @@ function snapshotUI() {
   return {
     profile: ui?.store?.profile ?? null,
     ui: ui?.ui.snapshot() ?? null,
+    audio: ui?.audio.snapshot() ?? null,
     hitboxReference: hitboxInspector.selected,
     hitboxes: overlay?.snapshot() ?? null,
   };
@@ -471,6 +482,7 @@ function initializeInterfaces() {
   input = createPlayerInput(app.canvas);
   ui = new OnlineUI(app, services, transport, {
     scene: () => current,
+    loading,
     prediction,
     clearInput,
     keyDown: input.keyDown,
@@ -523,27 +535,22 @@ function initializeInterfaces() {
 }
 
 async function initialize() {
-  const loadingOwner = loading.begin("Loading game files…");
-  try {
-    await initializeBrowserSurface(app, viewport);
-    if (destroyed) throw new DOMException("Client closed", "AbortError");
-    services.atlases = new AtlasStore(app.renderer, network);
-    initializeInterfaces();
-    await transport.initialize();
-    catalog = await loadCatalog();
-    communityMaps = new CommunityMaps(catalog, {
-      intent,
-      clearInput,
-      signal: controller.signal,
-    });
-    loading.decoration.loadCatalog(catalog);
-    await ui.prepare(catalog, controller.signal);
-    startPresentation();
-    await login.prepare(catalog, controller.signal);
-    status(transport.snapshot());
-  } finally {
-    loading.end(loadingOwner);
-  }
+  await initializeBrowserSurface(app, viewport);
+  if (destroyed) throw new DOMException("Client closed", "AbortError");
+  services.atlases = new AtlasStore(app.renderer, network);
+  initializeInterfaces();
+  await transport.initialize();
+  catalog = await loadCatalog();
+  communityMaps = new CommunityMaps(catalog, {
+    intent,
+    clearInput,
+    signal: controller.signal,
+  });
+  loading.decoration.loadCatalog(catalog);
+  await ui.prepare(catalog, controller.signal);
+  startPresentation();
+  await login.prepare(catalog, controller.signal);
+  status(transport.snapshot());
 }
 
 function startPresentation() {

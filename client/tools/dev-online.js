@@ -247,7 +247,6 @@ export async function startOnlineDevServer(options = {}) {
   );
   const resources = createStaticResources({
     root: ROOT,
-    online: true,
     html: identity.html,
   });
   log("browser.identity", {

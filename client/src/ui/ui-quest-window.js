@@ -274,7 +274,7 @@ async function action(view, kind) {
         ? await view.quests.giveUp(id, true)
         : await view.quests.changeTracker("add", id);
     if (view.destroyed) return;
-    if (!result.ok) view.panel.owner.report(new Error(result.reason));
+    if (!result.ok) view.panel.owner.status(result.reason);
     else {
       if (kind === "alert") await view.panel.owner.open("QuestAlarm");
       if (!view.destroyed) refresh(view);

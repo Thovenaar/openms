@@ -3,7 +3,7 @@ import {
   NATIVE_CHAT_CHANNELS,
 } from "../social/chat-routing.js";
 import { sanitizeChat } from "../social/chat-rules.js";
-import { nativeOutcome } from "./native-source.js";
+import { nativeOutcome, NativeOperationRefusal } from "./native-source.js";
 
 const WIRE_CHANNELS = [
   "buddy",
@@ -64,7 +64,7 @@ export class NativeSocialChat {
     );
     if (parsed.recipientName) {
       const resolved = await this.social.resolveTarget(parsed.recipientName);
-      if (!resolved.ok) throw new Error(resolved.reason);
+      if (!resolved.ok) throw new NativeOperationRefusal(resolved);
       parsed.targetId = resolved.targetId;
       delete parsed.recipientName;
     }
@@ -144,7 +144,7 @@ export class NativeSocialChat {
         });
         if (name === null) return null;
         const resolved = await this.social.resolveTarget(name);
-        if (!resolved.ok) throw new Error(resolved.reason);
+        if (!resolved.ok) throw new NativeOperationRefusal(resolved);
         targetId = resolved.targetId;
       }
       action.recipientId = targetId;

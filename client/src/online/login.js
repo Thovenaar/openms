@@ -287,15 +287,6 @@ export class OnlineLogin {
     this.accountStage = stage;
     stage.append(form);
     this.buildAccountTools(stage);
-    const recovery = element(
-      "button",
-      "online-login-recovery",
-      "Forgot account or password?",
-    );
-    recovery.type = "button";
-    recovery.setAttribute("aria-haspopup", "dialog");
-    this.listen(recovery, "click", () => this.recovery.open());
-    stage.append(recovery);
     body.append(stage);
   }
 
@@ -305,6 +296,8 @@ export class OnlineLogin {
     for (const [action, label, path, x, y] of [
       ["home", "Homepage", "Title/BtHomePage", 524, 348],
       ["quit", "Quit", "Title/BtQuit", 624, 348],
+      ["recovery", "Find login ID", "Title/BtLoginIDLost", 554, 301],
+      ["recovery", "Find password", "Title/BtPasswdLost", 636, 302],
     ]) {
       const button = element(
         "button",
@@ -314,6 +307,10 @@ export class OnlineLogin {
       button.type = "button";
       button.style.left = `${x}px`;
       button.style.top = `${y}px`;
+      if (action === "recovery") {
+        button.classList.add("online-login-recovery");
+        button.setAttribute("aria-haspopup", "dialog");
+      }
       this.listen(button, "click", () => this.accountAction(action));
       this.accountButtons.push({ button, path });
       stage.append(button);
@@ -324,6 +321,7 @@ export class OnlineLogin {
     if (this.pending) return;
     if (action === "home") window.location.assign("https://docs.openms.dev");
     else if (action === "quit") window.location.assign("about:blank");
+    else if (action === "recovery") this.recovery.open();
   }
 
   buildRegistration() {

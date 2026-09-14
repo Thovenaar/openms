@@ -59,7 +59,7 @@ export class GameplayEffects {
     }
   }
   /** Each call represents one committed notification, never a proposed reward or dialog. */
-  play(name, scene) {
+  play(name, scene, target = null) {
     const resource = this.resources.get(name);
     if (!resource || !scene) {
       throw new Error(`Gameplay ${name} is not prepared`);
@@ -70,7 +70,7 @@ export class GameplayEffects {
       throw new Error("Gameplay effect residency bound exceeded");
     }
     const slot = this.acquire(name, resource);
-    const pose = scene.presentation ?? scene.simulation;
+    const pose = target ?? scene.presentation ?? scene.simulation;
     slot.animation.setAction(
       resource.owner.manifest.entities[0].action,
       "once",
@@ -79,6 +79,7 @@ export class GameplayEffects {
     slot.animation.setPosition(pose.x, pose.y);
     slot.remaining = resource.record.durationMs;
     slot.scene = scene;
+    slot.target = target;
     // 009377d9 cases0/9: native effect layer;004ad42b follows unflipped actor position.
     scene.addWorldContainer(slot.animation.container, 398500);
   }
@@ -110,7 +111,8 @@ export class GameplayEffects {
         this.release(slot);
         continue;
       }
-      const pose = slot.scene.presentation ?? slot.scene.simulation;
+      const pose =
+        slot.target ?? slot.scene.presentation ?? slot.scene.simulation;
       slot.animation.setPosition(pose.x, pose.y);
       slot.animation.advance(ms);
     }
@@ -118,6 +120,7 @@ export class GameplayEffects {
   release(slot) {
     if (slot.scene) slot.scene.removeWorldContainer(slot.animation.container);
     slot.scene = null;
+    slot.target = null;
     slot.remaining = 0;
   }
   clear() {

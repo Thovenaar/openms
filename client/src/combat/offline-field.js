@@ -878,7 +878,14 @@ export class OfflineField {
   }
 
   mobAttackAllowed(mob) {
-    if (!mob.alive || !mob.active || mob.fault || mob.state === "hit") {
+    // Mob.wz:9300018 and the other passive tutorial templates author notAttack=1.
+    if (
+      !mob.alive ||
+      !mob.active ||
+      mob.fault ||
+      mob.state === "hit" ||
+      mob.template.info.notAttack === 1
+    ) {
       return false;
     }
     return !(
@@ -942,6 +949,7 @@ export class OfflineField {
   contactDamage() {
     for (const mob of this.mobs) {
       if (
+        mob.template.info.notAttack !== 1 &&
         mob.template.info.bodyAttack === 1 &&
         this.targetOverlap(mob.sweptBody, this.targetFor(mob))
       ) {

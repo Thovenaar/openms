@@ -179,7 +179,7 @@ function hideRow(row) {
 }
 
 function updateRowHealth(state, row, member, mapId) {
-  // Native009716ed resolves a field user; offline loaded peers and online presence share this projection.
+  // Native009716ed resolves a field user; server presence supplies this projection.
   const present =
     member.online === true &&
     member.hp !== null &&

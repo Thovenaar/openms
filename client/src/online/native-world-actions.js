@@ -1,3 +1,4 @@
+import { combatSoundVolume } from "../audio/audiovisual-system.js";
 import { EXPRESSION_NAMES } from "../input/character-bindings.js";
 import { unsupported } from "./native-source.js";
 
@@ -8,8 +9,9 @@ export class NativeWorldActions {
     this.destroyed = false;
   }
   emote(index) {
-    if (!Number.isInteger(index) || !EXPRESSION_NAMES[index])
-      {return Promise.resolve(unsupported("this expression"));}
+    if (!Number.isInteger(index) || !EXPRESSION_NAMES[index]) {
+      return Promise.resolve(unsupported("this expression"));
+    }
     return this.owner.request({ kind: "expression.use", expression: index });
   }
   useCashExpression(templateId) {
@@ -22,9 +24,9 @@ export class NativeWorldActions {
     if (this.destroyed) return null;
     let promise;
     if (name === "Sit") promise = this.sit();
-    else if (name.startsWith("Expression:"))
-      {promise = this.emote(EXPRESSION_NAMES.indexOf(name.slice(11)));}
-    else return null;
+    else if (name.startsWith("Expression:")) {
+      promise = this.emote(EXPRESSION_NAMES.indexOf(name.slice(11)));
+    } else return null;
     promise.catch((error) => this.owner.report(error));
     return true;
   }
@@ -41,14 +43,14 @@ export class NativeWorldActions {
     });
     const value = outcome.receipt?.value;
     if (!outcome.ok) return { ...outcome, accepted: false };
-    if (value?.kind !== "world.reactor-offer")
-      {throw new Error("Server reactor offer outcome missing");}
+    if (value?.kind !== "world.reactor-offer") {
+      throw new Error("Server reactor offer outcome missing");
+    }
     return {
       ...outcome,
       accepted: value.accepted,
       consumed: value.consumed,
-      reason:
-        "Original reactor transition accepted; script rewards remain unavailable.",
+      reason: "The server accepted the reactor offering.",
     };
   }
   async event(message) {
@@ -59,11 +61,18 @@ export class NativeWorldActions {
         this.teleport(event);
         return true;
       case "world.portal":
-        if (event.actorId === this.owner.store.id)
+        if (event.actorId === this.owner.store.id) {
           await this.owner.audio.playSound("Game", "Portal");
+        }
         return true;
       case "world.tutorial":
         this.owner.hooks.scene()?.native?.showTutorial(event.path);
+        return true;
+      case "equipment.enhancement":
+        await this.owner.audio.playSound(
+          "Game",
+          event.outcome === "success" ? "EnchantSuccess" : "EnchantFailure",
+        );
         return true;
       case "world.reactor":
         await this.reactor(event);
@@ -73,7 +82,9 @@ export class NativeWorldActions {
     }
   }
   teleport(event) {
-    this.owner.hooks.scene()?.native?.showTeleport(event.source, event.destination);
+    this.owner.hooks
+      .scene()
+      ?.native?.showTeleport(event.source, event.destination);
     this.owner.hooks.scene()?.relocateObserved?.(event);
   }
   async reactor(event) {
@@ -85,11 +96,13 @@ export class NativeWorldActions {
       scene.manifest.reactors.templates[placement?.templateId]?.sounds?.[
         event.fromState
       ];
-    if (descriptor)
-      {await this.owner.audio.audio.playSound(
+    if (descriptor) {
+      await this.owner.audio.audio.playSound(
         descriptor,
         this.owner.hooks.scene().controller.signal,
-      );}
+        combatSoundVolume(placement, scene.simulation),
+      );
+    }
   }
   destroy() {
     this.destroyed = true;
@@ -104,8 +117,9 @@ export function observeWorldCharacter(view, entity, serverNow) {
     if (
       view.expressionStartedAt === expression.startedAt &&
       view.expressionName === expression.name
-    )
-      {return;}
+    ) {
+      return;
+    }
     animation.setExpression(
       expression.name,
       expression.expiresAt - expression.startedAt,

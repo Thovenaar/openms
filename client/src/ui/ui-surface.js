@@ -638,9 +638,7 @@ class UIControl {
     this.cancelClick = false;
     this.panel.owner.pressedControl = this;
     this.pointerId = event.pointerId;
-    if (event.isTrusted || !this.panel.owner.replayingNativeInput) {
-      this.element.setPointerCapture(event.pointerId);
-    }
+    this.element.setPointerCapture(event.pointerId);
   }
 
   cancelOffTargetClick(event) {

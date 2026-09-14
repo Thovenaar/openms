@@ -26,6 +26,8 @@ const BASIC_EFFECTS = [
   "TransformOnLadder",
   "Flying",
   "Flying1",
+  "Enchant/Success",
+  "Enchant/Failure",
 ];
 
 /** Original backend state/GUID envelope is independent of WAVE channel/rate fields. */

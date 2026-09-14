@@ -232,7 +232,12 @@ export class KeyBindings {
   }
 
   _canEdit() {
-    return this.editing && !this.saving && !this.destroyed;
+    return (
+      this.editing &&
+      !this.saving &&
+      !this.destroyed &&
+      Boolean(this.store.profile)
+    );
   }
 
   _available(binding) {
@@ -389,7 +394,10 @@ export class KeyBindings {
   }
 
   hasChanges() {
-    return !sameMap(this.active, this.store.profile.keyBindings);
+    return !sameMap(
+      this.active,
+      this.store.profile?.keyBindings ?? this.committedReference,
+    );
   }
 
   async save() {
@@ -440,7 +448,9 @@ export class KeyBindings {
   snapshot() {
     return {
       active: structuredClone(this.active),
-      saved: structuredClone(this.store.profile.keyBindings),
+      saved: structuredClone(
+        this.store.profile?.keyBindings ?? this.committedReference,
+      ),
       pending: this.editing ? structuredClone(this.active) : null,
       previewing: this.editing && this.hasChanges(),
       editing: this.editing,

@@ -6,6 +6,7 @@ import {
   inspectionText,
 } from "../development/state-testing.js";
 import { PROTOCOL } from "../../../shared/protocol.js";
+import { nativeOutcome, NativeOperationRefusal } from "./native-source.js";
 import {
   createOnlineDevelopment,
   mountOnlineExperiments,
@@ -15,7 +16,7 @@ const MAX_RECORDS = 80;
 const BADGE_SERVER = "SERVER";
 const BADGE_DEVELOPER = "SERVER · GM";
 const WORLD_HINT_ONLINE =
-  "Inspect scene entities, physics geometry and camera. Previews affect this client only, and world mutations remain server-authorized. The live placement inspector is offline-only.";
+  "Inspect scene entities, physics geometry and camera. Previews affect this client only, and world mutations remain server-authorized. Live placement inspection is unavailable.";
 
 /** Shared chrome adapter. Theme/listener ownership begins at prepare and ends at destroy. */
 export class OnlineInspection {
@@ -43,12 +44,9 @@ export class OnlineInspection {
     step.max = String(PROTOCOL.TICK_MS * 4);
     step.step = String(PROTOCOL.TICK_MS);
     step.value = String(PROTOCOL.TICK_MS);
-    const offline = document.querySelector("#offline-inspection");
-    if (offline) offline.hidden = true;
     this.controls = createControls(this.controlAPI());
     this.state = mountStateTesting({
       root: document.querySelector("#state-testing-controls"),
-      mode: "online",
       read: () => this.read(),
       command: (action) => this.command(action),
       signal: this.controller.signal,
@@ -76,7 +74,7 @@ export class OnlineInspection {
     }
   }
 
-  /** Offline keeps LOCAL; online states server authority and GM role when authorized. */
+  /** State server authority and the GM role when authorized. */
   refreshBadge() {
     document.querySelector(".console-badge").textContent = this.authorized()
       ? BADGE_DEVELOPER
@@ -233,7 +231,7 @@ export class OnlineInspection {
     }
     this.record("development result", result);
     if (result.status !== "committed") {
-      throw new Error(result.code || result.status);
+      throw new NativeOperationRefusal(nativeOutcome(result));
     }
     return result;
   }

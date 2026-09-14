@@ -1,11 +1,8 @@
 import { itemCount, isEquipped } from "../items/inventory-model.js";
 import { JOB_LABELS } from "../ui/ui-job-labels.js";
 
-/** Quest Check/Act endpoint identity, using the active/completed stage after acceptance. */
-export function questEndpointNpc(record, partition) {
-  const stage = record.stages[Math.min(partition, 1)];
-  return stage.check.npc || stage.actionCheck.npc || 0;
-}
+import { questEndpointNpc } from "./quest-rules.js";
+export { questEndpointNpc } from "./quest-rules.js";
 
 /** Original Quest/icon0,1,2,4 are available, unfinished, ready and completed artwork. */
 export function questListIcon(quests, record, partition) {

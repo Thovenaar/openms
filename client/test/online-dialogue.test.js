@@ -50,6 +50,7 @@ test("End Chat and Decline submit distinct server intents even on a quest", () =
 test("reward choices are selectable and only the selected offered index reaches the server", async () => {
   const commands = [];
   const dialogue = new NativeDialogue({
+    whenCommandsSettled: async () => {},
     command: async (action) => {
       commands.push(action);
       return { status: "committed" };
@@ -80,4 +81,82 @@ test("reward choices are selectable and only the selected offered index reaches 
       rewardChoice: 7,
     },
   ]);
+});
+
+function cancellable() {
+  const commands = [],
+    closes = [],
+    errors = [];
+  const deferred = Promise.withResolvers();
+  const cancelled = Promise.withResolvers();
+  const started = Promise.withResolvers();
+  let active = false;
+  const dialogue = new NativeDialogue({
+    whenCommandsSettled: () =>
+      active ? Promise.allSettled([deferred.promise]) : Promise.resolve(),
+    command: (action) => {
+      commands.push(action);
+      if (action.answer.kind === "cancel") {
+        cancelled.resolve();
+        return Promise.resolve({ status: "committed" });
+      }
+      active = true;
+      started.resolve();
+      return deferred.promise.finally(() => {
+        active = false;
+      });
+    },
+    report: (error) => errors.push(error),
+    ui: { windows: new Map(), close: (name) => closes.push(name) },
+  });
+  dialogue.event = event();
+  dialogue.view = dialogue.dialogueView(
+    dialogue.event,
+    "Choose a destination.",
+  );
+  return { dialogue, commands, closes, errors, deferred, cancelled, started };
+}
+
+test("End Chat dismisses immediately during a pending turn and suppresses late pages", async () => {
+  const probe = cancellable();
+  const { dialogue } = probe;
+  const pending = dialogue.respond({
+    sessionId: "current",
+    revision: 3,
+    action: "choose",
+    value: 0,
+  });
+  await probe.started.promise;
+  expect(dialogue.pending).toBe(true);
+  expect(dialogue.cancel("current").ok).toBe(true);
+  expect(probe.closes).toEqual(["UtilDlgEx"]);
+  expect(probe.commands).toHaveLength(1);
+  expect(dialogue.view.kind).toBe("closed");
+  await dialogue.publish({ ...event(), step: 4 }); // Must not fetch or reopen the next page.
+  expect(dialogue.event).toBeNull();
+  probe.deferred.resolve({ status: "committed" });
+  await pending;
+  await probe.cancelled.promise;
+  expect(probe.commands[1].answer).toEqual({ kind: "cancel" });
+  expect(probe.errors).toEqual([]);
+});
+
+test("End Chat also cancels after a rejected turn and cannot dismiss a different conversation", async () => {
+  const probe = cancellable();
+  const { dialogue } = probe;
+  const pending = dialogue.respond({
+    sessionId: "current",
+    revision: 3,
+    action: "choose",
+    value: 0,
+  });
+  await probe.started.promise;
+  dialogue.cancel("older");
+  expect(probe.closes).toEqual([]);
+  dialogue.cancel("current");
+  probe.deferred.resolve({ status: "rejected", code: "CONTENT_MISMATCH" });
+  expect((await pending).ok).toBe(false);
+  await probe.cancelled.promise;
+  expect(probe.commands[1].conversationId).toBe("current");
+  expect(dialogue.view.kind).toBe("closed");
 });

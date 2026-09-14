@@ -149,15 +149,11 @@ function observedQuestMatches(value, query) {
   );
 }
 
-function questSearchSummary(matched, mode) {
+function questSearchSummary(matched) {
   if (matched > MAX_QUEST_ROWS) {
     return `${matched} matches; first ${MAX_QUEST_ROWS} shown. Refine the search.`;
   }
-  const action =
-    mode === "online"
-      ? "Accept/claim require a current server NPC offer."
-      : "Open the native journal for quest actions.";
-  return `${matched} observed quests. ${action}`;
+  return `${matched} observed quests. Accept/claim require a current server NPC offer.`;
 }
 
 function mountQuests(root, state) {
@@ -191,7 +187,6 @@ function mountQuests(root, state) {
         rows.set(entry.id, row);
       }
       updateQuestRow(row, entry, value.offer);
-      if (state.mode === "offline") row.abandon.hidden = true;
     }
     for (const [id, row] of rows) {
       if (!visible.has(id)) {
@@ -199,7 +194,7 @@ function mountQuests(root, state) {
         rows.delete(id);
       }
     }
-    status.textContent = questSearchSummary(matches.length, state.mode);
+    status.textContent = questSearchSummary(matches.length);
   }
   filter.addEventListener("input", () => refresh(), { signal: state.signal });
   return refresh;
@@ -225,22 +220,17 @@ function mountConnection(root) {
 
 /** Mount once. read supplies bounded {quests:{entries,offer},connection,content,
  * prediction,operations,peers}. Commands are explicit inspection actions. */
-export function mountStateTesting({ root, mode, read, command, signal }) {
-  if (!["online", "offline"].includes(mode)) {
-    throw new Error("Unknown authority mode");
-  }
+export function mountStateTesting({ root, read, command, signal }) {
   const panel = inspectionElement(root, "section");
   panel.className = "state-testing";
   inspectionElement(
     panel,
     "p",
-    mode === "online"
-      ? "Server authority · observations are read-only; requests are validated by the server."
-      : "Offline authority · local observations; no server requests.",
+    "Server authority · observations are read-only; requests are validated by the server.",
   );
   const status = inspectionElement(panel, "p");
   status.setAttribute("role", "status");
-  const state = { mode, command, signal, status };
+  const state = { command, signal, status };
   const outputs = new Map();
   const views = new Map();
   for (const [key, title] of SECTIONS) {
@@ -252,7 +242,7 @@ export function mountStateTesting({ root, mode, read, command, signal }) {
     inspectionElement(details, "summary", "Technical observation");
     outputs.set(key, inspectionElement(details, "pre"));
   }
-  if (mode === "online" && command) {
+  if (command) {
     const actions = inspectionElement(panel, "div");
     actions.className = "state-testing-actions";
     addAction(

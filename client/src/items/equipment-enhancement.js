@@ -244,6 +244,7 @@ export class EquipmentEnhancement {
       });
       committed = true;
       if (prepared) this.system.hooks.publishAppearance(prepared);
+      this.system.hooks.onEnhancement?.(outcome);
       return { ok: true, outcome };
     } catch (error) {
       return { ok: false, reason: error.message };

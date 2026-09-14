@@ -8,7 +8,6 @@ import {
 } from "../src/world/portal-system.js";
 import { TUTORIAL_PORTAL_PROGRAMS } from "../src/npc/npc-script-portals.js";
 import { compileTutorialPortal } from "../tools/portal-data.js";
-import { NpcInteractions } from "../src/npc/npc-interactions.js";
 
 test("portal admission is response-timed and stale completions cannot release a successor", () => {
   let now = 0;
@@ -232,33 +231,4 @@ test("eligible tutorial offers the authored NPC once, but a failed opening remai
   expect(gate.blockedScripts.has("tutoChatNPC")).toBe(true);
   expect(scene.manifest.id).toBe("000010000");
   system.destroy();
-});
-
-test("a failed portal-opened NPC load can retry instead of retaining a ghost conversation", async () => {
-  const store = { profile: { hp: 50 } };
-  const owner = {
-    store,
-    scene: { manifest: { id: "000010000" } },
-    catalog: {
-      quests: { strings: { npc: { 2007: "Tutor" } } },
-      serverData: { datasets: { shops: {} } },
-    },
-    isOperationPending: () => false,
-    services: {
-      network: {
-        json: async () => {
-          throw new Error("Reference transport unavailable");
-        },
-      },
-    },
-  };
-  const npc = new NpcInteractions(owner, store);
-  const options = {
-    signal: new AbortController().signal,
-    source: "scripts/portal/tutoChatNPC.js",
-    sourceMapId: "000010000",
-  };
-  await expect(npc.openPortal(2007, options)).rejects.toThrow();
-  await expect(npc.openPortal(2007, options)).rejects.toThrow();
-  npc.destroy();
 });

@@ -260,6 +260,14 @@ export class AudioEngine {
       throw new Error("Original track exceeds decoded PCM budget");
     }
     this.evict(predicted, replacingBGM);
+    const activity = this.network.activity?.begin();
+    try {
+      return await this.decodeSource(descriptor, signal, replacingBGM);
+    } finally {
+      this.network.activity?.end(activity);
+    }
+  }
+  async decodeSource(descriptor, signal, replacingBGM) {
     const encoded = await this.network.load(descriptor, signal);
     check(this.abort.signal);
     const buffer = await this.context.decodeAudioData(encoded);
@@ -349,6 +357,11 @@ export class AudioEngine {
         return { status: "gesture-required" };
       }
       this.start(entry, "SE", false, percent);
+      this.lastSound = {
+        source: descriptor.source,
+        sha256: descriptor.sha256,
+        percent,
+      };
       return { status: "playing", source: descriptor.source };
     } catch (error) {
       entry.users--;
@@ -464,6 +477,7 @@ export class AudioEngine {
       bgm: this.bgm?.entry.source ?? null,
       decoded: this.decoded,
       lastDecode: this.lastDecode,
+      lastSound: this.lastSound ?? null,
       lastCapture: this.lastCapture,
       settings: { BGM: { ...this.settings.BGM }, SE: { ...this.settings.SE } },
     };

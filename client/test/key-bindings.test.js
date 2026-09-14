@@ -356,3 +356,15 @@ test("durable timed use publishes real stats and exact selected instance only af
   expect(effects.visible[0].remaining).toBe(10001);
   service.destroy();
 });
+
+test("inspection retains the last committed bindings while the online profile is detached", () => {
+  const { service, store } = fixture();
+  const saved = service.snapshot().saved;
+  store.profile = null;
+  service._storeChanged();
+  expect(service.snapshot().saved).toEqual(saved);
+  expect(service.snapshot().changed).toBe(false);
+  service.editing = true;
+  expect(service.clearKeys()).toBe(false);
+  service.destroy();
+});

@@ -545,12 +545,12 @@ export class AudiovisualSystem {
     this.playSound("Game", "Tombstone").catch(this.reportBound);
   }
   /** Committed LevelUp/QuestClear own independent sequences and matching Game sounds. */
-  async playGameplayEffect(name) {
+  async playGameplayEffect(name, target = null) {
     if (name !== "LevelUp" && name !== "QuestClear") {
       return this.playEffect(name, "offline gameplay");
     }
     if (this.destroyed) throw aborted();
-    this.gameplayEffects.play(name, this.scene);
+    this.gameplayEffects.play(name, this.scene, target);
     // Start sound at event admission, not after fetching or finishing the visual sequence.
     return this.playSound("Game", name);
   }

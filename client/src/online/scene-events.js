@@ -1,3 +1,4 @@
+import { GameplayEffects } from "../audio/gameplay-effects.js";
 import { CombatPresentation } from "../combat/combat-presentation.js";
 import { SpeechBubbles } from "../rendering/speech-bubbles.js";
 
@@ -14,6 +15,7 @@ export class SceneEvents {
     this.pose = { x: 0, headY: 0 };
     this.projectiles = new Map();
     this.projectileCount = 0;
+    this.enchant = new GameplayEffects(owner.services);
   }
 
   async prepare(signal) {
@@ -23,21 +25,37 @@ export class SceneEvents {
       signal,
       catalog.ui.avatar.projectiles,
     );
+    await this.enchant.prepare(catalog.audiovisual, signal, [
+      "Enchant/Success",
+      "Enchant/Failure",
+    ]);
   }
 
   async event(message) {
     const event = message.event;
-    if (event.kind === "combat.impact") this.damage(event);
+    if (event.kind === "equipment.enhancement") this.enhancement(event);
+    else if (event.kind === "combat.impact") this.damage(event);
     else if (event.kind === "projectile") this.projectile(event);
     else if (event.kind === "drop.pickup") this.owner.drops.pickup(event);
     else if (event.kind === "drop.explode") this.owner.drops.explode(event);
-    else if (event.kind === "combat.recovery" || event.kind === "drop.effect")
-      {this.recovery(event);}
-    else if (event.kind === "skill.magnet") {
+    else if (event.kind === "combat.recovery" || event.kind === "drop.effect") {
+      this.recovery(event);
+    } else if (event.kind === "skill.magnet") {
       const view = this.owner.views.get(event.targetId);
       if (view) this.combat.onMagnetResult(this.target(view), event.success);
     } else if (event.kind === "chat" && event.channel === "map") {
       await this.chat(event);
+    }
+  }
+
+  enhancement(event) {
+    const view = this.owner.views.get(event.actorId);
+    if (view) {
+      this.enchant.play(
+        event.outcome === "success" ? "Enchant/Success" : "Enchant/Failure",
+        this.owner.scene,
+        this.target(view),
+      );
     }
   }
 
@@ -99,8 +117,9 @@ export class SceneEvents {
   reserveNumber() {
     const numbers = this.combat.snapshot();
     const required = numbers.active + numbers.pending + 1;
-    if (required > numbers.hardCapacity)
-      {throw new Error("Online confirmed damage number residency limit");}
+    if (required > numbers.hardCapacity) {
+      throw new Error("Online confirmed damage number residency limit");
+    }
     if (required > numbers.capacity) this.combat.growNumbers(required);
   }
   damage(event) {
@@ -113,9 +132,9 @@ export class SceneEvents {
     this.reserveNumber();
     if (view.entity.kind === "mob") {
       const target = this.target(view);
-      if (event.skillId)
-        {this.combat.onSkillDamageLine(target, event.damage, event);}
-      else this.combat.onMobHit(target, event.damage);
+      if (event.skillId) {
+        this.combat.onSkillDamageLine(target, event.damage, event);
+      } else this.combat.onMobHit(target, event.damage);
     } else {
       const animation = view.animation;
       const geometry = animation.current.geometry[animation.frame];
@@ -163,6 +182,7 @@ export class SceneEvents {
 
   draw(elapsed) {
     this.combat.update(elapsed);
+    this.enchant.update(elapsed);
     this.expireProjectiles(elapsed);
     for (const [id, speech] of this.speech) {
       const animation = this.owner.views.get(id)?.animation;
@@ -192,6 +212,7 @@ export class SceneEvents {
 
   destroy() {
     this.combat.destroy();
+    this.enchant.destroy();
     for (const speech of this.speech.values()) speech.destroy();
     this.speech.clear();
     this.projectiles.clear();

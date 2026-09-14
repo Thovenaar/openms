@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev:offline": "bun tools/dev.js",
+    "dev": "bun tools/dev-online.js",
+    "build": "bun tools/build-online.js",
     "test": "bun test"
   },
   "dependencies": {

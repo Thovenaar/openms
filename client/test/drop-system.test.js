@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { DropSystem } from "../src/world/drop-system.js";
 import { DROP_POLICY } from "../src/world/drop-rules.js";
-import { ProfileStore } from "../src/profile/profile-store.js";
+import { ProfileStore } from "./fixtures/memory-profile-store.js";
 import { createProfile } from "../src/profile/profile-validation.js";
 import { grantItem } from "../src/items/inventory-model.js";
 

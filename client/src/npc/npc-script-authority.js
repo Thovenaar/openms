@@ -846,11 +846,22 @@ export function applyNpcEffect(turn, node, args) {
   } else questEffect(turn, node, args);
 }
 
-function validateSessionValues(globals) {
+/** Structured cloning drops property descriptors; restore VM-owned array immutability on receipt. */
+export function restoreNpcGlobals(globals) {
+  validateSessionValues(globals, true);
+}
+
+function validateSessionValues(globals, restore = false) {
   const queue = [],
     depths = new Map();
   let characters = 0;
-  for (const value of Object.values(globals)) queue.push({ value, depth: 0 });
+  const values = Object.values(globals);
+  requireNpc(
+    values.length <= LIMITS.variables,
+    "NPC retained variable count exceeded",
+    "npc-budget",
+  );
+  for (const value of values) queue.push({ value, depth: 0 });
   for (let index = 0; index < queue.length; index++) {
     requireNpc(
       queue.length <= LIMITS.analysisSteps,
@@ -871,7 +882,13 @@ function validateSessionValues(globals) {
     );
     if (!Array.isArray(value)) continue;
     requireNpc(
-      Object.isFrozen(value) && value.length <= LIMITS.arrayLength,
+      value.length <= LIMITS.arrayLength,
+      "NPC array length exceeded",
+      "npc-budget",
+    );
+    if (restore) Object.freeze(value);
+    requireNpc(
+      Object.isFrozen(value),
       "NPC array is not immutable and bounded",
     );
     if ((depths.get(value) ?? -1) >= depth) continue;

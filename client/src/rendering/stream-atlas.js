@@ -168,6 +168,7 @@ export class AtlasStore {
     return record;
   }
   async prepare(record) {
+    const activity = this.network.activity?.begin();
     try {
       const signal = record.controller.signal;
       const bytes = await this.network.load(record.info, signal);
@@ -183,6 +184,7 @@ export class AtlasStore {
       check(signal);
       return record.source;
     } finally {
+      this.network.activity?.end(activity);
       record.settled = true;
       if (record.removed) this.dispose(record);
     }

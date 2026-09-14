@@ -352,7 +352,9 @@ async function learnSkill(panel, id) {
     const result = await owner.hooks.onLearnSkill(id);
     if (!ownsSkillRequest(panel, request)) return;
     if (result?.ok === false) {
-      throw new Error(result.reason || "Skill learning rejected");
+      panel.skillFeedback = result.reason || "Skill learning rejected";
+      owner.status(panel.skillFeedback);
+      return;
     }
     panel.skillFeedback = "Skill saved.";
   } catch (error) {
@@ -728,7 +730,7 @@ export class ItemCatalogControls {
   }
 }
 
-/** Local policy controls stay outside the original raster gameplay plane. */
+/** Audited server development controls stay outside the original raster gameplay plane. */
 export class ProfileControls {
   constructor(owner) {
     this.owner = owner;
@@ -753,8 +755,6 @@ export class ProfileControls {
   bindEditorListeners() {
     const owner = this.owner;
     this.listeners = [
-      [this.save, "click", owner.saveProfile.bind(owner)],
-      [this.reset, "click", owner.requestReset.bind(owner)],
       [this.recover, "click", owner.recoverProfile.bind(owner)],
       [this.form, "submit", this.submit.bind(this)],
       [this.form, "input", this.markEdited.bind(this)],
@@ -782,26 +782,18 @@ export class ProfileControls {
 
   buildUtilities() {
     const recovery = inspectionElement("details", "", this.scroll);
-    inspectionElement("summary", "Save & recovery", recovery);
+    inspectionElement("summary", "Recovery", recovery);
     inspectionElement(
       "p",
-      this.owner.hooks.readOnlyProfile
-        ? "Applied changes are saved by the server. Use Revive when your character has died."
-        : "Checkpoint saves the live character, not unapplied edits.",
+      "Applied changes are saved by the server. Use Revive when your character has died.",
       recovery,
     ).className = "hint";
     const actions = inspectionElement("div", "", recovery);
     actions.className = "profile-actions";
-    this.save = profileButton(actions, "Save checkpoint");
-    this.save.hidden = Boolean(this.owner.hooks.readOnlyProfile);
     this.recover = profileButton(actions, "Revive character");
     this.status = inspectionElement("p", "", recovery);
     this.status.setAttribute("role", "status");
     this.status.className = "hint";
-    const advanced = inspectionElement("details", "", this.scroll);
-    inspectionElement("summary", "Destructive actions", advanced);
-    advanced.hidden = Boolean(this.owner.hooks.readOnlyProfile);
-    this.reset = profileButton(advanced, "Reset character…");
     const offering = inspectionElement("details", "", this.scroll);
     inspectionElement("summary", "Reactor testing", offering);
     this.offerCatalog = new ItemCatalogControls(
@@ -1412,8 +1404,6 @@ export class ProfileControls {
     return Boolean(
       this.request ||
       this.conjuring ||
-      this.owner.saving ||
-      this.owner.resetting ||
       this.owner.store.profileTransactionPending,
     );
   }
@@ -1457,16 +1447,13 @@ export class ProfileControls {
     this.status.textContent =
       store.error?.message || store.error || store.status;
     const busy = this.isBusy();
-    this.refreshPersistenceControls(store, profile, busy);
+    this.refreshProfileControls(profile, busy);
     this.form.setAttribute("aria-busy", String(Boolean(this.request)));
     this.updateEditActions();
     if (!this.dirty && !this.request) this.refreshEditor(profile);
     this.refreshItems(profile);
   }
-  refreshPersistenceControls(store, profile, busy) {
-    this.save.disabled = !profile || busy || typeof store.flush !== "function";
-    this.reset.disabled =
-      busy || typeof this.owner.hooks.onReset !== "function";
+  refreshProfileControls(profile, busy) {
     this.recover.disabled = !profile || profile.hp !== 0 || busy;
     this.editor.disabled = !profile || busy;
   }
@@ -1600,7 +1587,8 @@ export class ProfileControls {
       });
       if (!this.ownsEditRequest(request)) return;
       if (result?.ok === false) {
-        throw new Error(result.reason || "Profile edit rejected");
+        this.editStatus.textContent = result.reason || "Profile edit rejected";
+        return;
       }
       this.dirty = false;
       this.skillEditSignature = null;

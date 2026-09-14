@@ -5,19 +5,9 @@ const MAX_ENCODING_BYTES = 16 * 1024 * 1024;
 const MAX_TEXT_BYTES = 64 * 1024 * 1024;
 const MIN_ENCODING_BYTES = 65536;
 const MAX_ENCODING_ENTRIES = 4096;
-const COMMON_SHELL = [
+const SHELL = new Map([
   ["/index.html", "."],
   ["/style.css", "."],
-  ["/app-icon.svg", "public"],
-];
-const OFFLINE_SHELL = new Map([
-  ...COMMON_SHELL,
-  ["/service-worker.js", "public"],
-  ["/offline-manifest.js", "public"],
-  ["/app.webmanifest", "public"],
-]);
-const ONLINE_SHELL = new Map([
-  ...COMMON_SHELL,
   ["/online.css", "."],
   ["/openms-icon.png", "public"],
 ]);
@@ -28,12 +18,12 @@ const WORKERS = new Set([
 const HASH_RESOURCE =
   /^\/generated\/(?:[a-z][a-z0-9-]*\/)+[a-f0-9]{64}\.(?:png|json|mp3|wav|bin)$/;
 
-/** Public roots and worker aliases differ by mode; all admission/HTTP behavior is shared. */
+/** Resolve the online shell, compiled bundles and immutable generated resources. */
 function resourcePath(path, options) {
-  const { root, online } = options;
+  const { root } = options;
   if (path === "/") path = "/index.html";
-  const shell = (online ? ONLINE_SHELL : OFFLINE_SHELL).get(path);
-  const dist = online ? "/dist/online/" : "/dist/";
+  const shell = SHELL.get(path);
+  const dist = "/dist/online/";
   let directory, relative;
   if (shell) {
     directory = resolve(root, shell);
@@ -41,7 +31,7 @@ function resourcePath(path, options) {
   } else if (path.startsWith("/generated/")) {
     directory = options.generatedRoot ?? resolve(root, "public/generated");
     relative = path.slice("/generated/".length);
-  } else if (online && WORKERS.has(path)) {
+  } else if (WORKERS.has(path)) {
     directory = resolve(root, "dist/online");
     relative = path.slice("/dist/".length);
   } else if (path.startsWith(dist)) {
@@ -146,7 +136,6 @@ function responseHeaders(file, immutable, encoded) {
     "Cache-Control": immutable
       ? "public, max-age=31536000, immutable"
       : "no-store",
-    "Service-Worker-Allowed": "/",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     Vary: "Accept-Encoding",
@@ -173,44 +162,19 @@ function requestPath(request) {
     : path;
 }
 
-/** No release discovery or installation: online and offline share lazy resource encoding. */
+/** Serve the online shell without release installation or persistent browser caches. */
 export function createStaticResources(options) {
   const encodings = new HttpEncodings();
-  if (options.online && typeof options.html !== "string") {
-    throw new Error(
-      "Online static resources require the derived browser shell",
-    );
+  if (typeof options.html !== "string") {
+    throw new Error("Static resources require the online browser shell");
   }
-  const html = options.online
-    ? new Blob([options.html], { type: "text/html;charset=utf-8" })
-    : null;
+  const html = new Blob([options.html], { type: "text/html;charset=utf-8" });
   return {
     encodings,
-    async prepare(resources) {
-      const candidates = resources
-        .filter(
-          (info) =>
-            info.bytes >= MIN_ENCODING_BYTES &&
-            /\.(json|js|css|html|svg)$/.test(info.url),
-        )
-        .sort((left, right) => right.bytes - left.bytes);
-      for (const info of candidates) {
-        const target = resourcePath(info.url, options);
-        if (!target) {
-          throw new Error(`Unservable release resource: ${info.url}`);
-        }
-        const filename = await canonicalResource(target);
-        if (filename instanceof Response) {
-          throw new Error(`Unavailable release resource: ${info.url}`);
-        }
-        await encodings.prepare(filename, Bun.file(filename));
-      }
-      return encodings;
-    },
     async fetch(request) {
       const path = requestPath(request);
       if (path instanceof Response) return path;
-      if (options.online && (path === "/" || path === "/index.html")) {
+      if (path === "/" || path === "/index.html") {
         return new Response(request.method === "HEAD" ? null : html, {
           headers: responseHeaders(html, false, null),
         });

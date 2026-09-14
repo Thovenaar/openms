@@ -293,6 +293,7 @@ export class ReactorSystem {
       record.hitMs = hitMs;
       this.present(record);
     } else this.enterState(record, target);
+    if (!target || !target.events.length) this.hooks.onReward?.(record);
   }
 
   matchesSkillEvent(record, event, skillId) {

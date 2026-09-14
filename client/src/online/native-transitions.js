@@ -103,6 +103,23 @@ export class NativeTransitions {
     }
   }
   async stage(message, signal, preparation) {
+    const changingMap =
+      this.owner.state.field.mapId !== message.destination.mapId;
+    const descriptor =
+      this.owner.catalog.maps[
+        String(message.destination.mapId).padStart(9, "0")
+      ];
+    if (!descriptor) throw new Error("Transition map descriptor is missing");
+    const owner = changingMap
+      ? this.owner.hooks.loading.beginMap(descriptor)
+      : null;
+    try {
+      return await this.loadScene(message, signal, preparation, owner);
+    } finally {
+      if (owner) this.owner.hooks.loading.endMap(owner);
+    }
+  }
+  async loadScene(message, signal, preparation, loadingOwner) {
     const descriptor =
       this.owner.catalog.maps[
         String(message.destination.mapId).padStart(9, "0")
@@ -113,6 +130,7 @@ export class NativeTransitions {
     const manifest = validateManifest(
       await this.owner.services.network.json(descriptor, signal),
     );
+    this.owner.hooks.loading.includeMap(loadingOwner, manifest);
     signal.throwIfAborted();
     const candidate = new OnlineScene({
       app: this.owner.app,

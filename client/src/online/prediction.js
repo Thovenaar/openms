@@ -25,9 +25,11 @@ function historyEntry() {
 
 /** Disposable movement presentation. Call advance from a fixed scheduler, never from RAF. */
 export class OnlinePrediction {
-  constructor({ onInput, onResync } = {}) {
+  constructor({ onInput, onResync, onGroundJump } = {}) {
     this.onInput = onInput;
     this.onResync = onResync;
+    this.onGroundJump = onGroundJump;
+    this.groundJumpSequence = null;
     this.simulation = null;
     this.held = createHeldInput();
     this.history = Array.from({ length: PROTOCOL.INPUT_HISTORY }, historyEntry);
@@ -110,6 +112,7 @@ export class OnlinePrediction {
     this.ackInputSeq = message.ackInputSeq ?? this.ackInputSeq;
     this.paused = message.paused;
     restoreMotion(this.simulation, message.motion);
+    this.observeJump(message.motion.groundJumpSequence);
     assignHeldInput(this.held, message.motion.held);
     this.held.jumpPressed = false;
     this.held.attackPressed = false;
@@ -144,6 +147,15 @@ export class OnlinePrediction {
       }
       break;
     }
+  }
+
+  /** Only new server-accepted ground/drop jumps cue audio; replay and rejoin are silent. */
+  observeJump(sequence) {
+    const previous = this.groundJumpSequence;
+    this.groundJumpSequence = sequence;
+    if (previous === null) return;
+    const delta = (sequence - previous) >>> 0;
+    if (delta > 0 && delta < 0x80000000) this.onGroundJump?.();
   }
 
   retireHistory() {
@@ -303,6 +315,7 @@ export class OnlinePrediction {
   }
 
   clear() {
+    this.groundJumpSequence = null;
     this.ready = false;
     this.paused = false;
     this.simulation = null;

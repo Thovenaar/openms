@@ -2,7 +2,7 @@ import { Container, Sprite, Texture } from "pixi.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { UISurface } from "../ui/ui-surface.js";
 import { LoginScene } from "./login-scene.js";
-import { loginCameraY } from "./login-motion.js";
+import { loginPageOffset } from "./login-motion.js";
 import { LoginCursor } from "./login-cursor.js";
 
 const BUTTON_STATES = ["normal", "mouseOver", "pressed", "disabled"];
@@ -23,7 +23,15 @@ export class LoginBackdrop {
     this.surfaces = [];
     this.buttons = [];
     this.stages = new Map();
+    this.controls = new Map([
+      ["account", login.accountStage],
+      ["characters", login.characterStage],
+      ["create", login.createStage],
+    ]);
     this.scene = new LoginScene(login.window);
+    this.departingScene = new LoginScene(login.window);
+    this.departingScene.host.hidden = true;
+    this.departingCamera = { x: -400, y: -308 };
     this.camera = { x: -400, y: -308 };
     this.currentStage = null;
     this.transition = null;
@@ -57,6 +65,12 @@ export class LoginBackdrop {
       return;
     }
     await this.scene.prepare(this.login.catalog, this.login.services, combined);
+    if (this.destroyed) return;
+    await this.departingScene.prepare(
+      this.login.catalog,
+      this.login.services,
+      combined,
+    );
     if (this.destroyed) return;
     const cursor = await loadVisualBundle(
       this.login.catalog.ui.bundles.Cursor,
@@ -147,21 +161,22 @@ export class LoginBackdrop {
     panel.element.style.zIndex = "0";
     panel.root.rasterClip = { x: 0, y: 0, width: 800, height: 600 };
     this.selectionLight = panel;
-    this.selectionGleam = panel.stateImage("CharSelect/effect/0/0", 260, 0);
-    this.selectionBeam = panel.stateImage("CharSelect/effect/1/0", 260, 0);
+    this.selectionGleam = panel.stateImage("CharSelect/effect/0/0", 280, 0);
+    this.selectionBeam = panel.stateImage("CharSelect/effect/1/0", 280, 0);
     this.selectionBeam.setAction("default", "once");
     this.lightCharacter = null;
   }
 
   renderSelectionLight() {
     const character = this.login.characters[this.login.selected];
-    const visible = this.currentStage === "characters" && Boolean(character);
+    const visible =
+      !this.controls.get("characters").hidden && Boolean(character);
     this.selectionLight.element.hidden = !visible;
     this.selectionLight.root.visible = visible;
     if (!character || character === this.lightCharacter) return;
     this.lightCharacter = character;
-    // 005f64de..005f6502: center + (-140 + 125*(index%3), -300).
-    const x = 260 + 125 * (this.login.selected % 3);
+    // Map the native 125px slot spacing to the browser's composed-avatar feet.
+    const x = 280 + 125 * (this.login.selected % 3);
     this.selectionGleam.setPosition(x, 0);
     this.selectionBeam.setPosition(x, 0);
     this.selectionGleam.setAction("default", "loop", true);
@@ -250,15 +265,19 @@ export class LoginBackdrop {
 
   positionNameTags(index) {
     const slot = this.login.rosterSlots[index];
-    const width = Math.min(
-      216,
-      slot.name.clientWidth < 41 ? 58 : slot.name.clientWidth + 18,
-    );
+    const textWidth = slot.name.clientWidth;
+    const width = Math.min(216, textWidth < 41 ? 58 : textWidth + 18);
+    const left = 286 + index * 125 - Math.trunc(width / 2);
+    // 00605e95..00605eab: x=trunc((canvasWidth-textWidth)/2)-1, y=2.
+    // The DOM text and raster tag must share that integer origin, including odd widths.
+    slot.name.style.left = `${left - (230 + index * 125) + Math.trunc((width - textWidth) / 2) - 1}px`;
     const selected = slot.index === this.login.selected;
     for (let state = 0; state < 2; state++) {
       const tag = this.rosterArt[index].tags[state];
       tag.root.visible = Boolean(slot.character) && state === Number(selected);
-      tag.root.position.set(286 + index * 125 - Math.trunc(width / 2), 370);
+      tag.root.position.set(left, 370);
+      // Native composition is bounded by the width×22 nameplate canvas.
+      tag.root.rasterClip = { x: 0, y: 0, width, height: 22 };
       tag.right.setPosition(width - 10, 0);
       for (let tile = 0; tile < tag.middle.length; tile++) {
         tag.middle[tile].container.visible = tile * 9 < width - 10;
@@ -398,7 +417,7 @@ export class LoginBackdrop {
     entry.states.mouseOver = panel.stateImage(
       `${path}/1/0`,
       normal.origin.x,
-      normal.origin.y - Number(path.endsWith("pageR")),
+      normal.origin.y,
     );
     this.bindButtonInput(entry);
     this.buttons.push(entry);
@@ -487,48 +506,72 @@ export class LoginBackdrop {
     const next = STAGES[name];
     if (!next) throw new Error(`Unknown native login stage ${name}`);
     if (this.currentStage && this.currentStage !== name) {
-      const previous = STAGES[this.currentStage];
       this.transition = {
         from: this.currentStage,
         to: name,
         fromY: this.camera.y,
         toY: next.centerY - 300,
-        durationMs: 500 + 300 * Math.abs(next.index - previous.index),
+        durationMs: 800,
         elapsedMs: 0,
       };
-    } else if (!this.currentStage) {
-      this.camera.y = next.centerY - 300;
+      this.departingCamera.y = this.camera.y;
+      this.departingScene.update(
+        this.departingCamera,
+        this.scene.elapsedMs - this.departingScene.elapsedMs,
+      );
     }
+    this.camera.y = next.centerY - 300;
     this.currentStage = name;
-    this.renderSelectionLight();
-    for (const [stage, panel] of this.stages) {
-      panel.element.hidden = stage !== name;
-      panel.root.visible = stage === name;
-    }
+    // Paint the destination before exposing its translated DOM plane.
+    this.scene.update(this.camera, 0);
     this.positionStage();
   }
 
   replayTransition() {
     if (!this.transition) return;
     this.transition.elapsedMs = 0;
-    this.camera.y = this.transition.fromY;
     this.positionStage();
   }
 
   positionStage() {
-    const offset = STAGES[this.currentStage].centerY - 300 - this.camera.y;
+    const transition = this.transition;
+    const active = transition && transition.elapsedMs < transition.durationMs;
+    const offset = active
+      ? loginPageOffset(
+          transition.fromY,
+          transition.toY,
+          transition.elapsedMs,
+          transition.durationMs,
+        )
+      : 0;
     const transform = `translateY(${Math.trunc(offset)}px)`;
-    this.stages.get(this.currentStage).element.style.transform = transform;
-    const stage =
-      this.currentStage === "account"
-        ? this.login.accountStage
-        : this.currentStage === "characters"
-          ? this.login.characterStage
-          : this.login.createStage;
-    stage.style.transform = transform;
-    this.login.window.querySelector(".online-login-body").inert = Boolean(
-      this.transition && this.transition.elapsedMs < this.transition.durationMs,
-    );
+    this.scene.host.style.transform = transform;
+    this.departingScene.host.hidden = !active;
+    const distance = active
+      ? Math.sign(transition.toY - transition.fromY) * 600
+      : 0;
+    if (active) {
+      this.departingScene.host.style.transform = `translateY(${Math.trunc(offset - distance)}px)`;
+    }
+    for (const [name, panel] of this.stages) {
+      const departing = active && name === transition.from;
+      const visible = name === this.currentStage || departing;
+      const placement = departing
+        ? this.departingScene.host.style.transform
+        : transform;
+      panel.element.hidden = !visible;
+      panel.root.visible = visible;
+      panel.element.style.transform = placement;
+      const controls = this.controls.get(name);
+      controls.hidden = !visible;
+      controls.style.transform = placement;
+      if (name === "characters") {
+        this.selectionLight.element.style.transform = placement;
+      }
+    }
+    this.renderSelectionLight();
+    this.login.window.querySelector(".online-login-body").inert =
+      Boolean(active);
   }
 
   advanceTransition(ms) {
@@ -537,12 +580,6 @@ export class LoginBackdrop {
     transition.elapsedMs = Math.min(
       transition.durationMs,
       transition.elapsedMs + ms,
-    );
-    this.camera.y = loginCameraY(
-      transition.fromY,
-      transition.toY,
-      transition.elapsedMs,
-      transition.durationMs,
     );
     this.positionStage();
     if (transition.elapsedMs === transition.durationMs) this.login.focusStage();
@@ -580,6 +617,12 @@ export class LoginBackdrop {
     if (!this.ready || this.destroyed) return;
     this.advanceTransition(ms);
     this.scene.update(this.camera, ms);
+    if (!this.departingScene.host.hidden) {
+      this.departingScene.update(
+        this.departingCamera,
+        this.scene.elapsedMs - this.departingScene.elapsedMs,
+      );
+    }
     this.renderDice();
     for (const entry of this.buttons) this.paintButton(entry);
     for (const panel of this.surfaces) panel.update(ms);
@@ -592,6 +635,7 @@ export class LoginBackdrop {
     this.controller.abort();
     this.cursor?.destroy();
     this.scene.destroy();
+    this.departingScene.destroy();
     for (const panel of this.surfaces) panel.destroy();
     this.resource?.destroy();
     this.basicResource?.destroy();

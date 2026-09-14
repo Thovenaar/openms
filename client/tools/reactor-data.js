@@ -196,17 +196,40 @@ export async function stateRecord(context, node, actions) {
   };
 }
 
-async function reactorSounds(context, id, states) {
+/** Authored state first; missing hit assignments use original box PCM by requested browser policy. */
+export function reactorHitSound(root, id, resolvedId, state) {
+  const choices = [
+    [Number(id), state, "authored"],
+    [Number(resolvedId), state, "linked-artwork"],
+    [2000, state, "fallback-box"],
+    [2000, 0, "fallback-box"],
+  ];
+  for (const [familyId, soundState, assignment] of choices) {
+    const family = root.children[familyId];
+    const branch = family ? resolveNode(family).children[soundState] : null;
+    const hit = branch ? resolveNode(branch).children.Hit : null;
+    if (hit) {
+      return {
+        node: resolveNode(hit),
+        source: `Sound.wz:Reactor.img/${familyId}/${soundState}/Hit`,
+        assignment,
+      };
+    }
+  }
+  throw new Error("Original reactor fallback hit sound is missing");
+}
+
+async function reactorSounds(context, id, states, resolvedId) {
   const root = context.image("Sound", "Reactor.img"),
     sounds = {};
-  const family = root.children[String(Number(id))];
-  if (!family) return sounds;
   for (const state of states) {
-    const branch = resolveNode(family).children[String(state.id)];
-    const hit = branch ? resolveNode(branch).children.Hit : null;
-    if (!hit) continue;
-    const source = `Sound.wz:Reactor.img/${Number(id)}/${state.id}/Hit`;
-    sounds[state.id] = await publishSound(context, resolveNode(hit), source);
+    // Timers/terminal decoration are not hits and do not need an invented cue.
+    if (!state.events.some((event) => event.type !== 101)) continue;
+    const hit = reactorHitSound(root, id, resolvedId, state.id);
+    sounds[state.id] = {
+      ...(await publishSound(context, hit.node, hit.source)),
+      assignment: hit.assignment,
+    };
   }
   return sounds;
 }
@@ -247,7 +270,7 @@ async function extractTemplate(context, id) {
     backTile: Number(value(at(linked.root, "info"), "backTile", 0)) !== 0,
     activateByTouch:
       Number(value(at(linked.root, "info"), "activateByTouch", 0)) !== 0,
-    sounds: await reactorSounds(context, id, states),
+    sounds: await reactorSounds(context, id, states, linked.resolvedId),
     authority: "provisional-local-event-transitions-no-script-rewards",
   };
 }

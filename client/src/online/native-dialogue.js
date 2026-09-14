@@ -17,11 +17,13 @@ export class NativeDialogue {
     this.generation = 0;
     this.pending = false;
     this.request = null;
+    this.dismissedId = null;
     this.selectedOffer = null;
     this.rewardIndex = null;
     this.questConfirmation = null;
   }
   async publish(event) {
+    if (event.conversationId === this.dismissedId) return;
     const generation = ++this.generation;
     this.request?.abort();
     this.request = new AbortController();
@@ -29,10 +31,17 @@ export class NativeDialogue {
     this.selectedOffer = null;
     this.rewardIndex = null;
     this.questConfirmation = null;
+    try {
+      await this.load(event, generation, this.request.signal);
+    } catch (error) {
+      if (generation === this.generation) throw error;
+    }
+  }
+  async load(event, generation, signal) {
     const response = await fetch(`/api/v1/content/${event.contentId}`, {
       credentials: "same-origin",
       cache: "no-store",
-      signal: this.request.signal,
+      signal,
     });
     if (!response.ok) {
       throw new Error(`Dialogue content HTTP ${response.status}`);
@@ -113,6 +122,7 @@ export class NativeDialogue {
     return { ok: true };
   }
   async respond(response) {
+    if (response.action === "close") return this.cancel(response.sessionId);
     const event = this.event;
     if (
       this.pending ||
@@ -127,6 +137,10 @@ export class NativeDialogue {
     const action = this.commandFor(response, event);
     this.pending = true;
     try {
+      await this.owner.whenCommandsSettled();
+      if (this.event !== event) {
+        return { ok: false, reason: "This conversation has changed." };
+      }
       return nativeOutcome(
         await this.owner.command(
           action,
@@ -137,6 +151,28 @@ export class NativeDialogue {
       this.pending = false;
       this.owner.ui.windows.get("UtilDlgEx")?.dialogCleanup?.refresh();
     }
+  }
+  /** Dismiss presentation now; serialize the server cancellation after any admitted turn. */
+  cancel(id) {
+    const event = this.event;
+    if (!event || event.conversationId !== id) return { ok: true };
+    this.dismissedId = id;
+    this.close(id);
+    this.notifyCancellation(event).catch((error) => this.owner.report(error));
+    return { ok: true };
+  }
+  async notifyCancellation(event) {
+    // The original command reports its own failure; closure follows even a failed opening turn.
+    await this.owner.whenCommandsSettled();
+    await this.owner.command(
+      {
+        kind: "npc.answer",
+        conversationId: event.conversationId,
+        step: event.step,
+        answer: { kind: "cancel" },
+      },
+      event.step,
+    );
   }
   rewardResponse(response, event) {
     if (event.quest?.mode !== "confirm" || !event.quest.rewardChoices.length) {
@@ -200,6 +236,7 @@ export class NativeDialogue {
       name: (id) => this.owner.catalog.quests.strings.npc[id],
       onShop: () => this.owner.ui.open("Shop"),
       onClose: () => this.owner.ui.close("UtilDlgEx", true),
+      onCancel: (id) => this.cancel(id),
       mountPlayerPortrait: (surface, point) =>
         this.owner.portrait(surface, point),
     });

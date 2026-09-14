@@ -43,7 +43,11 @@ export function profileSkillLevel(catalog, profile, id, now) {
   return learnedProfileRank(profile, id, now);
 }
 export function skillPointPool(book) {
-  return book >= 2210 && book <= 2218 ? book - 2209 : 0;
+  if (book >= 2210 && book <= 2218) return book - 2209;
+  // Each advancement spends only its own grants; pool 0 retains legacy first-job SP.
+  // Evan's ten authored books already use pools 0–9.
+  if (book % 1000 < 100 || book % 100 === 0) return 0;
+  return 1 + (book % 10);
 }
 
 export function allocationAuthorityError(skill) {

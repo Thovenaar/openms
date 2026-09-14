@@ -342,17 +342,6 @@ main {
   font-size: 12px;
   line-height: 1.5;
 }
-#agent-development-status {
-  display: block;
-  height: 3.5em;
-  overflow: auto;
-  font-weight: 700;
-}
-#agent-controls[data-experimental] .agent-experiment {
-  border-color: #906700;
-  background: #fff5d2;
-  color: #382b00;
-}
 .inspection-chrome .agent-guide ol {
   padding-left: 20px;
 }
@@ -796,4 +785,35 @@ aside.inspection-chrome {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* Background asset activity stays clear of the native bottom HUD and pointer input. */
+#asset-loading {
+  position: absolute;
+  right: 14px;
+  bottom: 86px;
+  z-index: 2147483646;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border: 3px solid #ffffff70;
+  border-top-color: #fff;
+  border-radius: 50%;
+  filter: drop-shadow(0 1px 2px #000b);
+  pointer-events: none;
+  animation: asset-loading-spin 0.8s linear infinite;
+}
+#asset-loading[hidden] {
+  display: none;
+}
+@keyframes asset-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #asset-loading {
+    animation: none;
+    border-top-color: #ffc45a;
+  }
 }

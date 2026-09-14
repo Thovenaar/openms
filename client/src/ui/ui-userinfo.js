@@ -58,7 +58,7 @@ function selectMode(panel, mode) {
     label: "Pet item exclusions",
     disabled: true,
     tooltip:
-      "Pet pickup exclusion records are unavailable in the local profile.",
+      "Pet pickup exclusion records are unavailable in the server projection.",
   });
   panel.userInfoValues = new Map();
   // 00901185 name centered at52; identity text rows begin at160,77.

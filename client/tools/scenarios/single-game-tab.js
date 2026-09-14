@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { assertion, failureDetails, measureStage } from "../native-evidence.js";
 import { onlineIdentity } from "./online-lifecycle.js";
 import { clickLabel, openConsoleSection } from "./native.js";
@@ -7,13 +7,7 @@ import { clickLabel, openConsoleSection } from "./native.js";
 const TIMEOUT = 30000;
 
 /** Real same-profile Chrome tabs; caller owns the server, fixture account and browser. */
-export async function runSingleGameTab({
-  browser,
-  url,
-  output,
-  credentials,
-  offlineBundle,
-}) {
+export async function runSingleGameTab({ browser, url, output, credentials }) {
   await mkdir(output, { recursive: true });
   const report = { status: "running", timings: {}, checks: [], errors: [] };
   const context = await browser.createBrowserContext();
@@ -44,7 +38,6 @@ export async function runSingleGameTab({
       isolatedProfile(browser, url, report),
     );
     await verifyOwner(owner.page, report);
-    await offlineAdmission(context, { url, offlineBundle }, report);
     const after = await onlineIdentity(url);
     assertion(
       after.sourceBuildId === report.identity.sourceBuildId,
@@ -258,52 +251,4 @@ async function verifyOwner(page, report) {
   assertion(!report.runtime.errorLog, "Game error during tab handoff", {
     actual: report.runtime.errorLog,
   });
-}
-
-/** Serve the compiled real offline entry in the owner's storage origin.
- * Only this page's shell/bundle delivery is intercepted; no game data is seeded. */
-async function offlineAdmission(context, { url, offlineBundle }, report) {
-  const file = Bun.file(offlineBundle);
-  assertion(
-    file.size > 0 && file.size <= 16 * 1024 * 1024,
-    "Expected bounded offline browser bundle",
-  );
-  const bundle = await file.text();
-  const html = await Bun.file(
-    resolve(import.meta.dir, "../../index.html"),
-  ).text();
-  const tab = await createTab(context, report);
-  const entry = new URL("/__single-tab-offline", url).href;
-  await tab.page.setRequestInterception(true);
-  tab.page.on("request", (request) => {
-    const path = new URL(request.url()).pathname;
-    const response =
-      request.url() === entry
-        ? request.respond({ status: 200, contentType: "text/html", body: html })
-        : path === "/dist/main.js"
-          ? request.respond({
-              status: 200,
-              contentType: "text/javascript",
-              body: bundle,
-            })
-          : request.continue();
-    response.catch((error) => {
-      if (report.errors.length < 24) report.errors.push(error.message);
-    });
-  });
-  await tab.page.goto(entry, { waitUntil: "domcontentloaded" });
-  await gateState(tab.page, "blocked");
-  await assertBlocked(tab);
-  const databases = await tab.page.evaluate(() => indexedDB.databases());
-  assertion(
-    !databases.some((database) => database.name === "maple-offline-save"),
-    "Blocked offline entry opened the save database",
-  );
-  report.offlineBundleHash = new Bun.CryptoHasher("sha256")
-    .update(bundle)
-    .digest("hex");
-  report.checks.push(
-    "real offline entry shares the lock and remains blocked before client, saves or API initialization",
-  );
-  await tab.page.close();
 }

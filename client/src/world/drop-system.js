@@ -1,3 +1,4 @@
+import { reactorReward, rollReactorRewards } from "./reactor-rewards.js";
 import { profileError } from "../profile/profile-validation.js";
 import {
   createItemUid,
@@ -263,6 +264,7 @@ export class DropSystem {
     this.store = store;
     this.items = options.items ?? {};
     this.tables = dropTables(data, this.items);
+    this.reactorRewards = data.reactors;
     if (!Array.isArray(footholds) || footholds.length > 65536) {
       throw new Error("Drop foothold limit");
     }
@@ -336,7 +338,31 @@ export class DropSystem {
         "No Cosmic rows were packaged for this mob.",
       );
     }
-    const count = this.roll(rows, mob.killDropRate ?? 1);
+    return this.spawnRolls(mob, this.roll(rows, mob.killDropRate ?? 1));
+  }
+
+  spawnReactor(record) {
+    const reward = reactorReward(
+      this.reactorRewards,
+      record.template.descriptor,
+    );
+    if (!reward || this.destroyed) return;
+    const output = rollReactorRewards(
+      reward,
+      this.store.profile,
+      this.items,
+      this.random,
+    );
+    for (let index = 0; index < output.count; index++) {
+      this.rolls[index] = output.rolls[index];
+      this.quantities[index] = output.quantities[index];
+    }
+    const result = this.spawnRolls(record.placement, output.count);
+    record.lastOutcome = result.code;
+    return result;
+  }
+
+  spawnRolls(mob, count) {
     if (
       count < 0 ||
       count > DROP_POLICY.capacity - this.count - this.reserved

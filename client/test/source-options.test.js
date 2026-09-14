@@ -1,7 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import {
   sourcePaths,
   parseFlags,
@@ -10,11 +8,6 @@ import {
 } from "../tools/source-options.js";
 import { cliOptions } from "../tools/server-data.js";
 import { preflightOptions } from "../tools/preflight.js";
-import {
-  inputRoots,
-  scanInputs,
-  extractionChange,
-} from "../tools/smoke-inputs.js";
 
 test("tool defaults and explicit flags ignore legacy environment overrides", () => {
   const keys = [
@@ -107,47 +100,4 @@ test("CLI boundaries reject unknown, repeated, missing and conflicting flags", (
   expect(
     inventoryOptions(["--assets", "/wz", "--output", "/report"], "unused"),
   ).toMatchObject({ assets: "/wz", output: "/report" });
-});
-
-test("local SQL, scripts and policy edits invalidate the smoke input identity", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openms-source-watch-"));
-  const options = {
-    repository: root,
-    assets: join(root, "wz"),
-    gameplayDefinitionsRoot: join(root, "gameplay-definitions"),
-    sqlRoot: join(root, "sql"),
-    output: join(root, "evidence"),
-  };
-  try {
-    await Bun.write(join(options.assets, "Map.wz"), "original");
-    await Bun.write(join(options.sqlRoot, "data/shops.sql"), "SQL one");
-    await Bun.write(
-      join(options.gameplayDefinitionsRoot, "policy.json"),
-      "policy one",
-    );
-    await Bun.write(
-      join(options.gameplayDefinitionsRoot, "npc/1.js"),
-      "script one",
-    );
-    const roots = inputRoots(options, []);
-    const first = await scanInputs(roots);
-    await Bun.write(join(options.sqlRoot, "data/shops.sql"), "SQL two");
-    await Bun.write(
-      join(options.gameplayDefinitionsRoot, "policy.json"),
-      "policy two",
-    );
-    await Bun.write(
-      join(options.gameplayDefinitionsRoot, "npc/1.js"),
-      "script two",
-    );
-    const next = await scanInputs(roots, first.next);
-    expect(next.changed.sort()).toEqual([
-      "gameplay-definitions/npc/1.js",
-      "gameplay-definitions/policy.json",
-      "reference-sql/data/shops.sql",
-    ]);
-    for (const path of next.changed) expect(extractionChange(path)).toBe(true);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
 });

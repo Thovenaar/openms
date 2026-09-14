@@ -11,7 +11,7 @@ const FORM_ACTIONS = [
   ["step", "Step server ticks (1–4)"],
 ];
 
-/** Online experiments mutate the audited server realm; there is no local baseline replay. */
+/** Experiments mutate the audited server realm; there is no local baseline replay. */
 export function createOnlineDevelopment(owner) {
   async function request(action) {
     owner.agent.assertActive();
@@ -113,7 +113,7 @@ export function mountOnlineExperiments(owner, root) {
   inspectionElement(
     panel,
     "p",
-    "Developer realm only. Changes use audited HTTP requests and can persist. No offline temporary profile or automatic rollback is available. The automation API additionally requires an active human-granted agent lease.",
+    "Developer realm only. Changes use audited HTTP requests and can persist. There is no temporary browser profile or automatic rollback. The automation API additionally requires an active human-granted agent lease.",
   );
   const controls = inspectionElement(panel, "fieldset");
   inspectionElement(controls, "legend", "Audited server action");

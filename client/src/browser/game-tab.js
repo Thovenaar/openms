@@ -1,4 +1,4 @@
-// Browser policy: one client per storage origin, shared by online and offline.
+// Browser policy: one online client per storage origin.
 // Keep this name stable across builds/accounts so an older tab still owns it.
 const LOCK_NAME = "openms.game-tab";
 

@@ -58,6 +58,23 @@ test("custom placement identities cross the server boundary without accepting ar
   }
 });
 
+test("a level-up field effect carries only its authoritative actor identity", () => {
+  const message = {
+    v: 1,
+    type: "event",
+    connectionEpoch: "connection",
+    serverTick: 1,
+    eventSeq: 1,
+    fieldEpoch: "field",
+    event: { kind: "combat.level-up", actorId: "leveled-player" },
+  };
+  expect(decodeServer(JSON.stringify(message)).event).toEqual(message.event);
+  message.event.level = 2;
+  expect(() => decodeServer(JSON.stringify(message))).toThrow(
+    "INVALID_MESSAGE",
+  );
+});
+
 test("community travel cannot carry original destinations or caller-selected coordinates", () => {
   const command = {
     ...envelope,

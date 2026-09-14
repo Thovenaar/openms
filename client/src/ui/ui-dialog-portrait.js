@@ -39,7 +39,7 @@ export class DialogPortrait {
     const entry = this.panel.owner.index.npcPortraits?.[id];
     if (!entry?.available) {
       this.name.title =
-        entry?.reason ?? "NPC portrait is not in the offline package";
+        entry?.reason ?? "NPC portrait is not in the verified asset catalog";
       this.panel.owner.report(new Error(this.name.title));
       return;
     }

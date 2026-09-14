@@ -1,7 +1,7 @@
 import { GameUI } from "../ui/game-ui.js";
 import { ProfileControls } from "../ui/ui-inspection.js";
 import { KeyBindings } from "../input/key-bindings.js";
-import { skillPointPool } from "../skills/skill-allocation-rules.js";
+import { allocationPoints } from "../skills/skill-allocation-rules.js";
 import { mountQuestJournal } from "../ui/ui-quest-window.js";
 import { QuestReadyNotification } from "../ui/ui-quest-ready-notification.js";
 import { NativeAvatarPortrait } from "../ui/ui-avatar-portrait.js";
@@ -9,6 +9,7 @@ import { AvatarVisuals } from "../character/avatar-visuals.js";
 import { AudiovisualSystem } from "../audio/audiovisual-system.js";
 import {
   NativeProfileSource,
+  NativeOperationRefusal,
   nativeOutcome,
   unsupported,
 } from "./native-source.js";
@@ -77,6 +78,7 @@ export class OnlineUI {
     this.connection = null;
     this.catalog = null;
     this.pending = 0;
+    this.operationIdle = null;
     this.destroyed = false;
     this.store = new NativeProfileSource(this);
     this.audio = new AudiovisualSystem(app, services, {
@@ -115,7 +117,6 @@ export class OnlineUI {
       ...this.profileHooks(),
       ...this.interactionHooks(),
       ...this.audioHooks(),
-      readOnlyProfile: true,
       clearInput: this.hooks.clearInput,
       keyDown: this.hooks.keyDown,
       inputGeneration: this.hooks.inputGeneration,
@@ -382,19 +383,31 @@ export class OnlineUI {
   }
   async command(action, revision) {
     if (this.destroyed) throw new Error("Native online UI was destroyed.");
-    this.pending++;
+    this.beginOperation();
     try {
       const receipt = await this.transport.command(action, revision);
       if (receipt.status !== "committed") {
-        this.report(nativeOutcome(receipt).reason);
+        this.ui.status(nativeOutcome(receipt).reason);
       }
       return receipt;
     } finally {
-      this.pending--;
-      if (!this.pending && this.chatDraft) {
-        queueMicrotask(() => this.flushChatSettings());
-      }
+      this.finishOperation();
     }
+  }
+  beginOperation() {
+    if (!this.pending) this.operationIdle = Promise.withResolvers();
+    this.pending++;
+  }
+  finishOperation() {
+    this.pending--;
+    if (this.pending) return;
+    this.operationIdle?.resolve();
+    this.operationIdle = null;
+    if (this.chatDraft) queueMicrotask(() => this.flushChatSettings());
+  }
+  /** Includes the opening npc.open command, whose dialogue event can precede its receipt. */
+  whenCommandsSettled() {
+    return this.operationIdle?.promise ?? Promise.resolve();
   }
   async request(action, revision) {
     return nativeOutcome(await this.command(action, revision));
@@ -402,7 +415,7 @@ export class OnlineUI {
   async persist(action) {
     const result = await this.request(action);
     if (!result.ok) {
-      throw Object.assign(new Error(result.reason), { code: result.code });
+      throw new NativeOperationRefusal(result);
     }
     return result;
   }
@@ -435,7 +448,7 @@ export class OnlineUI {
     return this.develop(action);
   }
   async develop(action) {
-    this.pending++;
+    this.beginOperation();
     try {
       let receipt = await this.transport.develop(action);
       if (receipt.status === "unknown") {
@@ -444,10 +457,12 @@ export class OnlineUI {
         );
         receipt = await this.transport.recover(receipt.operationId);
       }
-      if (receipt.status !== "committed") throw new Error(receipt.code);
+      if (receipt.status !== "committed") {
+        throw new NativeOperationRefusal(nativeOutcome(receipt));
+      }
       return nativeOutcome(receipt);
     } finally {
-      this.pending--;
+      this.finishOperation();
     }
   }
   offerTemplate(id) {
@@ -470,8 +485,9 @@ export class OnlineUI {
     return portrait;
   }
   skillPoints(id) {
-    const pool = skillPointPool(this.catalog.ui.skills[id]?.bookId);
-    return this.store.profile?.remainingSp[pool] ?? 0;
+    const skill = this.catalog.ui.skills[id];
+    const profile = this.store.profile;
+    return skill && profile ? allocationPoints(profile, skill, Date.now()) : 0;
   }
   skillAllocationError(id) {
     return this.skillPoints(id) > 0 && !this.blocked()
@@ -612,7 +628,7 @@ export class OnlineUI {
   async toggleTracker() {
     const open = !this.ui.windows.has("QuestAlarm");
     const result = await this.quests.changeTracker(open ? "open" : "close");
-    if (!result.ok) throw new Error(result.reason);
+    if (!result.ok) throw new NativeOperationRefusal(result);
     if (open) await this.ui.open("QuestAlarm");
     else this.ui.close("QuestAlarm", true);
   }
@@ -744,9 +760,13 @@ export class OnlineUI {
             amount: event.amount,
             white: true,
           });
-          if (event.levels > 0) await this.audio.playGameplayEffect("LevelUp");
         }
         return true;
+      case "combat.level-up": {
+        const target = this.hooks.scene()?.effectTarget(event.actorId);
+        if (target) await this.audio.playGameplayEffect("LevelUp", target);
+        return true;
+      }
       case "combat.death":
         if (event.actorId === this.store.id) {
           this.audio.onPlayerDeath();
@@ -950,7 +970,6 @@ export class OnlineUI {
     if (event.exp > 0) {
       this.ui.notices.publish({ kind: "exp", amount: event.exp, white: true });
     }
-    if (event.levels > 0) await this.audio.playGameplayEffect("LevelUp");
     if (event.questClear) await this.audio.playGameplayEffect("QuestClear");
   }
   async observeEntities(snapshot) {
@@ -1037,6 +1056,9 @@ export class OnlineUI {
         ? `${error.code ?? "Error"}: ${error.message}`
         : String(error);
     this.ui?.status(text);
+    if (!(error instanceof Error) || error instanceof NativeOperationRefusal) {
+      return;
+    }
     this.hooks.report?.(error);
   }
   resize(width, height) {

@@ -4,12 +4,10 @@ import { UISurface } from "./ui-surface.js";
 const ROW_COUNT = 6;
 const ROW_WIDTH = 290;
 const ROW_HEIGHT = 14;
-const QUICK_SHIFT = 78;
-const SURFACE_HEIGHT = ROW_COUNT * ROW_HEIGHT + QUICK_SHIFT;
+const SURFACE_HEIGHT = ROW_COUNT * ROW_HEIGHT;
 const RIGHT_MARGIN = 6;
 const BOTTOM_ANCHOR = 157;
 const FADE_MS = 6000;
-const MOVE_MS_PER_PIXEL = 5;
 const FONT = "12px Arial"; // 0098a707, string0x1597; browser glyph rasterization differs from Windows.
 const WHITE = "#ffffff";
 const YELLOW = "#ffff20";
@@ -45,7 +43,6 @@ export class GameplayNoticeLog {
     this.count = ROW_COUNT;
     this.first = 0;
     this.clock = 0;
-    this.expanded = Boolean(owner.hud.quickSurface?.root.visible);
     this.destroyed = false;
     this.dirty = true;
     this.densityX = 0;
@@ -86,9 +83,7 @@ export class GameplayNoticeLog {
     if (!text) return false;
     if (!this.canRasterText(text)) return false;
     this.appendLine(text, event);
-    // Admission snaps the native queue; quick-slot changes alone animate it.
-    this.expanded = Boolean(this.owner.hud.quickSurface?.root.visible);
-    this.positionRows(false);
+    this.positionRows();
     this.draw();
     return true;
   }
@@ -104,8 +99,7 @@ export class GameplayNoticeLog {
     // Received history belongs to UIChat even when its transient ink exceeds our budget.
     if (!this.canRasterText(text)) return false;
     this.appendLine(text, { kind: "simple" });
-    this.expanded = Boolean(this.owner.hud.quickSurface?.root.visible);
-    this.positionRows(false);
+    this.positionRows();
     this.draw();
     return true;
   }
@@ -173,15 +167,10 @@ export class GameplayNoticeLog {
         this.dirty = true;
       }
     }
-    const expanded = Boolean(this.owner.hud.quickSurface?.root.visible);
-    if (expanded !== this.expanded) {
-      this.expanded = expanded;
-      this.positionRows(true);
-    }
     if (this.dirty) this.draw();
   }
 
-  /** Responsive adaptation of native screen(504,443)/(504,365) in800x600.
+  /** Browser policy: keep native collapsed screen(504,443) even with quickslots open.
    * No stretch: retain the6px right margin and HUD bottom offsets in the owner's logical plane.
    * @param {{left:number,top:number,right:number,bottom:number}} bounds Logical viewport edges.
    */
@@ -192,24 +181,16 @@ export class GameplayNoticeLog {
     }
     this.surface.position(
       bounds.right - RIGHT_MARGIN - ROW_WIDTH,
-      bounds.bottom - BOTTOM_ANCHOR - QUICK_SHIFT,
+      bounds.bottom - BOTTOM_ANCHOR,
     );
     this.syncDensity();
     if (this.dirty) this.draw();
   }
 
-  positionRows(animate) {
-    // 0089b60f starts the oldest retained line at y443/365, regardless of count.
-    const base = this.expanded ? 0 : QUICK_SHIFT;
+  positionRows() {
+    // Keep the requested fixed HUD anchor; six rows retain their native spacing.
     for (let index = 0; index < this.count; index++) {
-      const row = this.rows[(this.first + index) % ROW_COUNT];
-      row.fromY = row.y;
-      row.targetY = base + index * ROW_HEIGHT;
-      row.moveStart = this.clock;
-      row.moveDuration = animate
-        ? Math.abs(row.targetY - row.y) * MOVE_MS_PER_PIXEL
-        : 0;
-      if (!animate) row.y = row.targetY;
+      this.rows[(this.first + index) % ROW_COUNT].y = index * ROW_HEIGHT;
     }
     this.dirty = true;
   }
@@ -311,10 +292,6 @@ function createRow() {
     born: 0,
     alpha: 0,
     y: 0,
-    fromY: 0,
-    targetY: 0,
-    moveStart: 0,
-    moveDuration: 0,
   };
 }
 
@@ -350,15 +327,8 @@ export function noticeInkWidth(context, text) {
 function advanceRow(row, clock) {
   const age = Math.trunc(clock - row.born);
   const alpha = age >= FADE_MS ? 0 : 255 + Math.trunc((-255 * age) / FADE_MS);
-  const elapsed = Math.trunc(clock - row.moveStart);
-  const y =
-    elapsed >= row.moveDuration
-      ? row.targetY
-      : row.fromY +
-        Math.trunc(((row.targetY - row.fromY) * elapsed) / row.moveDuration);
-  const changed = row.alpha !== alpha || row.y !== y;
+  const changed = row.alpha !== alpha;
   row.alpha = alpha;
-  row.y = y;
   return changed;
 }
 

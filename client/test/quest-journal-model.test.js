@@ -4,6 +4,7 @@ import {
   questGroups,
   questJournalSelection,
   questObjectives,
+  questEndpointNpc,
 } from "../src/quests/quest-journal-model.js";
 
 function fixture() {
@@ -139,4 +140,17 @@ test("partial collected stock is helper progress without claiming the objective 
     progress: false,
     done: false,
   });
+});
+
+test("an omitted completion NPC keeps Pio's quest endpoint and portrait; an explicit endpoint wins", () => {
+  const record = {
+    stages: [
+      { check: { npc: 10000 }, actionCheck: {} },
+      { check: {}, actionCheck: {} },
+    ],
+  };
+  expect(questEndpointNpc(record, 1)).toBe(10000);
+  expect(questEndpointNpc(record, 2)).toBe(10000);
+  record.stages[1].check.npc = 12000;
+  expect(questEndpointNpc(record, 1)).toBe(12000);
 });

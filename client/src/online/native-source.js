@@ -1,5 +1,19 @@
 import { SOCIAL_MESSAGES } from "../../../shared/social-feedback.js";
 
+const OPERATION_MESSAGES = Object.freeze({
+  SERVER_BUSY: "The server is busy. Please try again in a moment.",
+  REQUIREMENTS_NOT_MET: "You do not meet the requirements for this action.",
+});
+
+/** A terminal gameplay refusal is feedback, distinct from an unexpected exception. */
+export class NativeOperationRefusal extends Error {
+  constructor(outcome) {
+    super(outcome.reason);
+    this.name = "NativeOperationRefusal";
+    this.code = outcome.code;
+  }
+}
+
 /** A read-only publication source. It deliberately has no save, flush or mutation methods. */
 export class NativeProfileSource {
   constructor(owner) {
@@ -46,14 +60,16 @@ export function unsupported(domain) {
 
 /** Native controls receive the actual terminal receipt, never an optimistic profile edit. */
 export function nativeOutcome(receipt) {
+  const code = receipt?.code;
   return {
     ok: receipt?.status === "committed",
-    code: receipt?.code ?? "OUTCOME_UNKNOWN",
+    code: code ?? "OUTCOME_UNKNOWN",
     reason:
       receipt?.status === "committed"
         ? undefined
-        : (SOCIAL_MESSAGES[receipt?.code] ??
-          receipt?.code ??
+        : (OPERATION_MESSAGES[code] ??
+          SOCIAL_MESSAGES[code] ??
+          code ??
           "Operation outcome is unknown; reconnect to recover it."),
     receipt,
     value: receipt?.value,

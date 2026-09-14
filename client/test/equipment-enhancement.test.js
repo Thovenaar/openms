@@ -4,7 +4,7 @@ import {
   EquipmentEnhancement,
 } from "../src/items/equipment-enhancement.js";
 import { equippedStat } from "../src/character/character-stats.js";
-import { ProfileStore } from "../src/profile/profile-store.js";
+import { ProfileStore } from "./fixtures/memory-profile-store.js";
 import { createProfile } from "../src/profile/profile-validation.js";
 import {
   firstItem,

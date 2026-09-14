@@ -1,3 +1,4 @@
+import { isNpcEndpoint } from "../quests/quest-rules.js";
 import { unsupported } from "./native-source.js";
 import { JOB_LABELS } from "../ui/ui-job-labels.js";
 
@@ -52,11 +53,7 @@ export class NativeQuests {
       if (view.state === 2 || (view.state === 0 && !view.available)) continue;
       const record = this.catalog.records[view.id];
       const stage = record?.stages[view.state];
-      if (
-        !stage ||
-        (stage.check.npc !== Number(npcId) &&
-          stage.actionCheck.npc !== Number(npcId))
-      ) {
+      if (!stage || !isNpcEndpoint(stage, Number(npcId), record.stages[0])) {
         continue;
       }
       const entry = { record, state: view.state, ready: view.ready };

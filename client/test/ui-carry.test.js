@@ -4,7 +4,7 @@ import { KeyBindings } from "../src/input/key-bindings.js";
 import { ItemUse } from "../src/items/item-use.js";
 import { createProfile } from "../src/profile/profile-validation.js";
 import { retireBindingLayer } from "../src/ui/ui-icons.js";
-import { ProfileStore } from "../src/profile/profile-store.js";
+import { ProfileStore } from "./fixtures/memory-profile-store.js";
 import { beginItemCarry } from "../src/ui/ui-carry.js";
 
 function pointer(target, values = {}) {

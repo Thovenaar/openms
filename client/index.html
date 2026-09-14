@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>openms.dev · Offline client</title>
+    <title>openms.dev · Online client</title>
     <link rel="stylesheet" href="/style.css" />
-    <link rel="manifest" href="/app.webmanifest" />
-    <link rel="icon" href="/app-icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/online.css" />
+    <link rel="icon" href="/openms-icon.png" type="image/png" sizes="500x500" />
   </head>
   <body>
     <main>
@@ -42,7 +42,7 @@
       >
         <div class="console-heading">
           <h1>Development inspection</h1>
-          <span class="console-badge">LOCAL</span>
+          <span class="console-badge">SERVER</span>
         </div>
         <div class="console-toolbar">
           <div class="transport">
@@ -113,8 +113,8 @@
             <summary>Spawn monster · development only</summary>
             <p class="hint">
               Choose an original packaged monster to fight in this field. Spawns
-              are temporary; earned offline drops and quest progress follow the
-              normal gameplay rules.
+              are temporary; rewards and quest progress follow the normal
+              server-authorized gameplay rules.
             </p>
             <label for="mob-search">Find monster by original name or ID</label>
             <div class="map-search-row">
@@ -340,14 +340,10 @@
             <summary>Sound</summary>
             <section id="audio-controls" aria-label="Audio"></section>
           </details>
-          <details id="offline-inspection">
-            <summary>Offline download &amp; updates</summary>
-            <div id="offline-controls"></div>
-          </details>
         </section>
       </aside>
       <section id="viewport" aria-label="Scene viewport"></section>
     </main>
-    <script type="module" src="/dist/main.js"></script>
+    <script type="module" src="/dist/online/main.js"></script>
   </body>
 </html>

@@ -15,6 +15,7 @@ const COLORS = {
   muted: "#bcbcbc",
   error: "#f20303",
   detail: "#93e119",
+  improved: "#ff8a18", // 008e52fb original tooltip orange palette entry.
   rankHeading: "#fae8cb", // 008e577d / font17 selected by008f25d0.
   rankDetail: "#ffffff", // 008e57f2 / font18.
 };
@@ -31,17 +32,17 @@ const STATS = [
   ["incDEX", "DEX"],
   ["incINT", "INT"],
   ["incLUK", "LUK"],
-  ["incMHP", "Max HP"],
-  ["incMMP", "Max MP"],
-  ["incPAD", "Weapon attack"],
-  ["incMAD", "Magic attack"],
-  ["incPDD", "Weapon defense"],
-  ["incMDD", "Magic defense"],
-  ["incACC", "Accuracy"],
-  ["incEVA", "Avoidability"],
-  ["incSpeed", "Speed"],
-  ["incJump", "Jump"],
-  ["tuc", "Upgrade slots"],
+  ["incMHP", "HP"],
+  ["incMMP", "MP"],
+  ["incPAD", "WEAPON ATTACK"],
+  ["incMAD", "MAGIC ATTACK"],
+  ["incPDD", "WEAPON DEF."],
+  ["incMDD", "MAGIC DEF."],
+  ["incACC", "ACCURACY"],
+  ["incEVA", "AVOIDABILITY"],
+  ["incSpeed", "SPEED"],
+  ["incJump", "JUMP"],
+  ["tuc", "NUMBER OF UPGRADES AVAILABLE"],
 ];
 const COSTS = [
   ["mpCon", "MP"],
@@ -73,14 +74,31 @@ function appendItemStats(lines, info, upgrade) {
   for (const [key, label] of STATS) {
     const value = itemStat(info, upgrade, key);
     if (Number.isFinite(value) && (value !== 0 || key === "tuc")) {
-      lines.push(
-        line(`${label}: ${value > 0 && key !== "tuc" ? "+" : ""}${value}`),
-      );
+      lines.push(itemStatLine(info, key, label, value));
     }
   }
   if (info.tradeBlock) lines.push(line("Untradeable", "heading"));
   if (info.quest) lines.push(line("Quest item", "heading"));
   if (info.only) lines.push(line("One-of-a-kind item", "heading"));
+}
+
+/** Native stat labels and signed base/bonus arithmetic; slots have no stat modifier. */
+function itemStatLine(info, key, label, value) {
+  const base = Number(info[key] ?? 0);
+  const bonus = key === "tuc" ? 0 : value - base;
+  const total = `${value > 0 && key !== "tuc" ? "+" : ""}${value}`;
+  const difference = bonus
+    ? ` (${base} ${bonus > 0 ? "+" : "−"} ${Math.abs(bonus)})`
+    : "";
+  return {
+    ...line(`${label} : ${total}${difference}`, bonus ? "improved" : "normal"),
+    stat: true,
+  };
+}
+
+function upgradedTitle(template, id, instance) {
+  const level = instance?.upgrade?.level ?? 0;
+  return itemTitle(template, id) + (level > 0 ? ` (+${level})` : "");
 }
 
 function itemPossessionLine(profile, id, equipped, uid) {
@@ -149,7 +167,7 @@ export function itemTooltip(owner, template, id, options = {}) {
   appendItemStats(lines, info, instance?.upgrade);
   if (template.description) lines.push(prose(template.description));
   return {
-    title: itemTitle(template, id),
+    title: upgradedTitle(template, id, instance),
     lines,
     item,
   };
@@ -268,14 +286,15 @@ function renderItemTooltip(owner, content, source) {
   element.hidden = false;
   const equipment = content.item.equipment;
   element.style.padding = "0";
-  element.style.width = `${equipment ? 236 : 290}px`;
+  let width = equipment ? 236 : 290;
+  element.style.width = `${width}px`;
   const body = document.createElement("div");
   body.style.cssText = `position:relative;width:${equipment ? 234 : 288}px;max-width:100%;box-sizing:border-box;padding:10px 9px;font:12px/16px Arial,sans-serif;white-space:normal;overflow-wrap:break-word;`;
   element.append(body);
   const title = document.createElement("div");
   title.textContent = content.title;
   title.style.cssText =
-    "text-align:center;color:white;font-weight:bold;min-height:16px;";
+    "text-align:center;color:white;font:bold 12px/16px Arial,sans-serif;min-height:16px;";
   body.append(title);
   for (const entry of content.lines) {
     if (entry.tone !== "heading") continue;
@@ -292,8 +311,18 @@ function renderItemTooltip(owner, content, source) {
     : "min-height:76px;padding:12px 0 0 82px;";
   body.append(detail);
   for (const entry of content.lines) {
-    if (entry.tone !== "heading") detail.append(itemTextRow(owner, entry));
+    if (entry.tone === "heading") continue;
+    const row = itemTextRow(owner, entry);
+    detail.append(row);
+    if (entry.stat) {
+      row.style.whiteSpace = "nowrap";
+      width = Math.max(width, row.scrollWidth + 20);
+    }
   }
+  // 008f39e1 grows the native frame to measured label + value width + 20px.
+  width = Math.min(width, 290);
+  element.style.width = `${width}px`;
+  body.style.width = `${width - 2}px`;
   renderItemArtwork(owner, content.item, source, headerOffset);
   element.hidden = hidden;
 }
@@ -319,7 +348,7 @@ function renderItemArtwork(owner, item, source, offset) {
 function itemTextRow(owner, entry) {
   const row = document.createElement("div");
   const color = COLORS[entry.tone] || COLORS.normal;
-  row.style.color = color;
+  row.style.cssText = `color:${color};font:12px/16px Arial,sans-serif;`;
   if (entry.authored) {
     renderQuestText(row, entry.text, owner.quests, { color, tooltip: true });
   } else row.textContent = entry.text.slice(0, MAX_TOOLTIP_TEXT);
@@ -480,7 +509,7 @@ export function renderTooltip(owner, content, source) {
   for (const entry of content.lines) {
     const row = document.createElement("div");
     const color = COLORS[entry.tone] || COLORS.normal;
-    row.style.color = color;
+    row.style.cssText = `color:${color};font:12px/16px Arial,sans-serif;`;
     if (entry.authored) {
       renderQuestText(row, entry.text, owner.quests, { color, tooltip: true });
     } else row.textContent = entry.text.slice(0, MAX_TOOLTIP_TEXT);

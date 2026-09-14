@@ -26,7 +26,7 @@ async function act(view, action, id = null) {
   try {
     const result = await view.quests.changeTracker(action, id);
     if (view.destroyed) return;
-    if (!result.ok) view.panel.owner.report(new Error(result.reason));
+    if (!result.ok) view.panel.owner.status(result.reason);
     else if (action === "close") view.panel.owner.close("QuestAlarm");
     else refresh(view);
   } catch (error) {

@@ -4,7 +4,7 @@ import {
   PROFILE_LIMITS,
   createProfile,
 } from "../src/profile/profile-validation.js";
-import { ProfileStore } from "../src/profile/profile-store.js";
+import { ProfileStore } from "./fixtures/memory-profile-store.js";
 import { extractReactors } from "../tools/reactor-data.js";
 import { OfflineField } from "../src/combat/offline-field.js";
 import { createWeaponUse } from "../src/combat/weapon-usage.js";

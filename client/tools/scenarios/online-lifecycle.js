@@ -389,6 +389,7 @@ export async function onlineIdentity(url, mapIds = []) {
   return {
     source,
     sourceBuildId,
+    rulesHash: config.rulesHash,
     catalogHash: digest(bytes),
     assetBuildId: catalog.buildId,
     maps,

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { CharacterDevelopment } from "../src/character/character-development.js";
 import { stageJobPreset } from "../src/development/character-presets.js";
 import { createProfile } from "../src/profile/profile-validation.js";
-import { ProfileStore } from "../src/profile/profile-store.js";
+import { ProfileStore } from "./fixtures/memory-profile-store.js";
 import { grantItem, itemCount } from "../src/items/inventory-model.js";
 
 function fixture() {

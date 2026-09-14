@@ -139,9 +139,13 @@ export function extractDropData(context, dataset) {
   const mobs = selectedMobs(context);
   const { rows, sources } = compiledDropRows(dataset);
   const itemIds = collectDropItems(mobs, rows, sources);
+  for (const entries of Object.values(dataset.reactors?.rows ?? {})) {
+    for (const row of entries) itemIds.add(row.itemId);
+  }
   return {
     schemaVersion: 1,
     mobs,
+    reactors: dataset.reactors,
     itemIds: [...itemIds].sort((a, b) => a - b),
     provenance: {
       authority: "Cosmic-server-reference/local-offline-policy",

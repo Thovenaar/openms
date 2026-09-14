@@ -357,6 +357,40 @@ test("contact and authored attack impacts share signed admission and source elig
   field.destroy();
 });
 
+test("authored notAttack tutorial mobs cannot initiate attacks or contact damage", async () => {
+  const field = await fieldFixture();
+  field.step(30, held());
+  const rectangle = {
+    active: true,
+    left: -20,
+    top: -60,
+    right: 20,
+    bottom: 0,
+  };
+  const mob = {
+    alive: true,
+    active: true,
+    fault: null,
+    state: "idle",
+    template: {
+      info: {
+        level: 1,
+        acc: 30,
+        bodyAttack: 1,
+        notAttack: 1,
+        PADamage: 20,
+      },
+    },
+    sweptBody: rectangle,
+  };
+  mob.skillStatus = createMobSkillStatus(mob.template.info);
+  field.mobs.push(mob);
+  expect(field.mobAttackAllowed(mob)).toBe(false);
+  field.contactDamage();
+  expect(field.store.profile.hp).toBe(100);
+  field.destroy();
+});
+
 test("contact during an authored attack does not inherit its impact sound", async () => {
   const field = await fieldFixture();
   const sounds = [];

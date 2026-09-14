@@ -1,3 +1,7 @@
+import {
+  compileReactorReward,
+  reactorDropContent,
+} from "./reactor-reward-compiler.js";
 import { readdir, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseSql, MAX_SQL_BYTES } from "./sql-data.js";
@@ -181,6 +185,13 @@ async function scriptFile(root, source) {
   return file;
 }
 
+function collectTutorialPortal(source, file, portalPrograms) {
+  const script = source.slice("scripts/portal/".length, -3);
+  if (Object.hasOwn(TUTORIAL_PORTAL_PROGRAMS, script)) {
+    portalPrograms[script] = compileTutorialPortal({ script, text: file.text });
+  }
+}
+
 async function scriptInventory(root, options, staticConfig) {
   options.progress?.("Gameplay content: scanning local scripts");
   const paths = await sourcePaths(root, "", ".js");
@@ -188,6 +199,7 @@ async function scriptInventory(root, options, staticConfig) {
     compilations = [],
     categories = Object.create(null);
   const portalPrograms = Object.create(null);
+  const reactorPrograms = Object.create(null);
   let bytes = 0;
   for (const path of paths) {
     const source = `scripts/${path}`;
@@ -217,13 +229,12 @@ async function scriptInventory(root, options, staticConfig) {
       record.compilation = compilationSummary(compilation);
     }
     if (category === "portal") {
-      const script = source.slice("scripts/portal/".length, -3);
-      if (Object.hasOwn(TUTORIAL_PORTAL_PROGRAMS, script)) {
-        portalPrograms[script] = compileTutorialPortal({
-          script,
-          text: file.text,
-        });
-      }
+      collectTutorialPortal(source, file, portalPrograms);
+    }
+    if (category === "reactor") {
+      reactorPrograms[path.slice("reactor/".length, -3)] = compileReactorReward(
+        { ...file, source },
+      );
     }
     files.push(record);
   }
@@ -235,6 +246,7 @@ async function scriptInventory(root, options, staticConfig) {
     files,
     compilations,
     portalPrograms,
+    reactorPrograms,
   };
 }
 
@@ -382,6 +394,10 @@ export async function convertServerData(options = {}) {
     options.progress?.(`Gameplay content: converting ${name} tables`);
     datasets[name] = domainData(name, names, inventory, tables);
   }
+  datasets.drops.reactors = reactorDropContent(
+    datasets.drops,
+    scripts.reactorPrograms,
+  );
   options.progress?.("Gameplay content: compiling NPC routes");
   Object.assign(
     datasets.shops,

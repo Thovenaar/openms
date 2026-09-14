@@ -3,7 +3,7 @@ import {
   SOCIAL_ACTIONS,
   SOCIAL_REQUEST_FIELDS,
 } from "../../../shared/social-protocol.js";
-import { nativeOutcome } from "./native-source.js";
+import { nativeOutcome, NativeOperationRefusal } from "./native-source.js";
 import { NativeSocialPeers } from "./native-social-peers.js";
 import { NativeSocialChat } from "./native-social-chat.js";
 
@@ -149,7 +149,7 @@ export class NativeSocial {
   async prepare() {
     if (this.view) return this.snapshot();
     const result = await this.read();
-    if (!result.ok) throw new Error(result.reason);
+    if (!result.ok) throw new NativeOperationRefusal(result);
     return this.snapshot();
   }
   async read(query = "", targetId = null) {
@@ -400,7 +400,7 @@ export class NativeSocial {
         if (result?.ok === false) this.owner.report(result.reason);
         if (result?.ok && result.action === "friend.invite") {
           this.owner.ui.notice(
-            "Buddy request sent. The other character must accept it; offline characters receive it when they sign in.",
+            "Buddy request sent. The other character must accept it; signed-out characters receive it when they sign in.",
           );
         }
       },

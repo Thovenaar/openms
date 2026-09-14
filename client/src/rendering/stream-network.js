@@ -1,5 +1,5 @@
 import { LIMITS, resource } from "./stream-validation.js";
-import { resourceByteLimit } from "../../public/offline-manifest.js";
+import { resourceByteLimit } from "../assets/resource-validation.js";
 import {
   networkDeadline,
   withinDeadline,
@@ -64,7 +64,8 @@ export class Gate {
 
 /** Persistent FIFO cache has one serialized writer and a hard byte/entry ceiling. */
 export class Network {
-  constructor(timeouts = NETWORK_TIMEOUTS) {
+  constructor(timeouts = NETWORK_TIMEOUTS, activity = null) {
+    this.activity = activity;
     this.timeouts = timeouts;
     this.gate = new Gate(LIMITS.fetches);
     this.cache = null;
@@ -170,10 +171,12 @@ export class Network {
   }
   async fetchBytes(url, signal, maximum) {
     const deadline = networkDeadline(signal, this.timeouts);
+    const activity = this.activity?.begin("download", url);
     try {
       return await this.download(url, deadline, maximum);
     } finally {
       deadline.dispose();
+      this.activity?.end(activity);
     }
   }
   async download(url, deadline, maximum) {

@@ -415,7 +415,7 @@ export class QuestSystem {
     for (const record of this.byNpc.get(id) ?? []) {
       const state = this.state(profile, record.id);
       if (state !== 0 && state !== 1) continue;
-      if (!isNpcEndpoint(record.stages[state], id)) continue;
+      if (!isNpcEndpoint(record.stages[state], id, record.stages[0])) continue;
       const admission = this.status(record, id, profile);
       if (state === 1) {
         progress.push({ record, state, ready: admission.ok });

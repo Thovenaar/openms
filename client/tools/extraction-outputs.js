@@ -3,9 +3,9 @@ import { resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
 import {
   collectDescriptors,
-  DELIVERY_LIMITS,
+  RESOURCE_LIMITS,
   validateDescriptor,
-} from "../public/offline-manifest.js";
+} from "../src/assets/resource-validation.js";
 
 const OUTPUT_PROGRESS_INTERVAL = 256;
 
@@ -67,7 +67,7 @@ async function verifiedChildren(output, descriptor, verified, stats) {
   const file = Bun.file(path);
   if (
     file.size !== descriptor.bytes ||
-    file.size > DELIVERY_LIMITS.resourceBytes
+    file.size > RESOURCE_LIMITS.resourceBytes
   ) {
     throw new Error(`Cache output byte length mismatch: ${descriptor.url}`);
   }

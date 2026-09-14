@@ -83,9 +83,6 @@ const FIELD_WINDOWS = new Set([
   "TradingRoom",
   "TradeInvitation",
 ]);
-const MAX_DIAGNOSTIC_CONTROLS = 16384;
-const MAX_DIAGNOSTIC_TEXT = 65536;
-const MAX_SUSPENDED_ROOTS = 64;
 const MODAL_WINDOWS = new Set([
   "ITC",
   "UtilDlgEx",
@@ -182,63 +179,6 @@ function windowSize(name, resource) {
   return [size[0], size[1]];
 }
 
-/** Error-time inspection only; bounded form values omit file contents and log history. */
-function diagnosticControls(root) {
-  if (!root) return [];
-  const nodes = root.querySelectorAll("input,select,textarea");
-  if (nodes.length > MAX_DIAGNOSTIC_CONTROLS) {
-    throw new Error("Diagnostic UI control limit exceeded");
-  }
-  return Array.from(nodes, (node) => {
-    const value = node.type === "file" ? null : node.value;
-    if (value !== null && value.length > MAX_DIAGNOSTIC_TEXT) {
-      throw new Error("Diagnostic UI value limit exceeded");
-    }
-    return {
-      tag: node.tagName,
-      type: node.type ?? null,
-      name: node.name || null,
-      label: node.getAttribute("aria-label"),
-      value,
-      checked: node.checked ?? null,
-      selectedIndex: node.selectedIndex ?? null,
-      disabled: node.disabled,
-      scrollTop: node.scrollTop,
-      scrollLeft: node.scrollLeft,
-    };
-  });
-}
-
-function diagnosticPanel(panel) {
-  const text = panel.element.textContent;
-  if (text.length > MAX_DIAGNOSTIC_TEXT) {
-    throw new Error("Diagnostic panel text limit exceeded");
-  }
-  return {
-    name: panel.name,
-    text,
-    selectedTab: panel.selectedTab ?? null,
-    inventoryStart: panel.inventoryStart ?? null,
-    minimapMode: panel.minimapMode ?? null,
-    settingsDraft: panel.settingsDraft ?? null,
-    settingsOriginal: panel.settingsOriginal ?? null,
-    controls: diagnosticControls(panel.element),
-  };
-}
-
-/** Detach retained nodes, rather than leaving duplicate IDs beside the replay UI. */
-function suspendUiRoot(root) {
-  const state = { root, parent: root.parentNode, next: root.nextSibling };
-  root.remove();
-  return state;
-}
-
-function restoreUiRoot(state) {
-  if (!state.parent) return;
-  const next = state.next?.parentNode === state.parent ? state.next : null;
-  state.parent.insertBefore(state.root, next);
-}
-
 /** Screen-space UI owner. Browser window/focus policy is explicit, not a claim about original global arbitration. */
 export class GameUI {
   constructor(app, services, hooks) {
@@ -270,15 +210,11 @@ export class GameUI {
     this.controller = new AbortController();
     this.scene = null;
     this.disposed = false;
-    this.replayingNativeInput = false;
-    this.suspended = null;
     this.visible = true;
     this.drag = null;
     this.dialogNpc = null;
     this.store = null;
     this.quests = null;
-    this.saving = false;
-    this.resetting = false;
     this.revivalPending = null;
     this.revivalOpenedAt = 0;
     this.revivalAutoConfirmed = false;
@@ -496,8 +432,6 @@ export class GameUI {
     this.unsubscribeProfile?.();
     this.endBindingDrag();
     this.epoch++;
-    this.saving = false;
-    this.resetting = false;
     this.store = store;
     this.quests = quests;
     const jobs = quests?.knownJobs() || [];
@@ -637,86 +571,12 @@ export class GameUI {
     }
   }
 
-  /** Async persistence belongs to the profile epoch that requested it. */
-  async saveProfile() {
-    if (!this.store?.profile || this.saving || this.resetting) return;
-    if (typeof this.store.flush !== "function") {
-      throw new Error("This profile source has no checkpoint capability.");
-    }
-    const store = this.store;
-    const epoch = this.epoch;
-    this.saving = true;
-    this.refreshProfile();
-    try {
-      await this.hooks.onSave?.();
-      if (this.ownsProfile(store, epoch)) await store.flush();
-    } catch (error) {
-      if (this.ownsProfile(store, epoch)) {
-        this.report(error);
-        this.notice(`Local save failed: ${error.message}`);
-      }
-    } finally {
-      if (this.ownsProfile(store, epoch)) {
-        this.saving = false;
-        this.refreshProfile();
-      }
-    }
-  }
-
   ownsProfile(store, epoch) {
     return (
       this.store === store &&
       this.epoch === epoch &&
       !this.controller.signal.aborted
     );
-  }
-
-  async requestReset() {
-    if (
-      !this.store ||
-      this.saving ||
-      this.resetting ||
-      this.hooks.isOperationPending?.()
-    ) {
-      return;
-    }
-    const confirmed = await this.prompt({
-      kind: "confirm",
-      text: "RESET LOCAL PROFILE\nThis permanently replaces this browser's character, inventory, quests and settings. No server is contacted.",
-    });
-    if (confirmed === true) await this.resetProfile();
-  }
-
-  async resetProfile() {
-    if (
-      !this.store ||
-      this.saving ||
-      this.resetting ||
-      this.store.profileTransactionPending
-    ) {
-      return;
-    }
-    if (!(await this.requestCloseAll())) return;
-    const store = this.store;
-    const epoch = this.epoch;
-    this.resetting = true;
-    this.refreshProfile();
-    try {
-      await this.hooks.onReset(store);
-      if (!this.ownsProfile(store, epoch)) return;
-      this.closeAll();
-      this.hooks.focusGame();
-    } catch (error) {
-      if (this.ownsProfile(store, epoch)) {
-        this.report(error);
-        this.notice(`Local reset failed: ${error.message}`);
-      }
-    } finally {
-      if (this.ownsProfile(store, epoch)) {
-        this.resetting = false;
-        this.refreshProfile();
-      }
-    }
   }
 
   advanceMinimap() {
@@ -1096,14 +956,14 @@ export class GameUI {
     if (this.windowTabs.get(key) === value) return;
     this.windowTabs.set(key, value);
     try {
-      if (!this.store?.temporary) saveWindowTabs(this.windowTabs);
+      saveWindowTabs(this.windowTabs);
     } catch (error) {
       this.recordError(error);
     }
   }
 
   persistWindowPositions() {
-    if (!this.positionsDirty || this.store?.temporary) return;
+    if (!this.positionsDirty) return;
     this.positionsDirty = false;
     try {
       saveWindowPositions(this.windowPositions, WINDOWS);
@@ -1312,21 +1172,6 @@ export class GameUI {
     }
     this.windows.clear();
     this.persistWindowPositions();
-  }
-
-  /** Cancellation retires only the temporary memory-backed owner, never human drafts. */
-  async cancelForReplay() {
-    if (!this.replayingNativeInput || (this.store && !this.store.temporary)) {
-      throw new Error("Replay cancellation requires a temporary profile owner");
-    }
-    this.prepareController?.abort();
-    this.controller.abort();
-    for (const task of this.pending.values()) task.controller.abort();
-    settlePrompt(this, this.promptRequest, null);
-    if (this.keyNotice) await answerKeyNotice(this, false);
-    this.releaseWindowDrag();
-    this.endBindingDrag();
-    this.bindings?.cancel();
   }
 
   /** Ordinary map travel retires only field-borrowing controllers, not character UI. */
@@ -2258,9 +2103,7 @@ export class GameUI {
     this.hideTooltip();
     this.front(panel);
     this.hooks.clearInput();
-    if (!this.replayingNativeInput || event.isTrusted) {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
+    event.currentTarget.setPointerCapture(event.pointerId);
     this.drag = {
       panel,
       capture: event.currentTarget,
@@ -2520,10 +2363,9 @@ export class GameUI {
     const drag = this.bindingDrag;
     if (
       drag &&
-      (this.resetting ||
-        (drag.uid
-          ? !carriedInstance(this, drag)
-          : !this.bindings?.canCarry(drag.binding, drag.sourceIndex)))
+      (drag.uid
+        ? !carriedInstance(this, drag)
+        : !this.bindings?.canCarry(drag.binding, drag.sourceIndex))
     ) {
       this.endBindingDrag();
     }
@@ -2550,81 +2392,6 @@ export class GameUI {
     this.hooks.onError(error);
   }
 
-  /** Suspend actual UI owners/drafts for isolated replay; this is not serialized import state. */
-  suspendForReplay(externalRoots = []) {
-    this.assertReplayReady();
-    if (
-      !Array.isArray(externalRoots) ||
-      externalRoots.length > MAX_SUSPENDED_ROOTS
-    ) {
-      throw new Error("Replay UI suspension root limit exceeded");
-    }
-    const roots = [
-      this.host,
-      this.profileControls?.root,
-      ...externalRoots,
-    ].filter(Boolean);
-    const state = {
-      visible: this.root.visible,
-      focus: document.activeElement,
-      roots: [],
-    };
-    this.stopListeningForInput();
-    this.stopObservingLayout();
-    this.layoutFrame = null;
-    this.root.visible = false;
-    for (const root of roots) state.roots.push(suspendUiRoot(root));
-    this.suspended = state;
-    return state;
-  }
-
-  assertReplayReady() {
-    if (this.disposed || this.suspended || this.pending.size) {
-      throw new Error("Finish UI loading before replay");
-    }
-    if (this.saving || this.resetting || this.hooks.isOperationPending?.()) {
-      throw new Error("Finish the current native operation before replay");
-    }
-    if (this.drag || this.bindingDrag || this.pressedControl) {
-      throw new Error("Release the active pointer operation before replay");
-    }
-  }
-
-  /** Only the exact retained ownership token can restore live nodes and listeners. */
-  restoreAfterReplay(state) {
-    if (this.suspended !== state || this.disposed) {
-      throw new Error("Replay UI restoration does not own its suspended state");
-    }
-    for (const root of state.roots) restoreUiRoot(root);
-    this.root.visible = state.visible;
-    this.suspended = null;
-    this.listenForInput();
-    this.observeLayout();
-    if (state.focus?.isConnected) state.focus.focus({ preventScroll: true });
-  }
-
-  /** No recursive logs/capture history or renderer resources enter an exported UI snapshot. */
-  diagnosticSnapshot() {
-    const panels = [];
-    for (const panel of this.windows.values()) {
-      if (panel.name !== "GameLogs") panels.push(diagnosticPanel(panel));
-    }
-    return {
-      ...this.snapshot(),
-      panelStates: panels,
-      positions: Array.from(this.windowPositions, ([name, position]) => ({
-        name,
-        ...position,
-      })),
-      chatSession: this.chat?.diagnosticSnapshot() ?? null,
-      keyDraft: this.bindings?.editing ? this.bindings.active : null,
-      quickCapture: this.quickCapture,
-      quickCaptureDraft: this.quickCaptureDraft,
-      inspection: diagnosticControls(this.profileControls?.root),
-      inspectionDirty: this.profileControls?.dirty ?? false,
-    };
-  }
-
   snapshot() {
     return {
       ready: Boolean(this.index),
@@ -2646,7 +2413,7 @@ export class GameUI {
       layoutGeneration: this.layoutGeneration,
       offsetX: this.offsetX,
       offsetY: this.offsetY,
-      localProfile: this.storeSnapshot(),
+      profile: this.store?.profile ? structuredClone(this.store.profile) : null,
       windowBounds: Array.from(this.windows.values(), (panel) => ({
         name: panel.name,
         x: panel.x,
@@ -2657,15 +2424,6 @@ export class GameUI {
       originalTiming:
         "Only explicitly authored frame delays advance; missing timing is static/unsupported.",
     };
-  }
-
-  /** Offline stores checkpoint through snapshot(); online sources publish a frozen profile view. */
-  storeSnapshot() {
-    if (typeof this.store?.snapshot === "function") {
-      return this.store.snapshot();
-    }
-    const profile = this.store?.profile;
-    return profile ? structuredClone(profile) : null;
   }
 
   inputSnapshot() {
@@ -2689,27 +2447,9 @@ export class GameUI {
 
   destroy() {
     if (this.disposed) return;
-    if (this.hooks.readOnlyProfile) {
-      settlePrompt(this, this.promptRequest, null);
-      this.retireAllWindows();
-    } else if (!this.closeAll()) {
-      throw new Error("Close native sessions before destroying GameUI");
-    }
+    settlePrompt(this, this.promptRequest, null);
+    this.retireAllWindows();
     this.disposeOwnedSurfaces();
-  }
-
-  /** Failed temporary sessions cannot keep DOM or global input listeners after restoration. */
-  discardForReplay() {
-    if (this.disposed) return;
-    if (!this.replayingNativeInput) {
-      throw new Error("Only an isolated replay UI may discard native sessions");
-    }
-    try {
-      settlePrompt(this, this.promptRequest, null);
-      this.retireAllWindows();
-    } finally {
-      this.disposeOwnedSurfaces();
-    }
   }
 
   disposeOwnedSurfaces() {

@@ -183,7 +183,7 @@ async function selectionSpotlight(page, slot) {
       const light = window.maple.snapshot().login.spotlight;
       return (
         light?.visible &&
-        light.beam.x === 260 + 125 * index &&
+        light.beam.x === 280 + 125 * index &&
         light.beam.completed
       );
     },

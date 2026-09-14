@@ -3,6 +3,7 @@ import {
   cashPurchasePlan,
   deliverCashPurchase,
 } from "../items/cash-commerce.js";
+import { NativeOperationRefusal } from "./native-source.js";
 
 /** Native CashShopService consumer API; proposals never write the published profile. */
 export class NativeCashShop {
@@ -43,8 +44,9 @@ export class NativeCashShop {
     };
   }
   subscribe(listener) {
-    if (typeof listener !== "function" || this.listeners.size >= 64)
-      {throw new Error("Invalid cash subscriber");}
+    if (typeof listener !== "function" || this.listeners.size >= 64) {
+      throw new Error("Invalid cash subscriber");
+    }
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -55,8 +57,9 @@ export class NativeCashShop {
   /** Synchronous native price preview; the server recomputes the complete plan on purchase. */
   quote(request) {
     try {
-      if (this.closed || this.destroyed)
-        {throw new Error("The Cash Shop is closed.");}
+      if (this.closed || this.destroyed) {
+        throw new Error("The Cash Shop is closed.");
+      }
       const plan = cashPurchasePlan(
         this.store.profile,
         this.catalog,
@@ -79,10 +82,12 @@ export class NativeCashShop {
     }
   }
   async run(action) {
-    if (this.closed || this.destroyed)
-      {return cashFailure("cash-closed", "The Cash Shop is closed.");}
-    if (this.pending)
-      {return cashFailure("save-busy", "A cash transaction is pending.");}
+    if (this.closed || this.destroyed) {
+      return cashFailure("cash-closed", "The Cash Shop is closed.");
+    }
+    if (this.pending) {
+      return cashFailure("save-busy", "A cash transaction is pending.");
+    }
     this.pending = true;
     this.publish();
     try {
@@ -97,7 +102,7 @@ export class NativeCashShop {
   }
   async resolveRecipients(names) {
     const result = await this.run({ kind: "cash.recipients", names });
-    if (!result.ok) throw new Error(result.reason);
+    if (!result.ok) throw new NativeOperationRefusal(result);
     return result.recipients;
   }
   buy({ sn, currency }) {
@@ -136,11 +141,12 @@ export class NativeCashShop {
     );
   }
   close() {
-    if (this.pending || this.store.profileTransactionPending)
-      {return cashFailure(
+    if (this.pending || this.store.profileTransactionPending) {
+      return cashFailure(
         "save-busy",
         "Wait for the pending cash transaction before leaving.",
-      );}
+      );
+    }
     this.closed = true;
     this.publish();
     return { ok: true, action: "close" };

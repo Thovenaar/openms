@@ -118,33 +118,6 @@ export class ChatLog {
       scrollHeight: this.element.scrollHeight,
     };
   }
-  checkpoint() {
-    return {
-      records: structuredClone(this.records),
-      scrollTop: this.element.scrollTop,
-    };
-  }
-  restore(checkpoint) {
-    if (
-      !Array.isArray(checkpoint.records) ||
-      checkpoint.records.length > MAX_MESSAGES ||
-      !Number.isFinite(checkpoint.scrollTop) ||
-      checkpoint.scrollTop < 0
-    ) {
-      throw new TypeError("Invalid chat log checkpoint");
-    }
-    for (const record of checkpoint.records) validateRecord(record);
-    this.records = structuredClone(checkpoint.records);
-    this.element.replaceChildren();
-    for (const record of this.records) this.element.append(this.row(record));
-    this.element.hidden = this.records.length === 0;
-    this.element.scrollTop = checkpoint.scrollTop;
-  }
-  clear() {
-    this.records.length = 0;
-    this.element.replaceChildren();
-    this.element.hidden = true;
-  }
   destroy() {
     this.element.remove();
   }

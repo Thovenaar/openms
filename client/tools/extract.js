@@ -27,7 +27,7 @@ import { preflightAssets } from "./preflight.js";
 import { createExtractionCache } from "./extraction-cache.js";
 import { extractionRecipes } from "./extraction-recipes.js";
 import { extractionStage } from "./extraction-timings.js";
-import { resourceByteLimit } from "../public/offline-manifest.js";
+import { resourceByteLimit } from "../src/assets/resource-validation.js";
 import { parseFlags, sourcePaths } from "./source-options.js";
 
 const started = performance.now();

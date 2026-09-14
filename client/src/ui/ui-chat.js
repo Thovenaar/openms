@@ -33,7 +33,7 @@ function validChannelIndex(index) {
   return Number.isInteger(index) && index >= 0 && index < CHAT_CHANNELS.length;
 }
 
-/** 008d536c and 008dfb36: edit child is distinct from the log child. No offline server echo. */
+/** 008d536c and 008dfb36: edit child is distinct from the log child. */
 export class UIChat {
   constructor(owner, panel) {
     this.owner = owner;
@@ -424,92 +424,6 @@ export class UIChat {
 
   queryLog(offset = 0, limit = 20) {
     return this.messages.page(offset, limit);
-  }
-
-  /** Capture bounded transient state before switching clock/profile ownership. */
-  checkpoint() {
-    if (this.pending) {
-      throw new Error("Await pending chat before checkpointing its session");
-    }
-    return this.#captureSession();
-  }
-
-  /** Read-only error capture is permitted while a submission or IME composition is pending. */
-  diagnosticSnapshot() {
-    const snapshot = this.#captureSession();
-    snapshot.pending = this.pending;
-    snapshot.composing = this.composing;
-    return snapshot;
-  }
-
-  #captureSession() {
-    return {
-      history: this.history.slice(),
-      recent: this.recent.slice(),
-      historyIndex: this.historyIndex,
-      recalledSubmission: this.recalledSubmission,
-      recentStarted: this.recentStarted,
-      submitTimes: Array.from(this.submitTimes),
-      submitIndex: this.submitIndex,
-      blockedUntil: this.blockedUntil,
-      channel: this.selector.selectedIndex,
-      text: this.input.value,
-      state: this.state,
-      height: this.height,
-      log: this.messages.checkpoint(),
-      channelMenuOpen: !this.selector.menu.hidden,
-    };
-  }
-
-  /** Restore an unmodified checkpoint created by this owner, never a public profile import. */
-  restore(checkpoint) {
-    if (this.pending) {
-      throw new Error("Await pending chat before restoring its session");
-    }
-    if (
-      checkpoint.history.length > HISTORY_LIMIT ||
-      checkpoint.recent.length > 4 ||
-      checkpoint.submitTimes.length !== this.submitTimes.length
-    ) {
-      throw new TypeError("Invalid chat checkpoint bounds");
-    }
-    this.history = checkpoint.history.slice();
-    this.recent = checkpoint.recent.slice();
-    this.historyIndex = checkpoint.historyIndex;
-    this.recalledSubmission = checkpoint.recalledSubmission;
-    this.recentStarted = checkpoint.recentStarted;
-    this.submitTimes.set(checkpoint.submitTimes);
-    this.submitIndex = checkpoint.submitIndex;
-    this.blockedUntil = checkpoint.blockedUntil;
-    this.selector.selectedIndex = checkpoint.channel;
-    this.input.value = checkpoint.text;
-    this.height = checkpoint.height;
-    this.composing = false;
-    this.endResize();
-    this.setState(checkpoint.state, false);
-    this.messages.restore(checkpoint.log);
-    this.selector.show(checkpoint.channelMenuOpen);
-  }
-
-  /** Clear transient chat and clock-domain counters on an explicit scenario ownership switch. */
-  resetSession() {
-    if (this.pending) {
-      throw new Error("Await pending chat before resetting its session");
-    }
-    this.history.length = 0;
-    this.recent.length = 0;
-    this.historyIndex = 0;
-    this.recalledSubmission = false;
-    this.recentStarted = -Infinity;
-    this.submitTimes.fill(-Infinity);
-    this.submitIndex = 0;
-    this.blockedUntil = -Infinity;
-    this.messages.clear();
-    this.composing = false;
-    this.selector.selectedIndex = 7;
-    this.height = 70;
-    this.endResize();
-    this.close(true);
   }
 
   /** 004904be: four equal messages / 30 s or four submissions / 2 s block for 2800 ms. */

@@ -5,6 +5,22 @@ import { createHash } from "node:crypto";
 let fetchMock;
 afterEach(() => fetchMock?.mockRestore());
 
+function activityTracker() {
+  return {
+    active: new Set(),
+    downloads: 0,
+    begin(kind) {
+      const token = { kind };
+      this.active.add(token);
+      this.downloads++;
+      return token;
+    },
+    end(token) {
+      this.active.delete(token);
+    },
+  };
+}
+
 test("original resources remain cached while private and world API resources never use persistent cache", async () => {
   const previousLocation = globalThis.location;
   globalThis.location = { origin: "http://localhost" };
@@ -16,7 +32,8 @@ test("original resources remain cached while private and world API resources nev
   fetchMock = spyOn(globalThis, "fetch").mockImplementation(
     async () => new Response(bytes),
   );
-  const network = new Network();
+  const activity = activityTracker();
+  const network = new Network(undefined, activity);
   await network.ready;
   network.cache = {
     async match(url) {
@@ -50,6 +67,8 @@ test("original resources remain cached while private and world API resources nev
     expect(writes).toEqual([`http://localhost${original.url}`]);
     expect(fetchMock.mock.calls).toHaveLength(5);
     expect(network.hits).toBe(1);
+    expect(activity.downloads).toBe(5);
+    expect(activity.active.size).toBe(0);
   } finally {
     if (previousLocation === undefined) delete globalThis.location;
     else globalThis.location = previousLocation;

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { CharacterDevelopment } from "../src/character/character-development.js";
 import { createProfile } from "../src/profile/profile-validation.js";
 import { experienceRequired } from "../src/character/offline-progression.js";
-import { ProfileStore } from "../src/profile/profile-store.js";
+import { ProfileStore } from "./fixtures/memory-profile-store.js";
 import { grantItem } from "../src/items/inventory-model.js";
 import { keyIndexForCode } from "../src/input/keymap.js";
 

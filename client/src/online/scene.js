@@ -38,6 +38,12 @@ const MOVEMENT_ACTIONS = new Set([
   "rope",
   "sit",
 ]);
+const CLIMB_ACTIONS = new Set(["ladder", "rope", "ladder2", "rope2"]);
+
+/** 00452792..004527d3 holds ladder/rope artwork when consecutive Y positions match. */
+export function holdObservedClimb(action, previousY, nextY) {
+  return CLIMB_ACTIONS.has(action) && previousY === nextY;
+}
 /** Owns display resources only. Entity membership and actions are observations. */
 export class OnlineScene {
   constructor({ manifest, services, catalog, viewport, intent, app }) {
@@ -164,6 +170,7 @@ export class OnlineScene {
     this.updateView(view, entity);
   }
   updateView(view, entity) {
+    const previousY = view.entity.position.y;
     if (entity.placementId) {
       this.lifeEntities.set(entity.placementId, view);
       view.animation.gameplayOwned = true;
@@ -173,6 +180,11 @@ export class OnlineScene {
     view.received = performance.now();
     view.observedAge = 0;
     view.entity = entity;
+    view.holdClimb = holdObservedClimb(
+      animationName(entity.action),
+      previousY,
+      entity.position.y,
+    );
     this.updateViewDepth(view);
     if (entity.id === this.selfId) {
       this.scene.actor = view.animation;
@@ -208,6 +220,7 @@ export class OnlineScene {
   }
   seekObservedAction(view) {
     const entity = view.entity;
+    if (view.holdClimb) return;
     view.animation.seek(
       entity.dropMotion?.age ??
         entity.mobState?.elapsedMs ??
@@ -470,6 +483,7 @@ export class OnlineScene {
     if (view.name) view.name.step(this.app.renderer.resolution);
     if (view.mobName) view.mobName.scale.x = animation.container.scale.x;
     animation.setAction(this.poseAction(view), this.posePlayback(entity));
+    animation.holdFrame = view.holdClimb;
   }
   poseAction(view) {
     const { entity, animation } = view;
@@ -553,6 +567,7 @@ export class OnlineScene {
     view.fromX = view.drawX = event.destination.x;
     view.fromY = view.drawY = event.destination.y;
     view.received = performance.now();
+    view.holdClimb = false;
     view.animation.setPosition(event.destination.x, event.destination.y);
     if (event.actorId === this.selfId) {
       this.presentation.x = this.selfPose.x = event.destination.x;
@@ -592,7 +607,12 @@ export class OnlineScene {
       npcs: this.npcs.size,
       npcPresentation: this.native?.snapshotNpcs() ?? [],
       combat: this.events.combat.snapshot(),
+      enhancements: this.events.enchant.snapshot(),
     };
+  }
+  effectTarget(actorId) {
+    const view = this.views.get(actorId);
+    return view ? this.events.target(view) : null;
   }
   draw(now, elapsed, prediction, active) {
     this.paused = prediction?.paused ?? false;
@@ -624,10 +644,9 @@ export class OnlineScene {
   }
   interpolateView(view, now) {
     const self = view.entity.id === this.selfId;
-    const prediction =
-      self && !view.entity.seat && !view.entity.combatState?.movementLocked
-        ? this.drawPrediction
-        : null;
+    // An action locks input, not gravity or the local presentation clock. The
+    // predictor already imports that lock in each authoritative motion checkpoint.
+    const prediction = self ? this.drawPrediction : null;
     const simulation = prediction?.simulation ?? null;
     let x;
     let y;

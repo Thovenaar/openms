@@ -73,7 +73,6 @@ export class GameLogs {
         this.recentRecords.splice(this.recentRecords.indexOf(retired), 1);
       }
       this.records.push({ text, first: time, last: time, count: 1 });
-      this.diagnostics?.capture(text);
     }
     // Presentation recency is event order, even with equal/backward wall-clock times.
     // Keep the journal-facing records in first-occurrence order.
@@ -217,17 +216,18 @@ export class GameLogs {
 export function layoutGameLogs(panel) {
   panel.element.setAttribute("aria-label", "Game Logs");
   panel.element.setAttribute("role", "dialog");
-  panel.image("Notice3/t", 0, 0);
-  for (let row = 0; row < 15; row++) panel.image("Notice3/c", 0, 21 + row * 20);
+  panel.image("Notice4/t", 0, 0);
   panel.image("Notice4/s", 0, 321);
-  panel.text("Game Logs", 20, 5, 220);
+  // Tile over the prompt-only input well, retaining the native bottom 18px border.
+  for (let row = 0; row < 18; row++) panel.image("Notice4/c", 0, 21 + row * 20);
+  panel.text("Game Logs", 12, 5, 242);
   const text = document.createElement("textarea");
   text.readOnly = true;
   text.spellcheck = false;
   text.setAttribute("aria-label", "Game error records");
   text.placeholder = "No errors recorded in this session.";
   text.style.cssText =
-    "position:absolute;left:20px;top:26px;width:225px;height:243px;box-sizing:border-box;resize:none;pointer-events:auto;font:11px/15px monospace;background:#fff;color:#111;";
+    "position:absolute;left:12px;top:28px;width:242px;height:304px;box-sizing:border-box;resize:none;pointer-events:auto;font:11px/15px monospace;background:#fff;color:#111;";
   panel.element.append(text);
   panel.logText = text;
   panel.listen(text, "blur", () => panel.owner.logs.refresh());
@@ -237,16 +237,21 @@ export function layoutGameLogs(panel) {
     event.stopPropagation();
     panel.owner.close(panel.name);
   });
-  panel.localButton("Select", 20, 346, () => {
+  logButton(panel, "Select", [12, 340, 56], () => {
     text.focus();
     text.select();
   });
-  layoutDiagnosticActions(panel);
-  panel.button("BtOK2", 208, 369, {
-    label: "Close Game Logs",
-    action: () => panel.owner.close(panel.name),
-  });
-  panel.text("Local JSON only. No upload.", 20, 324, 225);
+  const close = logButton(panel, "Close", [180, 340, 74], () =>
+    panel.owner.close(panel.name),
+  );
+  close.setAttribute("aria-label", "Close Game Logs");
+}
+
+/** Fixed footer grid inside the 266px native frame; diagnostics have no original button art. */
+function logButton(panel, label, [x, y, width], action) {
+  const button = panel.localButton(label, x, y, action);
+  button.style.cssText += `width:${width}px;height:22px;box-sizing:border-box;padding:0 4px;font:11px/20px Arial;`;
+  return button;
 }
 
 /** Original005203bb request frame/control coordinates, adapted solely for local errors. */
@@ -271,109 +276,4 @@ function layoutErrorNotification(panel) {
     label: "Dismiss game error notification",
     action: () => panel.owner.logs.dismissNotification(),
   });
-}
-
-/** Native controls own all import/replay admission. Failure text never recursively records itself. */
-function layoutDiagnosticActions(panel) {
-  const status = panel.text(
-    "Local dumps include profile, account and chat. No upload.",
-    20,
-    274,
-    225,
-  );
-  status.style.cssText += "font:11px/14px Arial;white-space:normal;";
-  status.setAttribute("role", "status");
-  const file = document.createElement("input");
-  file.type = "file";
-  file.accept = ".json,application/json";
-  file.hidden = true;
-  file.setAttribute("aria-label", "Import local game diagnostic JSON");
-  panel.element.append(file);
-  const state = {
-    diagnostics: panel.owner.logs.diagnostics,
-    status,
-    file,
-    read: null,
-  };
-  panel.cleanups.push(() => {
-    state.read = null;
-  });
-  panel.localButton("Export JSON", 75, 346, () => exportDiagnostic(state));
-  state.importButton = panel.localButton("Import", 173, 346, () =>
-    file.click(),
-  );
-  panel.listen(file, "change", () => importDiagnostic(panel, state));
-  state.replayButton = panel.localButton("Replay locally", 20, 369, (event) =>
-    replayDiagnostic(panel, state, event),
-  );
-}
-
-function exportDiagnostic(state) {
-  try {
-    const json = state.diagnostics.exportJSON();
-    const url = URL.createObjectURL(
-      new Blob([json], { type: "application/json" }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "maple-game-diagnostic.json";
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    state.status.textContent =
-      "Exported full local diagnostic; it may contain private chat/account data.";
-  } catch (error) {
-    state.status.textContent = error.message;
-  }
-}
-
-/** A retired panel cannot publish a late File.text result over a newer imported selection. */
-async function importDiagnostic(panel, state) {
-  const selected = state.file.files?.[0];
-  if (!selected || state.read || panel.disposed) return;
-  const token = {};
-  state.read = token;
-  state.importButton.disabled = true;
-  state.replayButton.disabled = true;
-  try {
-    if (selected.size > 16 * 1024 * 1024) {
-      throw new Error("Diagnostic JSON exceeds 16 MiB");
-    }
-    const json = await selected.text();
-    if (state.read !== token || panel.disposed) return;
-    state.status.textContent = state.diagnostics.importJSON(json);
-  } catch (error) {
-    if (state.read === token && !panel.disposed) {
-      state.status.textContent = error.message;
-    }
-  } finally {
-    if (state.read === token) {
-      state.read = null;
-      state.file.value = "";
-      state.importButton.disabled = false;
-      state.replayButton.disabled = false;
-    }
-  }
-}
-
-async function replayDiagnostic(panel, state, event) {
-  const diagnostics = state.diagnostics;
-  if (!event.isTrusted || state.read || !diagnostics || diagnostics.replaying) {
-    return;
-  }
-  const cancel = document.createElement("button");
-  cancel.type = "button";
-  cancel.textContent = "Local replay · Cancel / Escape";
-  cancel.style.cssText =
-    "position:absolute;left:8px;top:8px;z-index:2147483647;";
-  const stop = () => diagnostics.cancel();
-  cancel.addEventListener("click", stop);
-  panel.owner.app.canvas.parentElement.append(cancel);
-  try {
-    state.status.textContent = await diagnostics.replay();
-  } catch (error) {
-    state.status.textContent = error.message;
-  } finally {
-    cancel.removeEventListener("click", stop);
-    cancel.remove();
-  }
 }

@@ -7,7 +7,7 @@ import {
   createProfile,
   validateProfile,
 } from "../src/profile/profile-validation.js";
-import { ProfileStore } from "../src/profile/profile-store.js";
+import { ProfileStore } from "./fixtures/memory-profile-store.js";
 import { itemCount } from "../src/items/inventory-model.js";
 
 const CONFIG = {

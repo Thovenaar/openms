@@ -16,7 +16,9 @@ function noticeQueue() {
   log.count = 6;
   log.first = 0;
   log.clock = 0;
-  log.expanded = false;
+  log.owner = { hud: { quickSurface: { root: { visible: false } } } };
+  log.syncDensity = () => {};
+  log.draw = () => {};
   log.canvas = { append() {} };
   log.rows = Array.from({ length: 6 }, () => ({
     text: "",
@@ -41,26 +43,26 @@ describe("native gameplay notice admission", () => {
     const log = noticeQueue();
     const text = "a".repeat(40) + " " + "b".repeat(40);
     log.appendLine(text, { kind: "simple" });
-    log.positionRows(false);
-    expect(visibleRows(log)).toEqual([{ text, y: 148 }]);
+    log.positionRows();
+    expect(visibleRows(log)).toEqual([{ text, y: 70 }]);
     expect(noticeInkWidth(font, text)).toBe(810);
   });
   test("rotates only the oldest record after the six native slots fill", () => {
     const log = noticeQueue();
     for (let index = 0; index < 7; index++) {
       log.appendLine(String(index), { kind: "simple" });
-      log.positionRows(false);
+      log.positionRows();
     }
     expect(visibleRows(log)).toEqual([
-      { text: "1", y: 78 },
-      { text: "2", y: 92 },
-      { text: "3", y: 106 },
-      { text: "4", y: 120 },
-      { text: "5", y: 134 },
-      { text: "6", y: 148 },
+      { text: "1", y: 0 },
+      { text: "2", y: 14 },
+      { text: "3", y: 28 },
+      { text: "4", y: 42 },
+      { text: "5", y: 56 },
+      { text: "6", y: 70 },
     ]);
-    log.expanded = true;
-    log.positionRows(false);
+    log.owner.hud.quickSurface.root.visible = true;
+    log.update(390);
     expect(visibleRows(log).map((row) => row.y)).toEqual([
       0, 14, 28, 42, 56, 70,
     ]);

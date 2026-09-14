@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { measureStage } from "./native-evidence.js";
 import { loadContent } from "../../server/src/content.js";
-import { onlineShell } from "./browser-shell.js";
 import { onlineBuildGraph } from "./online-build-graph.js";
 import {
   emitOnlineDeployment,
@@ -23,17 +22,13 @@ export async function sourceIdentity() {
     "package.json",
     "client/package.json",
     "server/package.json",
-    "client/tools/dev.js",
+    "client/tools/dev-online.js",
     "client/tools/browser-build.js",
-    "client/tools/browser-oracle.js",
-    "client/tools/release-manifest.js",
     "client/tools/native-evidence.js",
     "client/index.html",
     "client/style.css",
-    "client/public/service-worker.js",
-    "client/public/offline-manifest.js",
-    "client/public/app.webmanifest",
-    "client/public/app-icon.svg",
+    "client/online.css",
+    "client/public/openms-icon.png",
   ];
   const sources = new Bun.Glob("src/**/*.js");
   for await (const path of sources.scan({
@@ -75,7 +70,6 @@ export async function sourceIdentity() {
 
 /** All tool recipes and shared rules are source inputs, never generated world cache inputs. */
 async function appendOnlineSources(paths) {
-  paths.push("client/online.css", "client/public/openms-icon.png");
   for (const pattern of ["shared/**/*.js", "client/tools/**/*.js"]) {
     const sources = new Bun.Glob(pattern);
     for await (const path of sources.scan({
@@ -90,59 +84,6 @@ async function appendOnlineSources(paths) {
       if (!paths.includes(name)) paths.push(name);
     }
   }
-}
-
-/** Rebuild public entrypoints; an optional synchronous progress sink receives phase lines. */
-export async function buildBrowser(progress) {
-  const timings = {};
-  progress?.("Browser build: starting source integrity");
-  const sourceBuildId = await measureStage(
-    timings,
-    "sourceIdentityMs",
-    sourceIdentity,
-  );
-  progress?.(
-    "Browser build: source integrity complete; compiling 4 entrypoints",
-  );
-  const result = await measureStage(timings, "compilationMs", () =>
-    Bun.build({
-      entrypoints: [
-        resolve(root, "src/browser/offline/main.js"),
-        resolve(root, "src/rendering/atlas-worker.js"),
-        resolve(root, "src/audio/audio-capture-worklet.js"),
-        resolve(root, "tools/browser-oracle.js"),
-      ],
-      target: "browser",
-      env: "disable",
-      format: "esm",
-      naming: "[name].[ext]",
-      sourcemap: "linked",
-      outdir: resolve(root, "dist"),
-      write: false,
-      define: { "import.meta.MAPLE_SOURCE_ID": JSON.stringify(sourceBuildId) },
-    }),
-  );
-  if (!result.success) {
-    throw new AggregateError(result.logs, "Browser build failed");
-  }
-  progress?.(
-    "Browser build: compilation complete; rechecking source integrity",
-  );
-  if (
-    (await measureStage(timings, "sourceRecheckMs", sourceIdentity)) !==
-    sourceBuildId
-  ) {
-    throw new Error(
-      "Browser build inputs changed during compilation; rebuild required",
-    );
-  }
-  await publishBrowserOutputs(result.outputs);
-  progress?.("Browser build: complete");
-  return {
-    sourceBuildId,
-    timings,
-    outputs: result.outputs.map((file) => file.path),
-  };
 }
 
 /** Online uses the authored field shell and server content identity. */
@@ -170,7 +111,7 @@ export async function buildOnlineBrowser({
   const shell = await onlineShellInputs(content);
   const graph = onlineBuildGraph(root);
   progress?.(
-    "Online browser: compiling verified source without offline extraction/release rebuild",
+    "Online browser: compiling verified source without an extraction rebuild",
   );
   const result = await measureStage(timings, "compilationMs", () =>
     compileOnline({ development, sourceBuildId, content, graph }),
@@ -209,7 +150,10 @@ export async function buildOnlineBrowser({
 
 async function onlineShellInputs(content) {
   const shell = new Map([
-    ["/index.html", new TextEncoder().encode(await onlineShell(root))],
+    [
+      "/index.html",
+      new Uint8Array(await Bun.file(resolve(root, "index.html")).arrayBuffer()),
+    ],
   ]);
   for (const [url, path] of [
     ["/style.css", "style.css"],

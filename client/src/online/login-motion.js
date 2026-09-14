@@ -16,3 +16,14 @@ export function loginCameraY(start, end, elapsedMs, durationMs) {
       (-2 * t3 + 3 * t2) * end,
   );
 }
+
+/** Adjacent clipped pages retain native easing up to arrival. Its overshoot belongs
+ * to the continuous native field; allowing it here would expose an empty strip. */
+export function loginPageOffset(fromY, toY, elapsedMs, durationMs) {
+  // The 600px/800ms Hermite first reaches its target at t=2/3. Hold from
+  // there: near t=1 floating-point ftol can otherwise reopen a one-pixel gap.
+  if (elapsedMs >= (durationMs * 2) / 3) return 0;
+  const remaining = 600 - loginCameraY(0, 600, elapsedMs, durationMs);
+  if (remaining <= 0) return 0;
+  return Math.sign(toY - fromY) * Math.max(0, Math.min(600, remaining));
+}

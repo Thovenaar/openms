@@ -24,7 +24,6 @@ const MAX_SECONDS = 30;
 
 const { values } = parseArgs({
   options: {
-    mode: { type: "string", default: "offline" },
     url: { type: "string" },
     account: { type: "string" },
     password: { type: "string" },
@@ -35,20 +34,16 @@ const { values } = parseArgs({
     headed: { type: "boolean", default: false },
   },
 });
-if (!["offline", "online"].includes(values.mode)) {
-  throw new Error("--mode must be offline or online");
-}
 const seconds = Number(values.seconds);
 if (!Number.isFinite(seconds) || seconds <= 0 || seconds > MAX_SECONDS) {
   throw new Error(`--seconds must be 0–${MAX_SECONDS}, exclusive of zero`);
 }
-const url =
-  values.url ?? `http://127.0.0.1:${values.mode === "online" ? 3102 : 3100}`;
-if (values.mode === "online" && (!values.account || !values.password)) {
-  throw new Error("--account and --password are required in online mode");
+const url = values.url ?? "http://127.0.0.1:3102";
+if (!values.account || !values.password) {
+  throw new Error("--account and --password are required");
 }
 const output = resolve(
-  values.output ?? join("artifacts", "movement-smoothness", values.mode),
+  values.output ?? join("artifacts", "movement-smoothness", "online"),
 );
 await mkdir(output, { recursive: true });
 
@@ -58,7 +53,7 @@ const report = {
   status: "running",
   scope:
     "Presented local-player movement smoothness in a real browser; not original Windows parity and not a frame-rate claim",
-  mode: values.mode,
+  mode: "online",
   url,
   key: values.key,
   holdMs: seconds * 1000,
@@ -201,21 +196,16 @@ async function enterWorld(target) {
 
 /** A field install can throw from snapshot(); a readiness probe must report
  * "not ready" instead of failing its wait or reaching the client's error reporter. */
-function ready(online) {
+function ready() {
   try {
     const state = window.maple?.snapshot();
     if (!state?.currentMap || state.loading || state.pendingLoads !== 0) {
       return false;
     }
-    return online ? state.online?.status === "active" : true;
+    return state.online?.status === "active";
   } catch {
     return false;
   }
-}
-
-async function offlineReady(target) {
-  await target.goto(url, { waitUntil: "domcontentloaded", timeout: TIMEOUT });
-  await target.waitForFunction(ready, { timeout: 300000 }, false);
 }
 
 async function showField(target) {
@@ -350,8 +340,8 @@ function analyze(samples, downAt, upAt) {
   };
 }
 
-async function identity(target, mode) {
-  return target.evaluate((clientMode) => {
+async function identity(target) {
+  return target.evaluate(() => {
     const state = window.maple.snapshot();
     const base = {
       sourceBuildId: state.sourceBuildId,
@@ -360,7 +350,6 @@ async function identity(target, mode) {
       lastError: state.lastError,
       presentation: { ...state.presentation },
     };
-    if (clientMode !== "online") return base;
     const online = window.mapleOnline.snapshot();
     return {
       ...base,
@@ -375,7 +364,7 @@ async function identity(target, mode) {
         prediction: { ...online.prediction },
       },
     };
-  }, mode);
+  });
 }
 
 /** Real keyboard hold over the presented frames; nothing is stepped by the tool. */
@@ -407,17 +396,15 @@ function verify(analysis) {
     analysis.samplerOverflow === 0,
     { overflow: analysis.samplerOverflow },
   );
-  if (values.mode === "online") {
-    check(
-      "Prediction reported no resync overflow during the measured window",
-      report.after.online.prediction.overflows ===
-        report.before.online.prediction.overflows,
-      {
-        before: report.before.online.prediction,
-        after: report.after.online.prediction,
-      },
-    );
-  }
+  check(
+    "Prediction reported no resync overflow during the measured window",
+    report.after.online.prediction.overflows ===
+      report.before.online.prediction.overflows,
+    {
+      before: report.before.online.prediction,
+      after: report.after.online.prediction,
+    },
+  );
   report.status = report.checks.every((item) => item.pass)
     ? "measured"
     : "failed";
@@ -440,17 +427,12 @@ function retainFrames(samples) {
 }
 
 async function measure() {
-  if (values.mode === "online") {
-    report.stage = "signIn";
-    await signIn(page, values);
-  } else {
-    report.stage = "offlineReady";
-    await offlineReady(page);
-  }
+  report.stage = "signIn";
+  await signIn(page, values);
   report.stage = "showField";
   await showField(page);
   report.stage = "identity";
-  report.before = await identity(page, values.mode);
+  report.before = await identity(page);
   report.environment = await page.evaluate(() => ({
     userAgent: navigator.userAgent,
     devicePixelRatio,
@@ -459,7 +441,7 @@ async function measure() {
   }));
   const { samples, downAt, upAt } = await captureHold();
   report.stage = "analysis";
-  report.after = await identity(page, values.mode);
+  report.after = await identity(page);
   report.analysis = analyze(samples, downAt, upAt);
   retainFrames(samples);
   verify(report.analysis);

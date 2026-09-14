@@ -25,6 +25,7 @@
   left: 50%;
   top: 50%;
   isolation: isolate;
+  overflow: hidden;
   transform-origin: center;
 }
 .online-login-body {
@@ -99,20 +100,6 @@
   position: absolute;
   left: 424px;
   top: 350px;
-}
-.online-login-recovery {
-  position: absolute;
-  left: 424px;
-  top: 391px;
-  padding: 2px 4px;
-  border: 0;
-  background: transparent;
-  color: #163c77;
-  font:
-    12px Arial,
-    sans-serif;
-  text-decoration: underline;
-  cursor: pointer;
 }
 .online-login-form {
   position: absolute;
@@ -273,10 +260,10 @@
 .online-login-character-name {
   position: absolute;
   top: 102px;
-  left: 55px;
+  /* LoginBackdrop shares the native integer layout with the nameplate. */
+  left: 0;
   width: max-content;
   max-width: 198px;
-  transform: translateX(-50%);
   overflow: hidden;
   white-space: nowrap;
   margin: 0;
@@ -342,13 +329,15 @@
 }
 .online-login-previous {
   position: absolute;
-  left: 97px;
-  top: 256px;
+  /* 00604756/00604765: layer (-260,-1215), camera (-400,-1508). */
+  left: 140px;
+  top: 293px;
 }
 .online-login-next {
   position: absolute;
-  left: 545px;
-  top: 258px;
+  /* 00604a8e/00604a9d: layer (188,-1213), camera (-400,-1508). */
+  left: 588px;
+  top: 295px;
 }
 .online-login-actions {
   position: absolute;

@@ -45,7 +45,21 @@ function matchesNpc(check, npcId) {
   return !check.npc || check.npc === npcId;
 }
 
-function isNpcEndpoint(stage, npcId) {
+/** Missing completion NPC inherits the start endpoint (Quest.wz 1008); explicit end NPC wins. */
+export function questEndpointNpc(record, partition) {
+  const stage = record.stages[Math.min(partition, 1)];
+  const initial = record.stages[0];
+  return (
+    stage.check.npc ||
+    stage.actionCheck.npc ||
+    initial.check.npc ||
+    initial.actionCheck.npc ||
+    0
+  );
+}
+
+function isNpcEndpoint(stage, npcId, initial = stage) {
+  if (!stage.check.npc && !stage.actionCheck.npc) stage = initial;
   return Boolean(
     (stage.check.npc || stage.actionCheck.npc) &&
     matchesNpc(stage.check, npcId) &&

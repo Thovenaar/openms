@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import original from "../../docs/ghidra-physics-motion/wz-globals.json";
 import { createSimulation } from "../src/physics/simulation.js";
 import { OnlinePrediction } from "../src/online/prediction.js";
+import { holdObservedClimb, OnlineScene } from "../src/online/scene.js";
 import { ServerClock } from "../src/online/transport-clock.js";
 import { PROTOCOL } from "../../shared/protocol.js";
 import {
@@ -62,6 +63,15 @@ function run(simulation, input, first, last) {
     stepMotion(simulation, input);
   }
 }
+
+test("observed ladder and rope frames advance only while vertical position changes", () => {
+  for (const action of ["ladder", "rope", "ladder2", "rope2"]) {
+    expect(holdObservedClimb(action, 120, 120)).toBe(true);
+    expect(holdObservedClimb(action, 120, 117)).toBe(false);
+    expect(holdObservedClimb(action, 120, 123)).toBe(false);
+  }
+  expect(holdObservedClimb("walk1", 120, 120)).toBe(false);
+});
 
 test("mid-flight authoritative checkpoint restores future movement and held edges exactly", () => {
   const source = createSimulation(world(), { x: 0, y: -10 });
@@ -133,11 +143,11 @@ test("unknown checkpoint geometry fails before replacing the last complete state
 });
 
 /** Drive the real predictor through one authenticated checkpoint and its bounded catch-up steps. */
-function presentable() {
+function presentable(onGroundJump) {
   const simulation = createSimulation(world(), { x: 0, y: -10 });
   const input = createHeldInput();
   run(simulation, input, 0, 5);
-  const prediction = new OnlinePrediction({ onInput: () => 1 });
+  const prediction = new OnlinePrediction({ onInput: () => 1, onGroundJump });
   prediction.install(simulation, 6);
   prediction.observe({
     connectionEpoch: "epoch",
@@ -195,6 +205,100 @@ test("presentation never writes the interpolated pose back into the kernel", () 
     expect(target.x).toBeLessThanOrEqual(before.x);
   }
   expect(captureMotion(simulation)).toEqual(before);
+});
+
+test("midair attack locks retain the local interpolation clock instead of chasing old entity poses", () => {
+  const { prediction, simulation, clock } = presentable();
+  const input = createHeldInput();
+  assignHeldInput(input, {
+    horizontal: 1,
+    vertical: 0,
+    jump: true,
+    attack: false,
+  });
+  stepMotion(simulation, input);
+  simulation.movementLocked = true;
+  stepMotion(simulation, input);
+  expect(simulation.y).toBeLessThan(simulation.previousY);
+  const owner = { selfId: "self", drawPrediction: prediction, selfPose: {} };
+  const view = {
+    entity: {
+      id: "self",
+      position: { x: -100, y: 0 },
+      combatState: { movementLocked: true },
+    },
+    fromX: -100,
+    fromY: 0,
+    received: clock,
+  };
+  const before = captureMotion(simulation);
+  const result = OnlineScene.prototype.interpolateView.call(
+    owner,
+    view,
+    clock + 15,
+  );
+  expect(result).toBe(simulation);
+  expect(view.drawY).toBe((simulation.previousY + simulation.y) / 2);
+  expect(view.drawX).toBe((simulation.previousX + simulation.x) / 2);
+  view.entity.combatState.movementLocked = false;
+  OnlineScene.prototype.interpolateView.call(owner, view, clock + 15);
+  expect(view.drawY).toBe((simulation.previousY + simulation.y) / 2);
+  expect(captureMotion(simulation)).toEqual(before);
+});
+
+test("ground jump audio follows accepted checkpoints once; air presses and rejoin are silent", () => {
+  let sounds = 0;
+  const { prediction, simulation } = presentable(() => sounds++);
+  const source = createSimulation(world(), { x: 0, y: 0 });
+  restoreMotion(source, captureMotion(simulation));
+  const input = createHeldInput();
+  let tick = prediction.predictedTick;
+  function observe() {
+    prediction.observe({
+      connectionEpoch: "epoch",
+      fieldEpoch: "field",
+      serverTick: ++tick,
+      ackInputSeq: 1,
+      paused: false,
+      motion: captureMotion(source),
+    });
+  }
+  assignHeldInput(input, {
+    horizontal: 1,
+    vertical: 0,
+    jump: true,
+    attack: false,
+  });
+  stepMotion(source, input);
+  expect(source.groundJumpSequence).toBe(1);
+  observe();
+  observe();
+  expect(sounds).toBe(1);
+  assignHeldInput(input, {
+    horizontal: 1,
+    vertical: 0,
+    jump: false,
+    attack: false,
+  });
+  stepMotion(source, input);
+  assignHeldInput(input, {
+    horizontal: 1,
+    vertical: 0,
+    jump: true,
+    attack: false,
+  });
+  stepMotion(source, input);
+  observe();
+  expect(sounds).toBe(1);
+  prediction.install(simulation, tick);
+  observe();
+  expect(sounds).toBe(1);
+  source.groundJumpSequence = 0xffffffff;
+  prediction.install(simulation, tick);
+  observe();
+  source.groundJumpSequence = 0;
+  observe();
+  expect(sounds).toBe(2);
 });
 
 test("prediction sends usable input within authenticated lead despite inflated arrival timing", () => {

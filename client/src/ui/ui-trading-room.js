@@ -155,8 +155,7 @@ function createControls(panel) {
   panel.button("BtClaim", 494, 241, {
     label: "Report",
     disabled: true,
-    tooltip:
-      "Player reports require a connected moderation service; local saved characters are not remote accounts.",
+    tooltip: "Player reports require a connected moderation service.",
   });
 }
 
@@ -399,7 +398,7 @@ function showOutcome(panel, result) {
       panel.owner.report(error),
     );
   } else if (!result.ok) {
-    panel.owner.report(new Error(result.reason ?? result.code));
+    panel.owner.status(result.reason ?? result.code);
   }
 }
 
@@ -420,9 +419,10 @@ export function tradeOutcomePresentation(result, side) {
   if (result.code === "trade-cancelled" || result.code === "trade-declined") {
     return {
       stringId: 0x196,
-      text: result.side === null
-        ? result.reason ?? "The trade is no longer available."
-        : "Trade cancelled.\r\nby the other character.",
+      text:
+        result.side === null
+          ? (result.reason ?? "The trade is no longer available.")
+          : "Trade cancelled.\r\nby the other character.",
     };
   }
   if (result.code === "unique-item") {

@@ -1,4 +1,5 @@
 import { recalculateVitals } from "./character-stats.js";
+import { skillPointPool } from "../skills/skill-allocation-rules.js";
 
 /** Explicit offline policy, NOT an original MapleStory EXP/stat table. */
 export const PROGRESSION_POLICY = Object.freeze({
@@ -7,7 +8,8 @@ export const PROGRESSION_POLICY = Object.freeze({
   threshold: "15 * level * level",
   hpPerLevel: 5,
   mpPerLevel: 3,
-  primaryStatPerLevel: 1,
+  apPerLevel: 5,
+  spPerLevel: 3,
 });
 
 /** Remaining-level EXP threshold; units are WZ EXP points, formula is local. */
@@ -71,6 +73,28 @@ function validateGrowth(growth) {
   }
 }
 
+/** Cosmic Character.levelUp/levelUpGainSp; job-separated SP is the requested game policy. */
+function awardLevelPoints(profile) {
+  const previousLevel = profile.level - 1;
+  const cygnus = Math.trunc(profile.job / 1000) === 1;
+  const bonus =
+    cygnus && previousLevel > 10 && previousLevel < 77
+      ? previousLevel <= 17
+        ? 2
+        : 1
+      : 0;
+  const ap = profile.remainingAp + PROGRESSION_POLICY.apPerLevel + bonus;
+  const pool = skillPointPool(profile.job);
+  const sp =
+    profile.remainingSp[pool] +
+    (profile.job % 1000 >= 100 ? PROGRESSION_POLICY.spPerLevel : 0);
+  if (!Number.isSafeInteger(ap) || !Number.isSafeInteger(sp)) {
+    throw new Error("Level-up point balance exceeds the profile limit");
+  }
+  profile.remainingAp = ap;
+  profile.remainingSp[pool] = sp;
+}
+
 /** Mutate an owned profile or transaction draft; caller persists and emits effects. */
 export function awardExperience(profile, amount, growth = NO_GROWTH, items) {
   if (
@@ -102,10 +126,7 @@ export function awardExperience(profile, amount, growth = NO_GROWTH, items) {
       30000,
       profile.baseMaxMP + PROGRESSION_POLICY.mpPerLevel + growth.mp,
     );
-    profile.str++;
-    profile.dex++;
-    profile.int++;
-    profile.luk++;
+    awardLevelPoints(profile);
     gained++;
   }
   if (gained) {
