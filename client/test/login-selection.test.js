@@ -4,6 +4,7 @@ import { OnlineLogin } from "../src/online/login.js";
 function fixture(prepared = true) {
   const owner = Object.create(OnlineLogin.prototype);
   owner.selected = 0;
+  owner.visible = true;
   const poses = [];
   const preview = {
     pose: { action: "stand1", facing: -1, state: "ground" },

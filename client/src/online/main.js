@@ -63,6 +63,7 @@ let demand = null;
 let inspectionTimer = null;
 let generation = 0;
 let installing = false;
+let releasePending = false;
 let destroyed = false;
 let debug = false;
 let lastError = null;
@@ -141,19 +142,30 @@ function isBlocked() {
 function status(value) {
   communityMaps?.update(value.status);
   if (destroyed) return;
-  if (value.code === "SIGNED_OUT") {
-    current?.destroy();
-    current = null;
-    prediction.clear();
-    input?.setBindings(null);
-    boundBindings = null;
-    ui?.ui.setScene(null);
-    ui?.audio.setScene(null);
-  }
+  if (value.code === "SIGNED_OUT") releaseField();
   login?.status(value);
   ui?.status(value);
   inspection?.status(value);
   if (value.status !== "active") clearInput();
+}
+
+/** A field owns its atlases only while its connection is live. Returning to the
+ * login surface hands the residency budget back before login artwork is loaded,
+ * and the next admitted snapshot rebuilds the field. A commit in flight defers
+ * the release so a torn-down candidate can never be installed afterwards. */
+function releaseField() {
+  if (installing) {
+    releasePending = true;
+    return;
+  }
+  current?.destroy();
+  current = null;
+  releasePending = false;
+  prediction.clear();
+  input?.setBindings(null);
+  boundBindings = null;
+  ui?.ui.setScene(null);
+  ui?.audio.setScene(null);
 }
 function motion(message) {
   try {
@@ -228,6 +240,7 @@ async function install(snapshot) {
     app.canvas.focus();
   } finally {
     if (token === generation) installing = false;
+    if (releasePending && !installing) releaseField();
   }
 }
 
@@ -515,7 +528,7 @@ function initializeInterfaces() {
     services,
     transport,
     audio: ui.audio,
-    hooks: { report },
+    hooks: { report, releaseField },
   });
   inspection = new OnlineInspection({
     transport,

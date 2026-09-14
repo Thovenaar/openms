@@ -1122,15 +1122,18 @@ export class OnlineLogin {
     );
   }
 
-  async showPreview(slot, profile, clear = false) {
-    if (!this.visuals || this.destroyed || !slot) return;
+  async showPreview(slot, profile) {
+    // A hidden surface owns no portrait: the committed field holds the residency
+    // budget, and a detached render must never reserve preview atlases behind it.
+    if (!this.visuals || this.destroyed || !this.visible || !slot) return;
     const generation = ++slot.generation;
     slot.controller?.abort();
     const controller = new AbortController();
     slot.controller = controller;
-    // A selection change empties the portrait first, so the previous character's
-    // pixels never sit under the newly selected name.
-    if (clear) this.clearPreview(slot);
+    // Retire the replaced portrait before its replacement reserves any atlas, so
+    // one slot never holds two previews and the previous character's pixels never
+    // sit under the newly selected name.
+    this.clearPreview(slot);
     let prepared;
     try {
       prepared = await this.visuals.preparePreview({
@@ -1145,7 +1148,6 @@ export class OnlineLogin {
       prepared.destroy();
       return;
     }
-    slot.prepared?.destroy();
     slot.prepared = prepared;
     prepared.pose(slot.pose);
     slot.view.removeChildren();
@@ -1579,7 +1581,7 @@ export class OnlineLogin {
 
   /** Selection changes the retained pose, including a portrait still loading. */
   renderRosterPreview(slot, character) {
-    if (!slot.preview) return;
+    if (!slot.preview || !this.visible) return;
     // 0060599b sends move action 2 to the selected avatar, 4 to the others.
     // 00451ec8 resolves those to the equipped weapon's walk/stand families.
     slot.preview.pose.action =
@@ -1612,9 +1614,7 @@ export class OnlineLogin {
       this.hooks.report(error);
       return;
     }
-    this.showPreview(preview, profile, true).catch((error) =>
-      this.report(error),
-    );
+    this.showPreview(preview, profile).catch((error) => this.report(error));
   }
 
   keyboardBlocked() {
@@ -1780,7 +1780,6 @@ export class OnlineLogin {
   }
 
   status(value) {
-    if (this.destroyed) return;
     if (value.status === "active") {
       if (!this.visible) return;
       this.visible = false;
@@ -1788,6 +1787,9 @@ export class OnlineLogin {
       this.clearSecrets();
       this.resetRegistration();
       this.stopBackdrop();
+      // The field owns the screen and the residency budget while it is live; a
+      // hidden portrait must not keep preview atlases resident behind it.
+      this.releasePreview();
       this.entered = true;
       this.hooks.entered?.();
       return;
@@ -1798,6 +1800,9 @@ export class OnlineLogin {
     this.host.hidden = false;
     if (wasHidden || value.code === "SIGNED_OUT") this.selectionReset();
     if (wasHidden) {
+      // The login surface cannot share the budget with a field it replaced:
+      // release the retained field before reserving login artwork.
+      this.hooks.releaseField?.();
       this.startBackdrop(this.controller.signal).catch((error) =>
         this.report(error),
       );
