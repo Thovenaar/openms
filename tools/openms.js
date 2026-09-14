@@ -3,7 +3,7 @@ import { constants } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP", "SIGUSR1"];
+const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
 const COMMANDS = [
   {
     name: "migrate",
@@ -27,27 +27,11 @@ const COMMANDS = [
       "[--assets DIR] [--map ID | --maps ID,ID] [--gameplay-definitions-root DIR] [--sql-root DIR] [--report FILE]",
   },
   {
-    name: "scenario",
-    file: "native-scenarios.js",
-    description:
-      "List or run native browser scenarios, or replay saved inputs.",
-    usage:
-      "[list | all | NAME...] [--list] [--rerun FILE] [--url URL] [--output DIR] [--chrome PATH] [--browserWSEndpoint URL] [--concurrency 1..4] [--headed]",
-  },
-  {
     name: "smoothness",
     file: "movement-smoothness.js",
-    description:
-      "Measure presented player motion in the offline or online client.",
+    description: "Measure presented player motion in the online client.",
     usage:
-      "[--mode offline|online] [--url URL] [--account NAME] [--password VALUE] [--seconds N] [--key CODE] [--output DIR] [--chrome PATH] [--headed]",
-  },
-  {
-    name: "smoke",
-    file: "smoke.js",
-    description: "Own the incremental rebuild/browser loop; SIGUSR1 reruns it.",
-    usage:
-      "[--once] [--scenarios NAME,NAME] [--concurrency 1..4] [--port PORT] [--url URL] [--output DIR] [--chrome PATH] [--assets DIR] [--gameplay-definitions-root DIR] [--sql-root DIR] [--cache-dir DIR]",
+      "[--url URL] --account NAME --password VALUE [--seconds N] [--key CODE] [--output DIR] [--chrome PATH] [--headed]",
   },
   {
     name: "scan",
@@ -80,13 +64,6 @@ const COMMANDS = [
     description: "Inspect authored world-map metadata from original assets.",
     usage: "ORIGINAL_ASSET_DIRECTORY",
   },
-  {
-    name: "validate",
-    file: "validate.js",
-    description: "Run the explicit broad browser world/physics oracle.",
-    usage:
-      "[--url URL] [--chrome PATH] [--duration SECONDS] [--maps ID,ID] [--output DIR] [--headed]",
-  },
 ];
 
 /** Print bounded command metadata without importing or starting any tool. */
@@ -98,9 +75,7 @@ function printHelp(command = null, group = "") {
       "Options and positional arguments are passed unchanged to the existing tool.",
     );
     if (
-      ["extract", "preflight", "scan", "smoke", "data server"].includes(
-        command.name,
-      )
+      ["extract", "preflight", "scan", "data server"].includes(command.name)
     ) {
       console.log(
         "Source defaults relative to the repository: --assets ../Maplestory-Client; --gameplay-definitions-root infra/gameplay-definitions; --sql-root infra/sql; --cache-dir client/.cache/extraction (where supported). No environment overrides.",
@@ -119,9 +94,7 @@ function printHelp(command = null, group = "") {
   console.log(
     "Tool arguments are forwarded unchanged; paths are relative to the repository root.",
   );
-  console.log(
-    "SIGINT/SIGTERM/SIGHUP stop the active tool; SIGUSR1 is forwarded for smoke reruns.",
-  );
+  console.log("SIGINT/SIGTERM/SIGHUP stop the active tool.");
 }
 
 /** Forward a parent-only signal while the tool owns its own cleanup. */
