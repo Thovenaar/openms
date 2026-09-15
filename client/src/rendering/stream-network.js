@@ -1,3 +1,4 @@
+import { ResourceCache } from "./resource-cache.js";
 import { LIMITS, resource } from "./stream-validation.js";
 import { resourceByteLimit } from "../assets/resource-validation.js";
 import {
@@ -63,109 +64,14 @@ export class Gate {
 }
 
 /** Persistent cache has serialized eviction by recent use and a hard byte/entry ceiling. */
-export class Network {
+export class Network extends ResourceCache {
   constructor(timeouts = NETWORK_TIMEOUTS, activity = null) {
+    super();
     this.activity = activity;
     this.timeouts = timeouts;
     this.gate = new Gate(LIMITS.fetches);
-    this.cache = null;
-    this.cacheBytes = 0;
-    this.cacheEntries = new Map();
-    this.cacheStatus = "initializing";
     this.hits = 0;
     this.downloadBytes = 0;
-    this.writes = Promise.resolve();
-    this.ready = this.open();
-  }
-  /** A controlled page reads the pinned release through fetch, never stale runtime entries. */
-  releaseControlled() {
-    const controlled = Boolean(globalThis.navigator?.serviceWorker?.controller);
-    if (controlled) this.cacheStatus = "release-managed";
-    return controlled;
-  }
-  async open() {
-    if (this.releaseControlled()) return;
-    try {
-      this.cache = await caches.open("maple-content-v2");
-      const keys = await this.cache.keys();
-      for (const request of keys) {
-        const response = await this.cache.match(request);
-        const bytes = Number(response.headers.get("x-maple-bytes"));
-        if (
-          !Number.isSafeInteger(bytes) ||
-          bytes <= 0 ||
-          bytes > LIMITS.resourceBytes
-        ) {
-          await this.cache.delete(request);
-          continue;
-        }
-        this.cacheEntries.set(request.url, bytes);
-        this.cacheBytes += bytes;
-      }
-      await this.evict(0);
-      this.cacheStatus = "persistent";
-      this.releaseControlled();
-    } catch (error) {
-      this.disableCache(error);
-    }
-  }
-  disableCache(error) {
-    this.cacheStatus = `unavailable: ${error.message}`;
-    this.cache = null;
-  }
-  async evict(incoming) {
-    for (const [url, bytes] of this.cacheEntries) {
-      if (
-        this.cacheBytes + incoming <= LIMITS.cacheBytes &&
-        this.cacheEntries.size < LIMITS.cacheEntries
-      ) {
-        break;
-      }
-      await this.cache.delete(url);
-      this.cacheEntries.delete(url);
-      this.cacheBytes -= bytes;
-    }
-  }
-  async store(url, buffer, cached = false) {
-    if (this.releaseControlled() || !this.cache) {
-      return;
-    }
-    // A verified hit must survive newer downloads during the same preload/session.
-    const previous = this.cacheEntries.get(url);
-    if (cached && previous !== undefined) {
-      this.cacheEntries.delete(url);
-      this.cacheEntries.set(url, previous);
-      return;
-    }
-    try {
-      if (previous !== undefined) {
-        this.cacheEntries.delete(url);
-        this.cacheBytes -= previous;
-      }
-      await this.evict(buffer.byteLength);
-      if (this.releaseControlled()) return;
-      await this.cache.put(
-        url,
-        new Response(buffer, {
-          headers: { "x-maple-bytes": String(buffer.byteLength) },
-        }),
-      );
-      this.cacheEntries.set(url, buffer.byteLength);
-      this.cacheBytes += buffer.byteLength;
-    } catch (error) {
-      this.disableCache(error);
-    }
-  }
-  /** Evict corruption through the same writer as insertion; the failed demand still rejects. */
-  async invalidate(url) {
-    if (!this.cache) return;
-    try {
-      await this.cache.delete(url);
-      this.cacheBytes -= this.cacheEntries.get(url) ?? 0;
-      this.cacheEntries.delete(url);
-    } catch (error) {
-      this.disableCache(error);
-    }
   }
   async verify(buffer, info) {
     if (buffer.byteLength !== info.bytes) {
@@ -300,9 +206,7 @@ export class Network {
     return {
       fetchActive: this.gate.active,
       fetchQueued: this.gate.queue.length,
-      cacheBytes: this.cacheBytes,
-      cacheEntries: this.cacheEntries.size,
-      cacheStatus: this.cacheStatus,
+      ...this.cacheSnapshot(),
       cacheHits: this.hits,
       downloadBytes: this.downloadBytes,
       lastCancellationError: this.lastCancellationError ?? null,

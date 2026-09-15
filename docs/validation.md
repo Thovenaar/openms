@@ -9,6 +9,7 @@ Read a result together with its **source/catalog identity, fixture, action and l
 | Online 100% movement                   | [Movement parity](movement-parity.md#scoped-verification)                                                            | Shared-kernel/server steps, browser prediction and checkpoint continuation.                             |
 | Slow-network gameplay                 | [Latency repair](#slow-network-gameplay-repair) | 500 ms RTT, delayed map assets, native walking/dialogue/travel and reconnect. |
 | Startup asset preload                 | [Startup cache](#startup-asset-preload) | Cold/warm startup, map entry, cache residency and walking at 500 ms RTT. |
+| Browser cache capacity                | [Cache capacity and index](#browser-cache-capacity-and-index) | Quota-aware disk limits, retained metadata, interruption recovery and startup regression. |
 | Client-owned motion and knockback      | [Movement parity](movement-parity.md#client-owned-motion) · [Browser check](#client-owned-motion-browser-check)      | One native browser hold and the real server/predictor divert tests; not original Windows parity.        |
 | Airborne skill continuity and recoil   | [Skill cast repair](#skill-cast-stutter-repair) · [Movement contract](movement-parity.md#skill-snapshot-continuity) | Same-field snapshot continuity, immediate impulses and recovered foothold-tangent mob recoil. |
 | Consecutive Flash Jump artwork         | [Replay validation](#consecutive-flash-jump-artwork-14-september-2026) | Five admitted casts, including a rapid direction reversal, with zero rendered-origin offset. |
@@ -180,4 +181,41 @@ Focused validation passed **32 tests / 131 assertions**, covering verified cold/
 ```sh
 bun server/tools/check-network-latency.js --scope startup --output /tmp/openms-startup
 bun test client/test/online-startup-preload.test.js client/test/online-loading.test.js client/test/stream-network.test.js
+```
+
+## Browser cache capacity and index
+
+On **2026-09-15**, sequential isolated Chrome runs of the [cache scope](validation-method.md#slow-network-gameplay-check) measured opening a real CacheStorage containing **2,048 synthetic 1 KiB files**. The new budget was **1 GiB / 16,384 files** on this browser. Existing payloads were migrated in place; ordinary reopening read indexed metadata without scanning payload headers.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| First open / migration | 258.9 ms | 239.2 ms |
+| First-open header reads | 2,048 | 2,048 |
+| Files retained after first open | 2,047 | 2,048 |
+| Warm open | 100.5 ms | 12.8 ms |
+| Warm-open header reads | 2,047 | 0 |
+
+The old opening path unnecessarily reserved a new entry slot and evicted one file at capacity. The replacement retains the complete set. Growing the cache to **4,096 files / 4 MiB** took **1.293 s**; reopening retained all files in **27.8 ms with zero header reads**. Three injected interruptions (after insertion, after deletion and before payload mutation) recovered the correct inventory using exactly **three targeted reads**. Corrupted bytes failed SHA-256 verification and their index entry was removed. With IndexedDB opening forced to fail, an existing valid payload still produced a verified cache hit without a download.
+
+This is one local metadata/opening comparison, not a full 1 GiB fill or cross-browser storage benchmark. Logical byte-accounting tests establish retention above the old 192 MiB ceiling, eviction at 1 GiB, quota headroom, one smaller-budget retry, read-only fallback and oversized-file skipping. The final storage probe measured module build **3.940 ms**, browser acquisition **466 ms**, seeding **436 ms** and teardown **320 ms**. There was no database, asset extraction or artificial network delay in this scope.
+
+The separate **500 ms RTT startup scope passed** with the same 395-file / 48,112,678-byte preload. Cold startup was **53.854 s**, login **3.803 s**, entry **2.637 s**, walking/stall **7.768 s**, reconnect **2.396 s**, and retained-cache startup **2.586 s**. Entry made **zero generated-asset HTTP requests**; reload made one catalog request. Native walking survived the 1.5-second stall. Initial render residency remained **16 atlases / 89,535,960 decoded CPU and estimated GPU bytes**. Chrome reported persistence as `best-effort`; no browser grant is claimed. Warm cache opening was **25.2 ms with zero header reads**.
+
+| Identity | Value |
+| --- | --- |
+| Cache module before | `a97c25e8bebc5a4f9405953b2bb30bea5d9e4b521a1f086cb9742d9766071701` |
+| Cache module after | `66503fb073f57460bcb287c8fea867a75fccee09537da3c8d6c688a95c2cce8a` |
+| Startup browser build | `c783e47181c522286519e258f7837c6bef96144e48479475a05693d6cde7fb1b` |
+| Rules | `f126571fcb44557a74e859e7235b1c72c03b63e4ef61a6e49f90d9e8416441c4` |
+| Asset build | `93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27` |
+| Catalog | `5bd1177cb1269b1d8f366451f4cf6c1603652dc76266d83146fa68f4a6d0e0ca` |
+
+The startup fixture separately measured database/content **253 ms**, seed **101 ms**, server startup **1.102 s**, frontend startup **547 ms**, browser acquisition **461 ms**, identity verification **1.411 s**, browser-context teardown **16 ms** and enclosing teardown **163 ms**. Existing extraction was reused. Overlapping stages must not be summed.
+
+Focused validation passed **42 tests / 171 assertions** across cache policy, preload, verified networking and loading. Changed JavaScript passed Prettier and ESLint with zero warnings, and the guarded production build passed with **941 modules**. The documentation checker retained **884 existing missing historical targets**, with no missing headings. Raw measurements and logs remain outside the repository under the [artifact policy](validation-method.md#artifact-policy).
+
+```sh
+bun server/tools/check-network-latency.js --scope cache --output /tmp/openms-cache
+bun server/tools/check-network-latency.js --scope startup --output /tmp/openms-startup
+bun test client/test/cache-policy.test.js client/test/online-startup-preload.test.js client/test/stream-network.test.js client/test/online-loading.test.js
 ```

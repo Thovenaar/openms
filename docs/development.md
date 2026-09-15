@@ -260,7 +260,9 @@ The startup download screen prepares common game files before exposing sign-in a
 
 Downloads use the existing hash-verified persistent cache, with four concurrent requests and a preload ceiling of 768 files / 64 MiB. Only encoded bytes are cached; preloading does not decode or reserve every texture on the GPU. The first startup takes longer while filling this cache; later starts reuse it. There is no game WebSocket or character lease during this preparation.
 
-Storage refusal or quota loss stops speculative preloading and leaves ordinary asset loading available. Corrupt or failed assets keep the startup error visible instead of exposing a partially prepared login page. In development, `window.maple.snapshot().startupPreload` reports completion or `cache-unavailable`; `streaming.cacheStatus` gives the storage result. See the [500 ms startup check](validation-method.md#slow-network-gameplay-check).
+The disk cache retains up to 1 GiB / 16,384 files, adapting to browser quota with a 192 MiB fallback when quota estimates are unavailable. This lets later map visits keep more downloaded files without enlarging the startup download or decoded CPU/GPU limits. Existing cached files survive the upgrade. The client requests browser persistence without holding up startup; browser approval is optional. See the [cache policy and diagnostics](streaming.md#persistent-asset-cache).
+
+An unavailable writer or an effective cache budget below the 64 MiB preload ceiling stops speculative preloading and leaves ordinary asset loading available. Quota failures first attempt bounded eviction and one retry. Corrupt or failed assets keep the startup error visible instead of exposing a partially prepared login page. In development, `window.maple.snapshot().startupPreload` reports completion, `cache-unavailable` or `insufficient-cache`; `streaming.cacheStatus` and `cachePersistence` report storage usability and browser persistence separately. See the [500 ms startup check](validation-method.md#slow-network-gameplay-check).
 
 ### Settings {#client-settings}
 

@@ -74,9 +74,8 @@ export class StartupPreload {
     try {
       for (let start = 0; start < this.jobs.length; ) {
         signal.throwIfAborted();
-        if (this.network.cacheStatus !== "persistent") {
-          return this.result("cache-unavailable");
-        }
+        const unavailable = this.cacheUnavailable();
+        if (unavailable) return this.result(unavailable);
         const batch = this.jobs.slice(
           start,
           start + STARTUP_PRELOAD_LIMITS.concurrency,
@@ -96,14 +95,18 @@ export class StartupPreload {
         start += batch.length;
       }
       signal.throwIfAborted();
-      return this.result(
-        this.network.cacheStatus === "persistent"
-          ? "complete"
-          : "cache-unavailable",
-      );
+      return this.result(this.cacheUnavailable() ?? "complete");
     } finally {
       signal.removeEventListener("abort", cancel);
     }
+  }
+
+  cacheUnavailable() {
+    if (this.network.cacheStatus !== "persistent") return "cache-unavailable";
+    if (this.network.cacheByteLimit < STARTUP_PRELOAD_LIMITS.bytes) {
+      return "insufficient-cache";
+    }
+    return null;
   }
 
   result(status) {

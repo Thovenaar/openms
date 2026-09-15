@@ -6,6 +6,7 @@ import { isolatedOnlineCheck } from "./isolated-online-check.js";
 import { DelayedTraffic } from "../../client/tools/scenarios/delayed-traffic.js";
 import { runOnlineLatency } from "../../client/tools/scenarios/online-latency.js";
 import { runOnlineStartup } from "../../client/tools/scenarios/online-startup.js";
+import { runBrowserCache } from "../../client/tools/scenarios/browser-cache.js";
 
 async function seed(database, content) {
   const manifest = await content.map(100000000);
@@ -46,8 +47,8 @@ function options(args) {
     seen.add(token.name);
   }
   if (!values.output.trim()) throw new Error("--output must name a directory");
-  if (!["latency", "startup"].includes(values.scope)) {
-    throw new Error("--scope must be latency or startup");
+  if (!["latency", "startup", "cache"].includes(values.scope)) {
+    throw new Error("--scope must be latency, startup or cache");
   }
   return values;
 }
@@ -55,17 +56,20 @@ if (import.meta.main) {
   const args = options(process.argv.slice(2));
   if (args.help) {
     console.log(
-      "Usage: bun server/tools/check-network-latency.js [--output DIR] [--scope latency|startup]\nDefaults: /tmp/openms-network-latency, latency\nDisposable native check at 500ms HTTP/WebSocket RTT. Startup measures cold/warm loading, entry, movement and reconnect; latency checks stalled assets, movement, dialogue and travel.",
+      "Usage: bun server/tools/check-network-latency.js [--output DIR] [--scope latency|startup|cache]\nDefaults: /tmp/openms-network-latency, latency\nStartup and latency use 500ms HTTP/WebSocket RTT with disposable accounts. Cache measures real browser storage without gameplay, database or network latency.",
     );
   } else {
     const fixtureTimings = {};
-    const report = await isolatedOnlineCheck({
-      seed,
-      run: args.scope === "startup" ? runOnlineStartup : runOnlineLatency,
-      output: args.output,
-      network: new DelayedTraffic(500),
-      timings: fixtureTimings,
-    });
+    const report =
+      args.scope === "cache"
+        ? await runBrowserCache()
+        : await isolatedOnlineCheck({
+            seed,
+            run: args.scope === "startup" ? runOnlineStartup : runOnlineLatency,
+            output: args.output,
+            network: new DelayedTraffic(500),
+            timings: fixtureTimings,
+          });
     report.fixtureTimings = fixtureTimings;
     await Bun.write(
       join(args.output, "report.json"),
