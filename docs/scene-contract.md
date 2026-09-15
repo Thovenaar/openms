@@ -6,7 +6,7 @@ This is the OpenMS browser interchange, not an original WZ format or original-cl
 
 `/generated/catalog.json` is the mutable asset entry point. Schema version 2 contains a content-derived `buildId`, map descriptors, packaged neighbor IDs, names and independent UI/audio/effect indexes. The server handshake supplies the required asset build and catalog hash; the browser hashes the catalog before accepting it.
 
-Resource descriptors contain an absolute generated URL, SHA-256 and exact encoded byte length. Generated resources are immutable and content-addressed. HTTP compression may reduce transfer bytes without changing descriptor identity.
+Resource descriptors contain an absolute generated URL, SHA-256 and exact encoded byte length. Generated resources are immutable and content-addressed. HTTP compression may reduce transfer bytes without changing descriptor identity. A `/generated/**/*.json` descriptor of at least 64 KiB may also have a `<hash>.json.gz` sibling: the descriptor still names the raw resource and both its SHA-256 and byte length stay those of the raw bytes, which the browser verifies after inflating. The sibling is optional at runtime, and a missing or unreadable one falls back to the raw resource.
 
 Map manifests contain bounds, camera data, original physics, visual entities, texture/atlas descriptors and independently loadable regions. Authored monster and NPC placements remain distinct from live server entities. The server owns spawn, movement, combat, drops, reactors, portals and quest outcomes; map data and artwork do not authorize those outcomes by themselves.
 
