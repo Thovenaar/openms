@@ -22,6 +22,7 @@ import { NativeShop } from "./native-shop.js";
 import { NativeTrade } from "./native-trade.js";
 import { NativeEffects } from "./native-effects.js";
 import { NativeSkillPresentation } from "./native-skill-presentation.js";
+import { LocalCombat } from "./local-combat.js";
 import { NativeSocial } from "./native-social.js";
 import { NativeCashShop } from "./native-cash-shop.js";
 import { NativeMarket } from "./native-market.js";
@@ -82,6 +83,7 @@ export class OnlineUI {
     this.operationIdle = null;
     this.destroyed = false;
     this.store = new NativeProfileSource(this);
+    this.localCombat = new LocalCombat(this);
     this.audio = new AudiovisualSystem(app, services, {
       onError: (error) => this.report(error),
       onEnabled: () => this.skillVisuals.enableAudio(),
@@ -287,6 +289,7 @@ export class OnlineUI {
     this.social.publish(snapshot.presentation.social);
     const scene = this.scene;
     if (this.ui.scene !== scene) {
+      this.localCombat.bind();
       this.ui.setScene(scene);
       this.audio.setScene(scene);
     }
@@ -333,6 +336,7 @@ export class OnlineUI {
     this.book?.destroy();
     this.book = null;
     this.effects.destroy();
+    this.localCombat.destroy();
     this.skillVisuals.destroy();
     this.social.destroy();
     this.transitions.cancel();
@@ -514,7 +518,7 @@ export class OnlineUI {
       : "No available SP or active server field.";
   }
   cast(skillId) {
-    if (this.blocked()) return false;
+    if (this.blocked() || this.localCombat.current()) return false;
     // Movement skills are predicted locally so the arc starts on the key press. The
     // authoritative divert for the same skill is then not merged twice, and a refused
     // cast restores the exact pre-cast kernel checkpoint so no unadmitted impulse
@@ -524,16 +528,19 @@ export class OnlineUI {
       ? (this.hooks.prediction?.beginOptimistic?.(impulse, skillId) ?? null)
       : null;
     const response = this.command({ kind: "skill.cast", skillId });
+    const pose = this.localCombat.begin(skillId, response.operationId);
     const feedback = this.skillVisuals?.predict(skillId, response.operationId);
     response
       .then((receipt) => {
         if (feedback) feedback.confirmed = true;
         if (receipt.status !== "committed") {
+          this.localCombat.reject(pose);
           this.rollbackOptimistic(token);
           this.skillVisuals?.local.reject(feedback);
         }
       })
       .catch((error) => {
+        this.localCombat.reject(pose);
         this.rollbackOptimistic(token);
         this.skillVisuals?.local.reject(feedback);
         this.report(error);
@@ -1032,6 +1039,7 @@ export class OnlineUI {
     this.macros?.observeState();
   }
   attackAudio(event) {
+    if (this.localCombat.soundEcho(event)) return;
     if (event.weaponSfx) this.audio.onPlayerAttack(event.weaponSfx);
     else if (event.templateId !== null && event.action) {
       const actor = this.entities.find((entry) => entry.id === event.actorId);
@@ -1119,6 +1127,7 @@ export class OnlineUI {
     this.effects.update();
     this.macros?.update(elapsedMs);
     this.skillVisuals.update(elapsedMs);
+    this.localCombat.projectiles.draw(elapsedMs);
     this.audio.update(elapsedMs);
     this.social.pollInvitation();
     this.ui.update(elapsedMs);
@@ -1132,6 +1141,7 @@ export class OnlineUI {
     this.dialogue.destroy();
     this.effects.destroy();
     this.questReady.destroy();
+    this.localCombat.destroy();
     this.skillVisuals.destroy();
     this.closeShop();
     this.closeTrade();

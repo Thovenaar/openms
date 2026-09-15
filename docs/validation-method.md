@@ -96,6 +96,12 @@ bun tools/openms.js smoothness --account admin --password password
 
 The tool samples the presented player and authoritative prediction state while real keyboard input is held. It reports stalls and jerk within frames where the authoritative kernel moved; it does not step the simulation itself or establish original-Windows parity.
 
+### Combat latency check
+
+`bun server/tools/check-combat-latency.js --output /tmp/openms-combat-latency` runs native basic attack, Power Strike and Magic Bolt input in isolated fighter/mage contexts at 500 ms RTT, with 1.2-second traffic pauses. It measures first local pose/flight, checks one animation run across confirmation, requires the original action's confirmation, and samples mobs through a separate 450 ms pause. `--baseline` records the older behavior without repaired-behavior assertions. Frame reports and logs stay outside the repository. AI choices are not seeded across runs, so aggregate moving/idle counts are diagnostics, not a matched AI benchmark.
+
+`bun test client/test/combat-latency.test.js server/test/attack-input.test.js server/test/field-combat.test.js` checks bounded motion/correction, local clocks and echo ownership, projectile refusal/teardown, expired movement with a retained attack edge, and immediate server action identity. Reuse extracted assets; this check does not require extraction.
+
 ### Timing the feedback loop
 
 When timing is in scope, separate source/rules/catalog checks, browser acquisition, readiness, actions and teardown. Parent and child timings overlap, so do not sum hierarchical durations. Compare serial and concurrent runs only with identical scenarios and identities, and do not run competing performance probes simultaneously.

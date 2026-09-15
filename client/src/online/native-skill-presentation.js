@@ -1,4 +1,5 @@
 import { LocalSkillFeedback } from "./local-skill-feedback.js";
+import { LocalSkillWarmup } from "./local-skill-warmup.js";
 import { EntityAnimation } from "../rendering/animation.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { composeRiding } from "../skills/skill-riding-composition.js";
@@ -31,6 +32,7 @@ export class NativeSkillPresentation {
     this.controller = new AbortController();
     this.selfDoor = null;
     this.local = new LocalSkillFeedback(this);
+    this.warmup = new LocalSkillWarmup(this);
     this.observation = {
       retained: new Set(),
       retainedVoices: new Set(),
@@ -43,6 +45,7 @@ export class NativeSkillPresentation {
     this.scene = scene;
     this.controller = new AbortController();
     this.local = new LocalSkillFeedback(this);
+    this.warmup = new LocalSkillWarmup(this);
   }
   predict(skillId, operationId) {
     this.setScene(this.owner.scene);
@@ -59,6 +62,7 @@ export class NativeSkillPresentation {
   async observe(entities) {
     this.setScene(this.owner.scene);
     if (!this.scene) return;
+    await this.warmup.prepare();
     const observation = this.observation;
     observation.retained.clear();
     observation.retainedVoices.clear();
@@ -112,6 +116,7 @@ export class NativeSkillPresentation {
     this.setScene(this.owner.scene);
     if (!this.scene) return;
     if (this.local.visualEcho(event)) return;
+    if (this.owner.localCombat?.projectiles.visualEcho(event)) return;
     const state = event.visual;
     const rider = state.riding
       ? this.owner.hooks.scene()?.views.get(event.actorId)?.owner?.resource
@@ -287,7 +292,9 @@ export class NativeSkillPresentation {
     const audio = this.owner.audio.audio;
     if (audio.context?.state !== "running") {
       // A cast is a trusted gesture: enable once and keep the cue instead of dropping it.
-      await Promise.resolve(this.owner.audio.enableAudio?.()).catch(() => {});
+      await Promise.resolve(this.owner.audio.enableAudio?.()).catch((error) =>
+        this.owner.report(error),
+      );
     }
     if (audio.context?.state !== "running") return null;
     const sound = this.owner.catalog.ui.skills[skillId]?.sounds.leaves[leaf];
@@ -426,6 +433,7 @@ export class NativeSkillPresentation {
   }
   destroy() {
     this.local.destroy();
+    this.warmup.destroy();
     this.generation++;
     this.controller.abort();
     for (const entry of this.visuals.values()) this.releaseVisual(entry);

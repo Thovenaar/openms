@@ -59,10 +59,12 @@ function historyEntry() {
  *  through the same kernel entry point the authority used, so the resulting trajectory
  *  is the original one the player expects. */
 export class OnlinePrediction {
-  constructor({ onInput, onResync, onGroundJump } = {}) {
+  constructor({ onInput, onResync, onGroundJump, onMovementLock } = {}) {
     this.onInput = onInput;
     this.onResync = onResync;
     this.onGroundJump = onGroundJump;
+    this.onMovementLock = onMovementLock;
+    this.controlFrame = null;
     this.groundJumpSequence = null;
     this.simulation = null;
     this.held = createHeldInput();
@@ -145,6 +147,7 @@ export class OnlinePrediction {
     const visibleX = this.simulation.x;
     const visibleY = this.simulation.y;
     this.ready = true;
+    this.controlFrame = message;
     this.observeJump(message.motion.groundJumpSequence);
     // Impulses merge into the client's own trajectory; they never reload it.
     this.applyDiverts(message.diverts);
@@ -497,6 +500,7 @@ export class OnlinePrediction {
     if (!Number.isSafeInteger(inputSeq) || inputSeq < (transmit ? 1 : 0)) {
       throw new Error("Input sender must return admitted sequence");
     }
+    this.applyLocalControls(transmit);
     const entry = this.history[(this.head + this.count) % this.history.length];
     entry.inputSeq = inputSeq;
     entry.targetTick = sample.targetTick;
@@ -512,6 +516,12 @@ export class OnlinePrediction {
     if (!transmit) this.filledTicks++;
     this.predictedTick++;
     return true;
+  }
+
+  applyLocalControls(transmit) {
+    if (transmit && this.controlFrame && this.onMovementLock) {
+      this.simulation.movementLocked = this.onMovementLock(this.controlFrame);
+    }
   }
 
   copyInput(target, held) {
@@ -560,6 +570,7 @@ export class OnlinePrediction {
   }
 
   clear() {
+    this.controlFrame = null;
     this.groundJumpSequence = null;
     this.ready = false;
     this.paused = false;

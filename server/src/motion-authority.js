@@ -23,3 +23,13 @@ export function serverOwnsPosition(actor, sim) {
   if (sim.seat !== null) return true;
   return Boolean(actor.skills?.worldController?.ownsMotion);
 }
+
+/** Only the current admitted combat action may explain its local prediction lock. */
+export function combatMotionOwner(actor) {
+  const field = actor.skillField;
+  return {
+    feedbackId: field?.feedbackId ?? null,
+    inputSeq: field?.feedbackInputSeq ?? null,
+    locked: Boolean(field?.blocksMovement),
+  };
+}

@@ -89,6 +89,10 @@ Fresh evidence is under `docs/ghidra-ingame-life/`, generated read-only from the
 
 Retained decoded string identities are corroborated by `docs/ghidra-client/decoded-strings.txt`. Geometry research remains in `docs/hitboxes.md` and `docs/ghidra-physics-hitboxes/`; current local incoming/outgoing combat is documented separately in [offline-combat.md](offline-combat.md), preserving the recovered/unrecovered authority distinction.
 
+## Online motion presentation
+
+The server still owns mob AI, physical positions, contacts and damage. The browser maintains a separate rendered position with bounded velocity prediction and gradual correction, keeping movement and animation continuous between delayed publications. Grounded projection follows the current foothold; respawn generations and large relocations reset the rendered position. [Movement and combat presentation](movement-parity.md#remote-motion) defines the timing, ownership and limits.
+
 ## Timing, visibility and geometry policies
 
 Strict integer/string numeric delay conversion happens once during extraction. For example, Rina's `blink` aliases resolve the repeated string sequence `"150", "100", "1200"`. Maya's single stand frame has no authored delay and uses the newly recovered NPC 180-ms default. Explicit zero delay remains unsupported. Missing mob delay remains unsupported until its actual loader default is proved. An unsupported action retains all authored frame metadata but exposes only an untimed first-frame artwork preview, compatible with shared frame validation. **No acceptance action has unsupported timing.**

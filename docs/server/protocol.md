@@ -362,6 +362,14 @@ Drawing is browser presentation policy and never authority: the browser presents
 
 There is deliberately no `targetMap`, `x`, `y`, `speed`, `job`, `mesos` result, or client-supplied portal script. `{kind:"portal.enter",portalId:3,targetMap:104000000}` is malformed even if that happens to be the legal destination. The server resolves portal 3 in the character's **current authoritative instance**, verifies contact and admission, then derives the destination.
 
+## Combat presentation identities
+
+`combatState` adds optional nullable `feedbackId` (skill operation) and `inputSeq` (basic attack input), plus optional observed `modifiers` containing `booster`, `speedInfusion`, `soulArrow` and `shadowStars`. The server stamps a newly started action and its identity before any snapshot can publish it. `motion.combat={feedbackId,inputSeq,locked}` identifies the combat lock separately from hard motion ownership. `combat.attack` and ammunition `projectile` events echo the same optional IDs; skill visuals retain their existing `feedbackId` and `playbackId`.
+
+These are server-to-client presentation annotations. Clients cannot supply a target, damage or admission result through them. The sender starts disposable attack/skill cues locally and consumes matching echoes once. Server refusal cancels pending cues. Remote recipients continue presenting authoritative events. See [local combat presentation](../movement-parity.md#local-combat-presentation) for clocks, bounds and resource ownership.
+
+Movement expiry and attack-edge admission are separate: an input with an expired motion tick may retain a rising attack edge up to two seconds old, within an eight-edge queue. The server consumes it once on a current field tick and applies ordinary combat eligibility and cadence. Future input remains bounded by the existing lead window. Expired attack edges, neutralization and field changes clear queued work; holding attack cannot manufacture repeated edges.
+
 ## Time, prediction and combat
 
 Runtime scheduling policy: simulate every **30 ms**, publish the acting character's own motion every tick and coalesce changed remote-entity state every **90 ms**. Retain 128 input samples. Client scheduling covers the measured round trip plus eight ticks of jitter headroom, capped below the history capacity. The server separately admits at most eight ticks (240 ms) ahead of its current field tick; a delayed received tick does not cap the client to 240 ms of total network delay. Self observations arrive at tick cadence; only explicitly authoritative checkpoints may replace local motion. At most four catch-up ticks run per slice with time debt retained. These are engineering policies, not throughput results or recovered original server timing. Only server monotonic time creates ordinary ticks, never packet count or claimed client duration.

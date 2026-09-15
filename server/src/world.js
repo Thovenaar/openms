@@ -83,9 +83,10 @@ import {
   releaseMotionDiverts,
   takeMotionDiverts,
 } from "./field-diverts.js";
-import { serverOwnsPosition } from "./motion-authority.js";
+import { serverOwnsPosition, combatMotionOwner } from "./motion-authority.js";
 import { MotionWatchdog } from "./watchdog.js";
 import { adoptMotion } from "./motion-adoption.js";
+import { retainAttackInput, resetAttackInput } from "./attack-input.js";
 
 const MAX_FIELDS = 128;
 const MAX_ACTORS = 128;
@@ -190,6 +191,7 @@ function consumeActorInput(world, actor) {
   actor.input.attackPressed = false;
   if (sample) {
     actor.inputQueue.delete(actor.field.tick);
+    actor.currentInputSeq = sample.inputSeq;
     assignHeldInput(actor.input, sample);
     adoptReportedMotion(world, actor, sample);
     actor.ackInputSeq = Math.max(actor.ackInputSeq ?? 0, sample.inputSeq);
@@ -392,6 +394,7 @@ export class OnlineWorld {
     actor.field = field;
     actor.input = createHeldInput();
     actor.inputQueue = new Map();
+    resetAttackInput(actor);
     actor.inputSeq = 0;
     actor.ackInputSeq = null;
     actor.lastInputTick = field.tick;
@@ -461,6 +464,7 @@ export class OnlineWorld {
     actor.input.jumpPressed = false;
     actor.input.attackPressed = false;
     actor.inputQueue.clear();
+    resetAttackInput(actor);
     if (actor.skills) releaseSkill(this, actor, CANCEL_SKILLS);
   }
 
@@ -480,6 +484,7 @@ export class OnlineWorld {
       throw protocolError("INVALID_MESSAGE");
     }
     actor.inputSeq = message.inputSeq;
+    retainAttackInput(actor, message);
     const tick = actor.field.tick;
     if (message.targetTick <= tick) {
       retireInput(actor, message);
@@ -558,6 +563,7 @@ export class OnlineWorld {
         motion: captureMotion(actor.simulation),
         paused: field.paused,
         authoritative: serverOwnsPosition(actor, actor.simulation),
+        combat: combatMotionOwner(actor),
         diverts: takeMotionDiverts(actor, field),
       });
       if (field.tick % 3 === 0) this.publishEntities(actor);

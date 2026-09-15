@@ -75,6 +75,10 @@ Saved files are checked locally against expected hashes. Startup says “Checkin
 
 The original mushroom loading decoration is optional presentation over real asynchronous work. It cannot grant readiness, hide a failed request or invent progress. A required login resource failure, or a bootstrap failure before the login page exists, keeps the loading page with an explicit message and no progress until the page is reloaded. [Streaming](streaming.md) owns residency and teardown, while [scene contracts](scene-contract.md) own manifest semantics.
 
+### Bound skill readiness
+
+Field presentation prepares Use artwork, available projectile-ball artwork and Use audio for up to eight bound skills. [LocalSkillWarmup](../client/src/online/local-skill-warmup.js) holds at most 16 shared visual leases; repeated casts borrow these prepared resources, avoiding a fetch/decode at the key press. This working set is separate from regional disk caching and is released with the field. Preparation failures retain a diagnostic and leave ordinary on-demand loading available. This covers bound skill feedback, not every learned skill's hit/summon/area resources.
+
 ### Regional background downloads
 
 After the initial login artwork is ready, the client automatically queues **Victoria Island** for persistent caching. Installing a playable field puts its own region first, leaving Victoria queued behind it when the player starts on Maple Island. This does not extend the blocking login pack. `asset-regions.js` groups available catalog maps by original WorldMap membership and parent maps; unlisted interiors inherit their district, with Victoria's 100–109 districts included explicitly. Unclassified maps form individual groups. Private/community assets never enter this shared cache.

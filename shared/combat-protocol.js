@@ -45,6 +45,16 @@ const skillVisual = record({
   depth: number(-2147483648, 2147483647),
 });
 const combatState = record({
+  modifiers: optional(
+    record({
+      booster: number(-100, 100),
+      speedInfusion: number(-100, 100),
+      soulArrow: boolean,
+      shadowStars: boolean,
+    }),
+  ),
+  feedbackId: optional(nullable(id)),
+  inputSeq: optional(nullable(u32)),
   phase: enumeration("idle", "attack", "cast", "hold", "dead"),
   elapsedMs: duration,
   protectionMs: number(-1500, 1500),
@@ -155,6 +165,8 @@ export const COMBAT_EVENT_SCHEMAS = {
     position: point,
   }),
   "combat.attack": record({
+    feedbackId: optional(nullable(id)),
+    inputSeq: optional(nullable(u32)),
     kind: enumeration("combat.attack"),
     actorId: id,
     templateId: nullable(u32),

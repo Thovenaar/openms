@@ -217,6 +217,7 @@ export class CombatPresentation {
         animation,
         active: false,
         flying: false,
+        previewId: null,
         hitAction: null,
         age: 0,
         delay: 0,
@@ -260,6 +261,7 @@ export class CombatPresentation {
     slot.animation.setPosition(shot.x, shot.y);
     slot.active = true;
     slot.flying = true;
+    slot.previewId = shot.previewId ?? null;
     slot.hitAction = shot.target
       ? (this.projectileHits.get(shot.projectileId) ?? null)
       : null;
@@ -271,6 +273,15 @@ export class CombatPresentation {
     slot.dx = shot.endX - shot.x;
     slot.dy = shot.endY - shot.y + spreadY;
     this.scene.addWorldContainer(slot.animation.container, 500000);
+  }
+
+  cancelProjectilePreview(identity) {
+    for (const slot of this.projectileSlots) {
+      if (!slot.active || slot.previewId !== identity) continue;
+      slot.active = false;
+      slot.animation.container.visible = false;
+      this.scene?.removeWorldContainer(slot.animation.container);
+    }
   }
 
   acquireProjectile() {
@@ -298,6 +309,7 @@ export class CombatPresentation {
 
   activateProjectileImpact(slot) {
     slot.flying = false;
+    slot.previewId = null;
     slot.animation.setAction(slot.hitAction, "once");
     slot.age = 0;
     slot.duration = slot.animation.current.duration;

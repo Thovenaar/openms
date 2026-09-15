@@ -238,7 +238,8 @@ export class AuthoritySkillResources extends SkillResources {
   playSequence(sequence, target, options) {
     const slot = super.playSequence(sequence, target, options);
     if (slot) {
-      slot.animation.feedbackId = this.feedbackId ?? null;
+      slot.animation.feedbackId =
+        (options?.flight ? target.feedbackId : this.feedbackId) ?? null;
       this.emit({
         kind: "skill.visual",
         actorId: this.actor.id,

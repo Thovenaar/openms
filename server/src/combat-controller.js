@@ -8,6 +8,7 @@ import { hasMobStatus } from "../../client/src/combat/mob-skill-status.js";
 import { protocolError } from "../../shared/schema.js";
 import { syncActorEffects } from "./action-character.js";
 import { planKillCredit } from "./kill-credit.js";
+import { takeAttackInput } from "./attack-input.js";
 
 /** Shared OfflineField algorithms; only persistence, field scheduling and publication differ. */
 export class AuthorityCombat extends OfflineField {
@@ -22,13 +23,26 @@ export class AuthorityCombat extends OfflineField {
     this.incoming = [];
     this.incomingTask = null;
     this.incomingFailure = null;
-    actor.combatPresentation = {};
+    actor.combatPresentation = {
+      modifiers: {
+        booster: 0,
+        speedInfusion: 0,
+        soulArrow: false,
+        shadowStars: false,
+      },
+    };
     this.prepared = true;
   }
   startPose(name, phase) {
     super.startPose(name, phase);
+    this.feedbackId = this.actor.skills?.resources.feedbackId ?? null;
+    this.feedbackInputSeq =
+      this.feedbackId || this.attackSkill || phase !== "attack"
+        ? null
+        : (this.pendingAttackInputSeq ?? null);
     this.actionId = combatOperation(this.actor, "combat.attack").operationId;
     this.actor.actionStartTick = this.actor.field.tick;
+    this.projectActor();
   }
   damageTarget(
     target,
@@ -248,6 +262,8 @@ export class AuthorityCombat extends OfflineField {
   beginAttack(prepared = false) {
     if (this.attackBlocked()) return;
     if (this.basicAttackError()) return;
+    this.pendingAttackInputSeq =
+      this.actor.combatInputSeq ?? this.actor.currentInputSeq ?? null;
     if (!prepared) {
       this.prepareWeaponUse(this.store.profile);
       if (this.weaponUse.ranged) this.probeMeleeTarget();
@@ -352,7 +368,7 @@ export class AuthorityCombat extends OfflineField {
     ) {
       return;
     }
-    const edge = Boolean(input.attack) && !this.wasAttack;
+    const edge = takeAttackInput(this.actor);
     this.wasAttack = Boolean(input.attack);
     this.phaseMs += ms;
     updateHitboxes(this.hitboxes, this.simulation, this.receiverContext);
@@ -434,6 +450,9 @@ export class AuthorityCombat extends OfflineField {
         ? this.world.now + Math.max(0, this.attackDurationMs - this.phaseMs)
         : 0;
     const state = actor.combatPresentation;
+    this.projectModifiers(state.modifiers);
+    state.feedbackId = this.feedbackId ?? null;
+    state.inputSeq = this.feedbackInputSeq ?? null;
     state.phase = this.phase;
     state.elapsedMs =
       this.phase === "attack" ? this.attackAnimationMs : this.phaseMs;
@@ -458,5 +477,12 @@ export class AuthorityCombat extends OfflineField {
     this.skillCombat.clear();
     this.diseases.clear();
     this.simulation.movementLocked = false;
+  }
+  projectModifiers(target) {
+    const derived = this.actor.skills.derived();
+    target.booster = derived.booster ?? 0;
+    target.speedInfusion = derived.speedInfusion ?? 0;
+    target.soulArrow = Boolean(derived.soulArrow);
+    target.shadowStars = Boolean(derived.shadowStars);
   }
 }

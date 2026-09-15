@@ -91,6 +91,7 @@ const prediction = new OnlinePrediction({
   onInput: sendInput,
   onResync: resync,
   onGroundJump: () => ui?.audio.playSound("Game", "Jump").catch(report),
+  onMovementLock: (message) => ui.localCombat.movementLock(message),
 });
 // A resumed session offers its locally presented motion: the client owns its position
 // across the reconnect gap and the server adopts it instead of snapping the player back.
@@ -126,7 +127,9 @@ function recordCommand(value) {
 }
 
 function sendInput(sample) {
-  return transport.sendInput(sample);
+  const sequence = transport.sendInput(sample);
+  if (sequence) ui?.localCombat.input(sample, sequence);
+  return sequence;
 }
 function resync(reason) {
   transport.resync(reason);
@@ -495,6 +498,7 @@ function entityIds() {
 
 function snapshotSession() {
   return {
+    localCombat: ui?.localCombat.snapshot() ?? null,
     regionDownloads: regionDownloads?.snapshot() ?? null,
     paused: transport.model?.presentation?.paused ?? prediction.paused,
     input: input ? { ...input.state } : null,

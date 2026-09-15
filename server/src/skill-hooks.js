@@ -153,6 +153,8 @@ function combatPublicationHooks(context) {
       emitCombat(world, context.actor, {
         kind: "combat.attack",
         actorId: context.actor.id,
+        feedbackId: context.actor.skillField.feedbackId ?? null,
+        inputSeq: context.actor.skillField.feedbackInputSeq ?? null,
         templateId: null,
         action: context.actor.skillField.attackName,
         weaponSfx: sfx ?? null,
@@ -240,6 +242,14 @@ function playerHit(world, actor, hit) {
 function projectile(world, actor, shot) {
   emitCombat(world, actor, {
     kind: "projectile",
+    feedbackId:
+      shot.feedbackId === undefined
+        ? (actor.skillField.feedbackId ?? null)
+        : shot.feedbackId,
+    inputSeq:
+      shot.inputSeq === undefined
+        ? (actor.skillField.feedbackInputSeq ?? null)
+        : shot.inputSeq,
     actorId: actor.id,
     actionId: actor.skillField.actionId ?? actor.id,
     skillId: shot.skill?.id ?? null,

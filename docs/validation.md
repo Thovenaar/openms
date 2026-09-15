@@ -340,3 +340,39 @@ bun server/tools/check-skill-effects.js --output /tmp/openms-local-feedback
 bun test client/test/local-feedback.test.js client/test/online-chat.test.js client/test/online-skill-motion.test.js server/test/chat-delivery.test.js server/test/skill-visual-replay.test.js server/test/motion-adoption.test.js server/test/lifecycle.test.js server/test/network-latency.test.js server/test/skill-input-order.test.js client/test/online-loading.test.js
 bun client/tools/build-online.js
 ```
+
+
+## Combat latency and remote motion
+
+On **2026-09-16**, the focused combat scenario used native controls in disposable fighter/mage accounts on map **50000**, with **500 ms RTT** and an additional **1.2-second bidirectional traffic pause** for each attack. Existing extraction and the common startup pack were reused. The original run lost the short basic attack when its movement sample expired; Power Strike appeared only after **1,553 ms**.
+
+| Input | Original first pose | Repaired first pose | Confirmation |
+| --- | ---: | ---: | --- |
+| Basic attack | No pose observed | **41.6 ms** | Original input sequence confirmed; one animation run |
+| Power Strike | 1,553 ms | **9.3 ms** | Original operation confirmed; one animation run |
+| Magic Bolt | Not in baseline | **15.5 ms** | Original operation and projectile confirmed; one animation run |
+
+Magic Bolt's local flight began at **465.2 ms**, following its authored release frame, while traffic was still held. Server costs committed, and the matching projectile identity reached the preview consumer. Local presentation never granted damage, MP, ammunition or hit results. The first projectile integration lost its cast identity at delayed release; the corrected shot now captures the identity before later casts can replace it. A real original-ball resource test verifies that its eventual publication retains the first cast's ID.
+
+A separate **450 ms traffic pause** exercised remote motion. The final browser sample retained **391 moving entity/frame pairs more than 150 ms after their last changed observed position**; maximum movement between sampled frames was **3.292 px**. Idle mobs remain legitimately still. AI choices were not seeded between runs, so aggregate idle/moving counts are diagnostics rather than a matched AI or FPS benchmark. A deterministic 1.5-second test with 300 ms updates establishes zero stationary frames and less than 3 px per 15 ms step, including gradual corrections; separate checks cover braking at the 600 ms prediction bound, foothold slopes/endpoints and respawn resets.
+
+Early checks exposed two additional faults: a new server pose could publish with the previous action's identity/phase, and late press/release bursts could discard the attack with expired motion. Immediate action projection and a bounded independent attack-edge queue fix these cases. One early browser run replayed Power Strike after confirmation; the scenario now requires exactly one animation run and original-request confirmation. The initial direct import of the skill attack controller failed the guarded browser build because it pulled in offline authority; a shared pure action selector resolved this without relaxing the guard.
+
+Final browser stage timings were identity **1.406 s**, fighter login/entry **18.719 s**, basic attack **2.529 s**, Power Strike **2.525 s**, mob sampling **1.011 s**, mage login/entry **19.708 s**, Magic Bolt **2.537 s**, and context teardown **81 ms**. Attack stages include the deliberate pause and observation interval. Fixture timings were database/content **287 ms**, seed **172 ms**, server startup **1.122 s**, frontend startup **1.427 s**, browser acquisition **489 ms** and fixture teardown **131 ms**. Baseline timings were identity **1.448 s**, login/entry **17.104 s**, basic **2.517 s**, Power Strike **2.520 s**, mob sampling **1.013 s** and context teardown **25 ms**; fixture database/content **383 ms**, seed **99 ms**, server **1.320 s**, frontend **1.702 s**, browser acquisition **581 ms**, teardown **163 ms**. Nested timings are not summed; these are local delayed-relay measurements, not internet bandwidth results.
+
+| Identity | Value |
+| --- | --- |
+| Baseline browser | `ffb915e7c9ce45ae5c7991da31bc914d18df9a05da83b61952e57f9e9b1558ad` |
+| Final measured browser | `489a82d547c00a80a6bf99b0838ef485e2300e60563fd7ec5ce68fe3ff472c58` |
+| Measured rules | `1a3b3c1d0a35d03880b982da4965f94f61bbf90dbcea0551bf4b86b9b6d779dd` |
+| Final production browser | `731bca0f9a8ba09346a0a418aece0b138264394ebd57910146f58580ade69b79` |
+| Asset build, both runs | `93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27` |
+| Catalog, both runs | `5bd1177cb1269b1d8f366451f4cf6c1603652dc76266d83146fa68f4a6d0e0ca` |
+
+After the measured browser run, field replacement/destruction and death were wired to cancel the local combat owner immediately; pending preparation across a field-owner change is covered by the final targeted tests. **84 tests / 725 assertions passed** across 14 affected files. A final three-test / 16-assertion run also verifies that the default nonflight sequence call retains its cast identity. Changed JavaScript passed Prettier and ESLint with zero warnings. The guarded production build compiled **961 modules** and three bundles in **1.490 s**, including **894 ms** packing retained assets; no extraction ran. The documentation checker retains **884 existing missing historical targets**. Raw reports, frame samples and logs remain outside the repository under the [artifact policy](validation-method.md#artifact-policy).
+
+```sh
+bun server/tools/check-combat-latency.js --output /tmp/openms-combat-latency
+bun test client/test/combat-latency.test.js client/test/local-feedback.test.js client/test/sync-alignment.test.js client/test/online-protocol.test.js client/test/skill-actor-replacement.test.js client/test/skill-projectile-chase.test.js client/test/weapon-usage.test.js server/test/attack-input.test.js server/test/field-combat.test.js server/test/skill-visual-replay.test.js server/test/network-latency.test.js server/test/skill-input-order.test.js server/test/motion-adoption.test.js server/test/retired-combat-view.test.js
+bun client/tools/build-online.js
+```

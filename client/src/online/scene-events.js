@@ -66,16 +66,18 @@ export class SceneEvents {
     if (this.projectileCount >= MAX_PROJECTILE_EVENTS) {
       throw new Error("Online projectile event residency limit");
     }
-    this.combat.onProjectile({
-      projectileId: event.templateId,
-      facing: event.facing,
-      x: event.source.x,
-      y: event.source.y,
-      endX: event.destination.x,
-      endY: event.destination.y,
-      duration: event.durationMs,
-      target: null,
-    });
+    if (!this.owner.localCombat?.projectiles.ammunitionEcho(event)) {
+      this.combat.onProjectile({
+        projectileId: event.templateId,
+        facing: event.facing,
+        x: event.source.x,
+        y: event.source.y,
+        endX: event.destination.x,
+        endY: event.destination.y,
+        duration: event.durationMs,
+        target: null,
+      });
+    }
     let action = this.projectiles.get(event.actionId);
     if (!action) {
       action = new Map();

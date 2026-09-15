@@ -1,3 +1,4 @@
+import { resetAttackInput } from "./attack-input.js";
 import { randomUUID } from "node:crypto";
 import { protocolError } from "../../shared/schema.js";
 import {
@@ -376,6 +377,7 @@ function bindTransition(world, actor, transition) {
   }
   actor.state = "active";
   actor.inputQueue.clear();
+  resetAttackInput(actor);
   actor.simulation.movementLocked = actor.profile.hp <= 0;
   if (!request.packet) restoreSourceReadiness(actor, transition);
 }

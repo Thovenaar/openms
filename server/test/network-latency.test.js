@@ -14,6 +14,8 @@ function fixture() {
     state: "active",
     inputSeq: 0,
     inputQueue: new Map(),
+    attackEdges: [],
+    receivedAttack: false,
   };
   const world = new OnlineWorld({ content: {}, database: {} });
   const gateway = new GameplayGateway({

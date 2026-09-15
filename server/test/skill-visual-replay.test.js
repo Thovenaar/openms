@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { loadContent } from "../src/content.js";
-import { AuthoritySkillResources } from "../src/skill-resources.js";
+import {
+  AuthoritySkillResources,
+  authorityLayer,
+} from "../src/skill-resources.js";
 import { SkillWorldEffects } from "../../client/src/skills/skill-world-effects.js";
 import { validate } from "../../shared/schema.js";
 import { COMBAT_EVENT_SCHEMAS } from "../../shared/combat-protocol.js";
@@ -70,4 +73,48 @@ test("a predicted Use voice publishes its exact cast operation for echo reconcil
   expect(() =>
     validate(events[0], COMBAT_EVENT_SCHEMAS["skill.sound"]),
   ).not.toThrow();
+});
+
+test("a delayed original spell flight retains its attack identity across another cast", async () => {
+  const events = [];
+  const resources = new AuthoritySkillResources(
+    {
+      content,
+      broadcast(_field, message) {
+        events.push(message.event);
+      },
+    },
+    { id: "player", field: { epoch: "field" } },
+    { overlays: authorityLayer() },
+    {},
+  );
+  resources.hooks.loadVisual = resources.loadVisual.bind(resources);
+  resources.hooks.createAnimation = resources.createAnimation.bind(resources);
+  const skill = { ...content.catalog.ui.skills[2001004], id: 2001004 };
+  try {
+    const sequence = await resources.acquireSequence(skill, "ball", 1);
+    resources.feedbackId = "newer-cast";
+    const slot = resources.playSequence(
+      sequence,
+      {
+        feedbackId: "original-cast",
+        x: 50,
+        y: 0,
+        endX: 200,
+        endY: 0,
+        duration: 225,
+      },
+      { flight: true, loop: true, durationMs: 225, facing: 1 },
+    );
+    expect(resources.view(slot.animation).feedbackId).toBe("original-cast");
+    expect(events[0].visual.feedbackId).toBe("original-cast");
+    resources.stop(slot);
+    const use = resources.playSequence(sequence, { x: 0, y: 0, facing: 1 });
+    expect(resources.view(use.animation).feedbackId).toBe("newer-cast");
+    expect(() =>
+      validate(events[0], COMBAT_EVENT_SCHEMAS["skill.visual"]),
+    ).not.toThrow();
+  } finally {
+    resources.destroy();
+  }
 });

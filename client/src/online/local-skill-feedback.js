@@ -1,7 +1,6 @@
 import { EntityAnimation } from "../rendering/animation.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
-import { skillWorldEffectPath } from "../skills/skill-world-effects.js";
-import { SkillResources } from "../skills/skill-resources.js";
+import { localSkillDescriptor } from "./local-skill-warmup.js";
 
 const MAX_CASTS = 32;
 const RETAIN_MS = 60000;
@@ -28,17 +27,12 @@ export class LocalSkillFeedback {
     ) {
       return null;
     }
-    const path = SkillResources.prototype.phasePath(skill, "effect", rank);
+    const artwork = localSkillDescriptor(skillId, skill, rank, owner.catalog);
     const record = {
       operationId,
       skillId,
       age: 0,
-      descriptor: path
-        ? skill.visuals[path]
-        : [4111006, 14101004, 11101005].includes(skillId)
-          ? owner.catalog.ui.skillWorld?.effects[skillWorldEffectPath(skillId)]
-          : null,
-      follow: Boolean(path),
+      ...artwork,
       origin: { ...owner.scene.presentation },
       confirmed: false,
       visual: null,
@@ -83,16 +77,19 @@ export class LocalSkillFeedback {
     const descriptor = record.descriptor;
     if (!descriptor?.bundle || descriptor.available === false) return;
     const parent = this.presentation;
-    const lease = await loadVisualBundle(
-      descriptor.bundle,
-      parent.owner.services,
-      parent.controller.signal,
-    );
+    const warmed = parent.warmup?.get(descriptor.bundle);
+    const lease =
+      warmed ??
+      (await loadVisualBundle(
+        descriptor.bundle,
+        parent.owner.services,
+        parent.controller.signal,
+      ));
     if (this.destroyed || record.stopped || record.serverVisual) {
-      lease.destroy();
+      if (!warmed) lease.destroy();
       return;
     }
-    record.lease = lease;
+    record.lease = warmed ? null : lease;
     const entity = lease.manifest.entities[0];
     record.visual = new EntityAnimation(entity, lease.textures);
     record.visual.setAction("play", "once", true);

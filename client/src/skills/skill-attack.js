@@ -1,3 +1,4 @@
+import { skillAttackAction } from "./skill-action-rules.js";
 import {
   createCharacterStats,
   projectCharacterStats,
@@ -78,15 +79,6 @@ function combatSpec(id) {
   return null;
 }
 
-function projectileAction(combat) {
-  if (!combat) return null;
-  if (combat.weaponType === 45) return "shoot1";
-  if (combat.weaponType === 46) return "shoot2";
-  if (combat.weaponType === 49) return "shot";
-  if (combat.weaponType === 47) return "swingO1";
-  return combat.defaultAction ?? null;
-}
-
 /** Resolve the authored skill rectangle, falling back to its weapon action. */
 function attackRectangle(info, weapon) {
   if (!info.lt || !info.rb) return weapon?.rectangle;
@@ -135,6 +127,8 @@ function impactSlot() {
     generation: 0,
     visual: null,
     projectileId: 0,
+    feedbackId: null,
+    inputSeq: null,
     dotDamage: 0,
     venomDamage: 0,
     venomId: 0,
@@ -283,15 +277,7 @@ export class SkillAttack {
   }
 
   actionName(skill, info, spec, combat) {
-    if (spec.kind === "proc") return combat?.defaultAction;
-    if (typeof info.action === "string") return info.action;
-    if (skill.actions.length) return skill.actions[0];
-    if (spec.kind === "magic" || spec.magic || spec.kind === "heal") {
-      return "swingO1";
-    }
-    return spec.projectile || spec.kind === "ranged"
-      ? projectileAction(combat)
-      : (combat?.defaultAction ?? null);
+    return skillAttackAction(skill, info, spec, combat);
   }
 
   actorError(record, info) {
@@ -722,6 +708,8 @@ export class SkillAttack {
     shot.venomDamage = 0;
     shot.venomId = 0;
     shot.age = 0;
+    shot.feedbackId = this.field.feedbackId;
+    shot.inputSeq = this.field.feedbackInputSeq;
     shot.skill = record.skill;
     shot.info = record.info;
     shot.delay = 0;

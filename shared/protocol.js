@@ -651,6 +651,8 @@ export const domainEventSchema = union("kind", {
   projectile: record(
     {
       kind: enumeration("projectile"),
+      feedbackId: optional(nullable(id)),
+      inputSeq: optional(nullable(u32)),
       actionId: id,
       actorId: id,
       targetId: id,
@@ -882,6 +884,13 @@ export const serverSchema = union("type", {
     // death, seat, ladder, or an unpredicted movement skill). Ordinary checkpoints
     // are observations: the browser is authoritative for its own position.
     authoritative: boolean,
+    combat: optional(
+      record({
+        feedbackId: nullable(id),
+        inputSeq: nullable(u32),
+        locked: boolean,
+      }),
+    ),
     // External impulses the authority merged into this tick, in application order.
     // The client merges the same vector into its own state at receipt. Empty on
     // every ordinary tick.

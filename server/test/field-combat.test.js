@@ -101,6 +101,36 @@ test("server and client project the same modern stats and ordinary hit", async (
   expect(server).toBe(106);
 });
 
+test("late attack input is admitted once with its original identity and fresh combat presentation", async () => {
+  const { world, actor, field } = await fixture();
+  field.tick = 100;
+  const input = {
+    fieldEpoch: field.epoch,
+    inputSeq: 1,
+    targetTick: 90,
+    horizontal: 0,
+    vertical: 0,
+    attack: true,
+    jump: false,
+  };
+  world.input(actor, input);
+  world.input(actor, { ...input, inputSeq: 2, attack: false });
+  expect(actor.inputQueue.size).toBe(0);
+  world.tickField(field);
+  expect(actor.skillField.phase).toBe("attack");
+  expect(actor.combatPresentation.inputSeq).toBe(1);
+  expect(actor.combatPresentation.phase).toBe("attack");
+  expect(actor.attackEdges).toHaveLength(0);
+  const actionId = actor.skillField.actionId;
+  world.tickField(field);
+  expect(actor.skillField.actionId).toBe(actionId);
+  actor.skills.resources.feedbackId = "new-skill";
+  actor.skillField.startPose("swingO1", "attack");
+  actor.skills.resources.feedbackId = null;
+  expect(actor.combatPresentation.feedbackId).toBe("new-skill");
+  expect(actor.combatPresentation.phaseMs).toBe(0);
+});
+
 test("server incoming admission uses modern defense without StandardPDD", async () => {
   const { world, actor, mob } = await fixture();
   actor.profile.level = mob.template.info.level;
@@ -151,4 +181,22 @@ test("large generated damage survives publication while hpDamage is only HP actu
   expect(event.critical).toBe(true);
   expect(event.lethal).toBe(true);
   expect(() => validate(event, domainEventSchema)).not.toThrow();
+});
+
+test("a reserved projectile owns its action identity after the field starts another action", async () => {
+  const { actor } = await fixture();
+  actor.skillField.feedbackId = "first";
+  const shot = actor.skillField.skillCombat.reserveShot(
+    {
+      skill: { id: 2001004 },
+      info: {},
+      rank: 1,
+      projectile: true,
+      spec: { kind: "magic" },
+    },
+    null,
+    { x: 0, y: 0, facing: 1 },
+  );
+  actor.skillField.feedbackId = "second";
+  expect(shot.feedbackId).toBe("first");
 });

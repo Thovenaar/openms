@@ -25,10 +25,8 @@ import { SceneLife } from "./scene-life.js";
 import { observeWorldCharacter } from "./native-world-actions.js";
 import { createMobNameLabel } from "../combat/offline-mob-renderer.js";
 import { weaponActionAnimationMs } from "../combat/weapon-usage.js";
+import { RemoteMotion } from "./remote-motion.js";
 const MAX_ENTITIES = 4096;
-/** Server entity publications land every third field tick (server/src/world.js); peers,
- * mobs and drops are chases over that interval, not per-tick motion. */
-const ENTITY_PUBLISH_MS = PROTOCOL.TICK_MS * 3;
 const MOVEMENT_ACTIONS = new Set([
   "stand1",
   "walk1",
@@ -122,8 +120,8 @@ export class OnlineScene {
     }
   }
   changes(message) {
-    this.tick = message.serverTick;
     const work = this.queue.then(async () => {
+      this.tick = message.serverTick;
       for (const change of message.changes) {
         if (change.kind === "remove") this.remove(change.entityId);
         else await this.upsert(change.entity);
@@ -169,6 +167,7 @@ export class OnlineScene {
         drawX: entity.position.x,
         drawY: entity.position.y,
         received: performance.now(),
+        motion: new RemoteMotion(entity, -1, performance.now()),
       };
       this.views.set(entity.id, view);
       this.scene.addDynamicEntity(owner.animation);
@@ -187,6 +186,13 @@ export class OnlineScene {
     view.received = performance.now();
     view.observedAge = 0;
     view.entity = entity;
+    view.motion.observe(
+      entity,
+      this.tick,
+      view.received,
+      this.footholds.get(entity.foothold),
+    );
+    if (entity.id === this.selfId) this.localCombat?.observe(entity);
     view.holdClimb = holdObservedClimb(
       animationName(entity.action),
       previousY,
@@ -200,8 +206,10 @@ export class OnlineScene {
       this.presentation.facing = entity.facing;
       this.presentation.action = animationName(entity.action);
     }
-    this.pose(view, entity.position.x, entity.position.y);
-    this.seekObservedAction(view);
+    if (!this.localCombat?.owns(entity)) {
+      this.pose(view, view.drawX, view.drawY);
+      this.seekObservedAction(view);
+    }
     this.observeAppearance(view);
     this.native?.life.refresh();
   }
@@ -228,6 +236,20 @@ export class OnlineScene {
   seekObservedAction(view) {
     const entity = view.entity;
     if (view.holdClimb) return;
+    if (
+      view.actionTick === entity.actionStartTick &&
+      view.observedAction === entity.action &&
+      view.generation === view.entity.mobState?.generation
+    ) {
+      return;
+    }
+    view.actionTick = entity.actionStartTick;
+    view.observedAction = entity.action;
+    view.generation = entity.mobState?.generation;
+    this.seekActionStart(view);
+  }
+  seekActionStart(view) {
+    const entity = view.entity;
     view.animation.seek(
       entity.dropMotion?.age ??
         entity.mobState?.elapsedMs ??
@@ -577,6 +599,11 @@ export class OnlineScene {
     view.fromX = view.drawX = event.destination.x;
     view.fromY = view.drawY = event.destination.y;
     view.received = performance.now();
+    view.motion.relocate(
+      event.destination.x,
+      event.destination.y,
+      view.received,
+    );
     view.holdClimb = false;
     view.animation.setPosition(event.destination.x, event.destination.y);
     if (event.actorId === this.selfId) {
@@ -620,6 +647,16 @@ export class OnlineScene {
       combat: this.events.combat.snapshot(),
       enhancements: this.events.enchant.snapshot(),
       speech: this.events.speech.get(this.selfId)?.snapshot() ?? null,
+      actors: [...this.views.values()].map((view) => ({
+        id: view.entity.id,
+        kind: view.entity.kind,
+        x: view.drawX,
+        y: view.drawY,
+        action: view.animation.action,
+        frame: view.animation.frame,
+        observedX: view.entity.position.x,
+        observedY: view.entity.position.y,
+      })),
     };
   }
   effectTarget(actorId) {
@@ -628,6 +665,7 @@ export class OnlineScene {
   }
   draw(now, elapsed, prediction, active) {
     this.paused = prediction?.paused ?? false;
+    this.remoteActive = active && !this.paused;
     this.syncPrediction(prediction, active);
     this.drawPrediction = prediction?.ready && active ? prediction : null;
     for (const view of this.views.values()) {
@@ -645,7 +683,7 @@ export class OnlineScene {
   drawView(view, now, elapsed, active) {
     const simulation = this.interpolateView(view, now);
     if (view.entity.id === this.selfId) this.drawSelfPose(view, simulation);
-    if (active) this.advanceView(view, elapsed);
+    if (active && !this.paused) this.advanceView(view, elapsed);
     if (view.mobName) {
       view.mobName.visible =
         view.entity.mobState.nameVisible &&
@@ -669,9 +707,9 @@ export class OnlineScene {
       x = this.selfPose.x;
       y = this.selfPose.y;
     } else {
-      const fraction = Math.min(1, (now - view.received) / ENTITY_PUBLISH_MS);
-      x = view.fromX + (view.entity.position.x - view.fromX) * fraction;
-      y = view.fromY + (view.entity.position.y - view.fromY) * fraction;
+      const pose = this.remoteActive ? view.motion.sample(now) : view.motion;
+      x = pose.x;
+      y = pose.y;
       this.pose(view, x, y);
     }
     view.drawX = x;
@@ -680,9 +718,19 @@ export class OnlineScene {
   }
   advanceView(view, elapsed) {
     view.observedAge += elapsed;
+    if (
+      view.entity.id === this.selfId &&
+      this.localCombat?.draw(view.animation)
+    ) {
+      return;
+    }
     view.animation.advance(elapsed);
     const combat = view.entity.combatState;
-    if (combat?.phase === "attack" && combat.attackSpeed !== null) {
+    if (
+      combat?.phase === "attack" &&
+      combat.attackSpeed !== null &&
+      !this.localCombat?.owns(view.entity)
+    ) {
       view.animation.seek(
         weaponActionAnimationMs(
           view.animation.current,
@@ -699,8 +747,12 @@ export class OnlineScene {
       ? simulation.facing
       : view.entity.facing;
     const action = animationName(view.entity.action);
-    this.presentation.action =
-      simulation && !view.entity.seat && MOVEMENT_ACTIONS.has(action)
+    const local = this.localCombat?.current();
+    this.presentation.action = local
+      ? local.action
+      : simulation &&
+          !view.entity.seat &&
+          (MOVEMENT_ACTIONS.has(action) || this.localCombat?.owns(view.entity))
         ? simulation.action
         : action;
     if (simulation) {
@@ -796,6 +848,7 @@ export class OnlineScene {
     this.views.delete(id);
   }
   destroy() {
+    this.localCombat?.destroy();
     this.controller.abort();
     this.scene.onEntitiesChanged = null;
     this.events.destroy();

@@ -1,7 +1,7 @@
 import { PROTOCOL, protocolError } from "../../shared/protocol.js";
 import { captureMotion } from "../../shared/motion.js";
 import { opaqueId } from "./auth.js";
-import { serverOwnsPosition } from "./motion-authority.js";
+import { serverOwnsPosition, combatMotionOwner } from "./motion-authority.js";
 import {
   frameBytes,
   paginateViews,
@@ -85,6 +85,7 @@ export class Publications {
       motion: captureMotion(actor.simulation),
       // The browser owns its ordinary XY; only server-owned state repositions it.
       authoritative: serverOwnsPosition(actor, actor.simulation),
+      combat: combatMotionOwner(actor),
       // This immediate post-snapshot checkpoint applies no external impulse, but the
       // wire record requires the bounded divert array on every motion frame.
       diverts: [],
