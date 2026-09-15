@@ -56,6 +56,6 @@ For other platforms, install [Bun](https://bun.sh/docs/installation), [Podman](h
 | Server    | Owns gameplay and saved state on port **3200**, using `.env.server`.                                                                                              |
 | Client    | Serves the game and assets on port **3102**, proxies requests to the server, and uses `.env.client`.                                                              |
 
-Next: [Custom content](custom-content.md). For settings, troubleshooting and production, see [Development](development.md).
+Next: [Custom content](custom-content.md). For settings, troubleshooting and production, see [Development](development.md). For direct static hosting on Debian, follow [Deploying to server with Caddy](../README.md#deploying-to-server-with-caddy), including the home-directory permissions needed to avoid 403 responses.
 
 Combat mechanics: [modern formulas and content mapping](combat-formulas.md).

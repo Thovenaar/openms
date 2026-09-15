@@ -86,6 +86,63 @@ These accounts are created by `server:dev` for local development. Click empty ma
 
 Run `bun run server:prod` and `bun run client:prod` in separate terminals. The client command builds without the development sidebar and keeps serving the files at `http://127.0.0.1:3102` by default. Configure the production database and public routing first; follow the [production setup](docs/development.md#production). Production startup replaces `admin` and `player` passwords only if they still match the published default `password`; it preserves custom passwords and does not create missing accounts.
 
+### Deploying to server with Caddy
+
+These steps assume a Debian server with Caddy **2.6 or newer** installed and running as a systemd service, and the checkout at **`/home/debian/openms`**. Complete the dependency, asset, database and migration steps above first. Point your domain at the server and allow inbound TCP ports **80 and 443**.
+
+**1. Configure the backend.** Keep your production `DATABASE_URL` in `.env.server` and set the public browser origin exactly:
+
+```dotenv
+OPENMS_HOST=127.0.0.1
+OPENMS_PORT=3200
+OPENMS_ORIGIN=https://openms.dev
+```
+
+**2. Build the client and start the backend.** From the checkout:
+
+```sh
+cd /home/debian/openms
+bun client/tools/build-online.js
+bun run server:prod
+```
+
+Keep the backend running in this terminal or through your service manager. Continue in another terminal in the same checkout. Caddy serves the built client directly and proxies `/api/`, including WebSockets, to port **3200**; the `client:prod` listener is not needed.
+
+The [Caddyfile](infra/Caddyfile) serves pages and bundles from `client/dist/online/site/`, the build's catalog from `client/dist/online/site/generated/catalog.json`, and the remaining assets from `client/public/generated/`. **`site/generated/` contains only the catalog**, not the complete asset tree.
+
+**3. Allow Caddy to reach the files.** A private `/home/debian` directory with permissions `700` blocks the `caddy` user and causes **403 Forbidden**. Grant Caddy permission to traverse that directory:
+
+```sh
+sudo setfacl -m u:caddy:--x /home/debian
+sudo -u caddy head -c 0 /home/debian/openms/client/dist/online/site/index.html
+```
+
+If `setfacl` is missing, install it with `sudo apt-get install acl`. The `head` command should finish silently. This permission grants traversal without directory-listing access; the remaining parent directories must also be traversable and both public file trees readable by Caddy. Permission changes take effect without restarting Caddy.
+
+**4. Install and reload the configuration.** Review the domain and both absolute roots in `infra/Caddyfile` before installing it:
+
+```sh
+sudo install -m 644 infra/Caddyfile /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+Once validation succeeds:
+
+```sh
+sudo systemctl reload caddy
+curl -I https://openms.dev/
+```
+
+The homepage should return **200**. If it still returns **403**, inspect the directory permissions, service restrictions and logs:
+
+```sh
+namei -l /home/debian/openms/client/dist/online/site/index.html
+systemctl show caddy -p User -p ProtectHome
+sudo journalctl -u caddy -n 100 --no-pager --full
+```
+
+`User=caddy` and `ProtectHome=no` allow the filesystem permissions above to determine access. Other `ProtectHome` settings may restrict access even when the file permissions permit it. After client changes, rebuild the site and regenerate any precompressed sidecars whose source files changed; reuse the existing generated assets.
+
 ### Optional: open Studio
 
 Keep the database and server running. In another terminal:
