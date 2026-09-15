@@ -36,6 +36,18 @@ function proofBits(value) {
   return Math.max(POW_MIN_BITS, Math.min(POW_MAX_BITS, bits));
 }
 
+/** Rules pinning is optional; a configured digest still has to be well formed. */
+function reviewedRulesHash(environment) {
+  const value = environment.OPENMS_RULES_HASH;
+  if (!value) return null;
+  if (!/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error(
+      "OPENMS_RULES_HASH must be a 64-character lowercase SHA-256 hex digest",
+    );
+  }
+  return value;
+}
+
 function studioOrigin(environment) {
   if (!environment.OPENMS_STUDIO_ORIGIN) return null;
   return configuredOrigin(environment, "OPENMS_STUDIO_ORIGIN");
@@ -59,12 +71,6 @@ export function serverConfig(environment = loadEnvironment("server")) {
   if (!/^postgres(ql)?:\/\//.test(environment.DATABASE_URL)) {
     throw new Error("DATABASE_URL must use PostgreSQL");
   }
-  if (
-    !development &&
-    !/^[a-f0-9]{64}$/.test(environment.OPENMS_RULES_HASH ?? "")
-  ) {
-    throw new Error("Production requires a reviewed SHA-256 OPENMS_RULES_HASH");
-  }
   return Object.freeze({
     development,
     origin,
@@ -75,7 +81,7 @@ export function serverConfig(environment = loadEnvironment("server")) {
     contentRoot:
       environment.OPENMS_CONTENT_ROOT ??
       resolve(ROOT, "client/public/generated"),
-    expectedRulesHash: environment.OPENMS_RULES_HASH ?? null,
+    expectedRulesHash: reviewedRulesHash(environment),
     secureCookie: !development,
     powBits: proofBits(environment.OPENMS_POW_BITS),
     sessionMs: 12 * 60 * 60 * 1000,

@@ -84,7 +84,7 @@ These accounts are created by `server:dev` for local development. Click empty ma
 
 ### Production
 
-Run `bun run server:prod` and `bun run client:prod` in separate terminals. The client command builds without the development sidebar and keeps serving the files at `http://127.0.0.1:3102` by default. Configure the production database, rules hash and public HTTPS routing first; follow the [production setup](docs/development.md#production). Production server startup does not create or reset admin accounts.
+Run `bun run server:prod` and `bun run client:prod` in separate terminals. The client command builds without the development sidebar and keeps serving the files at `http://127.0.0.1:3102` by default. Configure the production database and public routing first; follow the [production setup](docs/development.md#production). Production server startup does not create or reset admin accounts.
 
 ### Optional: open Studio
 
