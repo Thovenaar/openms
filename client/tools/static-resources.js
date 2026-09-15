@@ -16,7 +16,7 @@ const WORKERS = new Set([
   "/dist/audio-capture-worklet.js",
 ]);
 const HASH_RESOURCE =
-  /^\/generated\/(?:[a-z][a-z0-9-]*\/)+[a-f0-9]{64}\.(?:png|json|mp3|wav|bin)$/;
+  /^\/generated\/(?:[a-z][a-z0-9-]*\/)+[a-f0-9]{64}\.(?:png|json|mp3|wav|bin)(?:\.gz)?$/;
 
 /** Resolve the online shell, compiled bundles and immutable generated resources. */
 function resourcePath(path, options) {

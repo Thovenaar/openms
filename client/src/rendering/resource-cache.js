@@ -39,8 +39,8 @@ export class ResourceCache {
       this.cacheIndex = await CacheIndex.open();
       const rows = await this.cacheIndex.restore(this.cache, !exists);
       for (const row of rows) {
-        this.cacheEntries.set(row.url, row.bytes);
-        this.cacheBytes += row.bytes;
+        this.cacheEntries.set(row.url, row.disk ?? row.bytes);
+        this.cacheBytes += row.disk ?? row.bytes;
       }
       const storage = globalThis.navigator?.storage;
       const estimate = await estimateCacheBudget(storage, this.cacheBytes);
@@ -92,24 +92,41 @@ export class ResourceCache {
     }
   }
 
-  async writeBuffer(url, buffer) {
+  async writeBuffer(url, buffer, rawBytes = buffer.byteLength) {
+    const encoding = rawBytes === buffer.byteLength ? "identity" : "gzip";
     await this.cacheIndex?.begin(url);
     try {
       await this.cache.put(
         url,
         new Response(buffer, {
-          headers: { "x-maple-bytes": String(buffer.byteLength) },
+          headers: {
+            "x-maple-encoding": encoding,
+            "x-maple-raw": String(rawBytes),
+          },
         }),
       );
     } catch (error) {
       await this.cacheIndex?.cancel(url);
       throw error;
     }
-    await this.cacheIndex?.finish(url, buffer.byteLength);
+    await this.cacheIndex?.finish(url, rawBytes, buffer.byteLength);
     this.remember(url, buffer.byteLength);
   }
 
-  async store(url, buffer, cached = false) {
+  /** Recency-only refresh for an entry whose stored bytes are already valid. */
+  async touch(url, raw, disk) {
+    if (!this.cacheEntries.has(url)) return;
+    await this.cacheIndex?.finish(url, raw, disk);
+    this.remember(url, disk);
+  }
+
+  /** Payload plus the raw size it verifies as; gzip entries occupy far less disk. */
+  async store(url, payload) {
+    const descriptor =
+      payload instanceof ArrayBuffer
+        ? { stored: payload, raw: payload.byteLength }
+        : payload;
+    const { stored, raw } = descriptor;
     if (
       this.releaseControlled() ||
       !this.cache ||
@@ -118,40 +135,35 @@ export class ResourceCache {
       return;
     }
     try {
-      if (cached && this.cacheEntries.has(url)) {
-        await this.cacheIndex?.finish(url, buffer.byteLength);
-        this.remember(url, buffer.byteLength);
-        return;
-      }
-      if (buffer.byteLength > this.cacheByteLimit) {
+      if (stored.byteLength > this.cacheByteLimit) {
         this.cacheSkipped++;
         return;
       }
       // Missing payloads may leave conservative stale metadata after external eviction.
       if (this.cacheEntries.has(url)) await this.remove(url);
-      await this.evict(buffer.byteLength);
-      await this.writeBuffer(url, buffer);
+      await this.evict(stored.byteLength);
+      await this.writeBuffer(url, stored, raw);
     } catch (error) {
       if (error.name === "QuotaExceededError") {
-        await this.recoverQuota(url, buffer);
+        await this.recoverQuota(url, descriptor);
       } else this.disableCache(error);
     }
   }
 
   /** One retry with a smaller budget; denied writes must not destroy verified read access. */
-  async recoverQuota(url, buffer) {
+  async recoverQuota(url, descriptor) {
     this.cacheQuotaRecoveries++;
     this.cacheByteLimit = Math.floor(
       Math.min(this.cacheByteLimit, this.cacheBytes) * 0.75,
     );
     try {
       await this.evict(0, 0);
-      if (buffer.byteLength > this.cacheByteLimit) {
+      if (descriptor.stored.byteLength > this.cacheByteLimit) {
         this.cacheSkipped++;
         return;
       }
-      await this.evict(buffer.byteLength);
-      await this.writeBuffer(url, buffer);
+      await this.evict(descriptor.stored.byteLength);
+      await this.writeBuffer(url, descriptor.stored, descriptor.raw);
     } catch (error) {
       this.readOnly(error);
     }

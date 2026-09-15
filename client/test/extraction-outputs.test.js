@@ -86,3 +86,60 @@ test("correctly hashed output cannot escape through symlinks or hide conflicting
     ).rejects.toThrow();
   });
 });
+
+test("compressible JSON gains a deterministic compressed sibling while other types do not", async () => {
+  await workspace(async ({ output }) => {
+    for (const directory of ["maps", "regions", "atlases"]) {
+      await mkdir(join(output, directory), { recursive: true });
+    }
+    const large = Buffer.from(
+      JSON.stringify({
+        schemaVersion: 2,
+        entities: Array.from({ length: 4000 }, (_, index) => ({
+          id: `entity-${index}`,
+          x: index,
+          y: index * 2,
+        })),
+      }),
+    );
+    expect(large.length).toBeGreaterThan(64 * 1024);
+
+    const descriptor = await resource(output, "maps", "json", large);
+    expect(descriptor.url).toBe(`/generated/maps/${descriptor.sha256}.json`);
+    const stored = Bun.file(join(output, `maps/${descriptor.sha256}.json`));
+    // The raw resource stays authoritative for verification.
+    expect(Buffer.from(await stored.arrayBuffer())).toEqual(large);
+
+    const compressedPath = join(output, `maps/${descriptor.sha256}.json.gz`);
+    const compressed = Bun.file(compressedPath);
+    expect(await compressed.exists()).toBe(true);
+    const bytes = Buffer.from(await compressed.arrayBuffer());
+    // Bounded by the raw size, and inflates back to the exact verified payload.
+    expect(bytes.length).toBeLessThan(large.length);
+    expect(Bun.gunzipSync(bytes)).toEqual(large);
+
+    // Repeated publication reuses identical bytes rather than rewriting them.
+    const again = await resource(output, "maps", "json", large);
+    expect(again).toEqual(descriptor);
+
+    // Small JSON and already-compressed artwork never gain a sibling.
+    const small = await resource(
+      output,
+      "regions",
+      "json",
+      Buffer.from(JSON.stringify({ schemaVersion: 2, id: "small" })),
+    );
+    expect(
+      await Bun.file(join(output, `regions/${small.sha256}.json.gz`)).exists(),
+    ).toBe(false);
+    const png = await resource(
+      output,
+      "atlases",
+      "png",
+      Buffer.alloc(70 * 1024, 7),
+    );
+    expect(
+      await Bun.file(join(output, `atlases/${png.sha256}.png.gz`)).exists(),
+    ).toBe(false);
+  });
+});

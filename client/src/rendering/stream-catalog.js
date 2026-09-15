@@ -4,6 +4,7 @@ import {
   RESOURCE_HASH,
   sha256,
 } from "../assets/resource-validation.js";
+import { storedDescriptor } from "./gzip-asset.js";
 
 const CATALOG = "/generated/catalog.json";
 
@@ -33,7 +34,9 @@ export async function loadCatalog(network, expectedHash, signal) {
       signal.throwIfAborted();
       network.catalogBytes = bytes.byteLength;
       network.writes = network.writes.then(() =>
-        network.store(url, bytes, cached),
+        cached
+          ? network.touch(url, bytes.byteLength, bytes.byteLength)
+          : network.store(url, storedDescriptor(bytes, bytes.byteLength)),
       );
       await network.writes;
       signal.throwIfAborted();

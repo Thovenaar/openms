@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
 import { mkdtemp, rename, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { inflateSync } from "node:zlib";
+import { gzipSync, inflateSync } from "node:zlib";
 import { encodePNG } from "../src/assets/png.js";
 
 export const ATLAS_LIMIT = 2048;
 export const PADDING = 1;
+/** Below this a gzip variant costs a request without meaningfully shrinking the entry. */
+export const GZIP_MIN_BYTES = 64 * 1024;
+/** Shared with the browser, which derives the compressed sibling URL from the raw one. */
+export const GZIP_EXTENSION = ".gz";
 /** Content identity includes every byte, including transparent RGB. */
 export function hash(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -21,19 +25,45 @@ export async function publishFile(path, bytes) {
     await rm(directory, { recursive: true, force: true });
   }
 }
+/** Compressible text only; PNG and MP3 are already compressed and gain nothing from a variant. */
+function gzipEligible(extension, bytes) {
+  return extension === "json" && bytes.length >= GZIP_MIN_BYTES;
+}
+
+/** Deterministic compressed sibling; level 9 is a one-time offline cost, not a delivery cost. */
+export function gzipVariant(name, bytes) {
+  return {
+    name: `${name}${GZIP_EXTENSION}`,
+    bytes: gzipSync(bytes, { level: 9 }),
+  };
+}
+
+/** Reuse an existing identical file so extraction stays incremental. */
+async function publishIdentical(path, bytes, digest) {
+  const existing = Bun.file(path);
+  if (await existing.exists()) {
+    const stored = Buffer.from(await existing.arrayBuffer());
+    if (stored.length === bytes.length && hash(stored) === digest) return true;
+  }
+  await publishFile(path, bytes);
+  return false;
+}
+
 /** Publish immutable resources before the catalog is committed. */
 export async function resource(output, directory, extension, bytes) {
   const sha256 = hash(bytes);
   const name = `${directory}/${sha256}.${extension}`;
   const path = resolve(output, name);
-  const existing = Bun.file(path);
-  if (await existing.exists()) {
-    const stored = Buffer.from(await existing.arrayBuffer());
-    if (stored.length === bytes.length && hash(stored) === sha256) {
-      return { url: `/generated/${name}`, sha256, bytes: bytes.length };
-    }
+  await publishIdentical(path, bytes, sha256);
+  // A gzip sibling shrinks the persistent browser cache; the raw file stays authoritative.
+  if (gzipEligible(extension, bytes)) {
+    const gzip = gzipVariant(name, bytes);
+    await publishIdentical(
+      resolve(output, gzip.name),
+      gzip.bytes,
+      hash(gzip.bytes),
+    );
   }
-  await publishFile(path, bytes);
   return { url: `/generated/${name}`, sha256, bytes: bytes.length };
 }
 /** Independent PNG scanline reader: validates the actual encoded payload. */

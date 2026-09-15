@@ -30,6 +30,10 @@ async function fixture() {
       },
     });
   }
+  // The pack stores raw members, while extraction also publishes a compressed sibling.
+  for (const entry of entries) {
+    entry.gzip = new Uint8Array(Bun.gzipSync(entry.bytes));
+  }
   const unpacked = await new Blob(
     entries.map((entry) => entry.bytes),
   ).arrayBuffer();
@@ -53,10 +57,15 @@ async function fixture() {
   globalThis.location = { origin: "http://localhost" };
   fetchMock = spyOn(globalThis, "fetch").mockImplementation(async (url) => {
     const path = new URL(url, location.origin).pathname;
-    const bytes =
-      path === pack.url
-        ? state.encoded
-        : entries.find((entry) => entry.info.url === path)?.bytes;
+    if (path === pack.url) return new Response(state.encoded);
+    if (path.endsWith(".gz")) {
+      const compressed = entries.find(
+        (entry) => `${entry.info.url}.gz` === path,
+      );
+      if (!compressed) throw new Error(`Unexpected download: ${path}`);
+      return new Response(compressed.gzip);
+    }
+    const bytes = entries.find((entry) => entry.info.url === path)?.bytes;
     if (!bytes) throw new Error(`Unexpected download: ${path}`);
     return new Response(bytes);
   });
@@ -119,18 +128,29 @@ test("one cold transfer installs individually verified members; a reopened cache
   expect(state.network.downloadBytes).toBe(0);
 });
 
-test("a small cache gap fetches only missing members, preserving the rest", async () => {
+test("a small cache gap refetches the compressed member, preserving the rest", async () => {
   const state = await fixture();
   await prepare(state);
-  const info = state.entries[2].info;
+  const entry = state.entries[2];
+  const info = entry.info;
   await state.network.invalidate(`http://localhost${info.url}`);
   expect(await prepare(state)).toMatchObject({
     status: "individual",
     missing: 1,
   });
-  await state.network.load(info, signal);
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  fetchMock.mockClear();
+  expect(new Uint8Array(await state.network.load(info, signal))).toEqual(
+    entry.bytes,
+  );
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0][0]).toBe(`http://localhost${info.url}.gz`);
   expect(state.cached.size).toBe(7);
+  const stored = state.cached.get(`http://localhost${info.url}`);
+  expect(stored.headers.get("x-maple-encoding")).toBe("gzip");
+  expect(stored.headers.get("x-maple-raw")).toBe(String(entry.bytes.length));
+  expect(new Uint8Array(await stored.clone().arrayBuffer())).toEqual(
+    entry.gzip,
+  );
 });
 
 test("storage refusal and low quota skip the bulk transfer; a stale build fails before transfer", async () => {

@@ -2,6 +2,14 @@ import { ResourceCache } from "./resource-cache.js";
 import { LIMITS, resource } from "./stream-validation.js";
 import { loadCatalog } from "./stream-catalog.js";
 import {
+  gzipCeiling,
+  gzipVariantURL,
+  inflateGzip,
+  inflatedDescriptor,
+  storedDescriptor,
+  storedEncoding,
+} from "./gzip-asset.js";
+import {
   networkDeadline,
   withinDeadline,
   NETWORK_TIMEOUTS,
@@ -154,6 +162,105 @@ export class Network extends ResourceCache {
     this.downloadBytes += length;
     return result.buffer;
   }
+  /** A compressed sibling holds far fewer disk bytes; raw stays the correctness reference. */
+  async cachedBytes(url, cached, signal) {
+    const stored = await cached.arrayBuffer();
+    return storedEncoding(cached) === "gzip"
+      ? await inflateGzip(stored, signal)
+      : stored;
+  }
+
+  /** Recency refresh keeps payload bytes and their recorded disk cost untouched. */
+  storedDisk(response) {
+    const declared = Number(response.headers.get("content-length"));
+    return Number.isSafeInteger(declared) && declared > 0 ? declared : null;
+  }
+
+  /** Prefer the compressed variant, but never let its absence break an available resource. */
+  async fetchIncoming(request) {
+    const { url, compressed, signal, background, maximum } = request;
+    if (!compressed) {
+      const buffer = await this.fetchBytes(url, signal, maximum, background);
+      return storedDescriptor(buffer, buffer.byteLength);
+    }
+    // Incompressible input can expand; bound the transfer by the declared raw size either way.
+    const compressedMaximum = Math.max(maximum, gzipCeiling(maximum));
+    try {
+      const buffer = await this.fetchBytes(
+        compressed,
+        signal,
+        compressedMaximum,
+        background,
+      );
+      return storedDescriptor(buffer, maximum);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      const buffer = await this.fetchBytes(url, signal, maximum, background);
+      return storedDescriptor(buffer, buffer.byteLength);
+    }
+  }
+
+  /** One cache lookup; release-managed and private resources never consult persistent storage. */
+  async lookup(url, cacheable) {
+    if (!cacheable || this.releaseControlled() || !this.cache) return null;
+    return this.cache.match(url);
+  }
+
+  /** A stale or damaged entry is evicted before its failure reaches the caller. */
+  async readCached(url, cached, info, signal) {
+    try {
+      const buffer = await this.cachedBytes(url, cached, signal);
+      await this.verify(buffer, info);
+      return buffer;
+    } catch (error) {
+      this.writes = this.writes.then(() => this.invalidate(url));
+      await this.writes;
+      throw error;
+    }
+  }
+
+  /** Serialized behind one writer; only a verified hit reorders eviction. */
+  queueStore(url, descriptor, disk = null) {
+    this.writes = this.writes.then(() =>
+      disk === null
+        ? this.store(url, descriptor)
+        : this.touch(url, descriptor.raw, disk),
+    );
+  }
+
+  /** Verified hit: refresh recency without rewriting the stored payload. */
+  async consume(url, info, cached, signal) {
+    const buffer = await this.readCached(url, cached, info, signal);
+    this.hits++;
+    // Without a declared length, keep the recorded cost instead of rewriting the compact body.
+    const measured = this.storedDisk(cached);
+    const disk =
+      measured ??
+      (this.cacheEntries.has(url) ? this.cacheEntries.get(url) : null);
+    if (disk !== null) {
+      this.queueStore(url, storedDescriptor(buffer, buffer.byteLength), disk);
+    }
+    return buffer;
+  }
+
+  /** Cache miss: prefer the compressed variant and store exactly what was fetched. */
+  async discover(request) {
+    const { url, info, signal, background, cacheable } = request;
+    const variant = cacheable ? gzipVariantURL(info.url) : null;
+    const descriptor = await this.fetchIncoming({
+      url,
+      // The derived sibling is site-relative; fetchBytes requires an absolute URL.
+      compressed: variant ? new URL(variant, location.origin).href : null,
+      signal,
+      background,
+      maximum: info.bytes,
+    });
+    const inflated = await inflatedDescriptor(descriptor, signal);
+    await this.verify(inflated.buffer, info);
+    if (cacheable) this.queueStore(url, descriptor);
+    return inflated.buffer;
+  }
+
   async load(info, signal, background = false) {
     resource(info);
     return this.gate.run(
@@ -167,32 +274,17 @@ export class Network extends ResourceCache {
           ? null
           : this.activity?.begin("resource", url, info.bytes);
         try {
-          const cached =
-            cacheable && !this.releaseControlled() && this.cache
-              ? await this.cache.match(url)
-              : null;
-          let buffer;
-          if (cached) {
-            try {
-              buffer = await cached.arrayBuffer();
-              await this.verify(buffer, info);
-            } catch (error) {
-              this.writes = this.writes.then(() => this.invalidate(url));
-              await this.writes;
-              throw error;
-            }
-            this.hits++;
-          } else {
-            buffer = await this.fetchBytes(url, signal, info.bytes, background);
-            await this.verify(buffer, info);
-          }
-          check(signal);
-          if (cacheable) {
-            this.writes = this.writes.then(() =>
-              this.store(url, buffer, Boolean(cached)),
-            );
-            await this.writes;
-          }
+          const cached = await this.lookup(url, cacheable);
+          const buffer = cached
+            ? await this.consume(url, info, cached, signal)
+            : await this.discover({
+                url,
+                info,
+                signal,
+                background,
+                cacheable,
+              });
+          await this.writes;
           check(signal);
           return buffer;
         } finally {

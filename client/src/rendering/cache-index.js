@@ -12,6 +12,13 @@ function requestResult(request) {
   });
 }
 
+/** Disk accounting must follow stored bytes; a gzip entry occupies far less than its raw size. */
+async function storedBytes(response) {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isSafeInteger(declared) && declared > 0) return declared;
+  return (await response.clone().arrayBuffer()).byteLength;
+}
+
 /** Commit, rather than individual request success, establishes the persisted index. */
 function transactionDone(transaction) {
   return new Promise((resolve, reject) => {
@@ -78,12 +85,18 @@ function validURL(url) {
   );
 }
 
+/** Verification size belongs to the raw resource, even when a .gz variant backs the entry. */
 function validBytes(bytes, url) {
+  const pathname = new URL(url).pathname.replace(/\.gz$/, "");
   return (
     Number.isSafeInteger(bytes) &&
     bytes > 0 &&
-    bytes <= resourceByteLimit(new URL(url).pathname)
+    bytes <= resourceByteLimit(pathname)
   );
+}
+
+function validPending(pending) {
+  return pending.length <= LIMITS.cacheEntries && pending.every(validURL);
 }
 
 function validRows(rows) {
@@ -155,20 +168,14 @@ export class CacheIndex {
 
   async restore(cache, fresh) {
     const { rows, pending, state } = await this.read();
-    if (
-      fresh ||
-      state !== 1 ||
-      !validRows(rows) ||
-      pending.length > LIMITS.cacheEntries ||
-      !pending.every(validURL)
-    ) {
+    if (fresh || state !== 1 || !validRows(rows) || !validPending(pending)) {
       return this.rebuild(cache);
     }
     this.order = rows.reduce((maximum, row) => Math.max(maximum, row.used), 0);
     const records = new Map(rows.map((row) => [row.url, row]));
     for (const url of pending) {
       const row = await this.inspect(cache, url);
-      await this.finish(url, row?.bytes ?? null);
+      await this.finish(url, row?.bytes ?? null, row?.disk ?? null);
       if (row) records.set(url, row);
       else records.delete(url);
     }
@@ -180,12 +187,17 @@ export class CacheIndex {
     this.headerReads++;
     const response = await cache.match(url);
     if (!response) return null;
-    const bytes = Number(response.headers.get("x-maple-bytes"));
-    if (!validURL(url) || !validBytes(bytes, url)) {
+    const encoding = response.headers.get("x-maple-encoding") ?? "identity";
+    const raw = Number(
+      encoding === "gzip"
+        ? response.headers.get("x-maple-raw")
+        : response.headers.get("x-maple-bytes"),
+    );
+    if (!validURL(url) || encoding !== "gzip" || !validBytes(raw, url)) {
       await cache.delete(url);
       return null;
     }
-    return { url, bytes, used: this.nextOrder() };
+    return { url, bytes: raw, disk: await storedBytes(response), used: 0 };
   }
 
   /** One migration/recovery scan; ordinary launches read only metadata rows. */
@@ -235,8 +247,11 @@ export class CacheIndex {
       transaction.objectStore("pending").delete(url),
     );
   }
-  async finish(url, bytes) {
-    const row = bytes === null ? null : { url, bytes, used: this.nextOrder() };
+  async finish(url, bytes, disk = null) {
+    const row =
+      bytes === null
+        ? null
+        : { url, bytes, disk: disk ?? bytes, used: this.nextOrder() };
     await this.write((transaction) => {
       if (row) transaction.objectStore("entries").put(row, url);
       else transaction.objectStore("entries").delete(url);

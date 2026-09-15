@@ -3,6 +3,7 @@ import {
   STARTUP_PACK_LIMITS,
   validateStartupPack,
 } from "../assets/startup-pack.js";
+import { storedDescriptor } from "../rendering/gzip-asset.js";
 
 /** Fill the existing per-file cache before catalog/UI work opens any game connection. */
 export async function prepareStartupPack(network, pack, catalogHash, signal) {
@@ -73,7 +74,9 @@ async function cacheMembers(network, pack, bytes, signal) {
     signal.throwIfAborted();
     const member = bytes.subarray(offset, offset + info.bytes);
     const url = new URL(info.url, location.origin).href;
-    network.writes = network.writes.then(() => network.store(url, member));
+    network.writes = network.writes.then(() =>
+      network.store(url, storedDescriptor(member, info.bytes)),
+    );
     await network.writes;
     offset += info.bytes;
     if (

@@ -29,6 +29,8 @@ function asset(payload, suffix) {
       bytes: bytes.length,
     },
     bytes,
+    // Extraction publishes a compressed sibling for JSON only; PNG stays uncompressed.
+    gzip: suffix === "json" ? new Uint8Array(Bun.gzipSync(bytes)) : undefined,
   };
 }
 
@@ -73,10 +75,16 @@ async function networkFixture(assets) {
   globalThis.location = { origin: "http://localhost" };
   const cached = new Map();
   fetchMock = spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    const path = new URL(url).pathname;
     const entry = assets.find(
-      (entry) => new URL(url).pathname === entry.info.url,
+      (candidate) =>
+        candidate.info.url === path || `${candidate.info.url}.gz` === path,
     );
     if (!entry) throw new Error(`Unexpected download: ${url}`);
+    if (path.endsWith(".gz")) {
+      if (!entry.gzip) throw new Error(`No compressed variant: ${path}`);
+      return new Response(entry.gzip);
+    }
     return new Response(entry.bytes);
   });
   const network = new Network();
