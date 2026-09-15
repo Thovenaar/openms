@@ -22,17 +22,19 @@ import { recordMotionDivert, takeMotionDiverts } from "../src/field-diverts.js";
 import { serverOwnsPosition } from "../src/motion-authority.js";
 import { adoptMotion } from "../src/motion-adoption.js";
 import { attachGround } from "../../client/src/physics/geometry.js";
+import { serverConfig } from "../src/config.js";
 
 const content = await loadContent();
 
 /** Real field, real kernel and the real moveActor admission path; only persistence and
  *  mob population are isolated, so nothing about the wire contract is stubbed. */
-async function fixture(mapId = 100000000) {
+async function fixture(mapId = 100000000, watchdogEnabled = true) {
   const publications = [];
   const events = [];
   const world = new OnlineWorld({
     content,
     database: {},
+    watchdogEnabled,
     publish(actor, message) {
       publications.push({ actor: actor.id, message });
     },
@@ -370,6 +372,61 @@ test("a resume beyond any possible motion is refused", async () => {
   }
 });
 
+for (const value of ["false", "true"]) {
+  test(`configured watchdog ${value} controls ordinary motion faults`, async () => {
+    const config = serverConfig({
+      DATABASE_URL: "postgres://unused.invalid/watchdog_test",
+      OPENMS_MOTION_WATCHDOG_ENABLED: value,
+    });
+    const probe = await fixture(100000000, config.watchdogEnabled);
+    try {
+      const { world, actor } = probe;
+      place(actor, 0, 0);
+      const report = { x: 10000, y: 0, vx: 0, vy: 0 };
+      world.input(actor, input(actor, report));
+      advance(probe, 1);
+      expect(actor.simulation.previousX === report.x).toBe(
+        !config.watchdogEnabled,
+      );
+      expect(Boolean(actor.retiring)).toBe(config.watchdogEnabled);
+      expect(faults(probe).length > 0).toBe(config.watchdogEnabled);
+      if (!config.watchdogEnabled) {
+        expect(world.watchdog.snapshot()).toEqual({
+          enabled: false,
+          reviewed: 0,
+          suspicious: 0,
+          faults: 0,
+          actors: [],
+        });
+      }
+    } finally {
+      dispose(probe);
+    }
+  });
+}
+
+test("disabled watchdog accepts reconnect discrepancies while finite and seat guards remain", async () => {
+  const probe = await fixture(100000000, false);
+  try {
+    const { world, actor } = probe;
+    place(actor, 0, 0);
+    const report = { x: 10000, y: 0, vx: 0, vy: 0 };
+    world.adoptResumedMotion(actor, report);
+    expect(actor.simulation.x).toBe(report.x);
+    expect(actor.profile.location.x).toBe(report.x);
+    world.adoptResumedMotion(actor, { ...report, x: NaN });
+    expect(actor.simulation.x).toBe(report.x);
+    actor.simulation.seat = { x: 10000, y: 0 };
+    world.adoptResumedMotion(actor, { ...report, x: 20000 });
+    expect(actor.simulation.x).toBe(report.x);
+    expect(Boolean(actor.retiring)).toBe(false);
+    expect(faults(probe)).toEqual([]);
+    expect(world.watchdog.snapshot().actors).toEqual([]);
+  } finally {
+    dispose(probe);
+  }
+});
+
 test("position tolerance scales with elapsed time and velocity does not", () => {
   expect(MOTION_PLAUSIBILITY.minimumPositionPx).toBe(32);
   expect(plausiblePositionPx(0)).toBe(450);
@@ -485,7 +542,7 @@ test("a recorded divert is published on the wire and validates as a server frame
 });
 
 test("the watchdog counts deviations inside one window and forgets an actor", () => {
-  const watchdog = new MotionWatchdog();
+  const watchdog = new MotionWatchdog({ enabled: true });
   const quiet = {
     position: 1,
     velocity: 1,
@@ -531,7 +588,7 @@ test("the watchdog counts deviations inside one window and forgets an actor", ()
 });
 
 test("a burst of delayed reports is one episode and the logged 200px discrepancy is ordinary", () => {
-  const watchdog = new MotionWatchdog();
+  const watchdog = new MotionWatchdog({ enabled: true });
   const excess = {
     position: 200,
     velocity: 0,

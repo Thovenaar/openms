@@ -56,6 +56,8 @@ position ownership.
 
 Delayed reports can cross several foothold segments before the next sample is admitted. Adoption retains an existing contact only while the reported point and velocity still match it. A changed contact searches bounded, validated geometry for the actual supporting segment; a point in air is never snapped to a nearby floor. This prevents the next server step from projecting a valid report back onto an old segment and manufacturing an impossible displacement. The numerical contact tolerance is 0.000001 pixels, with the same tolerance for normal velocity; this contact fix is independent of the current lag-tolerant watchdog policy. [Scoped regression](validation.md#watchdog-contact-and-retirement-repair) reproduces the old false kick on map 10000.
 
+The watchdog is currently off by default. Set `OPENMS_MOTION_WATCHDOG_ENABLED=true` in `.env.server` and restart the server to enable the table's watchdog policy; `false` disables discrepancy evidence and kicks for both ordinary reports and reconnects. Input validation and server-owned position admission still apply.
+
 Known limitations:
 
 - After five seconds without authenticated movement timing, the client requests a fresh

@@ -44,6 +44,7 @@ export async function startServer(options = {}) {
     content,
     database,
     development: config.development,
+    watchdogEnabled: config.watchdogEnabled,
     log,
     publish: (actor, record) => gateway.publications.publish(actor, record),
   });
@@ -84,7 +85,7 @@ function logReady(log, { config, content, server, started }) {
   );
   console.log(
     logPrefix("server"),
-    `Rules ${content.rulesHash}; assets ${content.assetBuildId}; ${config.development ? "development" : "production"}`,
+    `Rules ${content.rulesHash}; assets ${content.assetBuildId}; ${config.development ? "development" : "production"}; motion watchdog ${config.watchdogEnabled ? "enabled" : "disabled"}`,
   );
 }
 

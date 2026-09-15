@@ -17,6 +17,24 @@ test("production runs without a rules pin", () => {
   ).toBe(null);
 });
 
+test("the motion watchdog defaults off and accepts explicit true/false in either mode", () => {
+  for (const mode of ["production", "development"]) {
+    const base = environment({ OPENMS_MODE: mode });
+    expect(serverConfig(base).watchdogEnabled).toBe(false);
+    for (const value of ["true", "false"]) {
+      expect(
+        serverConfig({ ...base, OPENMS_MOTION_WATCHDOG_ENABLED: value })
+          .watchdogEnabled,
+      ).toBe(value === "true");
+    }
+  }
+  for (const value of ["", "1", "0", "yes", "FALSE", "tru"]) {
+    expect(() =>
+      serverConfig(environment({ OPENMS_MOTION_WATCHDOG_ENABLED: value })),
+    ).toThrow("OPENMS_MOTION_WATCHDOG_ENABLED must be true or false");
+  }
+});
+
 test("a configured rules pin must be a lowercase SHA-256 digest", () => {
   const hash = "a".repeat(64);
   for (const mode of ["production", "development"]) {

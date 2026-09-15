@@ -48,7 +48,8 @@ function createEvidence(tick) {
 }
 
 export class MotionWatchdog {
-  constructor({ log = null } = {}) {
+  constructor({ enabled = false, log = null } = {}) {
+    this.enabled = enabled;
     this.log = log;
     this.actors = new Map();
     this.reviewed = 0;
@@ -58,6 +59,9 @@ export class MotionWatchdog {
 
   /** Judge one report and record it. Never mutates the caller's simulation. */
   review(id, tick, excess) {
+    if (!this.enabled) {
+      return { decision: "accept", suspicious: false, score: 0 };
+    }
     this.reviewed++;
     const absurd =
       excess.position >
@@ -156,6 +160,7 @@ export class MotionWatchdog {
       });
     }
     return {
+      enabled: this.enabled,
       reviewed: this.reviewed,
       suspicious: this.suspicious,
       faults: this.faults,

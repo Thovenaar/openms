@@ -214,7 +214,14 @@ function activationOperation(actor) {
 
 /** One process owns field clocks. No packet or socket lifetime advances world time. */
 export class OnlineWorld {
-  constructor({ content, database, publish, development = false, log = null }) {
+  constructor({
+    content,
+    database,
+    publish,
+    development = false,
+    watchdogEnabled = false,
+    log = null,
+  }) {
     this.content = content;
     this.database = database;
     this.publish = publish;
@@ -232,7 +239,10 @@ export class OnlineWorld {
     this.closed = false;
     this.nextUint32 = serverRandom();
     this.random = () => this.nextUint32() / 0x100000000;
-    this.watchdog = new MotionWatchdog({ log: this.log });
+    this.watchdog = new MotionWatchdog({
+      enabled: watchdogEnabled,
+      log: this.log,
+    });
   }
 
   async fieldFor(mapId, realm = "public", retain = false) {

@@ -97,9 +97,12 @@ Configure `.env.server`:
 | `DATABASE_URL`               | Dedicated local database on port 55432 | PostgreSQL connection                              |
 | `OPENMS_CONTENT_ROOT`        | `client/public/generated`              | Verified immutable content                         |
 | `OPENMS_POW_BITS`            | `15`                                   | Login/registration proof difficulty, valid 8–24    |
+| `OPENMS_MOTION_WATCHDOG_ENABLED` | `false` | Motion discrepancy enforcement; accepts exactly `true` or `false` |
 | `OPENMS_DEV_PASSWORD`        | `password`                             | Bootstrap account password override                |
 
 Compose defaults are `POSTGRES_USER=openms`, `POSTGRES_PASSWORD=openms_local_only`, `POSTGRES_DB=openms`, `POSTGRES_PORT=55432`. Export overrides or pass a private `--env-file` to Compose, then supply a matching `DATABASE_URL` to Bun. Compose and Bun do not load each other's scoped files.
+
+The motion watchdog is temporarily disabled by default in development and production. Set `OPENMS_MOTION_WATCHDOG_ENABLED=true` in `.env.server` to restore its lag-tolerant enforcement, or `false` to disable it. Disabled mode skips discrepancy evidence and kicks for both ordinary movement reports and reconnect reports. Finite motion validation, input ordering and server-owned position rules still apply. Restart the backend after changing the setting; its startup line reports `motion watchdog enabled` or `disabled`. This setting needs no extraction or asset rebuild.
 
 #### Network
 
