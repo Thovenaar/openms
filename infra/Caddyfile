@@ -2,6 +2,7 @@
 # Set OPENMS_ORIGIN=https://openms.dev in .env.server. No client listener is needed.
 # Adjust the domain and both /srv/openms roots; Caddy must be able to read them.
 # Regenerate any precompressed sidecars whenever the original files change.
+# Compatible with Caddy 2.6; avoid newer header response-status matchers.
 openms.dev {
 	root * /srv/openms/client/dist/online/site
 
@@ -31,11 +32,9 @@ openms.dev {
 		handle_path /generated/* {
 			root * /srv/openms/client/public/generated
 
-			# Only successful content-hashed resources receive long-lived caching.
+			# Content-hashed assets are immutable; errors override this below.
 			@immutable path_regexp immutable ^/([a-z][a-z0-9-]*/)+[a-f0-9]{64}[.](png|json|mp3|wav|bin)$
-			header @immutable Cache-Control "public, max-age=31536000, immutable" {
-				match status 200 206 304
-			}
+			header @immutable Cache-Control "public, max-age=31536000, immutable"
 
 			file_server {
 				precompressed
@@ -48,5 +47,11 @@ openms.dev {
 				precompressed
 			}
 		}
+	}
+
+	# Missing or unreadable assets must not inherit immutable caching.
+	handle_errors {
+		header Cache-Control "no-store"
+		respond "{http.error.status_text}" {http.error.status_code}
 	}
 }
