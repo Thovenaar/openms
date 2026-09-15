@@ -48,6 +48,7 @@ export async function emitOnlineDeployment(root, build) {
       mount: "/generated/",
       source: "client/public/generated/",
       catalog: build.catalog,
+      startupPack: build.startupPack,
       dependencyPolicy:
         "Serve the existing generated tree, including every transitive hash-addressed dependency of the catalog. Do not run offline extraction or install a service worker.",
     },

@@ -132,6 +132,12 @@ function verifyPreload(report) {
     );
   }
   assertion(
+    report.coldStartup.generatedRequests === 1 &&
+      report.coldStartup.state.streaming.startupPack?.status === "downloaded",
+    "Cold startup did not use exactly one packed game-file download",
+    report.coldStartup,
+  );
+  assertion(
     report.warmStartup.generatedRequests === 0 &&
       report.warmStartup.state.streaming.downloadBytes === 0,
     "Warm startup downloaded unchanged game files",

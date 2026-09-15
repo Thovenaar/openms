@@ -53,6 +53,16 @@ During development, `bun run client:dev` serves the checked-in online `index.htm
 
 The online client uses no service worker, CacheStorage release installer, browser-local character save or disconnected gameplay fallback. Network loss leaves the last complete visual state available for recovery UI, while the server remains the only gameplay authority.
 
+## Startup pack
+
+`client/tools/startup-pack.js` runs during the existing online browser build. It follows the same bounded common-asset policy as runtime startup, reads and verifies those retained generated files, and publishes `/generated/startup/<sha256>.bin`. Existing extraction remains intact. Deployment must include this generated file as well as the other catalog dependencies; `deployment.json` records its descriptor and index in `generated.startupPack`.
+
+Version 1 is gzip-compressed concatenated member bytes in index order. The index is compiled into the browser as `OPENMS_STARTUP_PACK`: version, pack URL/SHA-256/compressed byte length, total unpacked byte length, and ordered member descriptors. There is no separate index fetch or archive pathname extraction. Members are canonical `/generated/` URLs, each with an exact byte length and SHA-256; duplicate URLs, private paths, oversized declarations and a catalog hash that differs from fresh server configuration fail before transfer. The pack is bounded to 770 members and 128 MiB for each compressed/unpacked body. Member limits remain 32 MiB, or 64 MiB for the catalog.
+
+Before catalog/UI preparation, a browser with a usable cache and enough capacity downloads the pack when more than four indexed members are missing. It checks the compressed hash, bounds decompression, verifies all member hashes before the first write, and serially saves the members through the existing cache owner. The temporary compressed/unpacked buffers are released after preparation; they add no atlas/GPU residency and the archive is not stored as a duplicate cache entry. Cancellation or corruption cannot expose a partially prepared login. A storage failure leaves verified members available and resumes ordinary loading under the existing storage policy.
+
+A retained cache skips the pack and verifies member bytes through normal loaders. Up to four missing members use individual requests. Larger update/eviction gaps may redownload the whole pack; it is not a binary delta protocol. Browsers without usable storage skip the speculative pack. The shell and fresh private API configuration remain separate HTTP requests; “one download” refers to generated startup game files.
+
 ## Runtime streaming
 
 The catalog and destination map are verified before a field becomes interactive. Visible and always-resident regions load on demand through bounded network and atlas gates. Field replacement retains the previous complete scene until the destination resources and matching server transition are ready; cancellation or failure cannot publish a partial scene.

@@ -5,6 +5,7 @@ import { measureStage } from "./native-evidence.js";
 import { loadContent } from "../../server/src/content.js";
 import { onlineBuildGraph } from "./online-build-graph.js";
 import { onlineShell } from "./online-shell.js";
+import { buildStartupPack } from "./startup-pack.js";
 import {
   emitOnlineDeployment,
   publishBrowserOutputs,
@@ -99,23 +100,28 @@ export async function buildOnlineBrowser({
     "sourceIdentityMs",
     sourceIdentity,
   );
-  const contentRoot = resolve(root, "public/generated");
   progress?.("Online browser: validating rules and existing asset catalog");
   const content = await measureStage(timings, "rulesIdentityMs", () =>
-    loadContent({ root: contentRoot }),
+    loadContent({ root: resolve(root, "public/generated") }),
   );
-  const sourceBuildId = createHash("sha256")
-    .update(
-      `${identity}\0online\0${development}\0${content.rulesHash}\0${content.catalogHash}`,
-    )
-    .digest("hex");
+  const sourceBuildId = onlineBuildId(identity, development, content);
   const shell = await onlineShellInputs(content, development);
+  progress?.(
+    "Online browser: packing common startup files from existing assets",
+  );
+  const startupPack = await measureStage(timings, "startupPackMs", () =>
+    buildStartupPack(
+      resolve(root, "public"),
+      shell.get("/generated/catalog.json"),
+      content.catalogHash,
+    ),
+  );
   const graph = onlineBuildGraph(root);
   progress?.(
     "Online browser: compiling verified source without an extraction rebuild",
   );
   const result = await measureStage(timings, "compilationMs", () =>
-    compileOnline({ development, sourceBuildId, content, graph }),
+    compileOnline({ development, sourceBuildId, content, graph, startupPack }),
   );
   progress?.(
     `Online browser: compiled ${graph.inputs.size} modules; rechecking identities`,
@@ -123,19 +129,14 @@ export async function buildOnlineBrowser({
   await recheckOnlineInputs(identity, content, timings);
   progress?.(`Online browser: publishing ${result.outputs.length} outputs`);
   await publishBrowserOutputs(result.outputs);
-  const deployment = development
-    ? null
-    : await emitOnlineDeployment(root, {
-        sourceBuildId,
-        content,
-        shell,
-        outputs: result.outputs,
-        catalog: {
-          url: "/generated/catalog.json",
-          sha256: content.catalogHash,
-          bytes: shell.get("/generated/catalog.json").byteLength,
-        },
-      });
+  const deployment = await publishOnlineDeployment({
+    development,
+    sourceBuildId,
+    content,
+    shell,
+    outputs: result.outputs,
+    startupPack,
+  });
   return {
     sourceBuildId,
     development,
@@ -147,6 +148,26 @@ export async function buildOnlineBrowser({
     inputs: [...graph.inputs].sort(),
     outputs: result.outputs.map((file) => file.path),
   };
+}
+
+function onlineBuildId(identity, development, content) {
+  return createHash("sha256")
+    .update(
+      `${identity}\0online\0${development}\0${content.rulesHash}\0${content.catalogHash}`,
+    )
+    .digest("hex");
+}
+
+async function publishOnlineDeployment(build) {
+  if (build.development) return null;
+  return emitOnlineDeployment(root, {
+    ...build,
+    catalog: {
+      url: "/generated/catalog.json",
+      sha256: build.content.catalogHash,
+      bytes: build.shell.get("/generated/catalog.json").byteLength,
+    },
+  });
 }
 
 async function onlineShellInputs(content, development) {
@@ -199,7 +220,13 @@ async function recheckOnlineInputs(identity, content, timings) {
   }
 }
 
-async function compileOnline({ development, sourceBuildId, content, graph }) {
+async function compileOnline({
+  development,
+  sourceBuildId,
+  content,
+  graph,
+  startupPack,
+}) {
   const result = await Bun.build({
     entrypoints: [
       resolve(root, "src/browser/online/main.js"),
@@ -221,6 +248,7 @@ async function compileOnline({ development, sourceBuildId, content, graph }) {
       "import.meta.OPENMS_RULES_HASH": JSON.stringify(content.rulesHash),
       "import.meta.OPENMS_ASSET_BUILD_ID": JSON.stringify(content.assetBuildId),
       "import.meta.OPENMS_CATALOG_HASH": JSON.stringify(content.catalogHash),
+      "import.meta.OPENMS_STARTUP_PACK": JSON.stringify(startupPack),
     },
   });
   if (!result.success) {

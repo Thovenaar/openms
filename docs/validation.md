@@ -12,6 +12,7 @@ Read a result together with its **source/catalog identity, fixture, action and l
 | Startup asset preload                 | [Startup cache](#startup-asset-preload) | Cold/warm startup, map entry, cache residency and walking at 500 ms RTT. |
 | Browser cache capacity                | [Cache capacity and index](#browser-cache-capacity-and-index) | Quota-aware disk limits, retained metadata, interruption recovery and startup regression. |
 | Refresh without asset downloads       | [Catalog reuse](#catalog-reuse-on-refresh) | Fresh server hash, local catalog verification and zero retained-cache asset requests. |
+| Single startup download | [Startup pack](#single-startup-download) | One generated-file request, cold/warm timing and gameplay at 500 ms RTT. |
 | Client-owned motion and knockback      | [Movement parity](movement-parity.md#client-owned-motion) · [Browser check](#client-owned-motion-browser-check)      | One native browser hold and the real server/predictor divert tests; not original Windows parity.        |
 | Airborne skill continuity and recoil   | [Skill cast repair](#skill-cast-stutter-repair) · [Movement contract](movement-parity.md#skill-snapshot-continuity) | Same-field snapshot continuity, immediate impulses and recovered foothold-tangent mob recoil. |
 | Consecutive Flash Jump artwork         | [Replay validation](#consecutive-flash-jump-artwork-14-september-2026) | Five admitted casts, including a rapid direction reversal, with zero rendered-origin offset. |
@@ -253,4 +254,42 @@ After contact adoption was repaired, all 240 quanta completed with **zero watchd
 
 ```sh
 bun test server/test/motion-adoption.test.js server/test/lifecycle.test.js server/test/network-latency.test.js server/test/hit-divert-replay.test.js server/test/skill-input-order.test.js
+```
+
+
+## Single startup download
+
+On **2026-09-15**, the startup scope passed with the same retained extraction, isolated Chrome at 1280×800, disposable Henesys account, **500 ms HTTP delay and 250 ms per WebSocket direction**. The comparison uses the earlier [catalog-reuse baseline](#catalog-reuse-on-refresh); those measurements already captured the 397-request bottleneck. No extraction or competing performance run was needed.
+
+| Measurement | Individual-file baseline | Startup pack |
+| --- | ---: | ---: |
+| Cold startup to usable login | 54.918 s | **3.130 s** |
+| Generated-file requests during cold startup | 397 | **1** |
+| Retained-cache startup | 2.072 s | 2.036 s |
+| Generated-file requests after reload | 0 | 0 |
+| Enter to playable Henesys | 2.585 s | 2.585 s |
+| Additional generated-file requests during entry | 0 | 0 |
+
+The one transfer contained **32,183,852 compressed bytes (30.7 MiB)**. It installed **397 files / 83,796,030 bytes**, including the catalog, decoration and unchanged 395-file / 48,112,678-byte common preload. SHA-256 verification completed before login and before any game connection. Reload reused **427 verified cache hits**, downloaded **zero bytes**, and reopened indexed storage in **23.6 ms with zero header scans**. Login render residency remained **16 atlases / 89,535,960 decoded CPU and estimated GPU bytes**; temporary archive buffers are separate from those renderer metrics. The pack itself is not retained as a second persistent copy.
+
+Login took **2.911 s**, native walking through a **1.5-second traffic stall** took **7.769 s**, and reconnect took **2.357 s**. The connection survived the walking/stall stage, entry needed no additional generated files, and there were no browser errors. These figures isolate request latency on a local delayed relay; they do not measure internet bandwidth, packet loss or low-memory devices.
+
+| Identity | Value |
+| --- | --- |
+| Baseline browser | `6772f06cdc46a211e65a2c166b576170dc11eb02e2efb38d90ca49c679c90273` |
+| Packed browser, development scenario | `73a44e95172212cf29215349e3859a9d4ff961d9efbbfc13c039c9127597dd56` |
+| Final production browser | `48826bfa873edcc83cd58aefe78d43483d615df80a1b974c143445b92d20e9a3` |
+| Packed-run rules | `3cbf52793dba5bdc4b9abd35754d6a36a50c663e907b46db180efa1415eaf777` |
+| Asset build, both runs | `93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27` |
+| Catalog, both runs | `5bd1177cb1269b1d8f366451f4cf6c1603652dc76266d83146fa68f4a6d0e0ca` |
+| Startup pack | `ddab610eb895feb02eaac3c7c1202b868c858e550dfd43f963ab1e7eb4b6e349` |
+
+Fixture stages measured database/content **284 ms**, seed **103 ms**, server startup **1.074 s**, frontend startup **1.331 s**, browser acquisition **473 ms**, identity verification **1.397 s**, browser-context teardown **11 ms** and fixture teardown **103 ms**. Frontend startup includes about **818 ms** packing the retained common files. The final production build took **1.460 s**, including about **912 ms** packing; it compiled **944 modules** and published three bundles. These nested stages are not summed.
+
+Focused checks passed **47 tests / 206 assertions**, including one-transfer cache installation, reopened-cache reuse, individual repair of small gaps, fresh-server identity rejection, compressed/member corruption before cache writes, expanded/truncated bodies, path/size bounds, cancellation and quota loss. Changed JavaScript passed Prettier/ESLint. The documentation checker still reports **884 existing missing historical targets**. Raw reports and logs remain outside the repository.
+
+```sh
+bun server/tools/check-network-latency.js --scope startup --output /tmp/openms-startup-pack
+bun test client/test/online-startup-pack.test.js client/test/online-startup-preload.test.js client/test/stream-catalog.test.js client/test/stream-network.test.js client/test/online-loading.test.js
+bun client/tools/build-online.js
 ```

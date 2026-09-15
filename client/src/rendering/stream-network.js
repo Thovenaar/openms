@@ -197,6 +197,7 @@ export class Network extends ResourceCache {
       ...this.cacheSnapshot(),
       cacheHits: this.hits,
       downloadBytes: this.downloadBytes,
+      startupPack: this.startupPack ?? null,
       lastCancellationError: this.lastCancellationError ?? null,
     };
   }

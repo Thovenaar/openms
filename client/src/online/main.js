@@ -29,6 +29,7 @@ import {
 } from "./loading.js";
 import { prepareLoginStartup } from "./login-startup.js";
 import { preloadStartupAssets } from "./startup-preload.js";
+import { prepareStartupPack } from "./startup-pack.js";
 import { NativeOperationRefusal } from "./native-source.js";
 import { portalEntryContains } from "../world/portal-presentation.js";
 import { applyWorldContent } from "../../../shared/world-content.js";
@@ -620,6 +621,12 @@ function loginResourceFailure(error) {
 
 /** Catalog, shared UI bundles and login artwork, in their required order. */
 async function prepareLoginPage() {
+  network.startupPack = await prepareStartupPack(
+    network,
+    import.meta.OPENMS_STARTUP_PACK,
+    transport.config.catalogHash,
+    controller.signal,
+  );
   catalog = await loadCatalog();
   loading.decoration.loadCatalog(catalog, network);
   startupPreload = await preloadStartupAssets(
