@@ -239,3 +239,33 @@ test("a checkpoint failure retires only its lease holder and the shared field re
   f.world.step(1030);
   expect(ticks).toBe(1);
 });
+
+test("a watchdog kick completes retirement and releases the character instead of leaving it busy", async () => {
+  const probe = fixture();
+  const { actor, gateway, world } = probe;
+  gateway.auth.active = () => true;
+  actor.disconnectedAt = null;
+  actor.leaseRenewAt = 10000;
+  const pending = Promise.withResolvers();
+  const checkpoint = gateway.database.checkpoint;
+  gateway.database.checkpoint = async (current) => {
+    await pending.promise;
+    await checkpoint(current);
+  };
+  world.faultMotion(actor, { position: 200, velocity: 0, elapsedMs: 30 });
+  expect(actor.retiring).toBe(true);
+  gateway.maintainActor(actor, 10000);
+  expect(actor.retirement).toBeInstanceOf(Promise);
+  const retirement = actor.retirement;
+  gateway.maintainActor(actor, 10001);
+  expect(actor.retirement).toBe(retirement);
+  expect(probe.released).toEqual([]);
+  pending.resolve();
+  await retirement;
+  expect(probe.persisted).toHaveLength(1);
+  expect(probe.released).toEqual([actor.id]);
+  expect(gateway.accounts.has(actor.accountId)).toBe(false);
+  expect(gateway.characters.has(actor.id)).toBe(false);
+  expect(world.actors.has(actor.id)).toBe(false);
+  expect(probe.field.characters.has(actor.id)).toBe(false);
+});

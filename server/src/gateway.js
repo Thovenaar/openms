@@ -582,8 +582,9 @@ export class GameplayGateway {
 
   maintainActor(actor, now) {
     if (
-      !actor.retiring &&
-      (!this.auth.active(actor.session) ||
+      !actor.retirement &&
+      (actor.retiring ||
+        !this.auth.active(actor.session) ||
         (actor.deliveryError && !actor.pending) ||
         (actor.disconnectedAt !== null &&
           now - actor.disconnectedAt >= this.config.reconnectMs))

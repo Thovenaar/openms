@@ -85,6 +85,7 @@ import {
 } from "./field-diverts.js";
 import { serverOwnsPosition } from "./motion-authority.js";
 import { MotionWatchdog } from "./watchdog.js";
+import { adoptMotion } from "./motion-adoption.js";
 
 const MAX_FIELDS = 128;
 const MAX_ACTORS = 128;
@@ -138,36 +139,6 @@ function adoptionPermitted(actor, sim) {
   return !serverOwnsPosition(actor, sim);
 }
 
-/** Adoption: the client's own trajectory becomes the server's state. Grounded travel is
- *  derived from foothold-relative position, so an adopted world point is re-projected
- *  with the kernel's own attach math (009b1553); nothing else about the kernel changes. */
-function adoptMotion(sim, motion) {
-  const dx = motion.x - sim.x;
-  const dy = motion.y - sim.y;
-  sim.x = motion.x;
-  sim.y = motion.y;
-  sim.previousX += dx;
-  sim.previousY += dy;
-  sim.vx = motion.vx;
-  sim.vy = motion.vy;
-  if (sim.foothold) {
-    const segment = sim.foothold;
-    sim.position = Math.max(
-      0,
-      Math.min(
-        segment.length,
-        (sim.x - segment.x1) * segment.tx + (sim.y - segment.y1) * segment.ty,
-      ),
-    );
-    sim.speed = sim.vx * segment.tx + sim.vy * segment.ty;
-  }
-}
-
-/** Adopt the client's reported motion for the tick this sample drives. The report is the
- *  source of truth for its own position and velocity; the watchdog accumulates motion the
- *  kernel cannot explain and only a frequent or impossible pattern closes the session.
- *  An isolated deviation is still adopted, so a stall never rubber-bands an honest player.
- *  Never changes admission. */
 /** Discrepancy between a reported motion and the state it is compared against.
  *  Returns null for non-finite reports, which are refused without a watchdog verdict. */
 function motionExcess(state, motion, allowedPosition) {

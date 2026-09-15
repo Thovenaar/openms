@@ -8,6 +8,7 @@ Read a result together with its **source/catalog identity, fixture, action and l
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Online 100% movement                   | [Movement parity](movement-parity.md#scoped-verification)                                                            | Shared-kernel/server steps, browser prediction and checkpoint continuation.                             |
 | Slow-network gameplay                 | [Latency repair](#slow-network-gameplay-repair) | 500 ms RTT, delayed map assets, native walking/dialogue/travel and reconnect. |
+| Watchdog false kicks and stuck leases | [Contact and retirement repair](#watchdog-contact-and-retirement-repair) | Real map 10000 physics across a delivery gap; kicked-character cleanup. |
 | Startup asset preload                 | [Startup cache](#startup-asset-preload) | Cold/warm startup, map entry, cache residency and walking at 500 ms RTT. |
 | Browser cache capacity                | [Cache capacity and index](#browser-cache-capacity-and-index) | Quota-aware disk limits, retained metadata, interruption recovery and startup regression. |
 | Refresh without asset downloads       | [Catalog reuse](#catalog-reuse-on-refresh) | Fresh server hash, local catalog verification and zero retained-cache asset requests. |
@@ -238,4 +239,18 @@ Fixture stages were database/content **300 ms**, seed **114 ms**, server startup
 ```sh
 bun server/tools/check-network-latency.js --scope startup --output /tmp/openms-refresh-startup
 bun test client/test/stream-catalog.test.js client/test/stream-network.test.js client/test/online-loading.test.js client/test/online-startup-preload.test.js client/test/cache-policy.test.js
+```
+
+## Watchdog contact and retirement repair
+
+On **2026-09-15**, the reported map-10000 kick (`position:200`, `velocity:0`, `elapsedMs:30`, `allowedPosition:32`) led to two reproducible defects. A delayed position could be accepted, then projected back onto the server's old foothold during its next step. Separately, `faultMotion` set `actor.retiring`, which caused the gateway's old maintenance guard to skip starting retirement and leave the character/account lease busy indefinitely.
+
+The executable regression runs the real map **000010000** physics in independent client/server simulations for **240 quanta**. It withholds **50 reports / 1.5 seconds** while walking across adjacent ground segments, then sends neutral input. Before the fix, the second returning report faulted at tick 132: server X **225** versus client X **366**, a **141 px** discrepancy with zero velocity discrepancy and a 32 px allowance. This establishes the same false-kick mechanism, not a replay of the user's particular NPC dialogue.
+
+After contact adoption was repaired, all 240 quanta completed with **zero watchdog faults** and final X agreement within one pixel. Reports leaving ground or a ladder release stale references without moving to nearby terrain. Existing tests still reject an impossible single report and repeated suspicious reports; watchdog thresholds are unchanged. The separate retirement regression failed before the fix because no retirement promise existed after a kick. It now proves one cleanup owner, a checkpoint that waits for its pending completion, one lease release, and removal from field/account/character registries.
+
+**33 tests / 413 assertions passed** across motion adoption, lifecycle, delayed input admission, hit-divert replay and skill/input ordering. Changed-file Prettier/ESLint and the guarded production build (**942 modules**, source build `426f36ac29f490d84b901b7a3c9dcb5400ebb308a6cc3a3fb5b942d61a8008d8`) passed. The map manifest is `cd4d631f640a14529e426e0bdd9e06f4d4e90cfdbf8453d676b853d153959c8d`, from asset build `93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27`. Existing extraction was reused. Validation was scoped to these server/kernel regressions; no new browser or frame-rate claim is made. Raw logs remain outside the repository.
+
+```sh
+bun test server/test/motion-adoption.test.js server/test/lifecycle.test.js server/test/network-latency.test.js server/test/hit-divert-replay.test.js server/test/skill-input-order.test.js
 ```

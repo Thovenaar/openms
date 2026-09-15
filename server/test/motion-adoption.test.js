@@ -6,7 +6,12 @@ import { prepareActorSkills, disposeActorSkills } from "../src/field-skills.js";
 import { MotionWatchdog } from "../src/watchdog.js";
 import { createProfile } from "../../client/src/profile/profile-validation.js";
 import { createSimulation } from "../../client/src/physics/simulation.js";
-import { stepMotion, captureMotion } from "../../shared/motion.js";
+import {
+  stepMotion,
+  captureMotion,
+  restoreMotion,
+  createHeldInput,
+} from "../../shared/motion.js";
 import {
   MOTION_PLAUSIBILITY,
   PROTOCOL,
@@ -15,12 +20,14 @@ import {
 } from "../../shared/protocol.js";
 import { recordMotionDivert, takeMotionDiverts } from "../src/field-diverts.js";
 import { serverOwnsPosition } from "../src/motion-authority.js";
+import { adoptMotion } from "../src/motion-adoption.js";
+import { attachGround } from "../../client/src/physics/geometry.js";
 
 const content = await loadContent();
 
 /** Real field, real kernel and the real moveActor admission path; only persistence and
  *  mob population are isolated, so nothing about the wire contract is stubbed. */
-async function fixture() {
+async function fixture(mapId = 100000000) {
   const publications = [];
   const events = [];
   const world = new OnlineWorld({
@@ -33,7 +40,7 @@ async function fixture() {
       events.push({ event, detail });
     },
   });
-  const field = await world.fieldFor(100000000);
+  const field = await world.fieldFor(mapId);
   field.mobs = [];
   const saved = { mapId: field.manifest.id, x: 0, y: 0, facing: 1 };
   const profile = createProfile(saved);
@@ -129,6 +136,73 @@ function advance(probe, ticks) {
     probe.world.moveActor(probe.actor);
   }
 }
+
+test("walking across footholds through a delivery stall remains valid after input becomes neutral", async () => {
+  const probe = await fixture(10000);
+  try {
+    const { actor, world, field } = probe;
+    const client = createSimulation(field.manifest.physics, {
+      x: 0,
+      y: 0,
+      facing: 1,
+    });
+    restoreMotion(client, captureMotion(actor.simulation));
+    const held = createHeldInput();
+    for (let tick = 0; tick < 240; tick++) {
+      held.right = tick < 130;
+      const sample = input(actor, {
+        x: client.x,
+        y: client.y,
+        vx: client.vx,
+        vy: client.vy,
+      });
+      sample.horizontal = held.right ? 1 : 0;
+      // A 1.5-second delivery stall spans several adjacent ground segments.
+      if (tick < 80 || tick >= 130) world.input(actor, sample);
+      stepMotion(client, held);
+      advance(probe, 1);
+      expect(
+        actor.retiring,
+        JSON.stringify({
+          tick,
+          faults: faults(probe),
+          client: { x: client.x, y: client.y },
+          server: { x: actor.simulation.x, y: actor.simulation.y },
+        }),
+      ).not.toBe(true);
+    }
+    expect(faults(probe)).toEqual([]);
+    expect(Math.abs(actor.simulation.x - client.x)).toBeLessThan(1);
+  } finally {
+    dispose(probe);
+  }
+});
+
+test("admitted jumps and departures release stale ground and ladder contacts without snapping", async () => {
+  const probe = await fixture(10000);
+  try {
+    const sim = probe.actor.simulation;
+    place(probe.actor, 130, 305);
+    attachGround(sim, sim.geometry.byId.get(51));
+    adoptMotion(sim, { x: 130, y: 295, vx: 0, vy: -50 });
+    expect(sim.foothold).toBeNull();
+    expect(sim.y).toBe(295);
+    stepMotion(sim, createHeldInput());
+    expect(sim.y).toBeLessThan(295);
+    sim.ladder = sim.ladders[0];
+    sim.ladderId = sim.ladder.id;
+    sim.state = "ladder";
+    adoptMotion(sim, { x: 975, y: 200, vx: 0, vy: 0 });
+    expect(sim.ladder).not.toBeNull();
+    adoptMotion(sim, { x: 1025, y: 200, vx: 50, vy: 0 });
+    expect(sim.ladder).toBeNull();
+    expect(sim.ladderId).toBe(0);
+    expect(sim.x).toBe(1025);
+    expect(sim.foothold).toBeNull();
+  } finally {
+    dispose(probe);
+  }
+});
 
 test("a client-reported position inside the envelope becomes the server's state", async () => {
   const probe = await fixture();
