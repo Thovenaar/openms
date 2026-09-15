@@ -1,6 +1,7 @@
 {
   "name": "@openms/client",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "bun tools/dev-online.js",

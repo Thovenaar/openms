@@ -152,3 +152,13 @@ Supporting directories: [shared/](shared/) contains common protocol, movement an
 ## Documentation
 
 [Documentation site](https://docs.openms.dev/) · [Quick Start](docs/index.md) · [Server](docs/development.md#server) · [Client](docs/development.md#client) · [Custom content](docs/custom-content.md) · [Validation](docs/validation-method.md)
+
+## License
+
+Copyright (C) 2026 Tensorfish
+
+OpenMS is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License](LICENSE) as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+OpenMS is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the [GNU General Public License](LICENSE) for more details.
+
+MapleStory and its original artwork, audio and data remain the property of their respective owners. This license covers the OpenMS source code, not those assets.
