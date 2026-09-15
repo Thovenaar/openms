@@ -13,11 +13,8 @@ function port(value, fallback) {
   return result;
 }
 
-function configuredOrigin(environment, development, key = "OPENMS_ORIGIN") {
-  const origin = new URL(
-    environment[key] ??
-      (development ? "http://127.0.0.1:3102" : "https://invalid.invalid"),
-  );
+function configuredOrigin(environment, key = "OPENMS_ORIGIN") {
+  const origin = new URL(environment[key] ?? "http://127.0.0.1:3102");
   if (
     origin.origin !== origin.href.slice(0, -1) ||
     origin.username ||
@@ -25,14 +22,8 @@ function configuredOrigin(environment, development, key = "OPENMS_ORIGIN") {
   ) {
     throw new Error(`${key} must be an exact origin without a path`);
   }
-  if (
-    !development &&
-    (origin.protocol !== "https:" || origin.hostname === "invalid.invalid")
-  ) {
-    throw new Error(`Production requires an explicit HTTPS ${key}`);
-  }
-  if (development && !["http:", "https:"].includes(origin.protocol)) {
-    throw new Error(`Development ${key} must use HTTP or HTTPS`);
+  if (!["http:", "https:"].includes(origin.protocol)) {
+    throw new Error(`${key} must use HTTP or HTTPS`);
   }
   return origin.origin;
 }
@@ -45,15 +36,15 @@ function proofBits(value) {
   return Math.max(POW_MIN_BITS, Math.min(POW_MAX_BITS, bits));
 }
 
-function studioOrigin(environment, development) {
+function studioOrigin(environment) {
   if (!environment.OPENMS_STUDIO_ORIGIN) return null;
-  return configuredOrigin(environment, development, "OPENMS_STUDIO_ORIGIN");
+  return configuredOrigin(environment, "OPENMS_STUDIO_ORIGIN");
 }
 
-/** Explicit development mode allows HTTP origins; production requires HTTPS. */
+/** Origins stay exact in every mode; only host configuration decides transport. */
 export function serverConfig(environment = loadEnvironment("server")) {
   const development = environment.OPENMS_MODE === "development";
-  const origin = configuredOrigin(environment, development);
+  const origin = configuredOrigin(environment);
   const hostname = environment.OPENMS_HOST ?? "127.0.0.1";
   if (typeof hostname !== "string" || !hostname.trim()) {
     throw new Error(
@@ -77,7 +68,7 @@ export function serverConfig(environment = loadEnvironment("server")) {
   return Object.freeze({
     development,
     origin,
-    studioOrigin: studioOrigin(environment, development),
+    studioOrigin: studioOrigin(environment),
     hostname,
     port: port(environment.OPENMS_PORT, 3200),
     databaseUrl: environment.DATABASE_URL,

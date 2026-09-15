@@ -208,7 +208,27 @@ test("Studio can sign in on its own port but cannot enter gameplay endpoints", a
   ).toThrow("NOT_ALLOWED");
 });
 
-test("production Studio requires its exact configured HTTPS origin", () => {
+test("production accepts an explicit HTTP origin and a loopback default", () => {
+  expect(config("http://127.0.0.1:3102", false).origin).toBe(
+    "http://127.0.0.1:3102",
+  );
+  expect(config("http://192.168.1.20:3102", false).origin).toBe(
+    "http://192.168.1.20:3102",
+  );
+  expect(
+    serverConfig({
+      OPENMS_MODE: "production",
+      OPENMS_POW_BITS: "8",
+      OPENMS_RULES_HASH: "a".repeat(64),
+      DATABASE_URL: "postgres://unused.invalid/origin_test",
+    }).origin,
+  ).toBe("http://127.0.0.1:3102");
+  expect(() => config("ftp://127.0.0.1:3102", false)).toThrow(
+    "OPENMS_ORIGIN must use HTTP or HTTPS",
+  );
+});
+
+test("production Studio uses its exact configured origin", () => {
   const auth = new SessionAuthority(
     config("https://game.example", false, "https://studio.example"),
     null,
@@ -225,9 +245,13 @@ test("production Studio requires its exact configured HTTPS origin", () => {
       "NOT_ALLOWED",
     );
   }
+  const plain = config("https://game.example", false, "http://studio.example");
+  expect(plain.studioOrigin).toBe("http://studio.example");
   expect(() =>
-    config("https://game.example", false, "http://studio.example"),
-  ).toThrow("HTTPS OPENMS_STUDIO_ORIGIN");
+    new SessionAuthority(plain, null).origin(
+      request("http://studio.example:3103", "session"),
+    ),
+  ).toThrow("NOT_ALLOWED");
   expect(() =>
     config(undefined, true, "http://localhost:3103/studio/"),
   ).toThrow("OPENMS_STUDIO_ORIGIN");
