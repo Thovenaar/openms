@@ -139,7 +139,11 @@ export class OnlineUI {
   profileHooks() {
     return {
       createProfileControls: (owner) =>
-        this.developer() ? new ProfileControls(owner) : profileEditorNotice(),
+        import.meta.OPENMS_DEVELOPMENT === false
+          ? null
+          : this.developer()
+            ? new ProfileControls(owner)
+            : profileEditorNotice(),
       onProfileEdit: (patch, options) => this.editProfile(patch, options),
       onConjureItem: ({ itemId, quantity }) =>
         this.develop({ kind: "conjure", itemId, quantity }),

@@ -46,7 +46,10 @@ export class LifeSystem {
       this.byId.set(record.id, slot);
     }
     this.mapleTV = new MapleTVSystem(scene, this.byId);
-    this.controls = new LifeControls(this, this.slots);
+    this.controls =
+      import.meta.OPENMS_DEVELOPMENT === false
+        ? null
+        : new LifeControls(this, this.slots);
     this.refresh();
   }
 
@@ -329,7 +332,7 @@ export class LifeSystem {
     const slot = this.byId.get(id);
     if (!slot) throw new Error("Unknown life interaction preview");
     this.selected = slot;
-    this.controls.showSelection(id);
+    this.controls?.showSelection(id);
     return false;
   }
 
@@ -416,7 +419,7 @@ export class LifeSystem {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.controls.destroy();
+    this.controls?.destroy();
     this.mapleTV.destroy();
     this.world?.destroy();
     for (const slot of this.slots) {

@@ -154,7 +154,7 @@ function makeControls() {
   status.className = "hint";
   status.textContent = "Click the game or enable audio to start playback.";
   root.append(status);
-  document.querySelector("#audio-controls").append(root);
+  document.querySelector("#audio-controls")?.append(root);
   return { root, select, status };
 }
 

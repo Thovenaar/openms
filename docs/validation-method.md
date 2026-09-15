@@ -53,14 +53,16 @@ Open `http://127.0.0.1:3102`. The client development server builds the online en
 For a production bundle:
 
 ```sh
-bun run client:build
+bun run client:prod:build
 ```
 
-The build verifies the current catalog/rules identities, compiles the guarded browser graph and writes `client/dist/online/` plus deployment metadata. It does not regenerate assets.
+The build verifies the current catalog/rules identities, compiles the guarded browser graph and writes the deployable shell, bundles and deployment metadata to `client/dist/online/site/`. Its HTML excludes the development sidebar and its startup skips inspection controls; `client:dev` retains both. It does not regenerate assets.
 
 ## Online browser scenarios
 
 Domain checks under `server/tools/check-*.js` own disposable databases, server/client listeners, accounts and browser contexts. Scenario modules under `client/tools/scenarios/online-*.js` operate through native controls and received state. Reuse an existing browser when practical, but never share a mutable game session between checks.
+
+For production client presentation checks, pass `productionClient: true` to `isolatedOnlineCheck`. This compiles and serves the production shell through the fixture's local HTTP/API proxy, including real WebSocket connections. Its disposable backend still uses development authentication; this verifies browser behavior, not public HTTPS deployment.
 
 Every browser report should identify the served source, rules and asset catalog. A stale source or mismatched catalog is a failed check. Use fresh module processes after editing scenario code so an older imported module cannot be mistaken for current evidence.
 

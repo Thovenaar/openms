@@ -742,7 +742,7 @@ aside.inspection-chrome {
   margin: 0;
   min-height: 36px;
 }
-.inspection-chrome .sr-only {
+.sr-only {
   position: absolute;
   width: 1px;
   height: 1px;

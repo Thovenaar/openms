@@ -328,7 +328,7 @@ async function publishNative(snapshot) {
     input.setBindings(ui.bindings);
     boundBindings = ui.bindings;
   }
-  inspection.update(snapshot);
+  inspection?.update(snapshot);
   await current?.setNativePresentation(ui.quests);
 }
 
@@ -557,6 +557,10 @@ function initializeInterfaces() {
     audio: ui.audio,
     hooks: { report, releaseField },
   });
+  if (import.meta.OPENMS_DEVELOPMENT !== false) initializeInspection();
+}
+
+function initializeInspection() {
   inspection = new OnlineInspection({
     transport,
     prediction,
@@ -637,7 +641,7 @@ function startPresentation() {
   // remaining source of uneven presented speed. Still a fixed scheduler, never RAF.
   clock = setInterval(advance, 4);
   demand = setInterval(updateDemand, 200);
-  inspectionTimer = setInterval(inspect, 500);
+  if (inspection) inspectionTimer = setInterval(inspect, 500);
   frame = requestAnimationFrame(draw);
 }
 function browserError(event) {

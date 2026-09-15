@@ -120,7 +120,16 @@ Stop/start the database explicitly with `podman compose -f infra/compose.yaml st
 
 ### Production
 
-Apply database updates with `bun run migrate --database-url URL`, build the browser client with `bun run client:build`, then launch the backend with `bun run server:start`. The development launcher and bootstrap accounts are not production entry points.
+Apply database updates with `bun run migrate --database-url URL`, then build and start from the repository root:
+
+```sh
+bun run client:prod:build
+bun run server:prod
+```
+
+The client build writes **`client/dist/online/site/`**, with no development sidebar or toggle. Login, gameplay, native windows and audio remain available; `client:dev` retains the sidebar. The existing `client:build` command produces the same production output. Publish the entire `site/` directory, mount the existing `client/public/generated/` tree at `/generated/`, and follow `site/deployment.json` for resource hashes and API/worker routing.
+
+`server:prod` forces production mode, including when `OPENMS_MODE=development` is inherited. Configure `DATABASE_URL`, the exact HTTPS `OPENMS_ORIGIN`, and the reviewed `OPENMS_RULES_HASH` before starting. Set `OPENMS_STUDIO_ORIGIN` to Studio's exact HTTPS origin, or an empty value to disable Studio access; the checked-in HTTP development origin is unsuitable. This command checks migrations and starts the server without creating or resetting development accounts.
 
 | Gate             | Required deployment behavior                                                                                                                                                         |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -128,7 +137,7 @@ Apply database updates with `bun run migrate --database-url URL`, build the brow
 | Studio           | Separate HTTPS origin routes to `bun run studio:start`; configure exact `OPENMS_STUDIO_ORIGIN` on the backend. See [Studio settings](server/studio.md#build-routing-and-validation). |
 | Runtime pin      | Set `OPENMS_RULES_HASH` to the verified 64-character lowercase SHA-256 rules identity.                                                                                               |
 | Configuration    | Required production `DATABASE_URL` and exact public HTTPS `OPENMS_ORIGIN`; securely provision accounts and persistence.                                                              |
-| Static files     | Publish `index.html`, styles, `dist/online/`, and generated content; map `/dist/atlas-worker.js` to the worker output.                                                               |
+| Static files     | Publish `client/dist/online/site/` plus the generated content mount; use `deployment.json` for exact resource paths.                                                               |
 | Session security | Secure HttpOnly SameSite cookies, CSRF checks and one-use tickets; development endpoint absent.                                                                                      |
 | Recovery         | Explicit migration, backup/recovery and [adversarial/durability proof](server/protocol.md#implementation-order-and-required-proof).                                                  |
 

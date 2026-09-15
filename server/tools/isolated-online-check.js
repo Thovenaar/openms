@@ -15,6 +15,7 @@ export async function isolatedOnlineCheck({
   run,
   output,
   studio = false,
+  productionClient = false,
 }) {
   const environment = loadEnvironment("server");
   const name = `openms_check_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -49,7 +50,7 @@ export async function isolatedOnlineCheck({
       throw error;
     }
     owner.runtime = await startServer({ config, content, database });
-    await startFrontends(owner, config);
+    await startFrontends(owner, config, productionClient);
     owner.browser = await launchBrowser();
     const restart = async () => {
       await owner.runtime.close();
@@ -74,10 +75,11 @@ async function prepareDatabase(url) {
   return { content, database };
 }
 
-async function startFrontends(owner, config) {
+async function startFrontends(owner, config, productionClient) {
   owner.client = await startOnlineDevServer({
     port: 3197,
     upstream: "http://127.0.0.1:3297",
+    production: productionClient,
   });
   if (config.studioOrigin) {
     owner.studio = await startStudioServer({

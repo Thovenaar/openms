@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { measureStage } from "./native-evidence.js";
 import { loadContent } from "../../server/src/content.js";
 import { onlineBuildGraph } from "./online-build-graph.js";
+import { onlineShell } from "./online-shell.js";
 import {
   emitOnlineDeployment,
   publishBrowserOutputs,
@@ -108,7 +109,7 @@ export async function buildOnlineBrowser({
       `${identity}\0online\0${development}\0${content.rulesHash}\0${content.catalogHash}`,
     )
     .digest("hex");
-  const shell = await onlineShellInputs(content);
+  const shell = await onlineShellInputs(content, development);
   const graph = onlineBuildGraph(root);
   progress?.(
     "Online browser: compiling verified source without an extraction rebuild",
@@ -148,11 +149,16 @@ export async function buildOnlineBrowser({
   };
 }
 
-async function onlineShellInputs(content) {
+async function onlineShellInputs(content, development) {
   const shell = new Map([
     [
       "/index.html",
-      new Uint8Array(await Bun.file(resolve(root, "index.html")).arrayBuffer()),
+      new TextEncoder().encode(
+        await onlineShell(
+          await Bun.file(resolve(root, "index.html")).text(),
+          development,
+        ),
+      ),
     ],
   ]);
   for (const [url, path] of [

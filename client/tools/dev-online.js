@@ -246,7 +246,7 @@ export async function startOnlineDevServer(options = {}) {
   log("development.start", config);
   const identity = await logStage(log, "browser.build", () =>
     buildOnlineBrowser({
-      development: true,
+      development: !options.production,
       progress:
         options.progress ??
         ((message) => console.log(logPrefix("client"), message)),
