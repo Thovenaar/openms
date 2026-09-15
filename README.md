@@ -1,5 +1,7 @@
 # openms.dev
 
+NOTE: THIS PROJECT IS STILL IN DEVELOPMENT PHASE AND WILL UNDERGO SIGNIFICANT CHANGES.
+
 A browser reconstruction of MapleStory v83, built with JavaScript, PixiJS, Bun and PostgreSQL. It uses original WZ artwork and recovered client behavior, with [modern combat formulas](docs/combat-formulas.md) applied to the v83 content.
 
 ## Quick Start
@@ -34,10 +36,10 @@ Run the remaining commands from this **`openms` directory**. Local settings are 
 curl --fail --location --output ../Maplestory-Assets.zip \
   http://bucket.openms.dev/Maplestory-Assets.zip
 unzip -n ../Maplestory-Assets.zip -d .. -x '__MACOSX/*'
-bun extract --assets ../Maplestory-Client
+bun extract --assets [DIR]
 ```
 
-Wait for **`Extraction succeeded`** before continuing. The ZIP creates `Maplestory-Client/` beside `openms/`; extraction writes the prepared content to `client/public/generated/`. If you already have the original assets, point `--assets` at the directory containing the WZ files.
+Wait for **`Extraction succeeded`** before continuing, might take a few minutes, this is to optimize the assets for the web. Extraction writes the prepared content to `client/public/generated/`. If you already have the original assets, point `--assets` at the directory containing the WZ files.
 
 Gameplay definitions and reference SQL are included in the repository. No separate server-source checkout is needed. Reuse the extracted assets on later launches.
 
