@@ -56,10 +56,10 @@ position ownership.
 
 Known limitations:
 
-- The client still freezes prediction after `STALE_OBSERVATION_MS` (1 s) without authenticated
-  timing, so "walking around while disconnected" is bounded by that window; the resume handoff
-  reports wherever the client actually stopped. Continuing local prediction across a longer gap
-  is a separate change.
+- After five seconds without authenticated movement timing, the client requests a fresh
+  snapshot. Prediction can stop sooner at its bounded input horizon or when the connection
+  closes; five seconds is a recovery threshold, not a promise of continued movement.
+  The resume handoff reports wherever the client actually stopped.
 - Movement skills the browser does not simulate (teleport, rush, dash, wings) remain
   server-owned and arrive as `authoritative` checkpoints at the 30 ms field cadence rather
   than as locally predicted motion.
@@ -71,6 +71,12 @@ Known limitations:
 ```sh
 bun test client/test/divert-alignment.test.js server/test/hit-divert-replay.test.js server/test/motion-adoption.test.js
 ```
+
+## Latency and input timing
+
+The most recently received server tick is already one network leg old. [Input timing](../client/src/online/input-timing.js) estimates when a sample will reach the server, then bounds the client horizon by the measured round trip plus eight ticks, capped below the 128-sample history capacity. The server independently admits samples within eight ticks of its **current** field tick. Applying that same eight-tick cap to an old received tick would make ordinary 500 ms RTT traffic arrive too late.
+
+Late or prematurely scheduled samples are acknowledged and retired without disconnecting the session. Brief delivery bursts and outlying heartbeat measurements have separate bounded handling. Active movement observations and impulses continue during same-field artwork refreshes; a long initial load obtains a fresh baseline before enabling input. These are transport policies; the recovered 30 ms physics step and movement coefficients remain unchanged. [Protocol limits](server/protocol.md#slow-connections-and-presentation-recovery) define the bounds, and the [500 ms RTT check](validation.md#slow-network-gameplay-repair) records the exercised workload.
 
 ## Skill snapshot continuity
 

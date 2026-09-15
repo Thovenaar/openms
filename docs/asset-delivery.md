@@ -63,6 +63,14 @@ Login startup is the one other fullscreen phase. Until the login page's own artw
 
 The original mushroom loading decoration is optional presentation over real asynchronous work. It cannot grant readiness, hide a failed request or invent progress. A required login resource failure, or a bootstrap failure before the login page exists, keeps the loading page with an explicit message and no progress until the page is reloaded. [Streaming](streaming.md) owns residency and teardown, while [scene contracts](scene-contract.md) own manifest semantics.
 
+### Slow downloads and recovery
+
+A complete validated server baseline is retained and acknowledged before its artwork finishes. The [transport presentation queue](../client/src/online/transport-presentation.js) prepares the scene separately, so downloads cannot block heartbeat replies, command receipts or resume-session retention. Input starts after presentation is ready; an old baseline is refreshed first. Same-field artwork refreshes keep the installed movement simulation receiving observations and impulses.
+
+Map preparation has its own [protocol deadline and recovery budget](server/protocol.md#slow-connections-and-presentation-recovery). Individual downloads also retain the [network limits](../client/src/rendering/stream-deadline.js): 30 seconds without progress and 300 seconds total, subject to earlier cancellation by their scene owner. These limits measure different work; a stalled file is not evidence that the WebSocket died.
+
+Failed streamed regions rebuild through a replacement scene. Travel waits for destination preparation before opening its database transaction, then revalidates and commits the fare or other cost. A disconnect cancels the server's preparation wait; a pre-commit failure does not charge the player. See the [transition contract](server/protocol.md#map-transition-state-machine), [recovery steps](development.md#slow-connections) and [repeatable latency scenario](validation-method.md#slow-network-gameplay-check).
+
 ## Evidence and historical material
 
 [Extraction results](extraction.json), [archive scan](archive-scan.json), [asset evidence](asset-evidence.md) and [original-resource audit](original-resource-audit.md) retain current input and output evidence. Earlier offline installation, CacheStorage and stopped-origin measurements remain under the documentation archive and `docs/offline-validation/`; they describe retired builds and are not current runtime support.

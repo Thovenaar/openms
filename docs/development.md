@@ -125,8 +125,25 @@ Both launchers write structured development logs to **stdout**, including startu
 | Backend cannot connect to PostgreSQL       | Check Compose health and `DATABASE_URL`; no in-memory fallback exists.                                                                                                              |
 | A second tab cannot start                  | One game owner per browser storage origin is intentional. Close the owner or use another isolated browser profile.                                                                  |
 | Connection loss or server restart          | Transient reconnect has a 30 s grace; commands freeze. Authentication is process-local, so backend restart requires login again.                                                    |
+| Slow map loading, delayed NPC pages or walking disconnects | Follow [Slow connections](#slow-connections) to distinguish a transport failure from artwork preparation and retain useful diagnostics. |
 
 Stop/start the database explicitly with `podman compose -f infra/compose.yaml stop` / `start`. Ordinary shutdown does not remove the persistent volume.
+
+#### Slow connections
+
+Map downloads run independently of connection maintenance. A loading screen can remain visible while the socket is healthy. Movement accounts for measured network delay, and ordinary NPC pages include their text in the server response. Page changes still require the server's round trip and processing time. The [protocol](server/protocol.md#slow-connections-and-presentation-recovery) defines separate connection, presentation and recovery limits.
+
+| Observation | Meaning and next step |
+| --- | --- |
+| `CONNECT_TIMEOUT` | Connection establishment or initial baseline delivery missed its client deadline. Compare browser and server timestamps; artwork preparation uses a separate deadline. |
+| `HEARTBEAT_TIMEOUT` | The client stopped receiving valid server traffic. Check backend availability and the WebSocket path through the proxy. |
+| `PRESENTATION_FAILED` or an asset-download error | Inspect the failed resource and its HTTP status. Presentation recovery retains the socket and uses a bounded retry budget. |
+| `CHARACTER_BUSY` after an interrupted entry | Once `welcome` has supplied a play session, retry from the same page to retain it, including when no baseline was received. If the character-selection screen shows a connection-loss dialog, dismiss it before clicking **Enter the world**. A different live owner still prevents entry. |
+| Server log says `code:1000, reason:"resynchronize"` | This generic client-close reason appears in older builds and does not identify the underlying cause. Updated clients send a bounded failure reason; capture the browser message as well when a proxy omits close details. |
+
+For a reproducible failure, retain the UTC timestamps, source/rules/catalog identities, map ID, whether the interruption occurred during loading or movement, browser error, and the server's `socket.attached`, `socket.closing` and `socket.closed` lines when present. Include the failing asset URL/status for loading errors. [Production diagnostics](#production) are available without enabling development mode. The [isolated latency check](validation-method.md#slow-network-gameplay-check) exercises delayed assets, movement, dialogue, travel and reconnect with disposable state.
+
+After installing the latency fixes, restart both the backend and game frontend, reload, and sign in again so their rules identities match. Reuse the existing generated assets; this runtime update does not require extraction or a database reset. Normal transient recovery remains bounded by the reconnect grace, and a backend restart requires a new login.
 
 ### Production
 
