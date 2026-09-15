@@ -411,7 +411,8 @@ const appearance = record({
 function playerEntityFragments(value) {
   return (
     value.kind === "player" ||
-    (value.expression === undefined &&
+    (value.playerMotion === undefined &&
+      value.expression === undefined &&
       value.seat === undefined &&
       value.combatState === undefined &&
       value.skillVisuals === undefined &&
@@ -441,6 +442,17 @@ const entity = record(
     action: animation,
     actionStartTick: revision,
     appearance: nullable(appearance),
+    playerMotion: optional(
+      record({
+        state: enumeration("ground", "air", "ladder", "swim", "fly"),
+        gravity: number(0, 1000000, false),
+        fallSpeed: number(0, 1000000, false),
+        ignoredFoothold: u32,
+        ladder: nullable(
+          record({ x: coordinate, top: coordinate, bottom: coordinate }),
+        ),
+      }),
+    ),
     dropMotion: optional(
       record({
         state: enumeration("waiting", "launching", "falling", "grounded"),

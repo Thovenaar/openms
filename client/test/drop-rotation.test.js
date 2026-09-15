@@ -4,6 +4,7 @@ import {
   launchDrop,
   stepDropFlight,
 } from "../src/world/drop-motion.js";
+import { DropPresentationMotion } from "../src/online/drop-presentation-motion.js";
 import { SceneDrops } from "../src/online/scene-drops.js";
 
 test("original clockwise300ms cycle remains continuous across fall and resets at landing", () => {
@@ -24,7 +25,7 @@ test("original clockwise300ms cycle remains continuous across fall and resets at
   expect(dropRotation(drop, 10)).toBe(0);
 });
 
-test("online artwork advances between90ms publications, wraps forward, freezes on pause and never rotates mesos", () => {
+test("online artwork uses its advancing visual clock, wraps forward and freezes when that clock holds", () => {
   const owner = { paused: false };
   const drops = new SceneDrops(owner);
   const animation = {
@@ -33,24 +34,35 @@ test("online artwork advances between90ms publications, wraps forward, freezes o
     current: { geometry: [{ x: -12, y: -24, width: 24, height: 24 }] },
     setPosition() {},
   };
+  const slot = { itemId: 2000000 };
+  launchDrop(slot, { x: 0, y: 0 }, { x: 25, y: 0 });
+  slot.state = "launching";
+  slot.age = slot.phaseAge = 270;
+  stepDropFlight(slot);
+  const entity = {
+    kind: "drop",
+    templateId: 2000000,
+    dropInfo: {},
+    position: { x: slot.x, y: slot.y },
+    dropMotion: slot,
+  };
   const view = {
     animation,
-    observedAge: 15,
-    entity: {
-      templateId: 2000000,
-      dropInfo: {},
-      dropMotion: { state: "launching", age: 270, y: 0 },
-    },
+    entity,
+    motion: new DropPresentationMotion(entity, 1, 0),
   };
-  drops.observe(view, 0, 0);
+  view.motion.sample(15);
+  drops.observe(view);
   expect(animation.container.rotation).toBeCloseTo(Math.PI * 1.9);
-  view.observedAge = 45;
-  drops.observe(view, 0, 0);
+  view.motion.sample(45);
+  drops.observe(view);
   expect(animation.container.rotation).toBeCloseTo(Math.PI * 0.1);
+  const rotation = animation.container.rotation;
   owner.paused = true;
-  drops.observe(view, 0, 0);
-  expect(animation.container.rotation).toBeCloseTo(Math.PI * 1.8);
-  view.entity.templateId = 0;
-  drops.observe(view, 0, 0);
+  drops.observe(view);
+  expect(animation.container.rotation).toBe(rotation);
+  entity.templateId = 0;
+  view.motion.sample(60);
+  drops.observe(view);
   expect(animation.container.rotation).toBe(0);
 });

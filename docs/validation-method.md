@@ -102,6 +102,12 @@ The tool samples the presented player and authoritative prediction state while r
 
 `bun test client/test/combat-latency.test.js server/test/attack-input.test.js server/test/field-combat.test.js` checks bounded motion/correction, local clocks and echo ownership, projectile refusal/teardown, expired movement with a retained attack edge, and immediate server action identity. Reuse extracted assets; this check does not require extraction.
 
+### Remote player and drop check
+
+`bun server/tools/check-remote-motion.js --output /tmp/openms-remote-motion` uses two isolated native browser contexts on map 50000 at 500ms RTT. One player walks and jumps while the observer samples rendered movement through a 450ms traffic pause. A native development drop command then creates an item; the observer samples its flight/hover through a 1.2-second pause. The check requires continued drop motion between publications, no projection below the fixture's landing floor, bounded peer frame displacement, ready connections and matching source identity. `--baseline` records the same workload without repaired-behavior assertions. Raw reports and at most 600 frame samples per stage stay outside the repository.
+
+`bun test client/test/remote-presentation.test.js server/test/remote-presentation.test.js client/test/drop-rotation.test.js` covers original drop equations, late-packet age, fade, peer slopes/jump landing/ladder/buoyant modes, teleport handling, monotonic attack phase and the compact wire hint. This scope reuses extraction. It does not exercise pickup admission, reconnect persistence, all special movement skills or original Windows visual parity.
+
 ### Timing the feedback loop
 
 When timing is in scope, separate source/rules/catalog checks, browser acquisition, readiness, actions and teardown. Parent and child timings overlap, so do not sum hierarchical durations. Compare serial and concurrent runs only with identical scenarios and identities, and do not run competing performance probes simultaneously.

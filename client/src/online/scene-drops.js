@@ -1,12 +1,6 @@
 import { centerDrop } from "../world/drop-artwork.js";
-import {
-  collectDrop,
-  dropDrawY,
-  dropRotation,
-  DROP_MOTION,
-} from "../world/drop-motion.js";
+import { collectDrop, dropDrawY, DROP_MOTION } from "../world/drop-motion.js";
 import { DROP_POLICY } from "../world/drop-rules.js";
-import { PROTOCOL } from "../../../shared/protocol.js";
 
 const MAX_PICKUP_PRESENTATIONS = 4096;
 
@@ -59,29 +53,18 @@ export class SceneDrops {
   constructor(owner) {
     this.owner = owner;
     this.pickups = new Map();
-    this.motion = { state: "waiting", groundY: 0, phaseAge: 0, y: 0 };
   }
 
-  observe(view, x, y) {
+  observe(view) {
     const animation = view.animation;
-    const motion = view.entity.dropMotion;
-    animation.container.visible = motion?.state !== "waiting";
-    // Server samples are90ms apart; using only their angle aliases a300ms spin.
-    // Advance artwork only, bounded to one publication interval; authority owns landing.
-    animation.container.rotation = dropRotation(
-      motion,
-      this.owner.paused ? 0 : Math.min(view.observedAge, PROTOCOL.TICK_MS * 3),
-      view.entity.templateId !== 0,
-    );
-    animation.container.alpha = motion?.alpha ?? 1;
-    animation.container.eventMode = view.entity.dropInfo?.disappearing
+    const motion = view.motion;
+    animation.container.visible = motion.visible;
+    animation.container.rotation = motion.rotation;
+    animation.container.alpha = motion.alpha;
+    animation.container.eventMode = view.entity.dropInfo.disappearing
       ? "none"
       : "static";
-    this.motion.state = motion.state;
-    this.motion.groundY = motion.groundY;
-    this.motion.phaseAge = motion.phaseAge;
-    this.motion.y = y;
-    animation.setPosition(x, dropDrawY(this.motion, centerDrop(animation)));
+    animation.setPosition(motion.x, motion.renderY(centerDrop(animation)));
   }
 
   pickup(event) {

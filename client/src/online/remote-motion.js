@@ -13,7 +13,8 @@ export function remoteTravelMs(age) {
 
 /** Server XY/velocity remain untouched. One preallocated pose blends each new observation. */
 export class RemoteMotion {
-  constructor(entity, tick, now) {
+  constructor(entity, tick, now, trajectory = null) {
+    this.trajectory = trajectory;
     this.x = entity.position.x;
     this.y = entity.position.y;
     this.offsetX = this.offsetY = 0;
@@ -34,11 +35,26 @@ export class RemoteMotion {
     this.tick = tick;
     this.received = now;
     this.foothold = foothold;
+    this.trajectory?.observe(entity);
     this.sample(now);
   }
   sample(now) {
     const age = Math.max(0, now - this.received);
     const travel = remoteTravelMs(age) / 1000;
+    this.project(travel);
+    const correction = Math.min(1, age / CORRECT_MS);
+    const remaining = 1 - correction * correction * (3 - 2 * correction);
+    this.x = this.targetX + this.offsetX * remaining;
+    this.y = this.targetY + this.offsetY * remaining;
+    return this;
+  }
+  project(travel) {
+    if (this.trajectory?.enabled) {
+      const point = this.trajectory.sample(travel);
+      this.targetX = point.x;
+      this.targetY = point.y;
+      return;
+    }
     const entity = this.entity;
     const moving = entity.mobState?.hp !== 0;
     let x = entity.position.x + (moving ? entity.velocity.x * travel : 0);
@@ -53,17 +69,21 @@ export class RemoteMotion {
         floor.y1 +
         ((x - floor.x1) * (floor.y2 - floor.y1)) / (floor.x2 - floor.x1);
     }
-    const correction = Math.min(1, age / CORRECT_MS);
-    const remaining = 1 - correction * correction * (3 - 2 * correction);
-    this.x = x + this.offsetX * remaining;
-    this.y = y + this.offsetY * remaining;
-    return this;
+    this.targetX = x;
+    this.targetY = y;
   }
   relocate(x, y, now) {
-    this.entity = { ...this.entity, position: { x, y } };
+    this.entity = {
+      ...this.entity,
+      position: { x, y },
+      velocity: { x: 0, y: 0 },
+    };
     this.x = x;
     this.y = y;
     this.offsetX = this.offsetY = 0;
     this.received = now;
+    // A relocation gives no destination contact or velocity. Hold until a full state arrives.
+    this.foothold = null;
+    if (this.trajectory) this.trajectory.enabled = false;
   }
 }

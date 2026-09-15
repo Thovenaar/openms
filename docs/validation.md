@@ -376,3 +376,53 @@ bun server/tools/check-combat-latency.js --output /tmp/openms-combat-latency
 bun test client/test/combat-latency.test.js client/test/local-feedback.test.js client/test/sync-alignment.test.js client/test/online-protocol.test.js client/test/skill-actor-replacement.test.js client/test/skill-projectile-chase.test.js client/test/weapon-usage.test.js server/test/attack-input.test.js server/test/field-combat.test.js server/test/skill-visual-replay.test.js server/test/network-latency.test.js server/test/skill-input-order.test.js server/test/motion-adoption.test.js server/test/retired-combat-view.test.js
 bun client/tools/build-online.js
 ```
+
+## Remote players and drops under latency
+
+On **2026-09-16**, the [remote motion check](validation-method.md#remote-player-and-drop-check) used two disposable native browser clients on map **50000**, with **500ms HTTP delay and 250ms per WebSocket direction**. The mover walked/jumped during a **450ms traffic pause**, then created an item through the native development control. The observer sampled the item's flight/hover during a **1.2-second pause**. Both runs reused the same extraction; no competing probes ran.
+
+| Observation | Before | After |
+| --- | ---: | ---: |
+| Drop moving frames over 180ms after its last changed observed XY | **0** | **26** |
+| Drop rendered Y range, landing floor at Y335 | 320–419 (below floor) | **240–324** |
+| Maximum drop displacement between sampled frames | 14px | 12px |
+| Peer moving frames over 180ms after last changed observed XY | 32 | **64** |
+| Maximum peer displacement between sampled frames | 11.402px | **10px** |
+
+The after run passed with no browser errors and both connections ready. Generic foothold projection had pulled flying drops below their floor; the dedicated trajectory now preserves flight and hover during held updates. Native frame counts are diagnostics from two short runs with varying arrival/render timing, not matched FPS or percentage-speedup claims. Both peer runs already met the 20px frame-displacement threshold. Deterministic tests establish the new peer gravity/landing, connected slopes, ladder limits, gradual correction and mode handling rather than inferring those properties from counts alone.
+
+| Measured stage | Before | After |
+| --- | ---: | ---: |
+| Identity | 1.417s | 1.401s |
+| Mover login/readiness | 17.129s | 17.141s |
+| Observer login/readiness | 17.674s | 17.619s |
+| Peer action/sample | 3.680s | 3.750s |
+| Drop action/sample | 4.487s | 4.461s |
+| Context teardown | 74ms | 66ms |
+| Fixture database/content | 319ms | 288ms |
+| Fixture seed | 159ms | 158ms |
+| Server startup | 1.213s | 1.078s |
+| Frontend startup | 1.484s | 1.436s |
+| Browser acquisition | 505ms | 571ms |
+| Fixture teardown | 141ms | 126ms |
+
+Stage timings include deliberate waits; nested timings are not summed. These local relay measurements do not establish internet bandwidth, all special movement skills, pickup admission or Windows visual parity.
+
+| Identity | Value |
+| --- | --- |
+| Baseline browser | `e1f2b8704a1fb7e91229146c13e5afe5fe377bba1112a9c49b25d77c969a6068` |
+| Baseline rules | `934aa1e7accc8e55bae900d10d40f3e0b252546632236e914e4c5dccd86a1b8c` |
+| Measured after browser | `356708c71eb4b888326814f7e47070bcf8fb6d033d5be9cd2672d5d220410b43` |
+| Measured after rules | `dae9fed0101b47b05f9827558f00a5f445fd5eb409f05b8652de68770ddbc632` |
+| Final production browser | `1ae28ed89bae4a23bab161e1a937cccf629be60632189b72678ddd316cde15d6` |
+| Final production rules | `9c5a6595a58f15149baecc5bd70e62266385c6936cad911e163d5a5014095689` |
+| Asset build, both runs | `93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27` |
+| Catalog, both runs | `5bd1177cb1269b1d8f366451f4cf6c1603652dc76266d83146fa68f4a6d0e0ca` |
+
+After the browser run, explicit relocation was corrected to discard stale velocity/contact and hold its destination until fresh state. Its targeted regression passed; ordinary walk/drop browser actions were not rerun for this separate event path. The final eight affected suites passed **43 tests / 506 assertions** in **1.432s**, including 303 original-equation comparisons across three landing heights, delayed drop clocks/fades, unchanged source observations, remote animation phase, teleport continuation and the compact wire fragment. Changed JavaScript passed Prettier and ESLint with zero warnings. The final guarded production build compiled **964 modules** and three bundles in **1.411s**, including **890ms** packing retained assets; no extraction ran. The documentation checker retains **884 existing missing historical targets** with no missing headings. Raw reports and logs remain outside the repository under the [artifact policy](validation-method.md#artifact-policy).
+
+```sh
+bun server/tools/check-remote-motion.js --output /tmp/openms-remote-motion
+bun test client/test/remote-presentation.test.js server/test/remote-presentation.test.js client/test/combat-latency.test.js client/test/drop-rotation.test.js client/test/drop-system.test.js server/test/field-drops.test.js client/test/online-protocol.test.js server/test/field-combat.test.js
+bun client/tools/build-online.js
+```

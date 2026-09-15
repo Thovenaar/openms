@@ -25,6 +25,11 @@ import { SceneLife } from "./scene-life.js";
 import { observeWorldCharacter } from "./native-world-actions.js";
 import { createMobNameLabel } from "../combat/offline-mob-renderer.js";
 import { weaponActionAnimationMs } from "../combat/weapon-usage.js";
+import { DropPresentationMotion } from "./drop-presentation-motion.js";
+import { RemoteAnimationClock } from "./remote-animation-clock.js";
+import { RemotePlayerPath } from "./remote-player-path.js";
+import { prepareSegments } from "../physics/geometry.js";
+import { prepareBounds } from "../physics/bounds.js";
 import { RemoteMotion } from "./remote-motion.js";
 const MAX_ENTITIES = 4096;
 const MOVEMENT_ACTIONS = new Set([
@@ -66,6 +71,8 @@ export class OnlineScene {
     this.intent = intent;
     this.selfId = null;
     this.tick = 0;
+    this.motionNow = performance.now();
+    this.remoteGeometry = null;
     this.paused = false;
     this.follow = true;
     this.geometry = new Graphics();
@@ -166,14 +173,33 @@ export class OnlineScene {
         fromY: entity.position.y,
         drawX: entity.position.x,
         drawY: entity.position.y,
-        received: performance.now(),
-        motion: new RemoteMotion(entity, -1, performance.now()),
+        received: this.motionNow,
+        motion: this.createRemoteMotion(entity),
+        actionClock: new RemoteAnimationClock(),
       };
       this.views.set(entity.id, view);
       this.scene.addDynamicEntity(owner.animation);
       this.bindEntity(view);
     }
     this.updateView(view, entity);
+  }
+  createRemoteMotion(entity) {
+    if (entity.kind === "drop") {
+      return new DropPresentationMotion(entity, -1, this.motionNow);
+    }
+    let path = null;
+    if (entity.kind === "player" && entity.id !== this.selfId) {
+      if (!this.remoteGeometry) {
+        const physics = this.scene.manifest.physics;
+        this.remoteGeometry = prepareSegments(physics.footholds);
+        this.remoteGeometry.bounds = prepareBounds(
+          this.remoteGeometry.segments,
+          physics.map,
+        );
+      }
+      path = new RemotePlayerPath(this.remoteGeometry);
+    }
+    return new RemoteMotion(entity, -1, this.motionNow, path);
   }
   updateView(view, entity) {
     const previousY = view.entity.position.y;
@@ -183,9 +209,10 @@ export class OnlineScene {
     }
     view.fromX = view.drawX;
     view.fromY = view.drawY;
-    view.received = performance.now();
+    view.received = this.motionNow;
     view.observedAge = 0;
     view.entity = entity;
+    view.actionClock.observe(entity);
     view.motion.observe(
       entity,
       this.tick,
@@ -598,7 +625,7 @@ export class OnlineScene {
     if (!view) return;
     view.fromX = view.drawX = event.destination.x;
     view.fromY = view.drawY = event.destination.y;
-    view.received = performance.now();
+    view.received = this.motionNow;
     view.motion.relocate(
       event.destination.x,
       event.destination.y,
@@ -654,6 +681,15 @@ export class OnlineScene {
         y: view.drawY,
         action: view.animation.action,
         frame: view.animation.frame,
+        renderX: view.animation.container.x,
+        renderY: view.animation.container.y,
+        rotation: view.animation.container.rotation,
+        alpha: view.animation.container.alpha,
+        visible: view.animation.container.visible,
+        observedDrop: view.entity.dropMotion
+          ? { ...view.entity.dropMotion }
+          : null,
+        projectedDrop: view.motion.lower?.state ?? null,
         observedX: view.entity.position.x,
         observedY: view.entity.position.y,
       })),
@@ -666,6 +702,7 @@ export class OnlineScene {
   draw(now, elapsed, prediction, active) {
     this.paused = prediction?.paused ?? false;
     this.remoteActive = active && !this.paused;
+    if (this.remoteActive) this.motionNow += elapsed;
     this.syncPrediction(prediction, active);
     this.drawPrediction = prediction?.ready && active ? prediction : null;
     for (const view of this.views.values()) {
@@ -675,7 +712,7 @@ export class OnlineScene {
     this.updateCamera(now);
     this.native?.update(elapsed);
     this.events.draw(elapsed);
-    this.drops.draw(elapsed);
+    this.drops.draw(this.remoteActive ? elapsed : 0);
     this.chairs.draw(elapsed);
     if (this.geometry.visible) this.showGeometry(true);
     this.drawScenery(elapsed, active);
@@ -690,7 +727,7 @@ export class OnlineScene {
         view.observedAge < view.entity.mobState.nameRemainingMs;
     }
     if (view.entity.kind === "drop") {
-      this.drops.observe(view, view.drawX, view.drawY);
+      this.drops.observe(view);
     }
     this.chairs.observe(view, view.drawX, view.drawY);
   }
@@ -707,7 +744,9 @@ export class OnlineScene {
       x = this.selfPose.x;
       y = this.selfPose.y;
     } else {
-      const pose = this.remoteActive ? view.motion.sample(now) : view.motion;
+      const pose = this.remoteActive
+        ? view.motion.sample(this.motionNow)
+        : view.motion;
       x = pose.x;
       y = pose.y;
       this.pose(view, x, y);
@@ -718,6 +757,7 @@ export class OnlineScene {
   }
   advanceView(view, elapsed) {
     view.observedAge += elapsed;
+    view.actionClock.advance(elapsed);
     if (
       view.entity.id === this.selfId &&
       this.localCombat?.draw(view.animation)
@@ -735,7 +775,7 @@ export class OnlineScene {
         weaponActionAnimationMs(
           view.animation.current,
           combat.attackSpeed,
-          combat.phaseMs + view.observedAge,
+          view.actionClock.phase,
         ),
       );
     }

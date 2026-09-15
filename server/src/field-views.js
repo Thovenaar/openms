@@ -50,6 +50,7 @@ export function actorEntity(actor) {
     facing: sim.facing,
     action: animationId(name),
     actionStartTick: actor.actionStartTick,
+    playerMotion: playerMotion(sim),
     appearance: {
       name: profile.name,
       gender: profile.gender,
@@ -61,6 +62,20 @@ export function actorEntity(actor) {
     },
     ...actorWorldFields(actor),
     ...actorCombatFields(actor),
+  };
+}
+
+/** Compact presentation-only coefficients, derived from admitted state, not another full checkpoint. */
+function playerMotion(sim) {
+  const settings = sim.effectiveSettings;
+  return {
+    state: sim.state,
+    gravity: settings.gravityAcc * settings.gravity,
+    fallSpeed: settings.fallSpeed * settings.gravity,
+    ignoredFoothold: sim.ignoredFootholdId,
+    ladder: sim.ladder
+      ? { x: sim.ladder.x, top: sim.ladder.y1, bottom: sim.ladder.y2 }
+      : null,
   };
 }
 
