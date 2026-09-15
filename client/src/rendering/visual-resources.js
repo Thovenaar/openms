@@ -96,6 +96,8 @@ export async function loadVisualBundle(descriptor, services, signal) {
     await services.network.json(descriptor, signal),
   );
   check(signal);
+  // A validated manifest extends the browser-owned download frontier it belongs to.
+  services.network.activity?.includeManifest?.(manifest);
   const owner = new VisualTextures(manifest, services.atlases);
   return owner.load(manifest.entities, signal);
 }

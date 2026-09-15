@@ -102,7 +102,7 @@ async function verifyServing(page, report) {
 
 function watchLoading(page) {
   return page.evaluateOnNewDocument(() => {
-    window.loadingEvidence = { flashes: 0 };
+    window.loadingEvidence = { flashes: 0, startupFlashes: 0 };
     new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         if (
@@ -111,7 +111,13 @@ function watchLoading(page) {
           mutation.oldValue !== null &&
           !mutation.target.hidden
         ) {
-          window.loadingEvidence.flashes++;
+          // The Windows 95 login download page is the one expected startup flash;
+          // only field preparation can cover an already-admitted map.
+          if (mutation.target.dataset.state === "startup") {
+            window.loadingEvidence.startupFlashes++;
+          } else {
+            window.loadingEvidence.flashes++;
+          }
         }
       }
     }).observe(document, {
@@ -167,6 +173,10 @@ async function coldEntry(page, gate, { fixture, url, output }) {
   await page.screenshot({ path: join(output, `${fixture.name}-cold-map.png`) });
   await release(gate);
   await entering;
+  assertion(
+    await page.evaluate(() => window.loadingEvidence.startupFlashes >= 1),
+    "Login startup did not show the Windows 95 download page",
+  );
   await page.waitForSelector("#asset-loading", { hidden: true });
 }
 

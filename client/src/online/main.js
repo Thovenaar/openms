@@ -9,6 +9,7 @@ import {
 import {
   catalog as validateCatalog,
   manifest as validateManifest,
+  visualBundle,
   finite,
   LIMITS,
 } from "../rendering/stream-validation.js";
@@ -24,7 +25,10 @@ import { OnlineScene } from "./scene.js";
 import { OnlineUI } from "./ui.js";
 import { OnlineInspection } from "./inspection.js";
 import { OnlineLogin } from "./login.js";
-import { OnlineLoading } from "./loading.js";
+import {
+  OnlineLoading,
+  STARTUP_CONNECTION_FAILURE_MESSAGE,
+} from "./loading.js";
 import { prepareLoginStartup } from "./login-startup.js";
 import { NativeOperationRefusal } from "./native-source.js";
 import { portalEntryContains } from "../world/portal-presentation.js";
@@ -599,9 +603,76 @@ function loginResourceFailure(error) {
   login = null;
 }
 
+/**
+ * Bundles the persistent HUD and the login surface request before any field exists.
+ * The Windows 95 download page covers exactly this startup; entering the world
+ * releases it back to the resident in-game loading presentation.
+ */
+const STARTUP_BUNDLES = [
+  "StatusBar",
+  "TemporaryStatView",
+  "Cursor",
+  "Basic",
+  "ToolTip",
+  "TradingRoom",
+  "Login",
+  "LoginScene",
+];
+
+/** Visual bundles startup requests; their manifests declare the atlas closure. */
+function startupBundles() {
+  const bundles = STARTUP_BUNDLES.map((name) => catalog.ui?.bundles?.[name]);
+  const effects = catalog.audiovisual?.effects;
+  bundles.push(
+    effects?.Teleport?.bundle,
+    effects?.LevelUp?.bundle,
+    effects?.QuestClear?.bundle,
+  );
+  return bundles;
+}
+
+/** Standalone startup downloads: event sounds and the optional title track. */
+function startupAudio() {
+  const audiovisual = catalog.audiovisual;
+  return [
+    audiovisual?.sounds?.Game?.LevelUp,
+    audiovisual?.sounds?.Game?.QuestClear,
+    audiovisual?.login,
+  ];
+}
+
+/** A rejected manifest is left to the load that owns it; planning never pre-empts it. */
+async function bundleAtlases(descriptor) {
+  try {
+    const manifest = visualBundle(
+      await network.json(descriptor, controller.signal),
+    );
+    return Object.values(manifest.atlases);
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    return [];
+  }
+}
+
+/**
+ * Warm the browser-owned download frontier from the same validated manifests the
+ * startup pipeline will request, so its byte total is known before the atlases
+ * arrive. A cached manifest makes the later real request a verified cache hit.
+ */
+async function planStartupArtwork() {
+  const planned = [{ url: "/generated/catalog.json" }];
+  for (const descriptor of startupBundles()) {
+    if (!descriptor?.url) continue;
+    planned.push(descriptor, ...(await bundleAtlases(descriptor)));
+  }
+  planned.push(...startupAudio());
+  loading.plan(planned);
+}
+
 /** Catalog, shared UI bundles and login artwork, in their required order. */
 async function prepareLoginPage() {
   catalog = await loadCatalog();
+  await planStartupArtwork();
   communityMaps = new CommunityMaps(catalog, {
     intent,
     clearInput,
@@ -614,17 +685,29 @@ async function prepareLoginPage() {
 }
 
 async function initialize() {
-  await initializeBrowserSurface(app, viewport);
-  if (destroyed) throw new DOMException("Client closed", "AbortError");
-  services.atlases = new AtlasStore(app.renderer, network);
-  initializeInterfaces();
-  await transport.initialize();
-  const ready = await prepareLoginStartup({
-    prepare: prepareLoginPage,
-    loading,
-    onFailure: loginResourceFailure,
-  });
-  if (ready) status(transport.snapshot());
+  loading.beginStartup();
+  try {
+    await initializeBrowserSurface(app, viewport);
+    if (destroyed) throw new DOMException("Client closed", "AbortError");
+    services.atlases = new AtlasStore(app.renderer, network);
+    initializeInterfaces();
+    await transport.initialize();
+    const ready = await prepareLoginStartup({
+      prepare: prepareLoginPage,
+      loading,
+      onFailure: loginResourceFailure,
+    });
+    if (ready) {
+      loading.ready();
+      status(transport.snapshot());
+    }
+  } catch (error) {
+    // Bootstrap failures own the same page; a live marquee must never hide a dead start.
+    if (error?.name !== "AbortError" && !destroyed && !loading.failure) {
+      loading.failStartup(STARTUP_CONNECTION_FAILURE_MESSAGE);
+    }
+    throw error;
+  }
 }
 
 function startPresentation() {

@@ -9,10 +9,12 @@ function activityTracker() {
   return {
     active: new Set(),
     downloads: 0,
+    resources: 0,
     begin(kind) {
       const token = { kind };
       this.active.add(token);
-      this.downloads++;
+      if (kind === "download") this.downloads++;
+      if (kind === "resource") this.resources++;
       return token;
     },
     end(token) {
@@ -68,6 +70,8 @@ test("original resources remain cached while private and world API resources nev
     expect(fetchMock.mock.calls).toHaveLength(5);
     expect(network.hits).toBe(1);
     expect(activity.downloads).toBe(5);
+    // Every admitted load owns one resource token; the cached hit owns no download.
+    expect(activity.resources).toBe(6);
     expect(activity.active.size).toBe(0);
   } finally {
     if (previousLocation === undefined) delete globalThis.location;

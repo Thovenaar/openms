@@ -214,7 +214,7 @@ Wait for **`online client ready`**, then open **http://127.0.0.1:3102**.
 
 The frontend builds its browser code, serves generated assets, and proxies same-origin `/api/` HTTP and WebSocket requests to port 3200. Backend startup and frontend startup reuse the [extracted assets](index.md). The browser does not connect to PostgreSQL.
 
-A slim 24px project bar appears above the game in both development and production. X and GitHub open `x.com/tensorfish` and the repository in separate tabs; Docs opens `docs.openms.dev`. Bug Report opens an email to `tensorfish@proton.me`; About shows a short game summary and an as-is, use-at-your-own-risk disclaimer. Close the dialog with its button or Escape.
+A 27px Windows 95 project bar appears above the game in both development and production. X and GitHub open `x.com/tensorfish` and the repository in separate tabs; Docs opens `docs.openms.dev`. Bug Report opens an email to `tensorfish@proton.me`; About opens a Windows 95 dialog with a short game summary and an as-is, use-at-your-own-risk disclaimer, closed by its OK button, its close box or Escape.
 
 #### Login
 

@@ -179,6 +179,10 @@ export class Network {
       this.activity?.end(activity);
     }
   }
+  /** Encoded progress is advisory; the frontier owns every declared total. */
+  report(url, loaded) {
+    this.activity?.stream?.(url, loaded);
+  }
   async download(url, deadline, maximum) {
     const signal = deadline.signal;
     signal.throwIfAborted();
@@ -188,6 +192,7 @@ export class Network {
     );
     if (!response.ok) throw new Error(`${response.status} fetching ${url}`);
     deadline.progress();
+    this.report(url, 0);
     const reader = response.body.getReader();
     const chunks = [];
     let length = 0;
@@ -201,6 +206,7 @@ export class Network {
           throw new Error("Network resource limit exceeded");
         }
         chunks.push(part.value);
+        this.report(url, length);
       }
     } catch (error) {
       // Do not let a broken stream's cancellation hold a fetch gate forever.
@@ -225,32 +231,38 @@ export class Network {
       check(signal);
       const url = new URL(info.url, location.origin).href;
       const cacheable = info.url.startsWith("/generated/");
-      const cached =
-        cacheable && !this.releaseControlled() && this.cache
-          ? await this.cache.match(url)
-          : null;
-      let buffer;
-      if (cached) {
-        try {
-          buffer = await cached.arrayBuffer();
+      // One token per admitted resource: cached and downloaded work both settle it.
+      const activity = this.activity?.begin("resource", url, info.bytes);
+      try {
+        const cached =
+          cacheable && !this.releaseControlled() && this.cache
+            ? await this.cache.match(url)
+            : null;
+        let buffer;
+        if (cached) {
+          try {
+            buffer = await cached.arrayBuffer();
+            await this.verify(buffer, info);
+          } catch (error) {
+            this.writes = this.writes.then(() => this.invalidate(url));
+            await this.writes;
+            throw error;
+          }
+          this.hits++;
+        } else {
+          buffer = await this.fetchBytes(url, signal, info.bytes);
           await this.verify(buffer, info);
-        } catch (error) {
-          this.writes = this.writes.then(() => this.invalidate(url));
-          await this.writes;
-          throw error;
         }
-        this.hits++;
-      } else {
-        buffer = await this.fetchBytes(url, signal, info.bytes);
-        await this.verify(buffer, info);
+        check(signal);
+        if (!cached && cacheable) {
+          this.writes = this.writes.then(() => this.store(url, buffer));
+          await this.writes;
+        }
+        check(signal);
+        return buffer;
+      } finally {
+        this.activity?.end(activity);
       }
-      check(signal);
-      if (!cached && cacheable) {
-        this.writes = this.writes.then(() => this.store(url, buffer));
-        await this.writes;
-      }
-      check(signal);
-      return buffer;
     }, signal);
   }
   async json(info, signal) {

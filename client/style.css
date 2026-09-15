@@ -1,6 +1,6 @@
 /* Percentage heights use the root's zoom-adjusted viewport, unlike 100dvh. */
 html {
-  --project-bar-height: 24px;
+  --project-bar-height: 27px;
   height: 100%;
 }
 /* Theme variables live on external chrome only, never the game viewport. */
@@ -13,28 +13,34 @@ body {
   background: #101820;
   overflow: hidden;
 }
+/* Browser-owned project chrome shares the Windows 95 shell used by loading. */
 #project-bar {
   box-sizing: border-box;
   display: flex;
   flex: 0 0 var(--project-bar-height);
   align-items: center;
   justify-content: flex-end;
-  gap: 20px;
-  padding: 0 14px;
-  border-bottom: 1px solid #ffffff12;
-  background: #0b1015;
-  color: #aeb8c2;
+  gap: 2px;
+  padding: 0 3px;
+  border-bottom: 1px solid #808080;
+  background: #c0c0c0;
+  color: #101010;
   font:
-    11px/1 system-ui,
+    11px/1 "MS Sans Serif",
+    Tahoma,
+    Geneva,
+    Verdana,
+    system-ui,
     sans-serif;
 }
 #project-bar a,
 #project-bar button {
   display: inline-flex;
   align-items: center;
-  align-self: stretch;
-  padding: 0;
-  border: 0;
+  box-sizing: border-box;
+  min-height: 21px;
+  padding: 0 8px;
+  border: 1px solid transparent;
   background: none;
   color: inherit;
   font: inherit;
@@ -43,50 +49,101 @@ body {
 }
 #project-bar a:hover,
 #project-bar button:hover {
-  color: #fff;
+  border-color: #dfdfdf #808080 #808080 #dfdfdf;
+}
+#project-bar a:active,
+#project-bar button:active {
+  border-color: #808080 #dfdfdf #dfdfdf #808080;
 }
 #project-bar a:focus-visible,
 #project-bar button:focus-visible,
-#project-about button:focus-visible {
-  outline: 1px solid #aeb8c2;
-  outline-offset: 2px;
+#project-about :focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
 }
+/* About is a modal Windows 95 window: caption bar, close box and dialog button. */
 #project-about {
   box-sizing: border-box;
-  width: min(360px, calc(100% - 32px));
-  padding: 22px;
-  border: 1px solid #ffffff24;
-  border-radius: 6px;
-  background: #101820;
-  color: #dce3e9;
+  width: min(380px, calc(100% - 32px));
+  padding: 3px;
+  border: 2px solid;
+  border-color: #dfdfdf #000 #000 #dfdfdf;
+  border-radius: 0;
+  background: #c0c0c0;
+  color: #101010;
+  box-shadow:
+    inset 1px 1px #fff,
+    inset -1px -1px #808080;
   font:
-    13px/1.55 system-ui,
+    11px/1.5 "MS Sans Serif",
+    Tahoma,
+    Geneva,
+    Verdana,
+    system-ui,
     sans-serif;
 }
 #project-about::backdrop {
-  background: #0009;
+  background: #0006;
+}
+#project-about .about-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 2px 4px;
+  background: linear-gradient(90deg, #000080, #1084d0);
+  color: #fff;
 }
 #project-about h2 {
-  margin: 0 0 10px;
-  font-size: 15px;
-  font-weight: 600;
+  flex: 1;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
 }
-#project-about p {
+#project-about .about-close-form {
+  display: flex;
   margin: 0;
 }
-#project-about form {
+#project-about .about-close {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 17px;
+  height: 15px;
+  padding: 0 0 1px;
+  border: 1px solid;
+  border-color: #dfdfdf #000 #000 #dfdfdf;
+  background: #c0c0c0;
+  color: #000;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+#project-about .about-close:active {
+  border-color: #000 #dfdfdf #dfdfdf #000;
+}
+#project-about .about-body {
+  padding: 12px 10px 10px;
+}
+#project-about p {
+  margin: 0 0 14px;
+}
+#project-about .about-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 18px;
+  margin: 0;
 }
-#project-about button {
-  padding: 5px 14px;
-  border: 1px solid #ffffff24;
-  border-radius: 3px;
-  background: #1c2732;
-  color: inherit;
+#project-about .about-ok {
+  min-width: 75px;
+  padding: 3px 10px;
+  border: 1px solid;
+  border-color: #dfdfdf #000 #000 #dfdfdf;
+  background: #c0c0c0;
+  color: #101010;
   font: inherit;
   cursor: pointer;
+}
+#project-about .about-ok:active {
+  border-color: #000 #dfdfdf #dfdfdf #000;
 }
 main {
   position: relative;
@@ -164,110 +221,163 @@ main {
 #game-tab-gate [hidden] {
   display: none;
 }
-/* Startup status is browser-owned, not reconstructed game artwork. */
+/* Browser-owned loading chrome. The Windows 95 download page covers login
+   startup; field preparation keeps the resident mushroom presentation. */
 #delivery-startup {
   position: absolute;
   inset: 0;
   z-index: 2147483647;
-  display: flex;
   box-sizing: border-box;
-  padding: clamp(12px, 4vw, 40px);
   overflow: auto;
   overscroll-behavior: contain;
-  background: #f7f7f5;
-  color: #27313b;
-  font:
-    15px/1.5 system-ui,
-    sans-serif;
   text-align: center;
 }
 #delivery-startup[hidden],
 #delivery-startup [hidden] {
   display: none;
 }
-#delivery-startup .delivery-card {
+#delivery-startup .delivery-window {
   box-sizing: border-box;
   width: min(100%, 360px);
   margin: auto;
   padding: 24px 12px;
 }
-#delivery-startup .delivery-monster {
+#delivery-startup .delivery-monster:not([hidden]) {
   display: block;
   margin: 0 auto 16px;
   image-rendering: pixelated;
 }
 #delivery-startup .delivery-status {
   margin: 0 0 12px;
-  font-size: 15px;
-  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
-#delivery-startup progress {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  height: 6px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 3px;
-  background: #dfe4e8;
-  accent-color: #386b9b;
-}
-#delivery-startup progress::-webkit-progress-bar {
-  background: #dfe4e8;
-}
-#delivery-startup progress::-webkit-progress-value {
-  background: #386b9b;
-}
-#delivery-startup progress::-moz-progress-bar {
-  background: #386b9b;
-}
+#delivery-startup .delivery-titlebar,
+#delivery-startup .delivery-progress,
+#delivery-startup .delivery-count,
 #delivery-startup .delivery-hint {
-  margin: 14px 0 0;
-  color: #53616d;
+  display: none;
 }
-#delivery-startup details {
-  margin-top: 20px;
-  padding-top: 12px;
-  border-top: 1px solid #dfe4e8;
-  color: #53616d;
-  font-size: 12px;
+#delivery-startup[data-state="map"]:not([hidden]) {
+  display: flex;
+  padding: clamp(12px, 4vw, 40px);
+  background: #f7f7f5;
+  color: #27313b;
+  font:
+    15px/1.5 system-ui,
+    sans-serif;
+}
+#delivery-startup[data-state="map"] .delivery-status {
+  font-size: 15px;
+  font-weight: 500;
+}
+#delivery-startup[data-state="startup"]:not([hidden]),
+#delivery-startup[data-state="error"]:not([hidden]) {
+  display: grid;
+  place-items: center;
+  padding: clamp(12px, 4vw, 40px);
+  background: #008080;
+  color: #101010;
+  font:
+    12px/1.5 "MS Sans Serif",
+    Tahoma,
+    Geneva,
+    Verdana,
+    system-ui,
+    sans-serif;
+}
+#delivery-startup[data-state="startup"] .delivery-window,
+#delivery-startup[data-state="error"] .delivery-window {
+  width: min(100%, 400px);
+  padding: 3px;
+  border: 2px solid;
+  border-color: #dfdfdf #000 #000 #dfdfdf;
+  background: #c0c0c0;
+  box-shadow:
+    inset 1px 1px #fff,
+    inset -1px -1px #808080;
   text-align: left;
 }
-#delivery-startup summary {
-  width: fit-content;
-  padding: 6px 0;
-  cursor: pointer;
-}
-#delivery-startup pre {
-  max-height: 120px;
-  margin: 8px 0 0;
-  overflow: auto;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-#delivery-startup button {
-  min-height: 44px;
-  margin-top: 16px;
-  padding: 8px 20px;
-  border: 1px solid #315e88;
-  border-radius: 4px;
-  background: #386b9b;
+#delivery-startup[data-state="startup"] .delivery-titlebar:not([hidden]),
+#delivery-startup[data-state="error"] .delivery-titlebar:not([hidden]) {
+  display: flex;
+  align-items: center;
+  padding: 3px 4px;
+  background: linear-gradient(90deg, #000080, #1084d0);
   color: #fff;
-  font:
-    600 15px system-ui,
-    sans-serif;
-  cursor: pointer;
+  font-weight: 700;
 }
-#delivery-startup button:hover {
-  background: #315e88;
+#delivery-startup .delivery-title {
+  flex: 1;
 }
-#delivery-startup :focus-visible {
-  outline: 3px solid #176b92;
-  outline-offset: 4px;
+#delivery-startup[data-state="startup"] .delivery-card,
+#delivery-startup[data-state="error"] .delivery-card {
+  padding: 12px;
+  text-align: left;
+}
+#delivery-startup[data-state="startup"] .delivery-monster {
+  margin-bottom: 10px;
+}
+#delivery-startup[data-state="startup"] .delivery-status {
+  font-weight: 700;
+}
+#delivery-startup[data-state="startup"] .delivery-progress:not([hidden]) {
+  display: block;
+  box-sizing: border-box;
+  height: 20px;
+  padding: 2px;
+  overflow: hidden;
+  border: 1px solid;
+  border-color: #808080 #fff #fff #808080;
+  background: #fff;
+}
+#delivery-startup .delivery-fill {
+  height: 100%;
+  width: 0;
+  background-color: #000080;
+  background-image: repeating-linear-gradient(
+    90deg,
+    #000080 0 10px,
+    transparent 10px 12px
+  );
+  transition: width 120ms linear;
+}
+#delivery-startup .delivery-progress[data-indeterminate="true"] .delivery-fill {
+  width: 30%;
+  background-image: none;
+  animation: delivery-marquee 1.1s linear infinite;
+}
+@keyframes delivery-marquee {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+#delivery-startup[data-state="startup"] .delivery-count:not([hidden]),
+#delivery-startup[data-state="startup"] .delivery-hint:not([hidden]) {
+  display: block;
+  margin: 6px 0 0;
+  color: #3b3b3b;
 }
 #delivery-startup[data-state="error"] .delivery-status {
-  color: #972f1d;
+  color: #a80000;
+  font-weight: 700;
+}
+#delivery-startup :focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  #delivery-startup .delivery-fill {
+    transition: none;
+  }
+  #delivery-startup
+    .delivery-progress[data-indeterminate="true"]
+    .delivery-fill {
+    width: 100%;
+    animation: none;
+  }
 }
 .inspection-chrome {
   --console-bg: #c0c0c0;

@@ -38,13 +38,29 @@
       aria-labelledby="project-about-title"
       aria-describedby="project-about-summary"
     >
-      <h2 id="project-about-title">About OpenMS</h2>
-      <p id="project-about-summary">
-        OpenMS is a fan-made MapleStory v83 browser game, still in development.
-        It is provided as-is, at your own risk, with no responsibility or
-        liability accepted for its use.
-      </p>
-      <form method="dialog"><button type="submit">Close</button></form>
+      <div class="about-titlebar">
+        <h2 id="project-about-title">About OpenMS</h2>
+        <form method="dialog" class="about-close-form">
+          <button
+            type="submit"
+            class="about-close"
+            aria-label="Close"
+            title="Close"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </form>
+      </div>
+      <div class="about-body">
+        <p id="project-about-summary">
+          OpenMS is a fan-made MapleStory v83 browser game, still in
+          development. It is provided as-is, at your own risk, with no
+          responsibility or liability accepted for its use.
+        </p>
+        <form method="dialog" class="about-actions">
+          <button type="submit" class="about-ok">OK</button>
+        </form>
+      </div>
     </dialog>
     <main>
       <div
