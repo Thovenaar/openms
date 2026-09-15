@@ -1,5 +1,13 @@
 node_modules/
 artifacts/
+# Generated validation reports and raw logs stay local, never in Git.
+**/validation/**/*.json
+**/validation/**/*.log
+**/*-validation/**/*.json
+**/*-validation/**/*.log
+**/validation-reports/
+**/report.json
+**/*-report.json
 client/public/generated/
 client/dist/
 client/.cache/

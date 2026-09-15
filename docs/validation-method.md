@@ -12,6 +12,12 @@ Validation is proportional to the change. Use the smallest check that covers the
 
 Comprehensive end-to-end runs, full extraction and concurrency benchmarks require an explicitly requested validation, release or performance scope. Documentation/configuration work needs no new screenshots, timing report or `validation.md` entry.
 
+## Artifact policy
+
+Generated validation JSON reports and their raw runtime/test logs must never be committed, whether under `docs/validation/` or elsewhere in the repository. Write them outside the checkout with an explicit output path, such as `--output /tmp/openms-network-latency`, or use ignored `artifacts/` storage. Retaining evidence means retaining it locally; do not copy it into `docs/`, force-add it, or link published documentation to an untracked report.
+
+Commit concise Markdown findings when the validation scope calls for them: the reproduction command, workload, source/rules/catalog identities, measured result and limitations. Original input manifests, test fixtures and source/reference evidence remain governed by their own contracts; they are not generated validation-run reports.
+
 ## Shorten the loop
 
 - Prove one complete vertical slice first: native input → transaction → recipient update → reconnect.
@@ -26,7 +32,7 @@ Comprehensive end-to-end runs, full extraction and concurrency benchmarks requir
 3. Check the online import graph with a nonpublishing Bun build using `onlineBuildGraph` from `client/tools/online-build-graph.js`. The guard rejects browser imports of server-side authority modules.
 4. Restart only stale owners. Browser-only changes do not require asset extraction.
 5. Run the affected online scenario with a disposable account/database and isolated browser context. Capture images only for appearance or failure context.
-6. Retain one bounded report with source/rules/catalog identities and stop.
+6. Retain one bounded local report with source/rules/catalog identities, following the [artifact policy](#artifact-policy), and stop.
 
 ### Current invalidation and reuse constraints
 

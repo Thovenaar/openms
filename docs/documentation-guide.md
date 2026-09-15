@@ -13,7 +13,7 @@
 | Current online feature owners and gaps     | [Feature coverage](server/offline-parity.md)                                     | Old correction narratives                    |
 | Exact original behavior and provenance     | Domain evidence page, e.g. [movement](physics-evidence.md) or [UI](ingame-ui.md) | Unlabeled emulator policy or inference       |
 | How to validate                            | [Validation method](validation-method.md)                                        | Claims that a check passed                   |
-| What was actually exercised                | [Validation index](validation.md) and source-identified report                   | Treating historical counts as current totals |
+| What was actually exercised                | [Validation index](validation.md), with source identities and local reports      | Committing generated reports or treating historical counts as current totals |
 | Earlier builds, failures and measurements  | [Archive](archive/index.md)                                                      | Current navigation/search results            |
 
 Quick Start contains only the commands to get running, followed by short component descriptions. Custom content is the next entry in the same navigation group. Client and server references share the Development page; detailed contracts stay in their domain pages. The feature inventory consolidates overlapping native-surface tables. Earlier validation/gameplay/UI narratives live in the archive, with their original evidence intact.
@@ -25,11 +25,11 @@ Quick Start contains only the commands to get running, followed by short compone
 | One short explanation, then a comparison or ownership table     | Readers can locate the decision without parsing a long incident log.  |
 | Exact code paths, exports, units and source addresses           | Agents can recover the implementation and provenance.                 |
 | A diagram for state ownership or a multi-stage transaction      | Makes boundaries and ordering visible.                                |
-| A linked report with source/catalog identity                    | Keeps implementation and measured proof separate.                     |
+| A Markdown result with source/catalog identity and a reproduction command | Keeps implementation and measured proof separate; raw reports stay local. |
 | A collapsed detail block for long derivations or legacy context | Preserves useful evidence without overwhelming the main guide.        |
 | Explicit unsupported behavior                                   | Asset presence or a handler name does not imply feature completeness. |
 
-Keep one canonical page per contract. Link to a more detailed page instead of copying a paragraph that will drift. Update an existing contract when behavior changes; retain historical measurements with their original identities. Do not delete raw evidence merely because an older guide is superseded.
+Keep one canonical page per contract. Link to a more detailed page instead of copying a paragraph that will drift. Update an existing contract when behavior changes; retain historical measurements with their original identities. Preserve original source/reference evidence. Generated validation reports and raw logs remain local under the [artifact policy](validation-method.md#artifact-policy), never in Git; existing historical links do not authorize committing missing reports.
 
 Keep headings and navigation labels short: **Server → Settings → Network**, **Client → Online → Login**. Use nested sections for detail instead of long titles.
 

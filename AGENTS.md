@@ -6,6 +6,8 @@ Target desktop-sized applications with a minimum viewport of **800×600**. Mobil
 
 ## Operating rules
 
+Never commit generated validation reports (including JSON reports and their raw runtime/test logs) to `docs/validation/` or anywhere else in the repository. Keep those artifacts outside the repository, such as `/tmp/openms-...`, or in ignored `artifacts/` storage. Commit only concise Markdown findings, reproduction commands and relevant source/catalog identities. Do not force-add ignored reports or add documentation links to untracked report files. See [validation artifact policy](docs/validation-method.md#artifact-policy).
+
 Use explicit flags for CLI tool configuration; follow [CLI configuration](docs/coding-style.md#cli-configuration). Do not introduce environment-variable inputs for one-shot tools.
 
 Follow [change-scoped validation](docs/validation-method.md#validation-scope): use the smallest check relevant to the edit, then stop. Comprehensive smoke/end-to-end runs are opt-in, not a completion requirement. Documentation and Compose/environment edits do not require browser, login, gameplay or persistence checks.
@@ -38,8 +40,7 @@ Keep static extraction reusable across sessions. Do not delete the extraction ca
 - [Validation procedure](docs/validation-method.md)
 - [Validation results](docs/validation.md)
 - [Extraction report](docs/extraction.json) and [archive scan](docs/archive-scan.json)
-- [Browser report and captures](docs/validation/)
-- [Integrated in-game acceptance evidence](docs/ingame-validation/) and [Windows reference requests](docs/windows-reference-captures.md)
+- [Windows reference requests](docs/windows-reference-captures.md)
 - [Asset Ghidra evidence](docs/ghidra-assets/), [client Ghidra evidence](docs/ghidra-client/), and [analysis scripts](docs/tools/)
 
 ## Implementation

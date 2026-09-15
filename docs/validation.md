@@ -7,7 +7,7 @@ Read a result together with its **source/catalog identity, fixture, action and l
 | Area                                   | Evidence                                                                                                             | Scope                                                                                                  |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Online 100% movement                   | [Movement parity](movement-parity.md#scoped-verification)                                                            | Shared-kernel/server steps, browser prediction and checkpoint continuation.                             |
-| Slow-network gameplay                 | [Latency repair](#slow-network-gameplay-repair) · [Native report](validation/network-latency/report.json) | 500 ms RTT, delayed map assets, native walking/dialogue/travel and reconnect. |
+| Slow-network gameplay                 | [Latency repair](#slow-network-gameplay-repair) | 500 ms RTT, delayed map assets, native walking/dialogue/travel and reconnect. |
 | Client-owned motion and knockback      | [Movement parity](movement-parity.md#client-owned-motion) · [Browser check](#client-owned-motion-browser-check)      | One native browser hold and the real server/predictor divert tests; not original Windows parity.        |
 | Airborne skill continuity and recoil   | [Skill cast repair](#skill-cast-stutter-repair) · [Movement contract](movement-parity.md#skill-snapshot-continuity) | Same-field snapshot continuity, immediate impulses and recovered foothold-tangent mob recoil. |
 | Consecutive Flash Jump artwork         | [Replay validation](#consecutive-flash-jump-artwork-14-september-2026) | Five admitted casts, including a rapid direction reversal, with zero rendered-origin offset. |
@@ -117,7 +117,14 @@ Scoped checks: seven tests covering the original WZ animation pools, all nine va
 
 ## Slow-network gameplay repair
 
-On **2026-09-15**, the [scoped native scenario](validation-method.md#slow-network-gameplay-check) passed in headless Chrome at 1280×800, using a disposable account/database, **500 ms HTTP delay and 250 ms in each WebSocket direction**. [Report](validation/network-latency/report.json) and [runtime log](validation/network-latency/runtime.log) retain source `beaf7e26…`, rules `6c5f64ed…` and assets `93fd9410…`. Existing extraction was reused.
+On **2026-09-15**, the [scoped native scenario](validation-method.md#slow-network-gameplay-check) passed in headless Chrome at 1280×800, using a disposable account/database, **500 ms HTTP delay and 250 ms in each WebSocket direction**. Existing extraction was reused. Raw reports and logs remain local under the [artifact policy](validation-method.md#artifact-policy).
+
+| Identity | Measured value |
+| --- | --- |
+| Browser build | `beaf7e266dca6ea2eecca786a0d477ee1cc25b6bd33c64950900529c359537c3` |
+| Rules | `6c5f64edcc08626b8ee49861ff0b2e2bff3802b7e84712924d09af61680fdd7a` |
+| Asset build | `93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27` |
+| Catalog | `5bd1177cb1269b1d8f366451f4cf6c1603652dc76266d83146fa68f4a6d0e0ca` |
 
 - A **20-second initial map-manifest hold** kept the socket alive. Disconnecting during that load resumed the same character without `CHARACTER_BUSY`.
 - Native walking survived a **1.5-second traffic stall**. The server's published X and the client's X both moved **112 → −460.687**, with **zero prediction overflows**.
@@ -126,6 +133,13 @@ On **2026-09-15**, the [scoped native scenario](validation-method.md#slow-networ
 
 Browser acquisition took **484 ms**, identity verification **1.434 s**, login **19.682 s**, cold entry plus interruption/reconnect **51.179 s**, walking/stall **7.769 s**, dialogue/cold travel **58.361 s**, and final reconnect **2.439 s**. The cold stages include deliberate holds and real artwork loading; they are not download-speed estimates. Browser-context teardown was **20 ms** and enclosing fixture teardown **157 ms**. Startup/content timings are retained separately; overlapping timings must not be summed. This verifies one recovery workload, not all maps, arbitrary packet loss or frame-rate performance.
 
-[Attempt 1](validation/network-latency/attempt-1.json) incorrectly expected automatic reconnect; [attempt 2](validation/network-latency/attempt-2.json) clicked Enter behind the connection-loss dialog. [Attempt 3](validation/network-latency/attempt-3.json) read an unchanged baseline position instead of live motion and also exposed one stale prediction overflow after preparation. The final scenario reads published motion, dismisses the actual dialog, and the client obtains a fresh checkpoint before enabling input after a long load.
+Attempt 1 incorrectly expected automatic reconnect; attempt 2 clicked Enter behind the connection-loss dialog. Attempt 3 read an unchanged baseline position instead of live motion and also exposed one stale prediction overflow after preparation. The final scenario reads published motion, dismisses the actual dialog, and the client obtains a fresh checkpoint before enabling input after a long load.
 
-[Targeted checks](validation/network-latency/tests.log) passed **75 tests** across transport, protocol, dialogue, server admission and lifecycle. The overlapping [final transport checks](validation/network-latency/transport-tests.log) passed **33 tests / 178 assertions**, including the last review change: stale-checkpoint refreshes share the three-attempt recovery limit. That bounded-retry change and a cancellation-disposal review followed the browser run; the report retains its original build identity and the [final review](validation/network-latency/review.json) records the later source hash. Final scoped formatting/lint and a nonpublishing guarded build (**934 modules**) passed. The documentation checker still reports **884 existing missing historical targets**; the new evidence links resolve.
+Targeted checks passed **75 tests** across transport, protocol, dialogue, server admission and lifecycle. The overlapping final transport checks passed **33 tests / 178 assertions**, including the last review change: stale-checkpoint refreshes share the three-attempt recovery limit. That bounded-retry change and a cancellation-disposal review followed the browser run. Their later source identity was `1ae79aefec3187f614a23d7434fc463b83e9ee8eb5ba253f6a411bf5a8b4b0fc`; the browser measurements above retain their original identity. Final scoped formatting/lint and a nonpublishing guarded build (**934 modules**) passed. At validation time, the documentation checker reported **884 existing missing historical targets**.
+
+Reproduce the native scenario and focused transport checks with:
+
+```sh
+bun server/tools/check-network-latency.js --output /tmp/openms-network-latency
+bun test client/test/online-latency.test.js client/test/online-transport.test.js client/test/sync-alignment.test.js
+```
