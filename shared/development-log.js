@@ -30,6 +30,14 @@ const FIELDS = new Set([
   "reason",
   "operation",
   "action",
+  "tick",
+  "position",
+  "velocity",
+  "elapsedMs",
+  "deviations",
+  "absurd",
+  "allowedPosition",
+  "allowedVelocity",
 ]);
 
 /** UTC wall time identifies a log record across processes; elapsed clocks remain monotonic. */
@@ -37,7 +45,7 @@ export function logPrefix(scope, timestamp = Date.now()) {
   return `[${new Date(timestamp).toISOString()}] [${scope}]`;
 }
 
-/** Development-only stdout; callers supply scalar metadata, never bodies or credentials. */
+/** Bounded process stdout; callers supply scalar metadata, never bodies or credentials. */
 export function createDevelopmentLog(scope, options = {}) {
   const {
     enabled = true,

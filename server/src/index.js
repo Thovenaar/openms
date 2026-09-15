@@ -9,19 +9,14 @@ import { createContentService } from "./content-authoring.js";
 import { ContentHttp, CONTENT_REQUEST_BYTES } from "./content-http.js";
 import { loadWorldContent, WorldActivation } from "./world-content.js";
 import { rotateDefaultAccountPasswords } from "./production-accounts.js";
-import {
-  createDevelopmentLog,
-  logStage,
-  logPrefix,
-} from "../../shared/development-log.js";
+import { createServerLog } from "./logging.js";
+import { logStage, logPrefix } from "../../shared/development-log.js";
 
 /** One owned field process; TLS terminates at the configured same-origin reverse proxy. */
 export async function startServer(options = {}) {
   const started = performance.now();
   const config = options.config ?? serverConfig();
-  const log =
-    options.log ??
-    createDevelopmentLog("server", { enabled: config.development });
+  const log = options.log ?? createServerLog(config.development);
   const original =
     options.content ??
     (await logStage(log, "content.load", () =>

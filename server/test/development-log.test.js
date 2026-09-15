@@ -7,6 +7,8 @@ import {
 import { OnlineHttp } from "../src/http.js";
 import { admitDeveloper } from "../src/field-development.js";
 import { SessionAuthority } from "../src/auth.js";
+import { GameplayGateway } from "../src/gateway.js";
+import { createServerLog } from "../src/logging.js";
 
 function logger(enabled = true) {
   const lines = [];
@@ -69,6 +71,67 @@ test("development logs allow bounded metadata, excluding credentials and payload
   const quiet = logger(false);
   quiet.log("http", { status: 200 });
   expect(quiet.lines).toEqual([]);
+});
+
+test("production records server and peer socket closure while routine traffic stays quiet", () => {
+  const lines = [];
+  const log = createServerLog(false, { write: (line) => lines.push(line) });
+  const gateway = new GameplayGateway({
+    config: {},
+    auth: {},
+    world: { log },
+  });
+  const socket = {
+    data: { epoch: "connection", actor: null, closed: false },
+    send: () => 1,
+    close: () => {},
+  };
+  log("http", { path: "/api/v1/config", status: 200 });
+  log("action.result", { action: "attack", status: "OK" });
+  gateway.publications.close(socket, "RATE_LIMITED");
+  gateway.closed(socket, 1008, "RATE_LIMITED");
+  expect(lines).toHaveLength(2);
+  expect(lines[0]).toContain('socket.closing {"code":"RATE_LIMITED"}');
+  expect(lines[1]).toContain(
+    'socket.closed {"code":1008,"reason":"RATE_LIMITED"}',
+  );
+});
+
+test("production motion diagnostics preserve numeric evidence and exclude payloads", () => {
+  const lines = [];
+  const log = createServerLog(false, { write: (line) => lines.push(line) });
+  log("watchdog.fault", {
+    character: "actor",
+    tick: 42,
+    deviations: 6,
+    position: 80,
+    velocity: 120,
+    allowedPosition: 32,
+    absurd: false,
+    password: "secret",
+    cookie: "secret",
+    body: { secret: true },
+  });
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).not.toContain("secret");
+  const fields = JSON.parse(lines[0].slice(lines[0].indexOf("{")));
+  expect(fields).toEqual({
+    character: "actor",
+    tick: 42,
+    deviations: 6,
+    position: 80,
+    velocity: 120,
+    allowedPosition: 32,
+    absurd: false,
+  });
+});
+
+test("development server logging retains routine events", () => {
+  const lines = [];
+  const log = createServerLog(true, { write: (line) => lines.push(line) });
+  log("http", { path: "/api/v1/config", status: 200 });
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toContain('http {"path":"/api/v1/config","status":200}');
 });
 
 test("stage failure logs its outcome and preserves the actual exception", async () => {

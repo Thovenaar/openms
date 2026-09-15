@@ -149,6 +149,8 @@ For public hosting, terminate HTTPS at a reverse proxy in front of the client li
 
 **Registration is enabled in production.** Register creates a normal player account with an empty roster and signs it in. Login and registration cookies use `Secure` when `OPENMS_ORIGIN` is HTTPS; an explicitly configured HTTP origin receives cookies usable over HTTP. For HTTPS hosting, keep `OPENMS_ORIGIN` set to the public HTTPS origin even when the reverse proxy connects to the backend over HTTP.
 
+Production logs socket opening, character attachment, server-requested closure (`socket.closing`) and the final WebSocket close code/reason (`socket.closed`). Motion/watchdog faults, failed checkpoints and simulation suspension are also retained with bounded diagnostic fields. Routine request/action logs remain development-only. For a gameplay disconnect, capture these lines from the `server:prod` terminal alongside the browser's disconnect message and Caddy logs; enabling development mode is not required. Logs exclude credential and payload fields.
+
 | Gate             | Required deployment behavior                                                                                                                                                         |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | HTTPS/WSS        | Game origin serves its static shell/assets and proxies `/api/` to the backend, including upgrades, Origin and cookies.                                                               |
