@@ -206,23 +206,43 @@ test("an optimistic movement skill is predicted immediately and rolled back when
   expect(prediction.snapshot().pendingImpulses).toBe(0);
 });
 
-test("a bounded server correction glides instead of snapping the presented pose", () => {
+test("correction bands absorb small errors, ease moderate ones, and snap a real desync", () => {
   const { prediction, simulation } = presentable();
   const target = { x: 0, y: 0 };
   const now = performance.now();
   simulation.x = 100;
   simulation.previousX = 100;
-  // The player was shown x=94; the server says 100.
-  prediction.seedCorrection(94, 0);
   prediction.interpolate(now, target);
-  expect(target.x).toBeCloseTo(94, 0);
-  // The correction window ends with the presentation on the authoritative state.
-  prediction.interpolate(now + 200, target);
-  expect(target.x).toBeCloseTo(100, 6);
-  // A disagreement beyond the tolerance is a real desync and snaps.
-  prediction.seedCorrection(50, 0);
-  prediction.interpolate(now + 201, target);
-  expect(target.x).toBeCloseTo(100, 6);
+
+  // A disagreement below the absorb band is invisible and left alone.
+  simulation.x = 102;
+  simulation.previousX = 102;
+  prediction.seedCorrection(100, 0);
+  prediction.interpolate(now, target);
+  expect(target.x).toBeCloseTo(102, 6);
+
+  // A moderate disagreement eases from the drawn pose onto the authoritative state with
+  // zero added velocity at both ends, so it curves instead of nudging.
+  const from = target.x;
+  simulation.x = 140;
+  simulation.previousX = 140;
+  prediction.seedCorrection(from, 0);
+  prediction.interpolate(now, target);
+  expect(target.x).toBeCloseTo(from, 3);
+  const quarter = prediction.interpolate(now + 80, target).x;
+  const half = prediction.interpolate(now + 160, target).x;
+  expect(quarter).toBeGreaterThan(from);
+  expect(quarter).toBeLessThan(half);
+  expect(half).toBeLessThan(140);
+  prediction.interpolate(now + 10000, target);
+  expect(target.x).toBeCloseTo(140, 6);
+
+  // A disagreement the kernel cannot explain is a real desync: it is presented outright.
+  simulation.x = 900;
+  simulation.previousX = 900;
+  prediction.seedCorrection(140, 0);
+  prediction.interpolate(now + 10000, target);
+  expect(target.x).toBeCloseTo(900, 6);
 });
 
 test("presented pose stays inside the newest two kernel states", () => {
@@ -250,6 +270,32 @@ test("presentation never writes the interpolated pose back into the kernel", () 
     expect(target.x).toBeLessThanOrEqual(before.x);
   }
   expect(captureMotion(simulation)).toEqual(before);
+});
+
+test("a dropped frame cannot teleport an animation clock", () => {
+  const advanced = [];
+  const owner = { selfId: "other", localCombat: null };
+  const view = {
+    entity: { id: "other", combatState: null },
+    observedAge: 0,
+    motion: {},
+    actionClock: {
+      phase: 0,
+      advance(ms) {
+        this.phase += ms;
+      },
+    },
+    animation: {
+      current: { duration: 1000 },
+      advance: (ms) => advanced.push(ms),
+      seek: () => {},
+    },
+  };
+  OnlineScene.prototype.advanceView.call(owner, view, 500);
+  // At most two 30 ms quanta are presented; the rest of the hitch is discarded rather
+  // than jumping the animation through half a second of frames.
+  expect(advanced).toEqual([60]);
+  expect(view.actionClock.phase).toBe(60);
 });
 
 test("midair attack locks retain the local interpolation clock instead of chasing old entity poses", () => {

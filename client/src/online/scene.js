@@ -43,6 +43,9 @@ const MOVEMENT_ACTIONS = new Set([
   "sit",
 ]);
 const CLIMB_ACTIONS = new Set(["ladder", "rope", "ladder2", "rope2"]);
+/** A dropped or stalled frame must not teleport animation. Present at most two quanta per
+ *  frame and let the clock fall slightly behind instead of jumping through the gap. */
+const MAX_ANIMATION_STEP_MS = PROTOCOL.TICK_MS * 2;
 
 /** 00452792..004527d3 holds ladder/rope artwork when consecutive Y positions match. */
 export function holdObservedClimb(action, previousY, nextY) {
@@ -757,14 +760,16 @@ export class OnlineScene {
   }
   advanceView(view, elapsed) {
     view.observedAge += elapsed;
-    view.actionClock.advance(elapsed);
+    view.motion.advance?.(elapsed);
+    const step = Math.min(elapsed, MAX_ANIMATION_STEP_MS);
+    view.actionClock.advance(step);
     if (
       view.entity.id === this.selfId &&
       this.localCombat?.draw(view.animation)
     ) {
       return;
     }
-    view.animation.advance(elapsed);
+    view.animation.advance(step);
     const combat = view.entity.combatState;
     if (
       combat?.phase === "attack" &&

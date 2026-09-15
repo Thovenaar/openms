@@ -67,29 +67,56 @@ function remote(entity) {
   return new RemoteMotion(entity, 1, 0, new RemotePlayerPath(geometry()));
 }
 
-test("a peer crosses a connected slope and blends the next packet without mutating it", () => {
-  const entity = player(),
+/** A flat, velocity-consistent peer: samples are exactly what 100 px/s produces. */
+function flatPeer(x) {
+  const entity = player("ground", x, 0, [100, 0]);
+  entity.foothold = null;
+  return entity;
+}
+
+test("a peer is interpolated between two publications without mutating the source", () => {
+  const entity = flatPeer(40),
     before = structuredClone(entity);
   const motion = remote(entity);
-  expect(motion.sample(300).x).toBeGreaterThan(65);
-  expect(motion.y).toBeGreaterThan(5);
-  const x = motion.sample(450).x;
-  const next = player("ground", 65, 7.5, [89.4, 44.7]);
-  next.foothold = 2;
-  motion.observe(next, 4, 450, null);
-  expect(motion.x).toBeCloseTo(x);
-  expect(motion.sample(480).x).toBeGreaterThan(x - 1);
+  motion.observe(flatPeer(49), 2, 90, null);
+  const drawn = [120, 150, 180, 210, 240, 270].map((ms) => motion.sample(ms).x);
+  for (let index = 1; index < drawn.length; index++) {
+    expect(drawn[index]).toBeGreaterThanOrEqual(drawn[index - 1]);
+  }
+  expect(drawn[drawn.length - 1]).toBeGreaterThan(drawn[0]);
   expect(entity).toEqual(before);
-  motion.observe(player("ground", -80), 2, 500, null);
-  expect(motion.tick).toBe(4);
+  motion.observe(flatPeer(-80), 1, 300, null);
+  expect(motion.tick).toBe(2);
 });
 
-test("a peer jump reaches its apex and lands during a delayed update instead of continuing upwards", () => {
+test("a jump coasts to rest instead of extrapolating through the floor", () => {
   const motion = remote(player("air", 0, -20, [0, -200]));
-  expect(motion.sample(90).y).toBeLessThan(-29);
-  expect(motion.sample(300).y).toBe(0);
-  expect(motion.sample(10000).y).toBe(0);
+  let lowest = 0;
+  for (let ms = 120; ms <= 4000; ms += 20) {
+    lowest = Math.min(lowest, motion.sample(ms).y);
+  }
+  expect(lowest).toBeLessThan(-28);
+  const held = motion.sample(20000).y;
+  expect(held).toBeGreaterThan(-20);
+  expect(motion.sample(60000).y).toBeCloseTo(held);
   expect(motion.trajectory.fault).toBeNull();
+});
+
+test("a jittery publication stream never draws a backward step", () => {
+  const motion = remote(flatPeer(40));
+  let previous = null,
+    maxBack = 0,
+    next = 0;
+  for (let ms = 0; ms <= 4000; ms += 15) {
+    if (ms >= next) {
+      motion.observe(flatPeer(40 + ms * 0.1), ms / 30, ms, null);
+      next = ms + 60 + ((ms * 7) % 61);
+    }
+    const x = motion.sample(ms).x;
+    if (previous !== null) maxBack = Math.max(maxBack, previous - x);
+    previous = x;
+  }
+  expect(maxBack).toBeLessThan(2);
 });
 
 test("a peer teleport holds its destination until new movement arrives without retaining the old floor", () => {
@@ -102,7 +129,7 @@ test("a peer teleport holds its destination until new movement arrives without r
   expect(source).toEqual(original);
   motion.observe(player("air", 10, -200, [100, 0]), 2, 1000, null);
   expect([motion.x, motion.y]).toEqual([10, -200]);
-  expect(motion.sample(1090).x).toBeGreaterThan(10);
+  expect(motion.sample(1200).x).toBeGreaterThan(10);
   expect(motion.y).toBeGreaterThan(-200);
 });
 
@@ -110,12 +137,15 @@ test("ladder, buoyant motion and death preserve their own movement modes", () =>
   const entity = player("ladder", 10, 50, [0, -100]);
   entity.playerMotion.ladder = { x: 10, top: 20, bottom: 100 };
   const ladder = remote(entity);
-  expect(ladder.sample(500).y).toBe(20);
+  let climbing = 50;
+  for (let ms = 150; ms <= 700; ms += 15) climbing = ladder.sample(ms).y;
+  expect(climbing).toBeLessThan(50);
+  expect(climbing).toBeGreaterThanOrEqual(20);
   const fly = remote(player("fly", 0, -20, [30, -40]));
-  expect(fly.sample(300).y).toBeCloseTo(-32);
+  expect(fly.sample(1200).y).toBeLessThan(-25);
   const dead = player("air", 0, -20, [30, -40]);
   dead.combatState.phase = "dead";
-  expect(remote(dead).sample(300).y).toBe(-20);
+  expect(remote(dead).sample(1200).y).toBe(-20);
 });
 
 test("remote attack phase does not rewind on delayed copies and resets for a new action", () => {

@@ -193,6 +193,10 @@ export class SkillAttack {
     this.targets = new Array(MAX_TARGETS).fill(null);
     this.distances = new Float64Array(MAX_TARGETS);
     this.body = rectangleState();
+    // Server-side view compensation: the outgoing target test may sweep a mob's body over
+    // the latency window the attacker was rendering, in whole simulation ticks.
+    this.rewindTicks = 0;
+    this.lagBody = rectangleState();
     this.use = createWeaponUse();
     this.shots = Array.from({ length: MAX_IMPACTS }, impactSlot);
     this.basicShot = impactSlot();
@@ -412,10 +416,11 @@ export class SkillAttack {
     }
   }
 
-  begin(skill, info, onHit, chargeMs = -1) {
+  begin(skill, info, onHit, chargeMs = -1, rewindTicks = 0) {
     const record = this.prepared.get(skill.id);
     this.targetController = null;
     this.attackSequence++;
+    this.rewindTicks = Number.isSafeInteger(rewindTicks) && rewindTicks > 0 ? rewindTicks : 0;
     this.field.hooks.interruptChakra?.();
     this.field.hooks.consumeEventSkill?.(skill);
     this.active = record;
@@ -510,19 +515,40 @@ export class SkillAttack {
     return count;
   }
 
-  /** Return acquisition distance, or Infinity for a body outside the attack. */
+  /** Return acquisition distance, or Infinity for a body outside the attack.
+   *  Original 00678476 selects against 00664559(...,1), the union of the mob's current and
+   *  previous receiver, so one tick of target motion cannot carry a body out of a swing.
+   *  `rewindTicks` extends that same sweep across the latency window the attacker was
+   *  rendering, so a client drawing remote actors in the past is judged against what it
+   *  saw rather than against the server's present tick. */
   targetDistance(mob, skill, origin, ray) {
+    const body = this.targetBody(mob);
     if (ray) {
       return projectileTargetDistance(
-        mob.body,
+        body,
         origin,
         Math.max(this.body.right - origin.x, origin.x - this.body.left),
         COMBAT_SKILLS.get(skill.id)?.kind === "magic" ? 50 : 65,
       );
     }
-    return overlaps(this.body, mob.body)
-      ? Math.abs(mob.x - origin.x)
-      : Infinity;
+    return overlaps(this.body, body) ? Math.abs(mob.x - origin.x) : Infinity;
+  }
+
+  /** The mob receiver used for outgoing selection: the native current+previous union,
+   *  widened by the mob's last-tick delta across the compensation window. Recomputed into
+   *  one reusable slot; never mutates the mob. */
+  targetBody(mob) {
+    const base = mob.sweptBody?.active ? mob.sweptBody : mob.body;
+    if (this.rewindTicks <= 0 || !base?.active) return base;
+    const dx = (mob.delta?.x ?? 0) * this.rewindTicks;
+    const dy = (mob.delta?.y ?? 0) * this.rewindTicks;
+    const out = this.lagBody;
+    out.active = true;
+    out.left = base.left + Math.min(0, dx);
+    out.right = base.right + Math.max(0, dx);
+    out.top = base.top + Math.min(0, dy);
+    out.bottom = base.bottom + Math.max(0, dy);
+    return out;
   }
 
   eligible(mob, skill) {

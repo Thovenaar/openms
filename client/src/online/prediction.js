@@ -11,15 +11,18 @@ import { FLASH_SKILLS } from "../skills/skill-world-rules.js";
 import { inputTargetTick } from "./input-timing.js";
 
 const STALE_OBSERVATION_MS = 5000;
-/** A server-owned reposition is the only thing that moves the drawn pose without the
- *  player's own prediction. Small disagreements inside the tolerance are absorbed by
- *  the presentation instead of snapping; beyond it the correction is immediate. */
-const POSITION_TOLERANCE_PX = 24;
-const CORRECTION_MS = 120;
-/** A server-owned reposition explains its own offset, so it may exceed the ordinary
- *  tolerance up to this bound — the input lead plus one movement impulse fits with
- *  headroom. Beyond it the pose snaps immediately instead of gliding. */
-const AUTHORITATIVE_CORRECTION_MAX_PX = 96;
+/** Reconciliation is tuned for perception, not for zero error. An error below the absorb
+ *  band is invisible and is left alone; anything larger is eased in over a window that
+ *  grows with the error but is capped at the character's own walk speed, so a corrected
+ *  trajectory is still something the character could have travelled. Only a discontinuity
+ *  the kernel cannot explain snaps. */
+const ABSORB_PX = 3;
+const MIN_CORRECTION_MS = 120;
+const MAX_CORRECTION_MS = 600;
+const ORDINARY_CORRECTION_MAX_PX = 192;
+/** A server-owned reposition explains its own offset, so it may glide further before it is
+ *  treated as a field replacement; the input lead plus one movement impulse fits inside. */
+const AUTHORITATIVE_CORRECTION_MAX_PX = 512;
 /** Removal rate for an absorbed offset. 0.125 px/ms is exactly walkSpeed, so the extra
  *  drawn travel inside one 30 ms kernel quantum stays at or below 3.75 px and the player
  *  reads a continuous trajectory rather than a rubber-band. */
@@ -28,6 +31,11 @@ const CORRECTION_PX_PER_MS = 0.125;
  *  whose event never arrives cannot grow memory, and an old entry cannot match a
  *  later cast of the same skill because it is retired by id on arrival or on reject. */
 const MAX_PENDING_IMPULSES = 8;
+
+function smoothCorrection(value) {
+  const t = value < 0 ? 0 : value > 1 ? 1 : value;
+  return t * t * (3 - 2 * t);
+}
 
 function normalizeZero(value) {
   return Object.is(value, -0) ? 0 : value;
@@ -104,7 +112,9 @@ export class OnlinePrediction {
     this.correctionX = 0;
     this.correctionY = 0;
     this.correctionUntil = 0;
-    this.correctionSpan = CORRECTION_MS;
+    this.correctionSpan = MIN_CORRECTION_MS;
+    this.drawnX = Number.NaN;
+    this.drawnY = Number.NaN;
     this.diverts = 0;
   }
 
@@ -299,27 +309,41 @@ export class OnlinePrediction {
   reconcilePresentation(visibleX, visibleY, explained = false) {
     this.seedCorrection(visibleX, visibleY, explained);
   }
+  /** Absorb the difference between what the player currently sees and the authoritative
+   *  state. The offset is re-seeded from the drawn pose rather than stacked, so a second
+   *  checkpoint mid-glide retargets the same correction instead of adding another. An
+   *  error too small to see is left alone; an error beyond the band is a real
+   *  discontinuity (field replacement) and presents the new state outright. */
   seedCorrection(visibleX, visibleY, explained = false) {
-    const dx = visibleX - this.simulation.x;
-    const dy = visibleY - this.simulation.y;
+    const originX = Number.isFinite(this.drawnX) ? this.drawnX : visibleX;
+    const originY = Number.isFinite(this.drawnY) ? this.drawnY : visibleY;
+    const dx = originX - this.simulation.x;
+    const dy = originY - this.simulation.y;
     const distance = Math.hypot(dx, dy);
     const limit = explained
       ? AUTHORITATIVE_CORRECTION_MAX_PX
-      : POSITION_TOLERANCE_PX;
-    if (!Number.isFinite(distance) || distance > limit) {
-      this.correctionX = 0;
-      this.correctionY = 0;
-      this.correctionUntil = 0;
-      this.correctionSpan = CORRECTION_MS;
+      : ORDINARY_CORRECTION_MAX_PX;
+    if (
+      !Number.isFinite(distance) ||
+      distance < ABSORB_PX ||
+      distance > limit
+    ) {
+      this.clearCorrection();
       return;
     }
     this.correctionX = dx;
     this.correctionY = dy;
-    this.correctionSpan = Math.max(
-      CORRECTION_MS,
-      distance / CORRECTION_PX_PER_MS,
+    this.correctionSpan = Math.min(
+      MAX_CORRECTION_MS,
+      Math.max(MIN_CORRECTION_MS, distance / CORRECTION_PX_PER_MS),
     );
     this.correctionUntil = performance.now() + this.correctionSpan;
+  }
+  clearCorrection() {
+    this.correctionX = 0;
+    this.correctionY = 0;
+    this.correctionUntil = 0;
+    this.correctionSpan = MIN_CORRECTION_MS;
   }
 
   /** Record how far the local report is from the authority's observation. This is
@@ -479,11 +503,14 @@ export class OnlinePrediction {
     target.y = sim.previousY + (sim.y - sim.previousY) * alpha;
     const remaining = this.correctionUntil - now;
     if (remaining > 0) {
-      let fraction = remaining / this.correctionSpan;
-      if (fraction > 1) fraction = 1;
+      // Smoothstep removes the velocity discontinuity a linear ramp leaves at both ends,
+      // so a correction bends the trajectory instead of nudging it.
+      const fraction = smoothCorrection(remaining / this.correctionSpan);
       target.x += this.correctionX * fraction;
       target.y += this.correctionY * fraction;
     }
+    this.drawnX = target.x;
+    this.drawnY = target.y;
     return target;
   }
 
@@ -588,7 +615,9 @@ export class OnlinePrediction {
     this.correctionX = 0;
     this.correctionY = 0;
     this.correctionUntil = 0;
-    this.correctionSpan = CORRECTION_MS;
+    this.correctionSpan = MIN_CORRECTION_MS;
+    this.drawnX = Number.NaN;
+    this.drawnY = Number.NaN;
   }
 
   snapshot() {
