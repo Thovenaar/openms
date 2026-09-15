@@ -13,6 +13,7 @@ Read a result together with its **source/catalog identity, fixture, action and l
 | Browser cache capacity                | [Cache capacity and index](#browser-cache-capacity-and-index) | Quota-aware disk limits, retained metadata, interruption recovery and startup regression. |
 | Refresh without asset downloads       | [Catalog reuse](#catalog-reuse-on-refresh) | Fresh server hash, local catalog verification and zero retained-cache asset requests. |
 | Single startup download | [Startup pack](#single-startup-download) | One generated-file request, cold/warm timing and gameplay at 500 ms RTT. |
+| Immediate local feedback and lag tolerance | [Local feedback](#local-feedback-and-watchdog-lag-tolerance) | Pending chat, skill Use artwork/audio before delayed replies, echo suppression and Win95 loading indicator. |
 | Client-owned motion and knockback      | [Movement parity](movement-parity.md#client-owned-motion) · [Browser check](#client-owned-motion-browser-check)      | One native browser hold and the real server/predictor divert tests; not original Windows parity.        |
 | Airborne skill continuity and recoil   | [Skill cast repair](#skill-cast-stutter-repair) · [Movement contract](movement-parity.md#skill-snapshot-continuity) | Same-field snapshot continuity, immediate impulses and recovered foothold-tangent mob recoil. |
 | Consecutive Flash Jump artwork         | [Replay validation](#consecutive-flash-jump-artwork-14-september-2026) | Five admitted casts, including a rapid direction reversal, with zero rendered-origin offset. |
@@ -291,5 +292,33 @@ Focused checks passed **47 tests / 206 assertions**, including one-transfer cach
 ```sh
 bun server/tools/check-network-latency.js --scope startup --output /tmp/openms-startup-pack
 bun test client/test/online-startup-pack.test.js client/test/online-startup-preload.test.js client/test/stream-catalog.test.js client/test/stream-network.test.js client/test/online-loading.test.js
+bun client/tools/build-online.js
+```
+
+## Local feedback and watchdog lag tolerance
+
+On **2026-09-15**, the watchdog gained **500 ms of position headroom**, with suspicious reports within **50 ticks / 1.5 seconds** sharing one evidence mark. A fault now requires eight separate marks within 27 seconds, or an extreme deviation exceeding eight times its envelope; extreme position faults also require more than 4,096 px. The reported 200 px / 30 ms discrepancy is inside the new 477 px allowance. Tests establish acceptance of that case and a burst of delayed reports, rejection of repeated independent incidents and impossible teleports, and continued kicked-character lease cleanup. These are lag policies, not recovered original-client constants.
+
+The focused native browser check passed in isolated Chrome with a disposable account in map **1000000**, **500 ms HTTP delay and 250 ms per WebSocket direction**. Native chat appeared locally while replies were held for **1.5 seconds**; its echo settled exactly one row. Native Recovery (`1001`) started its Use artwork and sound while replies were held for **three seconds**, before a receipt or server presentation event arrived. The later matching visual/audio events did not replay those cues, and the connection remained active with zero browser errors. Damage, costs, buffs and recipient delivery remain server-owned. This check establishes local Use feedback for one native cast, not every skill or attack phase.
+
+The **142×50 Win95 loading panel** remained inside both **1280×800 and 800×600** viewports, with its bottom edge 86 px above the viewport bottom and no pointer interception. Screenshot review confirmed the larger navy progress ring and readable label above the HUD. Focused ownership tests cover refusal cleanup, delayed asset completion after scene exit, server-first races, exact operation matching, fixed movement-effect origins and reuse beyond the 32-record feedback bound.
+
+Browser stages measured identity **1.404 s**, startup/login/map entry **15.189 s**, chat **2.976 s**, cast **3.342 s** and context teardown **16 ms**. The chat/cast stages include their deliberate reply holds; login includes cold startup and this map's uncached assets. Fixture stages measured database/content **314 ms**, seed **86 ms**, server startup **1.084 s**, frontend startup **1.395 s**, browser acquisition **456 ms** and fixture teardown **102 ms**. Existing extraction was reused. These nested timings are not additive and do not establish a general internet or frame-rate benchmark.
+
+The first scenario attempt exposed a missing report-results array and a cast racing the HUD's debounced settings save (`SERVER_BUSY`). The harness now waits for that save before isolating the cast reply hold; the initial refused cue was correctly cleaned up. The final run committed every observed command. A test fixture also referenced a removed historical JSON report; it now reads physics globals from the retained real map manifest rather than restoring generated evidence to the repository.
+
+| Identity | Value |
+| --- | --- |
+| Browser, development scenario | `5bb8ea7eff68a9ea8098dcf6e977ad64a369c5b3f47c20d85bfe8e7f4d8b7140` |
+| Final production browser | `70c3d70cfdf1780f387c290c6a2c8785a7e04d729993607cdf8d04b58ee1be87` |
+| Rules | `db5ec85f756c24f7b2fde444791e5f4855f8e840443d6fafb86f37f4e770f4ce` |
+| Asset build | `93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27` |
+| Catalog | `5bd1177cb1269b1d8f366451f4cf6c1603652dc76266d83146fa68f4a6d0e0ca` |
+
+**71 tests / 653 assertions passed** across local feedback, chat, skill motion/replay, watchdog adoption, lifecycle, delayed input ordering and loading. Changed JavaScript passed Prettier and ESLint with zero warnings. The guarded production build passed with **948 modules** and three bundles. The documentation checker retains **884 existing missing historical targets**, with no missing headings. Raw reports, screenshots and logs remain outside the repository under the [artifact policy](validation-method.md#artifact-policy).
+
+```sh
+bun server/tools/check-skill-effects.js --output /tmp/openms-local-feedback
+bun test client/test/local-feedback.test.js client/test/online-chat.test.js client/test/online-skill-motion.test.js server/test/chat-delivery.test.js server/test/skill-visual-replay.test.js server/test/motion-adoption.test.js server/test/lifecycle.test.js server/test/network-latency.test.js server/test/skill-input-order.test.js client/test/online-loading.test.js
 bun client/tools/build-online.js
 ```

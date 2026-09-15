@@ -23,6 +23,7 @@ const bundle = record({
 });
 const skillVisual = record({
   id,
+  feedbackId: optional(id),
   sourceId: string(/^[\s\S]{1,256}$/, 256),
   entityId: string(/^[\s\S]{1,256}$/, 256),
   bundle,
@@ -198,6 +199,7 @@ export const COMBAT_EVENT_SCHEMAS = {
   }),
   "skill.sound": record({
     kind: enumeration("skill.sound"),
+    feedbackId: optional(id),
     actorId: id,
     voiceId: id,
     skillId: u32,

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { DelayedTraffic } from "../../client/tools/scenarios/delayed-traffic.js";
 import { parseFlags } from "../../client/tools/source-options.js";
 import { createProfile } from "../../client/src/profile/profile-validation.js";
 import { isolatedOnlineCheck } from "./isolated-online-check.js";
@@ -31,16 +33,29 @@ if (import.meta.main) {
   });
   if (flags.help) {
     console.log(
-      "bun server/tools/check-skill-effects.js [--output DIR]\nDefault: /tmp/openms-skill-effects. Disposable account/database; native skill cast, published visual and started Use voice.",
+      "bun server/tools/check-skill-effects.js [--output DIR]\nDefault: /tmp/openms-skill-effects. Disposable account/database at 500ms RTT; local chat, Use effects/audio, echo reconciliation and loading indicator.",
     );
   } else {
+    const fixtureTimings = {};
+    const output = flags.output ?? "/tmp/openms-skill-effects";
     const report = await isolatedOnlineCheck({
       seed,
       run: runSkillEffect,
-      output: flags.output ?? "/tmp/openms-skill-effects",
+      output,
+      network: new DelayedTraffic(500),
+      timings: fixtureTimings,
     });
+    report.fixtureTimings = fixtureTimings;
+    await Bun.write(
+      join(output, "report.json"),
+      JSON.stringify(report, null, 2) + "\n",
+    );
     console.log(
-      JSON.stringify({ status: report.status, failure: report.failure }),
+      JSON.stringify({
+        status: report.status,
+        timings: report.timings,
+        failure: report.failure,
+      }),
     );
     process.exitCode = report.status === "pass" ? 0 : 1;
   }

@@ -74,7 +74,10 @@ export class AuthorityAnimation {
       throw new Error(`Unknown animation playback ${playback}`);
     }
     if (this.action === name && this.playback === playback && !restart) return;
-    if (restart) this.playbackId = (this.playbackId + 1) >>> 0;
+    if (restart) {
+      this.playbackId = (this.playbackId + 1) >>> 0;
+      this.feedbackId = this.owner.feedbackId;
+    }
     this.action = name;
     this.playback = playback;
     this.current = next;
@@ -200,6 +203,7 @@ export class AuthoritySkillResources extends SkillResources {
     const voice = { id: randomUUID(), ended: false, skillId: skill.id, leaf };
     this.emit({
       kind: "skill.sound",
+      ...(this.feedbackId ? { feedbackId: this.feedbackId } : {}),
       actorId: this.actor.id,
       voiceId: voice.id,
       skillId: skill.id,
@@ -234,6 +238,7 @@ export class AuthoritySkillResources extends SkillResources {
   playSequence(sequence, target, options) {
     const slot = super.playSequence(sequence, target, options);
     if (slot) {
+      slot.animation.feedbackId = this.feedbackId ?? null;
       this.emit({
         kind: "skill.visual",
         actorId: this.actor.id,
@@ -271,6 +276,7 @@ export class AuthoritySkillResources extends SkillResources {
       animation.sourceId.startsWith("combo:");
     const view = {
       id: animation.id,
+      ...(animation.feedbackId ? { feedbackId: animation.feedbackId } : {}),
       sourceId: animation.sourceId,
       bundle,
       entityId: source?.entityId ?? animation.sourceId,

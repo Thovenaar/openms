@@ -345,14 +345,15 @@ export class UIChat {
     if (
       result.delivery !== "local-only" &&
       result.delivery !== "local-session" &&
-      result.delivery !== "server"
+      result.delivery !== "server" &&
+      result.delivery !== "pending"
     ) {
       throw new TypeError(
         "Chat authority did not identify a supported delivery",
       );
     }
     this.remember(text);
-    if (result.delivery === "server") return;
+    if (result.delivery === "server" || result.delivery === "pending") return;
     this.owner.status(
       result.delivery === "local-only"
         ? "Local speech displayed; not sent to a server."
@@ -414,7 +415,7 @@ export class UIChat {
     this.setState(settings.state, false);
   }
 
-  /** Only an actual session/system producer may append; send() never fabricates an All echo. */
+  /** Producers own received records and explicitly pending local feedback. */
   receive(record) {
     this.messages.append(record);
     if (record.source === "local-system" || record.source === "gameplay") {

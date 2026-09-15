@@ -34,6 +34,8 @@ export class NativeSocialChat {
     this.targetId = null;
     this.whisperId = null;
     this.seen = new Set();
+    this.pending = new Map();
+    this.generation = 0;
   }
   select({ channel, targetId, groupId } = {}) {
     const index = groupId !== undefined ? 1 : NATIVE_CHAT_CHANNELS[channel];
@@ -84,19 +86,62 @@ export class NativeSocialChat {
       if (!parsed.text) return this.selectParsed(parsed);
       const action = await this.action(parsed, channel);
       if (!action) return { accepted: false, reason: "No recipient selected." };
-      const outcome = nativeOutcome(await this.owner.command(action));
-      if (outcome.ok && channel === "whisper") {
-        this.whisperId = action.recipientId;
-      }
-      return {
-        accepted: outcome.ok,
-        reason: outcome.reason,
-        delivery: "server",
-        text: parsed.text,
-      };
+      return this.enqueue(action, parsed);
     } catch (error) {
       return { accepted: false, reason: error.message };
     }
+  }
+  enqueue(action, parsed) {
+    if (this.pending.size >= 8 || this.owner.blocked()) {
+      return { accepted: false, reason: "Chat is waiting for a connection." };
+    }
+    const response = this.owner.command(action);
+    if (!response.operationId) {
+      return response.then((receipt) => ({
+        accepted: false,
+        reason: nativeOutcome(receipt).reason,
+      }));
+    }
+    const messageId = response.operationId;
+    const scene = this.owner.hooks.scene();
+    const generation = this.generation;
+    const event = {
+      kind: "chat",
+      messageId,
+      senderId: this.owner.store.id,
+      senderName: this.owner.store.profile.name,
+      channel: action.channel,
+      text: parsed.text,
+    };
+    this.pending.set(messageId, event);
+    this.append(event, "pending");
+    if (action.channel === "map") {
+      scene?.events.chat(event).catch((error) => this.owner.report(error));
+    }
+    response
+      .then((receipt) => {
+        if (generation !== this.generation) return;
+        const outcome = nativeOutcome(receipt);
+        this.settle(messageId, outcome, scene);
+        if (outcome.ok && action.channel === "whisper") {
+          this.whisperId = action.recipientId;
+        }
+      })
+      .catch((error) => {
+        if (generation === this.generation) {
+          this.settle(messageId, { ok: false, reason: error.message }, scene);
+        }
+      });
+    return { accepted: true, delivery: "pending", text: parsed.text };
+  }
+  settle(messageId, outcome, scene) {
+    this.pending.delete(messageId);
+    this.owner.ui.chat.messages.settle(
+      messageId,
+      outcome.ok ? "server" : "failed",
+      outcome.reason,
+    );
+    if (!outcome.ok) scene?.events.rejectChat(this.owner.store.id, messageId);
   }
   selectParsed(parsed) {
     if (parsed.channelIndex === 6) {
@@ -154,14 +199,35 @@ export class NativeSocialChat {
   receive(event) {
     const channelIndex = WIRE_CHANNELS.indexOf(event.channel);
     if (channelIndex < 0) return;
-    if (this.seen.has(event.messageId)) return;
+    const key = `${event.senderId}:${event.messageId}`;
+    if (this.seen.has(key)) return;
     if (this.seen.size >= 128) {
       this.seen.delete(this.seen.values().next().value);
     }
-    this.seen.add(event.messageId);
+    this.seen.add(key);
+    if (
+      event.senderId === this.owner.store.id &&
+      this.pending.has(event.messageId)
+    ) {
+      this.owner.ui.chat.messages.settle(event.messageId, "server");
+      return;
+    }
+    if (
+      event.senderId === this.owner.store.id &&
+      this.owner.ui.chat.messages.records.some(
+        (row) => row.messageId === event.messageId,
+      )
+    ) {
+      this.owner.ui.chat.messages.settle(event.messageId, "server");
+      return;
+    }
     if (event.channel === "whisper" && event.senderId !== this.owner.store.id) {
       this.whisperId = event.senderId;
     }
+    this.append(event, "server");
+  }
+  append(event, delivery) {
+    const channelIndex = WIRE_CHANNELS.indexOf(event.channel);
     this.owner.ui.chat.receive({
       source: "session",
       text: `${channelIndex === 7 ? "" : `[${CHANNEL_NAMES[channelIndex]}] `}${event.senderName}: ${event.text}`,
@@ -170,12 +236,15 @@ export class NativeSocialChat {
       recipientId: this.owner.store.id,
       channelIndex,
       message: event.text,
-      delivery: "server",
+      messageId: event.messageId,
+      delivery,
     });
   }
   destroy() {
     this.targetId = null;
     this.whisperId = null;
     this.seen.clear();
+    this.pending.clear();
+    this.generation++;
   }
 }

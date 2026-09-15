@@ -454,6 +454,7 @@ function snapshot() {
       ? snapshotSimulation(prediction.simulation)
       : null,
     ...snapshotUI(),
+    localSkillFeedback: ui?.skillVisuals.local.snapshot() ?? [],
     streaming: {
       ...network.snapshot(),
       ...services.atlases?.snapshot(),

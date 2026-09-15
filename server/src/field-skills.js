@@ -62,7 +62,13 @@ class AuthorityCosts extends SkillCosts {
 
 class AuthoritySkills extends SkillSystem {
   publishCast(skill, info, rank) {
-    super.publishCast(skill, info, rank);
+    this.resources.feedbackId = this.feedbackOperations?.get(skill.id) ?? null;
+    try {
+      super.publishCast(skill, info, rank);
+    } finally {
+      this.resources.feedbackId = null;
+      this.feedbackOperations?.delete(skill.id);
+    }
     const actor = this.hooks.actor;
     const state = this.states.get(skill.id);
     actor.profile.onlineState.cooldowns[`skill:${skill.id}`] =
@@ -468,6 +474,8 @@ function publishPaidCast(
   { operation, drops, receipt, deferred },
 ) {
   admitActor(actor, world, operation.fieldEpoch);
+  plan.system.feedbackOperations ??= new Map();
+  plan.system.feedbackOperations.set(plan.skill.id, operation.operationId);
   if (drops) commitSkillDrops(actor, drops, receipt);
   if (!deferred) {
     plan.system.costs.consume(plan.skill, plan.info);
@@ -475,16 +483,26 @@ function publishPaidCast(
       plan.system.utilityController.events.consume(plan.skill);
     }
   }
-  const kind = partySkillKind(plan.skill, plan.info);
-  if (kind === "dispel") actor.skillField.dispelSkill(plan.info, false);
-  if (["resurrection", "time-leap", "dispel"].includes(kind)) {
-    if (plan.skill.actions.length) {
-      plan.system.hooks.startAction(plan.skill.actions[0]);
-    }
-  } else plan.controller.cast(plan.skill, plan.info, plan.rank);
+  publishCastPresentation(actor, plan, operation.operationId);
   if (!deferred) plan.system.publishCast(plan.skill, plan.info, plan.rank);
   publishPartyVisuals(world, actor, plan, receipt.value.partyEffects);
   world.publish(actor, { type: "snapshot-request" });
+}
+
+function publishCastPresentation(actor, plan, operationId) {
+  const resources = plan.system.resources;
+  resources.feedbackId = operationId;
+  try {
+    const kind = partySkillKind(plan.skill, plan.info);
+    if (kind === "dispel") actor.skillField.dispelSkill(plan.info, false);
+    if (["resurrection", "time-leap", "dispel"].includes(kind)) {
+      if (plan.skill.actions.length) {
+        plan.system.hooks.startAction(plan.skill.actions[0]);
+      }
+    } else plan.controller.cast(plan.skill, plan.info, plan.rank);
+  } finally {
+    resources.feedbackId = null;
+  }
 }
 
 async function debitSkill(

@@ -1,3 +1,4 @@
+import { LocalSkillFeedback } from "./local-skill-feedback.js";
 import { EntityAnimation } from "../rendering/animation.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
 import { composeRiding } from "../skills/skill-riding-composition.js";
@@ -29,6 +30,7 @@ export class NativeSkillPresentation {
     this.voices = new Map();
     this.controller = new AbortController();
     this.selfDoor = null;
+    this.local = new LocalSkillFeedback(this);
     this.observation = {
       retained: new Set(),
       retainedVoices: new Set(),
@@ -40,6 +42,11 @@ export class NativeSkillPresentation {
     this.destroy();
     this.scene = scene;
     this.controller = new AbortController();
+    this.local = new LocalSkillFeedback(this);
+  }
+  predict(skillId, operationId) {
+    this.setScene(this.owner.scene);
+    return this.local.begin(skillId, operationId);
   }
   async publish() {
     this.setScene(this.owner.scene);
@@ -104,6 +111,7 @@ export class NativeSkillPresentation {
   async visual(event) {
     this.setScene(this.owner.scene);
     if (!this.scene) return;
+    if (this.local.visualEcho(event)) return;
     const state = event.visual;
     const rider = state.riding
       ? this.owner.hooks.scene()?.views.get(event.actorId)?.owner?.resource
@@ -307,6 +315,7 @@ export class NativeSkillPresentation {
     return entry.pending;
   }
   async sound(event) {
+    if (this.local.soundEcho(event)) return;
     const previous = this.voices.get(event.voiceId);
     if (event.stopped) {
       if (previous) {
@@ -367,6 +376,7 @@ export class NativeSkillPresentation {
       this.setScene(this.owner.scene);
       return;
     }
+    this.local.draw(ms);
     for (const entry of this.visuals.values()) {
       this.chase(entry, ms);
       if (!entry.animation || entry.state.sourceFrame !== null) continue;
@@ -415,6 +425,7 @@ export class NativeSkillPresentation {
     if (this.visuals.get(entry.id) === entry) this.visuals.delete(entry.id);
   }
   destroy() {
+    this.local.destroy();
     this.generation++;
     this.controller.abort();
     for (const entry of this.visuals.values()) this.releaseVisual(entry);

@@ -100,13 +100,15 @@ export {
  *  The authority deliberately does **not** correct a client's position or velocity: it
  *  adopts the report so the client's own trajectory is the source of truth and movement
  *  is never rubber-banded. This envelope is only a watchdog for motion the kernel cannot
- *  explain from the inputs the server consumed; a report outside it is a client fault
- *  and the session is closed, never nudged.
+ *  explain from the inputs the server consumed. Isolated deviations are adopted;
+ *  the server watchdog accumulates repeated incidents before closing a session.
  *
  *  Sizing (`speedPxPerSecond` 900 = the fastest combination the kernel can author —
  *  terminal fall 670 px/s, plus a horizontal movement skill 350 px/s, hypot 756 — with
  *  headroom): a report is judged against the time since the last adopted report, so the
  *  same rule covers one tick of jitter and a reconnect gap where the player kept moving.
+ *  An additional 500 ms allowance tolerates delayed input/event observations, even
+ *  when consecutive client reports are only one simulation tick apart.
  *  `minimumPositionPx` 32 keeps a single 30 ms quantum from ever tripping it: one tick of
  *  terminal fall is 20.1 px and one authoritative knockback adds 8.1 px.
  *  `velocityPxPerSecond` 700 is an instantaneous bound, so it does not scale.
@@ -116,6 +118,7 @@ export {
  *  movement skill). Those checkpoints carry `authoritative: true`; ordinary checkpoints
  *  are observations and never reposition the browser. */
 export const MOTION_PLAUSIBILITY = Object.freeze({
+  latencyAllowanceMs: 500,
   speedPxPerSecond: 900,
   minimumPositionPx: 32,
   velocityPxPerSecond: 700,
@@ -125,7 +128,9 @@ export const MOTION_PLAUSIBILITY = Object.freeze({
  *  measured from the last adopted report; never below one quantum of headroom. */
 export function plausiblePositionPx(elapsedMs) {
   const scaled = Number.isFinite(elapsedMs)
-    ? (MOTION_PLAUSIBILITY.speedPxPerSecond * Math.max(0, elapsedMs)) / 1000
+    ? (MOTION_PLAUSIBILITY.speedPxPerSecond *
+        (Math.max(0, elapsedMs) + MOTION_PLAUSIBILITY.latencyAllowanceMs)) /
+      1000
     : MOTION_PLAUSIBILITY.minimumPositionPx;
   return Math.max(MOTION_PLAUSIBILITY.minimumPositionPx, scaled);
 }

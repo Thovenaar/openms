@@ -386,11 +386,25 @@ export class OnlineUI {
       this.closeStorage();
     }
   }
-  async command(action, revision) {
-    if (this.destroyed) throw new Error("Native online UI was destroyed.");
+  command(action, revision) {
+    if (this.destroyed) {
+      return Promise.reject(new Error("Native online UI was destroyed."));
+    }
     this.beginOperation();
+    let pending;
     try {
-      const receipt = await this.transport.command(action, revision);
+      pending = this.transport.command(action, revision);
+    } catch (error) {
+      this.finishOperation();
+      return Promise.reject(error);
+    }
+    const result = this.completeCommand(pending);
+    result.operationId = pending.operationId;
+    return result;
+  }
+  async completeCommand(pending) {
+    try {
+      const receipt = await pending;
       if (receipt.status !== "committed") {
         this.ui.status(nativeOutcome(receipt).reason);
       }
@@ -509,12 +523,19 @@ export class OnlineUI {
     const token = impulse
       ? (this.hooks.prediction?.beginOptimistic?.(impulse, skillId) ?? null)
       : null;
-    this.command({ kind: "skill.cast", skillId })
+    const response = this.command({ kind: "skill.cast", skillId });
+    const feedback = this.skillVisuals?.predict(skillId, response.operationId);
+    response
       .then((receipt) => {
-        if (receipt.status !== "committed") this.rollbackOptimistic(token);
+        if (feedback) feedback.confirmed = true;
+        if (receipt.status !== "committed") {
+          this.rollbackOptimistic(token);
+          this.skillVisuals?.local.reject(feedback);
+        }
       })
       .catch((error) => {
         this.rollbackOptimistic(token);
+        this.skillVisuals?.local.reject(feedback);
         this.report(error);
       });
     return true;

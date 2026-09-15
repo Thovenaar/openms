@@ -7,7 +7,7 @@ import { TELEPORT_SKILLS } from "./skill-world-rules.js";
 
 const DESTROY = Object.freeze({ children: true });
 
-function effectPath(id) {
+export function skillWorldEffectPath(id) {
   if (TELEPORT_SKILLS.has(id)) return "Teleport";
   if (id === 4111006) return "Flying";
   if (id === 14101004) return "Flying1";
@@ -24,7 +24,7 @@ export class SkillWorldEffects {
 
   async prepare(skills) {
     for (const skill of skills) {
-      const path = effectPath(skill.id);
+      const path = skillWorldEffectPath(skill.id);
       if (!path || this.records.has(path)) continue;
       const descriptor = this.system.fullCatalog.ui.skillWorld?.effects[path];
       if (!descriptor?.available) continue;
@@ -56,7 +56,7 @@ export class SkillWorldEffects {
   }
 
   admissionError(id) {
-    const path = effectPath(id);
+    const path = skillWorldEffectPath(id);
     if (!path) return null;
     const record = this.records.get(path);
     if (!record) return "Original movement effect is not prepared";
@@ -64,7 +64,7 @@ export class SkillWorldEffects {
   }
 
   play(id, origin, index = 0) {
-    const record = this.records.get(effectPath(id));
+    const record = this.records.get(skillWorldEffectPath(id));
     if (!record) return;
     const slot = record.slots[index];
     slot.remainingMs = record.durationMs;

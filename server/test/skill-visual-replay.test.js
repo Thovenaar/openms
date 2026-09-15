@@ -20,14 +20,18 @@ test("reusing the original Flash Jump artwork publishes a new playback at the ne
     slots: [{ animation, remainingMs: 0 }],
     durationMs: descriptor.durationMs,
   });
+  resources.feedbackId = "first-cast";
   effects.play(4111006, { x: 131, y: 243, facing: 1 });
   effects.step(540);
   const first = resources.view(animation);
   expect(first.elapsedMs).toBe(540);
+  expect(first.feedbackId).toBe("first-cast");
   // A second jump can arrive before the authored 600 ms effect expires.
+  resources.feedbackId = "second-cast";
   effects.play(4111006, { x: 402, y: 200, facing: -1 });
   const second = resources.view(animation);
   expect(second.id).toBe(first.id);
+  expect(second.feedbackId).toBe("second-cast");
   expect(second.playbackId).not.toBe(first.playbackId);
   expect(second.elapsedMs).toBe(0);
   expect(second.position).toEqual({ x: 402, y: 200 });
@@ -43,4 +47,27 @@ test("reusing the original Flash Jump artwork publishes a new playback at the ne
   expect(resources.view(animation).playbackId).toBe(second.playbackId);
   animation.container.destroy();
   owner.destroy();
+});
+
+test("a predicted Use voice publishes its exact cast operation for echo reconciliation", () => {
+  const events = [];
+  const resources = new AuthoritySkillResources(
+    {
+      broadcast(_field, message) {
+        events.push(message.event);
+      },
+    },
+    { id: "player", field: { epoch: "field" } },
+    {},
+    {},
+  );
+  resources.feedbackId = "cast-operation";
+  resources.sound(
+    { id: 1001, sounds: { leaves: { Use: { available: true } } } },
+    "Use",
+  );
+  expect(events[0].feedbackId).toBe("cast-operation");
+  expect(() =>
+    validate(events[0], COMBAT_EVENT_SCHEMAS["skill.sound"]),
+  ).not.toThrow();
 });

@@ -7,7 +7,9 @@ test("server echoes retain own and peer map history exactly once, including chan
   const chat = new NativeSocialChat({
     owner: {
       store: { id: "self" },
-      ui: { chat: { receive: (row) => records.push(row) } },
+      ui: {
+        chat: { messages: { records }, receive: (row) => records.push(row) },
+      },
     },
   });
   for (const [messageId, senderId, channel] of [

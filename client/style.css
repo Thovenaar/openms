@@ -973,21 +973,45 @@ aside.inspection-chrome {
   gap: 6px;
 }
 
-/* Background asset activity stays clear of the native bottom HUD and pointer input. */
+/* Background activity borrows the startup window's Windows 95 bevel and navy accent. */
 #asset-loading {
   position: absolute;
   right: 14px;
   bottom: 86px;
   z-index: 2147483646;
-  width: 20px;
-  height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 142px;
+  height: 50px;
+  padding: 7px 10px;
   box-sizing: border-box;
-  border: 3px solid #ffffff70;
-  border-top-color: #fff;
-  border-radius: 50%;
-  filter: drop-shadow(0 1px 2px #000b);
+  border: 2px solid;
+  border-color: #dfdfdf #000 #000 #dfdfdf;
+  background: #c0c0c0;
+  box-shadow:
+    inset 1px 1px #fff,
+    inset -1px -1px #808080,
+    2px 2px #0008;
+  color: #000;
+  font:
+    bold 12px "MS Sans Serif",
+    Tahoma,
+    sans-serif;
   pointer-events: none;
-  animation: asset-loading-spin 0.8s linear infinite;
+}
+#asset-loading::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 4px solid #808080;
+  border-top-color: #000080;
+  border-right-color: #000080;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #fff;
+  animation: asset-loading-spin 1s steps(8) infinite;
 }
 #asset-loading[hidden] {
   display: none;
@@ -998,8 +1022,7 @@ aside.inspection-chrome {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  #asset-loading {
+  #asset-loading::before {
     animation: none;
-    border-top-color: #ffc45a;
   }
 }

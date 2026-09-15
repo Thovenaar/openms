@@ -42,7 +42,7 @@ function validateRecord(record) {
   }
 }
 
-/** Delivered records only. Local speech is not a fabricated server All-chat echo. */
+/** Local pending messages reconcile by operation ID; received messages remain server-owned. */
 export class ChatLog {
   constructor(panel) {
     this.records = [];
@@ -68,6 +68,10 @@ export class ChatLog {
     }
     row.textContent =
       record.source === "local-system" ? `[Local] ${record.text}` : record.text;
+    if (record.delivery === "pending") row.textContent += " (sending…)";
+    if (record.delivery === "failed") row.textContent += " (not sent)";
+    row.dataset.delivery = record.delivery ?? "server";
+    row.title = record.reason ?? "";
     row.style.color = chatColor(record);
     return row;
   }
@@ -86,6 +90,9 @@ export class ChatLog {
       source: record.source,
       text: record.text,
       time: record.time,
+      ...(record.messageId
+        ? { messageId: record.messageId, delivery: record.delivery }
+        : {}),
       ...(record.channelIndex === undefined
         ? {}
         : { channelIndex: record.channelIndex }),
@@ -94,6 +101,19 @@ export class ChatLog {
     element.append(this.row(copy));
     element.hidden = false;
     element.scrollTop = atBottom ? element.scrollHeight : top;
+  }
+  settle(messageId, delivery, reason) {
+    if (!["server", "failed"].includes(delivery)) {
+      throw new Error("Invalid chat delivery");
+    }
+    const index = this.records.findIndex(
+      (record) => record.messageId === messageId,
+    );
+    if (index < 0) return;
+    const record = this.records[index];
+    record.delivery = delivery;
+    record.reason = reason;
+    this.element.children[index].replaceWith(this.row(record));
   }
   page(offset = 0, limit = 20) {
     if (

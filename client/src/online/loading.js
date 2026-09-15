@@ -28,6 +28,18 @@ export function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Nonblocking background activity with the startup window's native desktop styling. */
+function createActivityIndicator() {
+  const indicator = document.createElement("div");
+  indicator.id = "asset-loading";
+  indicator.hidden = true;
+  indicator.setAttribute("role", "status");
+  indicator.setAttribute("aria-label", "Loading game files");
+  indicator.textContent = "Loading…";
+  indicator.title = "Loading game files";
+  return indicator;
+}
+
 /**
  * Browser-only Windows 95 download presentation. Download and decode tokens own
  * real asynchronous work; the byte frontier only reports what the pipeline itself
@@ -84,12 +96,7 @@ export class OnlineLoading {
     card.append(this.status, this.progress, this.count, this.hint);
     windowNode.append(titlebar, card);
     this.overlay.append(windowNode);
-    this.indicator = document.createElement("div");
-    this.indicator.id = "asset-loading";
-    this.indicator.hidden = true;
-    this.indicator.setAttribute("role", "status");
-    this.indicator.setAttribute("aria-label", "Loading assets");
-    this.indicator.title = "Loading assets";
+    this.indicator = createActivityIndicator();
     viewport.append(this.overlay, this.indicator);
     signal.addEventListener("abort", () => this.destroy(), { once: true });
   }

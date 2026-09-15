@@ -3,7 +3,7 @@ import { loadContent } from "../src/content.js";
 import { OnlineWorld } from "../src/world.js";
 import { prepareActorCombat } from "../src/field-combat.js";
 import { prepareActorSkills, disposeActorSkills } from "../src/field-skills.js";
-import { MotionWatchdog } from "../src/watchdog.js";
+import { MotionWatchdog, WATCHDOG_POLICY } from "../src/watchdog.js";
 import { createProfile } from "../../client/src/profile/profile-validation.js";
 import { createSimulation } from "../../client/src/physics/simulation.js";
 import {
@@ -276,12 +276,12 @@ test("an isolated deviation is adopted and only recorded, never punished", async
   const probe = await fixture();
   try {
     const { world, actor } = probe;
-    // 40 px in one tick: outside the gap envelope, far inside the absurd bound.
+    // Outside the lag-aware envelope, far inside the hard teleport bound.
     place(actor, 0, 0);
-    const report = { x: 40, y: 0, vx: 0, vy: 0 };
+    const report = { x: plausiblePositionPx(30) + 8, y: 0, vx: 0, vy: 0 };
     world.input(actor, input(actor, report));
     advance(probe, 1);
-    expect(actor.simulation.previousX).toBe(40);
+    expect(actor.simulation.previousX).toBe(report.x);
     expect(faults(probe)).toEqual([]);
     expect(world.watchdog.snapshot().suspicious).toBe(1);
   } finally {
@@ -293,11 +293,14 @@ test("repeated deviations inside one window close the session", async () => {
   const probe = await fixture();
   try {
     const { world, field, actor } = probe;
-    const limit = 6;
+    const limit = WATCHDOG_POLICY.suspicionLimit;
     for (let count = 0; count < limit && !actor.retiring; count++) {
-      field.tick += 1;
+      field.tick += WATCHDOG_POLICY.episodeTicks;
       place(actor, 0, 0);
-      world.input(actor, input(actor, { x: 40, y: 0, vx: 0, vy: 0 }));
+      world.input(
+        actor,
+        input(actor, { x: plausiblePositionPx(30) + 8, y: 0, vx: 0, vy: 0 }),
+      );
       advance(probe, 1);
     }
     expect(faults(probe).length).toBeGreaterThanOrEqual(1);
@@ -369,11 +372,11 @@ test("a resume beyond any possible motion is refused", async () => {
 
 test("position tolerance scales with elapsed time and velocity does not", () => {
   expect(MOTION_PLAUSIBILITY.minimumPositionPx).toBe(32);
-  expect(plausiblePositionPx(0)).toBe(32);
-  expect(plausiblePositionPx(30)).toBe(32);
-  expect(plausiblePositionPx(100)).toBeCloseTo(90, 6);
+  expect(plausiblePositionPx(0)).toBe(450);
+  expect(plausiblePositionPx(30)).toBe(477);
+  expect(plausiblePositionPx(100)).toBeCloseTo(540, 6);
   expect(plausiblePositionPx(Number.NaN)).toBe(32);
-  expect(plausiblePositionPx(-5)).toBe(32);
+  expect(plausiblePositionPx(-5)).toBe(450);
   expect(MOTION_PLAUSIBILITY.velocityPxPerSecond).toBe(700);
 });
 
@@ -512,8 +515,12 @@ test("the watchdog counts deviations inside one window and forgets an actor", ()
     suspicious: true,
     score: 1,
   });
-  for (let tick = 4; tick <= 8; tick++) {
-    watchdog.review("a", tick, justOutside);
+  for (let episode = 1; episode < WATCHDOG_POLICY.suspicionLimit; episode++) {
+    watchdog.review(
+      "a",
+      3 + episode * WATCHDOG_POLICY.episodeTicks,
+      justOutside,
+    );
   }
   expect(watchdog.snapshot().faults).toBe(1);
   // Evidence ages out of its window, so an old deviation cannot convict forever.
@@ -521,4 +528,20 @@ test("the watchdog counts deviations inside one window and forgets an actor", ()
   expect(watchdog.review("b", 4000 + 900, justOutside).score).toBe(1);
   watchdog.forget("a");
   expect(watchdog.snapshot().actors.map((entry) => entry.id)).toEqual(["b"]);
+});
+
+test("a burst of delayed reports is one episode and the logged 200px discrepancy is ordinary", () => {
+  const watchdog = new MotionWatchdog();
+  const excess = {
+    position: 200,
+    velocity: 0,
+    allowedPosition: plausiblePositionPx(30),
+    allowedVelocity: 700,
+  };
+  expect(watchdog.review("lag", 1, excess).suspicious).toBe(false);
+  excess.position = 800;
+  for (let tick = 2; tick < WATCHDOG_POLICY.episodeTicks; tick++) {
+    expect(watchdog.review("lag", tick, excess).decision).toBe("accept");
+  }
+  expect(watchdog.snapshot().actors[0].deviations).toBe(1);
 });

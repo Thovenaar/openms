@@ -12,6 +12,8 @@ export class SceneEvents {
     this.combat = new CombatPresentation(app, owner.services);
     this.combat.setScene(owner.scene);
     this.speech = new Map();
+    this.speechMessages = new Map();
+    this.seenChat = new Set();
     this.pose = { x: 0, headY: 0 };
     this.projectiles = new Map();
     this.projectileCount = 0;
@@ -164,20 +166,44 @@ export class SceneEvents {
   async chat(event) {
     const view = this.owner.views.get(event.senderId);
     if (!view?.entity.appearance) return;
-    let speech = this.speech.get(event.senderId);
+    const key = `${event.senderId}:${event.messageId}`;
+    if (this.seenChat.has(key)) return;
+    if (this.seenChat.size >= 128) {
+      this.seenChat.delete(this.seenChat.values().next().value);
+    }
+    this.seenChat.add(key);
+    this.speechMessages.set(event.senderId, event.messageId);
+    const speech = await this.prepareSpeech(event.senderId);
+    if (this.speechMessages.get(event.senderId) === event.messageId) {
+      speech.show(event.text, event.senderName);
+    }
+  }
+  async prepareSpeech(senderId) {
+    let speech = this.speech.get(senderId);
     if (!speech) {
       speech = new SpeechBubbles(this.app, this.owner.services);
       speech.setScene(this.owner.scene);
-      try {
-        await speech.prepare(this.owner.catalog, this.owner.controller.signal);
-        this.owner.controller.signal.throwIfAborted();
-      } catch (error) {
-        speech.destroy();
-        throw error;
-      }
-      this.speech.set(event.senderId, speech);
+      this.speech.set(senderId, speech);
+      speech.pending = speech.prepare(
+        this.owner.catalog,
+        this.owner.controller.signal,
+      );
     }
-    speech.show(event.text, event.senderName);
+    try {
+      await speech.pending;
+      this.owner.controller.signal.throwIfAborted();
+      return speech;
+    } catch (error) {
+      speech.destroy();
+      if (this.speech.get(senderId) === speech) this.speech.delete(senderId);
+      throw error;
+    }
+  }
+  rejectChat(senderId, messageId) {
+    if (this.speechMessages.get(senderId) !== messageId) return;
+    this.speechMessages.delete(senderId);
+    this.speech.get(senderId)?.destroy();
+    this.speech.delete(senderId);
   }
 
   draw(elapsed) {
@@ -215,6 +241,8 @@ export class SceneEvents {
     this.enchant.destroy();
     for (const speech of this.speech.values()) speech.destroy();
     this.speech.clear();
+    this.speechMessages.clear();
+    this.seenChat.clear();
     this.projectiles.clear();
   }
 }

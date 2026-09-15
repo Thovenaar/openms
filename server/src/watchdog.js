@@ -22,11 +22,14 @@
  *  a brief stall cannot accumulate, short enough that a script abusing the envelope
  *  cannot hide inside it. */
 const WINDOW_TICKS = 900;
-/** Deviations inside one window before the pattern stops looking like connectivity. */
-const SUSPICION_LIMIT = 6;
-/** A single report this far outside the gap-scaled envelope is not a stall: the envelope
- *  already grows with elapsed time, so only impossible motion reaches this. */
-const ABSURD_FACTOR = 4;
+/** Lag policy: eight separate incidents; reports within 1.5 s share one mark.
+ * Hard faults require eight times the envelope, with a 4096px displacement floor. */
+export const WATCHDOG_POLICY = Object.freeze({
+  suspicionLimit: 8,
+  episodeTicks: 50,
+  absurdFactor: 8,
+  absurdPositionPx: 4096,
+});
 /** Bounded evidence: at most this many deviation ticks are retained per actor. */
 const MAX_MARKS = 32;
 /** Bounded memory: at most this many actors are tracked at once. */
@@ -57,20 +60,27 @@ export class MotionWatchdog {
   review(id, tick, excess) {
     this.reviewed++;
     const absurd =
-      excess.position > excess.allowedPosition * ABSURD_FACTOR ||
-      excess.velocity > excess.allowedVelocity * ABSURD_FACTOR;
+      excess.position >
+        Math.max(
+          WATCHDOG_POLICY.absurdPositionPx,
+          excess.allowedPosition * WATCHDOG_POLICY.absurdFactor,
+        ) ||
+      excess.velocity > excess.allowedVelocity * WATCHDOG_POLICY.absurdFactor;
     const outside =
       excess.position > excess.allowedPosition ||
       excess.velocity > excess.allowedVelocity;
     if (!outside) return { decision: "accept", suspicious: false, score: 0 };
     this.suspicious++;
     const evidence = this.track(id, tick);
-    evidence.marks.push(tick);
+    const last = evidence.marks.at(-1);
+    if (last === undefined || tick - last >= WATCHDOG_POLICY.episodeTicks) {
+      evidence.marks.push(tick);
+    }
     if (evidence.marks.length > MAX_MARKS) evidence.marks.shift();
     evidence.peakPosition = Math.max(evidence.peakPosition, excess.position);
     evidence.peakVelocity = Math.max(evidence.peakVelocity, excess.velocity);
     this.prune(evidence, tick);
-    if (!absurd && evidence.marks.length < SUSPICION_LIMIT) {
+    if (!absurd && evidence.marks.length < WATCHDOG_POLICY.suspicionLimit) {
       return {
         decision: "accept",
         suspicious: true,

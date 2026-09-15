@@ -202,7 +202,7 @@ export async function executeChat(actor, message, world) {
   );
   const event = {
     kind: "chat",
-    messageId: crypto.randomUUID(),
+    messageId: message.operationId,
     senderId: actor.id,
     senderName: actor.profile.name,
     channel: message.action.channel,

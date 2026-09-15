@@ -9,7 +9,9 @@ import {
   stepMotion,
 } from "../../shared/motion.js";
 import { SkillWorldController } from "../src/skills/skill-world-controller.js";
-import original from "../../docs/ghidra-physics-motion/wz-globals.json";
+import { loadContent } from "../../server/src/content.js";
+const content = await loadContent();
+const original = { globals: (await content.map(10000)).physics.globals };
 
 function fixture() {
   const simulation = createSimulation(

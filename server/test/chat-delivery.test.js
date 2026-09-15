@@ -44,6 +44,7 @@ function send(probe, channel, extra = {}) {
   return executeChat(
     probe.actor,
     {
+      operationId: "chat-operation",
       expectedRevision: 1,
       fieldEpoch: "field",
       action: { kind: "chat.send", channel, text: "hello", ...extra },
@@ -60,6 +61,7 @@ test("map history reaches sender and the whole map, independent of visibility, n
     "near",
     "far",
   ]);
+  expect(probe.deliveries[0].event.messageId).toBe("chat-operation");
   expect(
     new Set(probe.deliveries.map((entry) => entry.event.messageId)).size,
   ).toBe(1);
