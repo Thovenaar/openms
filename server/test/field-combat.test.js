@@ -1,7 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { loadContent } from "../src/content.js";
 import { OnlineWorld } from "../src/world.js";
-import { prepareActorCombat, refreshActorCombat } from "../src/field-combat.js";
+import {
+  prepareActorCombat,
+  refreshActorCombat,
+  attackRewindTicks,
+} from "../src/field-combat.js";
 import { prepareActorSkills, disposeActorSkills } from "../src/field-skills.js";
 import { createProfile } from "../../client/src/profile/profile-validation.js";
 import { PhysicalDamage } from "../../client/src/combat/physical-damage.js";
@@ -199,4 +203,39 @@ test("a reserved projectile owns its action identity after the field starts anot
   );
   actor.skillField.feedbackId = "second";
   expect(shot.feedbackId).toBe("first");
+});
+
+test("attack rewind covers the measured view window and stays bounded", () => {
+  expect(attackRewindTicks({})).toBe(0);
+  expect(
+    attackRewindTicks({ connection: { data: { roundTripMs: null } } }),
+  ).toBe(0);
+  // 100 ms round trip: 50 ms one way plus the client's 160 ms playout allowance.
+  expect(
+    attackRewindTicks({ connection: { data: { roundTripMs: 100 } } }),
+  ).toBe(7);
+  // 500 ms round trip: 250 ms one way plus the 160 ms playout allowance, bounded.
+  expect(
+    attackRewindTicks({ connection: { data: { roundTripMs: 500 } } }),
+  ).toBe(14);
+  // A pathological round trip saturates the bound instead of sweeping unbounded.
+  expect(
+    attackRewindTicks({ connection: { data: { roundTripMs: 5000 } } }),
+  ).toBe(16);
+});
+
+test("outgoing selection sweeps a mob body across the compensation window without mutating it", async () => {
+  const { actor, mob } = await fixture();
+  const runtime = actor.skillField.skillCombat;
+  mob.body = { active: true, left: 0, right: 10, top: -10, bottom: 0 };
+  mob.sweptBody = { active: true, left: 0, right: 10, top: -10, bottom: 0 };
+  mob.delta = { x: 40, y: 0 };
+  runtime.rewindTicks = 0;
+  expect(runtime.targetBody(mob)).toBe(mob.sweptBody);
+  runtime.rewindTicks = 3;
+  const swept = runtime.targetBody(mob);
+  expect(swept.right).toBe(130);
+  expect(swept.left).toBe(0);
+  expect(mob.sweptBody.right).toBe(10);
+  runtime.rewindTicks = 0;
 });

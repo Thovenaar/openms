@@ -416,11 +416,14 @@ export class SkillAttack {
     }
   }
 
-  begin(skill, info, onHit, chargeMs = -1, rewindTicks = 0) {
+  begin(skill, info, onHit, chargeMs = -1) {
     const record = this.prepared.get(skill.id);
     this.targetController = null;
     this.attackSequence++;
-    this.rewindTicks = Number.isSafeInteger(rewindTicks) && rewindTicks > 0 ? rewindTicks : 0;
+    // Captured from the owner at admission: the authoritative field sets it from the acting
+    // connection's latency; the offline field leaves it at zero.
+    const rewind = this.field.lagToleranceTicks;
+    this.rewindTicks = Number.isSafeInteger(rewind) && rewind > 0 ? rewind : 0;
     this.field.hooks.interruptChakra?.();
     this.field.hooks.consumeEventSkill?.(skill);
     this.active = record;

@@ -119,6 +119,9 @@ export class OfflineField {
     this.attackBody = rectangleState();
     this.initializeCombatState();
     this.skillCombat = new SkillAttack(this);
+    // Authoritative fields set this from the acting connection's measured latency before
+    // admitting an attack; the offline field leaves it at zero.
+    this.lagToleranceTicks = 0;
     this.aranInput = new AranInput(this);
     this.skillDefenses = new SkillDefenses(this);
     this.worldSkillView = Object.freeze({ mobs: this.mobs });

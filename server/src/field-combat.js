@@ -13,6 +13,24 @@ import { placeBody } from "../../client/src/world/life-geometry-numeric.js";
 import { MOB_STATUS } from "../../client/src/combat/mob-skill-status.js";
 import { advanceActorSkills, flushPickpocket } from "./field-skills.js";
 import { protocolError } from "../../shared/schema.js";
+import { PROTOCOL } from "../../shared/protocol.js";
+
+/** The browser draws remote actors behind the server's present tick, so an outgoing attack
+ *  is judged against the union of that window (the native target selection already adds its
+ *  own one-tick sweep). Derived from the connection's measured round trip; an unmeasured
+ *  connection gets the native single-tick sweep only. Favour-the-attacker, bounded. */
+const CLIENT_PLAYOUT_MS = 160;
+const MAX_REWIND_TICKS = 16;
+
+export function attackRewindTicks(actor) {
+  const roundTripMs = actor.connection?.data?.roundTripMs;
+  if (!Number.isFinite(roundTripMs) || roundTripMs <= 0) return 0;
+  const windowMs = roundTripMs / 2 + CLIENT_PLAYOUT_MS;
+  return Math.min(
+    MAX_REWIND_TICKS,
+    Math.max(0, Math.ceil(windowMs / PROTOCOL.TICK_MS)),
+  );
+}
 
 /** Private cryptographic stream; never seeded or selected by clients. */
 export function serverRandom() {
@@ -93,7 +111,12 @@ export function beginAttack(world, actor) {
   ) {
     throw protocolError("NOT_ALLOWED");
   }
-  actor.skillField.beginAttack();
+  actor.skillField.lagToleranceTicks = attackRewindTicks(actor);
+  try {
+    actor.skillField.beginAttack();
+  } finally {
+    actor.skillField.lagToleranceTicks = 0;
+  }
   return { code: "OK" };
 }
 
@@ -208,7 +231,14 @@ function advanceCombatActor(world, actor) {
   if (!actorAdvances(actor)) return;
   updateHitboxes(actor.hitboxes, actor.simulation, actor.hitboxContext);
   advanceActorSkills(world, actor);
-  actor.skillField.stepActor(30, actor.input);
+  // Outgoing target selection during this actor's step is judged against the window the
+  // actor's own client was rendering. Sequential per-actor stepping keeps this unambiguous.
+  actor.skillField.lagToleranceTicks = attackRewindTicks(actor);
+  try {
+    actor.skillField.stepActor(30, actor.input);
+  } finally {
+    actor.skillField.lagToleranceTicks = 0;
+  }
   if (
     actor.skillDrops.pickpocketPlan &&
     !actor.skillTask &&

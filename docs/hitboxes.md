@@ -22,15 +22,15 @@ The later [conditional-knockback recovery](ghidra-client-corrections/knockback-p
 
 `0x0045183b` takes a receiver rectangle output and an optional previous-position flag. Relative to its avatar object:
 
-| Condition | Original local rectangle / operation |
-| --- | --- |
-| Ordinary avatar, `(state@+0x4e8 & ~1) != 10` | `(-22,-65)..(22,0)`, four DWORDs at `0x00af14b8` |
-| Ordinary avatar, `(state@+0x4e8 & ~1) == 10` | `(-46,-31)..(0,0)`, four DWORDs at `0x00af14c8` |
-| Custom/morph flag at `+0x4a0` nonzero | Replace with four cached integers at `+0x4a4..+0x4b0` |
+| Condition                                           | Original local rectangle / operation                                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Ordinary avatar, `(state@+0x4e8 & ~1) != 10`        | `(-22,-65)..(22,0)`, four DWORDs at `0x00af14b8`                                                             |
+| Ordinary avatar, `(state@+0x4e8 & ~1) == 10`        | `(-46,-31)..(0,0)`, four DWORDs at `0x00af14c8`                                                              |
+| Custom/morph flag at `+0x4a0` nonzero               | Replace with four cached integers at `+0x4a4..+0x4b0`                                                        |
 | Ordinary avatar with mount-item category 190 or 193 | Offset ordinary rectangle by cached `(+0x4d4,+0x4d8)` and union with cached mount rectangle `+0x4c0..+0x4cc` |
-| State bit zero | Mirror by negating both x ends and exchanging them |
-| Current placement | Offset by cached position `(+0x10e4,+0x10e8)` |
-| Previous-position flag nonzero | Union with base ordinary/morph rectangle, mirrored and offset by `(+0x10ec,+0x10f0)` |
+| State bit zero                                      | Mirror by negating both x ends and exchanging them                                                           |
+| Current placement                                   | Offset by cached position `(+0x10e4,+0x10e8)`                                                                |
+| Previous-position flag nonzero                      | Union with base ordinary/morph rectangle, mirrored and offset by `(+0x10ec,+0x10f0)`                         |
 
 The previous-position branch **does not repeat the mount offset/union**. The implementation preserves that asymmetry. `0x00451987` proves mount categories with integer division of item ID by 10,000 and comparisons with `0xbe`/`0xc1`.
 
@@ -46,17 +46,19 @@ Thus ordinary stand/walk/jump/ladder/rope animation frames do not resize the fix
 
 `0x0040ac78` reads original `lt` (string ID 5636) and `rb` (5647) for action metadata. `0x00414440` obtains an action's afterimage rectangle. Its caller `0x00950921` mirrors the rectangle when the facing bit is zero, offsets it by the actor position, then calls mob target selection `0x00678476`. Relevant mirror/translation paths are near `0x00951433` / `0x0095168e` and `0x00951215` / `0x00951230`. Raw [melee-path.txt](ghidra-physics-hitboxes/melee-path.txt) and instructions retain the branches.
 
+`0x00678476` walks the field mob list at `+0x28` up to the caller's `mobCount` bound, applies its status/death filters, then obtains each candidate's receiver through **`0x00664559(...,1)`** and admits it only when that receiver intersects the attack rectangle (`0x00bf04a8`). Because the flag is **1**, the receiver is the **union of the mob's current and previous position** rectangles, not the current one alone: one tick of target motion cannot carry a body out of a swing. The browser reproduces that union in `SkillAttack.targetBody` and extends it over the measured view window for the online authority. This pass executed the installed headless runner against the supplied executable; `00664559` and `00678476` are retained in the local `artifacts/ghidra-lag/` exports.
+
 The same caller has distinct skill-area and range-modification branches. `0x0075f464` reads skill-level `lt/rb`; `0x00950921` copies, mirrors, and places an explicit skill area near `0x009512ce`. The geometry preview supports that base transformation; it does **not** claim every skill uses that branch or that skill-specific extensions have been applied. Ranged/magic logic at `0x009537d5` / `0x0095571f` includes target-relative positions, skill-ID conditions, range calculations, projectiles, and multi-target paths.
 
 Examples from original metadata:
 
-| Source | Local bounds |
-| --- | --- |
-| `Character.wz:Afterimage/swordOS.img/0/swingO1` | `(-85,-51)..(-11,-11)` |
-| Same variant, `swingO2` | `(-64,-50)..(5,2)` |
-| Same variant, `swingO3` | `(-78,-41)..(-18,-14)` |
-| `Character.wz:Afterimage/bow.img/0/proneStab` | `(-92,-11)..(-24,2)` |
-| `Skill.wz:310.img/skill/3101005/level/1` | `(-130,-100)..(130,100)` |
+| Source                                          | Local bounds             |
+| ----------------------------------------------- | ------------------------ |
+| `Character.wz:Afterimage/swordOS.img/0/swingO1` | `(-85,-51)..(-11,-11)`   |
+| Same variant, `swingO2`                         | `(-64,-50)..(5,2)`       |
+| Same variant, `swingO3`                         | `(-78,-41)..(-18,-14)`   |
+| `Character.wz:Afterimage/bow.img/0/proneStab`   | `(-92,-11)..(-24,2)`     |
+| `Skill.wz:310.img/skill/3101005/level/1`        | `(-130,-100)..(130,100)` |
 
 `Character.wz:00002000.img` was traversed completely (4,965 nodes): **no `lt/rb` receiver or attack data exists there**. Moreover, many skill rectangles are non-damaging areas: `1101006` has `(-250,-150)..(250,150)` along with buff `pad/pdd/time`. Rectangle presence alone cannot classify a skill as an attack.
 
@@ -88,11 +90,11 @@ A visible counterexample to sprite-bound inference is `Mob.wz:9500332.img/stand/
 Optional context descriptors:
 
 ```js
-context.attack = { kind: 'afterimage', rectangle }; // or 'skill-area'
-context.damage = { kind: 'mob-attack', attackType: 0, rectangle, x, y, facing };
-context.damage = { kind: 'mob-contact', rectangle, x, y, facing };
-context.body = { kind: 'morph', rectangle };
-context.body = { kind: 'mount', rectangle, itemId, offsetX, offsetY };
+context.attack = { kind: "afterimage", rectangle }; // or 'skill-area'
+context.damage = { kind: "mob-attack", attackType: 0, rectangle, x, y, facing };
+context.damage = { kind: "mob-contact", rectangle, x, y, facing };
+context.body = { kind: "morph", rectangle };
+context.body = { kind: "mount", rectangle, itemId, offsetX, offsetY };
 context.previousPosition = { x, y }; // optional original swept receiver branch
 ```
 

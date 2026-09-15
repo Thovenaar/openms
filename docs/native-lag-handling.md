@@ -380,9 +380,16 @@ Rotation is assigned at `00506142` inside `00505900` from the master clock
 | Snap only on relocation (`0068b492`)    | `HARD_SNAP_PX` presentation plus generation reset                        |
 | Local input edge (`0094a144`)           | unchanged; `OnlinePrediction` + `LocalCombat`                            |
 | Scheduled damage numbers (`0043da05`)   | `CombatPresentation` lifetime and per-line delay                         |
+| Swept mob receiver (`00664559(...,1)`)  | `SkillAttack.targetBody` unions the current and previous body            |
+| View-time hit judgement (`00678476`)    | `attackRewindTicks` widens the same sweep over the measured view window  |
 
-Still open from the earlier design: a per-tick (30 ms) remote motion sample stream, which
-would shrink the playout delay further, and local prediction of a mob's hit reaction.
+One earlier proposal is withdrawn after measurement reasoning: a **per-tick sample stream
+inside the 90 ms entity view would not shrink the playout delay**. The binding constraint is
+the publication _cadence_ (90 ms), not the sample spacing within a batch, because the
+receiver must retain a whole batch interval to avoid running dry between batches. Cutting
+the playout needs publishing moving entities every tick, which triples the entity-view
+bandwidth and is not justified while Hermite interpolation at ~11 publications/s is already
+artifact-free. Local prediction of a mob's hit reaction remains open.
 
 ## Reproduce
 
