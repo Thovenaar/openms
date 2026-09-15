@@ -4,6 +4,7 @@ import {
   protocolError,
 } from "../../shared/protocol.js";
 import { getInteractionContent } from "./interactions.js";
+import { logPrefix } from "../../shared/development-log.js";
 import { prepareCreatedCharacter } from "./character-creation.js";
 import { issueCreationRoll, admitCreationRoll } from "./creation-roll.js";
 import { DEVELOPMENT_JSON } from "../../shared/development.js";
@@ -157,7 +158,9 @@ export class OnlineHttp {
       reason: error.reason,
       origin: request.headers.get("origin"),
     });
-    if (!error.code) console.error("Online HTTP failure:", error.message);
+    if (!error.code) {
+      console.error(logPrefix("server"), "Online HTTP failure:", error.message);
+    }
     return response({ code }, ERROR_STATUS.get(code) ?? 400);
   }
 

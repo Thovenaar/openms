@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { logPrefix } from "../../shared/development-log.js";
 import {
   PROTOCOL,
   plausiblePositionPx,
@@ -791,6 +792,7 @@ export class OnlineWorld {
     if (actor.deliveryError) return;
     actor.deliveryError = error;
     console.error(
+      logPrefix("server"),
       "Committed character delivery failed:",
       actor.id,
       error.message,

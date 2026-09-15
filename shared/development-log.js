@@ -32,12 +32,18 @@ const FIELDS = new Set([
   "action",
 ]);
 
+/** UTC wall time identifies a log record across processes; elapsed clocks remain monotonic. */
+export function logPrefix(scope, timestamp = Date.now()) {
+  return `[${new Date(timestamp).toISOString()}] [${scope}]`;
+}
+
 /** Development-only stdout; callers supply scalar metadata, never bodies or credentials. */
 export function createDevelopmentLog(scope, options = {}) {
   const {
     enabled = true,
     write = console.log,
     clock = performance.now.bind(performance),
+    wallClock = Date.now,
   } = options;
   const started = clock();
   return (event, fields = {}) => {
@@ -55,7 +61,7 @@ export function createDevelopmentLog(scope, options = {}) {
       }
     }
     write(
-      `[${scope} +${(clock() - started).toFixed(1)}ms] ${event} ${JSON.stringify(safe)}`,
+      `${logPrefix(`${scope} +${(clock() - started).toFixed(1)}ms`, wallClock())} ${event} ${JSON.stringify(safe)}`,
     );
   };
 }

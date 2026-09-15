@@ -1,4 +1,5 @@
 import { EntityAnimation } from "../rendering/animation.js";
+import { logPrefix } from "../../../shared/development-log.js";
 import { loadVisualBundle } from "../rendering/visual-resources.js";
 
 const MAX_CHAIR_SEATS = 512;
@@ -116,7 +117,12 @@ export class SceneChairs {
         this.failures.add(templateId);
         this.templates.delete(templateId);
         if (error?.name !== "AbortError") {
-          console.warn("Chair artwork unavailable:", templateId, error);
+          console.warn(
+            logPrefix("client"),
+            "Chair artwork unavailable:",
+            templateId,
+            error,
+          );
         }
         throw error;
       });

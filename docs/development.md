@@ -101,7 +101,7 @@ World search/Go, pause/step, physics changes, monster spawning, Character preset
 
 ### Troubleshooting
 
-Both launchers write structured development logs to **stdout**, including startup stages, elapsed time, identities, HTTP refusals, WebSocket lifecycle and operation outcomes. Structured diagnostics exclude passwords, cookies, tickets and message bodies. The development launcher separately prints its bootstrap credentials to the terminal.
+Both launchers write structured development logs to **stdout**, including startup stages, elapsed time, identities, HTTP refusals, WebSocket lifecycle and operation outcomes. Each entry starts with an ISO 8601 **UTC date and time**, including milliseconds and the `Z` timezone marker: `[2026-09-15T14:30:45.123Z] [server +125.4ms] listener.ready {...}`. Elapsed time uses a separate monotonic clock, so changing the system clock does not change duration measurements. Client build progress, startup messages, browser console diagnostics and server errors use the same date-time prefix; ordinary messages omit elapsed time. Structured diagnostics exclude passwords, cookies, tickets and message bodies. The development launcher separately prints its bootstrap credentials to the terminal with timestamps.
 
 | Symptom                                    | Check / correction                                                                                                                                                                  |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

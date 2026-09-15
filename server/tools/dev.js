@@ -7,6 +7,7 @@ import { bootstrapDevelopmentAccounts } from "./development-accounts.js";
 import {
   createDevelopmentLog,
   logStage,
+  logPrefix,
 } from "../../shared/development-log.js";
 
 async function main() {
@@ -55,7 +56,7 @@ async function main() {
         shutdown().then(
           () => process.exit(0),
           (error) => {
-            console.error(error);
+            console.error(logPrefix("server"), error);
             process.exit(1);
           },
         );
@@ -69,13 +70,18 @@ async function main() {
 
 function printCredentials(credentials, environment) {
   console.log(
+    logPrefix("server"),
     "Development-only accounts (passwords reset on each launcher start):",
   );
   for (const credential of credentials) {
-    console.log(`  ${credential.name}: ${credential.password}`);
+    console.log(
+      logPrefix("server"),
+      `  ${credential.name}: ${credential.password}`,
+    );
   }
   if (environment.OPENMS_DEV_PASSWORD) {
     console.log(
+      logPrefix("server"),
       "OPENMS_DEV_PASSWORD override applies to both development accounts.",
     );
   }

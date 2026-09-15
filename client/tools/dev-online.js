@@ -7,6 +7,7 @@ import { clientEnvironment } from "./environment.js";
 import {
   createDevelopmentLog,
   logStage,
+  logPrefix,
 } from "../../shared/development-log.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -114,7 +115,11 @@ class OnlineProxy {
         code: error.code ?? error.name,
         upstream: this.config.upstream,
       });
-      console.error("Online development request failed:", error.message);
+      console.error(
+        logPrefix("client"),
+        "Online development request failed:",
+        error.message,
+      );
       return Response.json(
         { code: "SERVER_BUSY" },
         { status: 502, headers: { "Cache-Control": "no-store" } },
@@ -242,7 +247,9 @@ export async function startOnlineDevServer(options = {}) {
   const identity = await logStage(log, "browser.build", () =>
     buildOnlineBrowser({
       development: true,
-      progress: options.progress ?? console.log,
+      progress:
+        options.progress ??
+        ((message) => console.log(logPrefix("client"), message)),
     }),
   );
   const resources = createStaticResources({
@@ -264,6 +271,7 @@ export async function startOnlineDevServer(options = {}) {
     websocket: proxy.handlers,
   });
   console.log(
+    logPrefix("client"),
     `openms.dev online client ready at ${server.url} (${(performance.now() - started).toFixed(1)}ms); API ${config.upstream}`,
   );
   return {

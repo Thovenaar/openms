@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   createDevelopmentLog,
   logStage,
+  logPrefix,
 } from "../../shared/development-log.js";
 import { OnlineHttp } from "../src/http.js";
 import { admitDeveloper } from "../src/field-development.js";
@@ -16,6 +17,36 @@ function logger(enabled = true) {
   });
   return { log, lines };
 }
+
+test("log prefixes include UTC date, time, milliseconds and process scope", () => {
+  const time = Date.parse("2026-09-16T00:30:45.123+10:00");
+  expect(logPrefix("client", time)).toBe("[2026-09-15T14:30:45.123Z] [client]");
+  expect(logPrefix("server", time)).toBe("[2026-09-15T14:30:45.123Z] [server]");
+});
+
+test("wall-clock adjustments do not change elapsed log timings", () => {
+  const lines = [];
+  let elapsed = 10;
+  let wall = Date.parse("2026-09-15T23:59:59.999Z");
+  const log = createDevelopmentLog("server", {
+    write: (line) => lines.push(line),
+    clock: () => elapsed,
+    wallClock: () => wall,
+  });
+  elapsed += 5;
+  log("before-midnight");
+  wall += 1;
+  elapsed += 5;
+  log("after-midnight");
+  wall -= 1000;
+  elapsed += 5;
+  log("clock-adjusted");
+  expect(lines).toEqual([
+    "[2026-09-15T23:59:59.999Z] [server +5.0ms] before-midnight {}",
+    "[2026-09-16T00:00:00.000Z] [server +10.0ms] after-midnight {}",
+    "[2026-09-15T23:59:59.000Z] [server +15.0ms] clock-adjusted {}",
+  ]);
+});
 
 test("development logs allow bounded metadata, excluding credentials and payloads", () => {
   const { log, lines } = logger();

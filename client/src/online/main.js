@@ -1,4 +1,5 @@
 import { Application } from "pixi.js";
+import { logPrefix } from "../../../shared/development-log.js";
 import { Network } from "../rendering/stream-network.js";
 import { AtlasStore } from "../rendering/stream-atlas.js";
 import {
@@ -90,7 +91,11 @@ transport.resumeMotion = () => prediction.resumeMotion();
 function reportCause(error) {
   // The user-facing line stays sanitized; the underlying cause stays in the console log.
   if (error?.cause) {
-    console.error("Online failure cause:", error.cause?.stack ?? error.cause);
+    console.error(
+      logPrefix("client"),
+      "Online failure cause:",
+      error.cause?.stack ?? error.cause,
+    );
   }
 }
 

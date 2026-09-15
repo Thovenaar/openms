@@ -4,6 +4,7 @@ import {
   protocolError,
 } from "../../shared/protocol.js";
 import { opaqueId, RateLimit } from "./auth.js";
+import { logPrefix } from "../../shared/development-log.js";
 import { Publications } from "./publication.js";
 import { currentInteractionRevision } from "./interactions.js";
 import { settleTransitionReady } from "./field-transition.js";
@@ -476,7 +477,13 @@ export class GameplayGateway {
 
   fail(socket, error) {
     this.publications.close(socket, error.code ?? "SERVER_BUSY");
-    if (!error.code) console.error("Online gateway failure:", error.message);
+    if (!error.code) {
+      console.error(
+        logPrefix("server"),
+        "Online gateway failure:",
+        error.message,
+      );
+    }
   }
 
   closed(socket, code, reason) {
@@ -568,7 +575,11 @@ export class GameplayGateway {
           now - actor.disconnectedAt >= this.config.reconnectMs))
     ) {
       this.retire(actor).catch((error) =>
-        console.error("Character retirement failed:", error.message),
+        console.error(
+          logPrefix("server"),
+          "Character retirement failed:",
+          error.message,
+        ),
       );
     }
     if (actor.retiring && !actor.settling) return;
@@ -582,7 +593,11 @@ export class GameplayGateway {
         .catch((error) => {
           if (actor.connection) this.fail(actor.connection, error);
           this.retire(actor).catch((failure) =>
-            console.error("Character retirement failed:", failure.message),
+            console.error(
+              logPrefix("server"),
+              "Character retirement failed:",
+              failure.message,
+            ),
           );
         })
         .finally(() => {
@@ -631,6 +646,7 @@ export class GameplayGateway {
           .publish([actor.id])
           .catch((error) =>
             console.error(
+              logPrefix("server"),
               "Character departure publication failed:",
               error.message,
             ),

@@ -11,6 +11,7 @@ import { loadWorldContent, WorldActivation } from "./world-content.js";
 import {
   createDevelopmentLog,
   logStage,
+  logPrefix,
 } from "../../shared/development-log.js";
 
 /** One owned field process; TLS terminates at the configured same-origin reverse proxy. */
@@ -81,9 +82,11 @@ function logReady(log, { config, content, server, started }) {
     port: server.port,
   });
   console.log(
+    logPrefix("server"),
     `openms.dev authoritative server ready at ${server.url} (${(performance.now() - started).toFixed(1)}ms)`,
   );
   console.log(
+    logPrefix("server"),
     `Rules ${content.rulesHash}; assets ${content.assetBuildId}; ${config.development ? "development" : "production"}`,
   );
 }
@@ -133,7 +136,11 @@ function createLifecycle({ server, world, gateway, database, log }) {
     } catch (error) {
       stopped = true;
       clearInterval(timer);
-      console.error("Authoritative simulation suspended:", error.message);
+      console.error(
+        logPrefix("server"),
+        "Authoritative simulation suspended:",
+        error.message,
+      );
       log("simulation.suspended", { code: error.code ?? error.name });
       for (const socket of gateway.sockets) {
         gateway.publications.close(socket, "SERVER_BUSY");
@@ -163,7 +170,11 @@ if (import.meta.main) {
     try {
       await runtime.close();
     } catch (error) {
-      console.error("Server shutdown failed:", error.message);
+      console.error(
+        logPrefix("server"),
+        "Server shutdown failed:",
+        error.message,
+      );
       process.exitCode = 1;
     }
   }
