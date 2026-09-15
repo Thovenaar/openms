@@ -1,6 +1,6 @@
 import { ResourceCache } from "./resource-cache.js";
 import { LIMITS, resource } from "./stream-validation.js";
-import { resourceByteLimit } from "../assets/resource-validation.js";
+import { loadCatalog } from "./stream-catalog.js";
 import {
   networkDeadline,
   withinDeadline,
@@ -187,20 +187,8 @@ export class Network extends ResourceCache {
   async json(info, signal) {
     return JSON.parse(new TextDecoder().decode(await this.load(info, signal)));
   }
-  async catalog(signal) {
-    return this.gate.run(
-      async () =>
-        JSON.parse(
-          new TextDecoder().decode(
-            await this.fetchBytes(
-              "/generated/catalog.json",
-              signal,
-              resourceByteLimit("/generated/catalog.json"),
-            ),
-          ),
-        ),
-      signal,
-    );
+  async catalog(signal, expectedHash) {
+    return loadCatalog(this, expectedHash, signal);
   }
   snapshot() {
     return {

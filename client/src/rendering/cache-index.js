@@ -1,4 +1,5 @@
 import { LIMITS } from "./stream-validation.js";
+import { resourceByteLimit } from "../assets/resource-validation.js";
 
 const DATABASE = "maple-content-index-v1";
 const STORES = ["entries", "pending", "state"];
@@ -77,9 +78,11 @@ function validURL(url) {
   );
 }
 
-function validBytes(bytes) {
+function validBytes(bytes, url) {
   return (
-    Number.isSafeInteger(bytes) && bytes > 0 && bytes <= LIMITS.resourceBytes
+    Number.isSafeInteger(bytes) &&
+    bytes > 0 &&
+    bytes <= resourceByteLimit(new URL(url).pathname)
   );
 }
 
@@ -90,7 +93,7 @@ function validRows(rows) {
     if (
       !row ||
       !validURL(row.url) ||
-      !validBytes(row.bytes) ||
+      !validBytes(row.bytes, row.url) ||
       !Number.isSafeInteger(row.used) ||
       row.used < 0 ||
       urls.has(row.url)
@@ -178,7 +181,7 @@ export class CacheIndex {
     const response = await cache.match(url);
     if (!response) return null;
     const bytes = Number(response.headers.get("x-maple-bytes"));
-    if (!validURL(url) || !validBytes(bytes)) {
+    if (!validURL(url) || !validBytes(bytes, url)) {
       await cache.delete(url);
       return null;
     }

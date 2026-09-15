@@ -132,8 +132,10 @@ function verifyPreload(report) {
     );
   }
   assertion(
-    report.warmStartup.generatedRequests < report.coldStartup.generatedRequests,
-    "Warm startup did not reuse cached game files",
+    report.warmStartup.generatedRequests === 0 &&
+      report.warmStartup.state.streaming.downloadBytes === 0,
+    "Warm startup downloaded unchanged game files",
+    report.warmStartup,
   );
   report.checks.push(
     "Common assets finish caching before a game connection; a reload reuses the cache",

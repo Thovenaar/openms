@@ -130,7 +130,7 @@ test("login startup owns a Windows 95 page until its artwork is ready", () => {
   // No declared resource yet, so the bar reports motion without a percentage.
   expect(loading.progress.dataset.indeterminate).toBe("true");
   expect(loading.progress.labels["aria-valuenow"]).toBeUndefined();
-  expect(loading.status.textContent).toBe("Downloading game files…");
+  expect(loading.status.textContent).toBe("Checking saved game files…");
   loading.ready();
   expect(loading.overlay.hidden).toBe(true);
   expect(loading.startup).toBe(false);
@@ -151,7 +151,7 @@ test("declared descriptor bytes drive a determinate startup bar and counters", (
     "https://game.example/generated/bundles/a.json",
     102400,
   );
-  expect(loading.status.textContent).toBe("Downloading game files…");
+  expect(loading.status.textContent).toBe("Checking saved game files…");
   loading.end(owner);
   expect(percent(loading)).toBe(25);
   expect(loading.count.textContent).toBe("1 of 2 files · 100 KB of 400 KB");
@@ -291,7 +291,7 @@ test("a failing login resource load shows the loading surface with its status", 
     files: 0,
     complete: 0,
     plannedBytes: 0,
-    downloadedBytes: 0,
+    preparedBytes: 0,
     percent: 0,
     current: null,
   });
@@ -316,7 +316,7 @@ test("a successful login resource load leaves the loading surface untouched", as
     files: 0,
     complete: 0,
     plannedBytes: 0,
-    downloadedBytes: 0,
+    preparedBytes: 0,
     percent: 0,
     current: null,
   });
@@ -354,7 +354,7 @@ test("decoded mushroom art is reported alongside the failure message", () => {
     files: 0,
     complete: 0,
     plannedBytes: 0,
-    downloadedBytes: 0,
+    preparedBytes: 0,
     percent: 0,
     current: null,
   });
@@ -387,4 +387,26 @@ test("download byte labels stay bounded", () => {
   expect(formatBytes(0)).toBe("0 KB");
   expect(formatBytes(2048)).toBe("2 KB");
   expect(formatBytes(3 * 1024 * 1024)).toBe("3.0 MB");
+});
+
+test("saved-file verification is labelled separately from downloads and counts prepared bytes", () => {
+  const loading = startupPresentation();
+  loading.beginStartup();
+  loading.plan([
+    { url: "/generated/saved", bytes: 1024 },
+    { url: "/generated/new", bytes: 1024 },
+  ]);
+  const saved = loading.begin("resource", "/generated/saved", 1024);
+  expect(loading.status.textContent).toBe("Checking saved game files…");
+  expect(loading.overlay.labels["aria-label"]).toBe(
+    "Checking saved game files…",
+  );
+  loading.end(saved);
+  expect(loading.snapshot().preparedBytes).toBe(1024);
+  const download = loading.begin("download", "/generated/new");
+  expect(loading.status.textContent).toBe("Downloading game files…");
+  expect(loading.progress.labels["aria-label"]).toBe("Downloading game files…");
+  loading.end(download);
+  expect(loading.status.textContent).toBe("Finishing up…");
+  expect(loading.snapshot().preparedBytes).toBe(2048);
 });

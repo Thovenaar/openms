@@ -12,7 +12,6 @@ import {
   finite,
   LIMITS,
 } from "../rendering/stream-validation.js";
-import { resourceByteLimit } from "../assets/resource-validation.js";
 import { createSimulation, snapshotSimulation } from "../physics/simulation.js";
 import { createPlayerInput } from "../input/player-input.js";
 import { createPlayerActions } from "../input/player-actions.js";
@@ -534,18 +533,9 @@ function setLayer(id, z) {
 }
 
 async function loadCatalog() {
-  const bytes = await network.fetchBytes(
-    "/generated/catalog.json",
-    controller.signal,
-    resourceByteLimit("/generated/catalog.json"),
+  const value = validateCatalog(
+    await network.catalog(controller.signal, transport.config.catalogHash),
   );
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  let hash = "";
-  for (const byte of digest) hash += byte.toString(16).padStart(2, "0");
-  if (hash !== transport.config.catalogHash) {
-    throw new Error("Server catalog identity mismatch");
-  }
-  const value = validateCatalog(JSON.parse(new TextDecoder().decode(bytes)));
   if (value.buildId !== transport.config.assetBuildId) {
     throw new Error("Server asset build mismatch");
   }
@@ -631,7 +621,7 @@ function loginResourceFailure(error) {
 /** Catalog, shared UI bundles and login artwork, in their required order. */
 async function prepareLoginPage() {
   catalog = await loadCatalog();
-  loading.decoration.loadCatalog(catalog);
+  loading.decoration.loadCatalog(catalog, network);
   startupPreload = await preloadStartupAssets(
     catalog,
     network,

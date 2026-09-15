@@ -61,6 +61,8 @@ Field preparation keeps the original mushroom loading card, and fullscreen loadi
 
 Login startup is the one other fullscreen phase. Until the login page's own artwork is ready, a browser-owned Windows 95 download page covers the shell instead of exposing account controls without art. Its bar and counters report only work the pipeline declared: catalog and manifest descriptor byte lengths, plus the live encoded length of the fetch in progress, so no percentage is invented for undiscovered resources. Entering the world releases that page back to the mushroom card; returning to the login surface uses the small indicator, never the startup page.
 
+Saved files are checked locally against expected hashes. Startup says “Checking saved game files…” for this work and “Downloading game files…” only while a transfer is active; its accessibility labels use the same distinction. `delivery.preparedBytes` counts completed preparation, including cache hits, and replaces the misleading `delivery.downloadedBytes` field. `streaming.downloadBytes` counts bytes actually read by network downloads. The root catalog is also cached and validated against the fresh server configuration hash, and the optional loading decoration uses the same verified cache.
+
 The original mushroom loading decoration is optional presentation over real asynchronous work. It cannot grant readiness, hide a failed request or invent progress. A required login resource failure, or a bootstrap failure before the login page exists, keeps the loading page with an explicit message and no progress until the page is reloaded. [Streaming](streaming.md) owns residency and teardown, while [scene contracts](scene-contract.md) own manifest semantics.
 
 ### Slow downloads and recovery

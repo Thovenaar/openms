@@ -48,7 +48,7 @@ export class OnlineLoading {
     this.overlay = document.createElement("section");
     this.overlay.id = "delivery-startup";
     this.overlay.hidden = true;
-    this.overlay.setAttribute("aria-label", "Downloading game files");
+    this.overlay.setAttribute("aria-label", "Preparing game files");
     this.overlay.setAttribute("aria-busy", "true");
     const windowNode = document.createElement("div");
     windowNode.className = "delivery-window";
@@ -69,7 +69,7 @@ export class OnlineLoading {
     this.progress.className = "delivery-progress";
     this.progress.dataset.indeterminate = "true";
     this.progress.setAttribute("role", "progressbar");
-    this.progress.setAttribute("aria-label", "Downloading game files");
+    this.progress.setAttribute("aria-label", "Preparing game files");
     this.progress.setAttribute("aria-valuemin", "0");
     this.progress.setAttribute("aria-valuemax", "100");
     this.fill = document.createElement("div");
@@ -189,7 +189,7 @@ export class OnlineLoading {
     this.refresh();
   }
 
-  /** Download/decode tokens represent real asset work; resident cache hits create none. */
+  /** Resource tokens include verified cache reads; download tokens mean actual transfers. */
   begin(kind = "asset", url = null, bytes = 0) {
     const owner = { kind, url: pathOf(url) };
     // Once a plan exists, startup also completes its own frontier, so work the plan
@@ -305,12 +305,17 @@ export class OnlineLoading {
   }
 
   renderText(determinate, { planned, done, complete, files, streamed }) {
+    const downloading =
+      this.live || [...this.owners].some((owner) => owner.kind === "download");
     if (!this.startup) this.status.textContent = "Loading map assets…";
+    else if (downloading) this.status.textContent = "Downloading game files…";
     else if (determinate && done >= planned && files > 0) {
       this.status.textContent = "Finishing up…";
     } else {
-      this.status.textContent = "Downloading game files…";
+      this.status.textContent = "Checking saved game files…";
     }
+    this.overlay.setAttribute("aria-label", this.status.textContent);
+    this.progress.setAttribute("aria-label", this.status.textContent);
     const counted = `${complete} of ${files} files`;
     if (determinate) {
       this.count.textContent = `${counted} · ${formatBytes(done)} of ${formatBytes(planned)}`;
@@ -355,7 +360,7 @@ export class OnlineLoading {
       files,
       complete,
       plannedBytes: planned,
-      downloadedBytes: Math.min(done, planned),
+      preparedBytes: Math.min(done, planned),
       percent: Math.round(this.shown * 100),
       current: this.live?.url ?? this.current ?? null,
     };

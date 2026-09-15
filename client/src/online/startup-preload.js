@@ -103,7 +103,9 @@ export class StartupPreload {
 
   cacheUnavailable() {
     if (this.network.cacheStatus !== "persistent") return "cache-unavailable";
-    if (this.network.cacheByteLimit < STARTUP_PRELOAD_LIMITS.bytes) {
+    const required =
+      STARTUP_PRELOAD_LIMITS.bytes + (this.network.catalogBytes ?? 0);
+    if (this.network.cacheByteLimit < required) {
       return "insufficient-cache";
     }
     return null;

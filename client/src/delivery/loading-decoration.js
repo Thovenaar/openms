@@ -1,18 +1,3 @@
-import {
-  boundedResponse,
-  validateDescriptor,
-  verifyBytes,
-} from "../assets/resource-validation.js";
-
-/** Decorative demand uses catalog hashes, never a mutable artwork URL. */
-async function verified(info, signal) {
-  validateDescriptor(info);
-  const response = await fetch(info.url, { signal, redirect: "error" });
-  const bytes = await boundedResponse(response, info.bytes, signal);
-  await verifyBytes(bytes, info);
-  return bytes;
-}
-
 /** Optional artwork cannot admit a map or own loading progress and failures. */
 export class LoadingDecoration {
   constructor(parent, signal) {
@@ -29,7 +14,7 @@ export class LoadingDecoration {
   }
 
   /** The caller supplies the catalog already verified against the server identity. */
-  loadCatalog(catalog) {
+  loadCatalog(catalog, network) {
     if (!catalog.loadingDecoration || this.pending || this.signal.aborted) {
       return;
     }
@@ -37,7 +22,7 @@ export class LoadingDecoration {
     this.buildId = catalog.buildId;
     this.pending = true;
     const signal = AbortSignal.any([this.signal, AbortSignal.timeout(10000)]);
-    this.prepareArtwork(catalog.loadingDecoration, signal)
+    this.prepareArtwork(catalog.loadingDecoration, signal, network)
       .catch(() => {
         // Decoration is optional; real loading and sanitized failures keep their owner.
         this.buildId = null;
@@ -47,8 +32,8 @@ export class LoadingDecoration {
       });
   }
 
-  async prepareArtwork(info, signal) {
-    const bytes = await verified(info, signal);
+  async prepareArtwork(info, signal, network) {
+    const bytes = await network.load(info, signal);
     signal.throwIfAborted();
     const url = URL.createObjectURL(
       new Blob([bytes], { type: "image/svg+xml" }),

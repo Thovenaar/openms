@@ -10,6 +10,7 @@ Read a result together with its **source/catalog identity, fixture, action and l
 | Slow-network gameplay                 | [Latency repair](#slow-network-gameplay-repair) | 500 ms RTT, delayed map assets, native walking/dialogue/travel and reconnect. |
 | Startup asset preload                 | [Startup cache](#startup-asset-preload) | Cold/warm startup, map entry, cache residency and walking at 500 ms RTT. |
 | Browser cache capacity                | [Cache capacity and index](#browser-cache-capacity-and-index) | Quota-aware disk limits, retained metadata, interruption recovery and startup regression. |
+| Refresh without asset downloads       | [Catalog reuse](#catalog-reuse-on-refresh) | Fresh server hash, local catalog verification and zero retained-cache asset requests. |
 | Client-owned motion and knockback      | [Movement parity](movement-parity.md#client-owned-motion) · [Browser check](#client-owned-motion-browser-check)      | One native browser hold and the real server/predictor divert tests; not original Windows parity.        |
 | Airborne skill continuity and recoil   | [Skill cast repair](#skill-cast-stutter-repair) · [Movement contract](movement-parity.md#skill-snapshot-continuity) | Same-field snapshot continuity, immediate impulses and recovered foothold-tangent mob recoil. |
 | Consecutive Flash Jump artwork         | [Replay validation](#consecutive-flash-jump-artwork-14-september-2026) | Five admitted casts, including a rapid direction reversal, with zero rendered-origin offset. |
@@ -218,4 +219,23 @@ Focused validation passed **42 tests / 171 assertions** across cache policy, pre
 bun server/tools/check-network-latency.js --scope cache --output /tmp/openms-cache
 bun server/tools/check-network-latency.js --scope startup --output /tmp/openms-startup
 bun test client/test/cache-policy.test.js client/test/online-startup-preload.test.js client/test/stream-network.test.js client/test/online-loading.test.js
+```
+
+## Catalog reuse on refresh
+
+On **2026-09-15**, investigation of repeated refresh downloads found that the root catalog bypassed persistent caching even though the server configuration already supplied its SHA-256. The earlier retained-cache run above transferred **35,679,091 bytes (34.0 MiB)** for that catalog on every reload. The startup presentation also called local hash-checking work “Downloading” and labelled prepared bytes as downloaded bytes.
+
+The root catalog now shares the bounded disk cache and is checked against the fresh server hash before reuse. A missing, changed or corrupt copy gets one verified replacement. The loading decoration also uses the verified cache. Startup distinguishes saved-file checks from real downloads; `delivery.preparedBytes` names completed preparation, while `streaming.downloadBytes` reports actual downloaded bytes. Quota admission reserves enough space for both the catalog and the common preload.
+
+The [startup scope](validation-method.md#slow-network-gameplay-check) passed in isolated Chrome at 1280×800, using the same extracted assets, a disposable Henesys account, **500 ms HTTP delay and 250 ms per WebSocket direction**. The retained-cache reload made **zero `/generated/` requests and downloaded zero asset bytes**, with **427 verified cache hits**. Startup fell from **2.586 s to 2.072 s** for this local fixed-latency pair. The cache retained **397 files / 83,796,030 bytes**, including the catalog and decoration; the common preload itself remained 395 files / 48,112,678 bytes. Opening restored metadata in **27.7 ms with zero header reads**. These measurements do not establish every browser's storage availability or every map's performance.
+
+Cold startup took **54.918 s**, login **3.248 s**, entry **2.585 s** with zero new generated-asset requests, walking through the 1.5-second stall **7.774 s**, and reconnect **2.385 s**. No browser errors occurred. Warm login render residency remained **16 atlases / 89,535,960 decoded CPU and estimated GPU bytes**. Browser build: `6772f06cdc46a211e65a2c166b576170dc11eb02e2efb38d90ca49c679c90273`; rules: `88e5b3ebbbff93ddd9b437b2e4e58a48561244c71199aaba5aaf01f59a6c72a6`. Catalog and asset identities match the preceding cache-capacity run.
+
+Fixture stages were database/content **300 ms**, seed **114 ms**, server startup **1.250 s**, frontend startup **556 ms**, browser acquisition **505 ms**, identity verification **1.426 s**, browser-context teardown **14 ms** and enclosing teardown **160 ms**. No extraction was needed; overlapping stages are not additive.
+
+**48 focused tests passed**, covering unchanged/changed/corrupt catalogs, mismatched server responses, cancellation, storage fallback, preload capacity and loading presentation. The expanded catalog-plus-preload quota cases separately passed the eight-test preload suite. Changed JavaScript passed Prettier/ESLint, and the guarded production build passed with **942 modules**. Documentation checks retain **884 existing missing historical targets**. Raw reports and logs stay outside the repository.
+
+```sh
+bun server/tools/check-network-latency.js --scope startup --output /tmp/openms-refresh-startup
+bun test client/test/stream-catalog.test.js client/test/stream-network.test.js client/test/online-loading.test.js client/test/online-startup-preload.test.js client/test/cache-policy.test.js
 ```

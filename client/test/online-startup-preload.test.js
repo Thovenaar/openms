@@ -245,13 +245,16 @@ test("unavailable storage skips speculative downloads and quota loss stops the n
 });
 
 test("a small storage quota skips the preload before downloading an unretainable working set", async () => {
-  const network = blockedNetwork();
-  network.cacheByteLimit = STARTUP_PRELOAD_LIMITS.bytes - 1;
-  const plan = new StartupPreload(network);
-  plan.add(descriptor("a"));
-  expect(await plan.run(new AbortController().signal)).toMatchObject({
-    status: "insufficient-cache",
-    complete: 0,
-  });
-  expect(network.state.started).toBe(0);
+  for (const catalogBytes of [0, 34 * 1024 * 1024]) {
+    const network = blockedNetwork();
+    network.catalogBytes = catalogBytes;
+    network.cacheByteLimit = STARTUP_PRELOAD_LIMITS.bytes + catalogBytes - 1;
+    const plan = new StartupPreload(network);
+    plan.add(descriptor("a"));
+    expect(await plan.run(new AbortController().signal)).toMatchObject({
+      status: "insufficient-cache",
+      complete: 0,
+    });
+    expect(network.state.started).toBe(0);
+  }
 });
