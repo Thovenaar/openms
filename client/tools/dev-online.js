@@ -50,7 +50,8 @@ function upstreamOrigin(value) {
 
 /** Same-origin relay changes transport routing only; the upstream remains sole authority. */
 export class OnlineProxy {
-  constructor(config, resources, log) {
+  constructor(config, resources, log, network = null) {
+    this.network = network;
     this.resources = resources;
     this.config = config;
     this.log = log;
@@ -92,6 +93,7 @@ export class OnlineProxy {
     try {
       const url = new URL(request.url);
       if (url.pathname === "/api/v1/play") return this.upgrade(request, server);
+      await this.network?.http();
       if (url.pathname.startsWith("/api/")) {
         const upstream = new URL(
           url.pathname + url.search,
@@ -197,6 +199,15 @@ export class OnlineProxy {
     const relay = socket.data;
     relay.sent++;
     if (relay.closed || typeof data !== "string") return this.stop(relay);
+    if (this.network) {
+      this.network.enqueue(relay, "up", data, () =>
+        this.sendUpstream(relay, data),
+      );
+    } else this.sendUpstream(relay, data);
+  }
+
+  sendUpstream(relay, data) {
+    if (relay.closed) return;
     if (relay.upstream.bufferedAmount > MAX_BACKLOG) return this.stop(relay);
     if (relay.upstream.readyState === WebSocket.OPEN) relay.upstream.send(data);
     else if (relay.pending.length < MAX_PENDING_FRAMES) {
@@ -222,6 +233,15 @@ export class OnlineProxy {
     ) {
       return this.stop(relay);
     }
+    if (this.network) {
+      this.network.enqueue(relay, "down", data, () =>
+        this.sendDownstream(relay, data),
+      );
+    } else this.sendDownstream(relay, data);
+  }
+
+  sendDownstream(relay, data) {
+    if (relay.closed) return;
     if (relay.client.getBufferedAmount() > MAX_BACKLOG) return this.stop(relay);
     if (relay.client.send(data) === 0) this.stop(relay);
   }
@@ -236,6 +256,7 @@ export class OnlineProxy {
       received: relay.received,
     });
     clearTimeout(relay.timer);
+    this.network?.close(relay);
     relay.client?.close(1011, "Online connection closed");
     relay.upstream?.close();
     relay.pending.length = 0;
@@ -271,7 +292,7 @@ export async function startOnlineDevServer(options = {}) {
     assets: identity.assetBuildId,
     outputs: identity.outputs?.length,
   });
-  const proxy = new OnlineProxy(config, resources, log);
+  const proxy = new OnlineProxy(config, resources, log, options.network);
   const server = Bun.serve({
     hostname: config.hostname,
     port: config.port,
@@ -286,6 +307,9 @@ export async function startOnlineDevServer(options = {}) {
   return {
     server,
     identity,
+    disconnect() {
+      for (const relay of proxy.relays) proxy.stop(relay, "fixture disconnect");
+    },
     close() {
       log("shutdown", { phase: "start" });
       for (const relay of proxy.relays) proxy.stop(relay);

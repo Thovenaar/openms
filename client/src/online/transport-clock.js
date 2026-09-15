@@ -86,21 +86,30 @@ export class ServerClock {
       return this.snapshot();
     }
     this.connectionEpoch = sample.connectionEpoch;
-    if (sample.roundTripMs !== null && sample.roundTripMs !== undefined) {
-      if (
-        !Number.isFinite(sample.roundTripMs) ||
-        sample.roundTripMs < 0 ||
-        sample.roundTripMs > MAX_RTT_MS
-      ) {
-        throw new Error("Unsupported server round-trip delay");
-      }
-      this.roundTripMs = this.rtts.add(sample.roundTripMs);
-      this.oneWayMs = this.roundTripMs / 2;
-    }
+    if (!this.observeLatency(sample.roundTripMs)) return this.snapshot();
     this.observeWall(sample);
     // Heartbeats have no field epoch: their tick cannot authenticate a field clock.
     if (sample.fieldEpoch !== undefined) this.observeTicks(sample);
     return this.snapshot();
+  }
+
+  /** A delayed heartbeat still proves liveness, but is unsuitable for clock fitting. */
+  observeLatency(roundTripMs) {
+    if (roundTripMs === null || roundTripMs === undefined) return true;
+    if (!Number.isFinite(roundTripMs) || roundTripMs < 0) {
+      throw new Error("Invalid server round-trip delay");
+    }
+    if (roundTripMs > MAX_RTT_MS) return false;
+    const previous = this.oneWayMs;
+    this.roundTripMs = this.rtts.add(roundTripMs);
+    this.oneWayMs = this.roundTripMs / 2;
+    // Apply a newly measured network leg immediately rather than slowly slewing
+    // hundreds of milliseconds behind the server after the first heartbeat.
+    if (previous !== this.oneWayMs) {
+      this.tickOffsetMs += this.oneWayMs - previous;
+      this.tickOffsets.clear();
+    }
+    return true;
   }
 
   observeWall(sample) {

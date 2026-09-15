@@ -160,3 +160,42 @@ test("End Chat also cancels after a rejected turn and cannot dismiss a different
   expect(probe.commands[1].conversationId).toBe("current");
   expect(dialogue.view.kind).toBe("closed");
 });
+
+test("inline server prose renders without a dependent HTTP request", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetches = 0,
+    refreshes = 0;
+  globalThis.fetch = () => {
+    fetches++;
+    throw new Error("Unexpected prose request");
+  };
+  const dialogue = new NativeDialogue({
+    ui: {
+      windows: new Map([
+        [
+          "UtilDlgEx",
+          {
+            dialogCleanup: {
+              refresh() {
+                refreshes++;
+              },
+            },
+          },
+        ],
+      ]),
+      dialogNpc: { conversationId: "current" },
+    },
+  });
+  try {
+    await dialogue.publish({
+      ...event(),
+      text: "Ready immediately from the server.",
+    });
+    expect(dialogue.view.text).toBe("Ready immediately from the server.");
+    expect(refreshes).toBe(1);
+    expect(fetches).toBe(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    dialogue.destroy();
+  }
+});

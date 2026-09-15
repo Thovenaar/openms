@@ -123,13 +123,18 @@ export class OnlineScene {
   }
   changes(message) {
     this.tick = message.serverTick;
-    this.queue = this.queue.then(async () => {
+    const work = this.queue.then(async () => {
       for (const change of message.changes) {
         if (change.kind === "remove") this.remove(change.entityId);
         else await this.upsert(change.entity);
       }
     });
-    return this.queue;
+    // A failed resource is reported by the caller. It must not poison every
+    // subsequent replacement/recovery by leaving a rejected queue tail.
+    this.queue = work.catch((error) => {
+      this.lastError = error;
+    });
+    return work;
   }
   async upsert(entity) {
     this.controller.signal.throwIfAborted();

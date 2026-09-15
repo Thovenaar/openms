@@ -1,9 +1,10 @@
 import { test, expect } from "bun:test";
-import original from "../../docs/ghidra-physics-motion/wz-globals.json";
+import { loadContent } from "../../server/src/content.js";
 import { createSimulation } from "../src/physics/simulation.js";
 import { OnlinePrediction } from "../src/online/prediction.js";
 import { holdObservedClimb, OnlineScene } from "../src/online/scene.js";
 import { ServerClock } from "../src/online/transport-clock.js";
+import { inputHorizonTicks } from "../src/online/input-timing.js";
 import { PROTOCOL } from "../../shared/protocol.js";
 import {
   createHeldInput,
@@ -12,6 +13,12 @@ import {
   captureMotion,
   restoreMotion,
 } from "../../shared/motion.js";
+
+// Reuse the verified extracted physics; this checkout need not retain archived Ghidra JSON.
+const content = await loadContent();
+const original = {
+  globals: (await content.map(content.catalog.defaultMap)).physics.globals,
+};
 
 // Synthetic isolating geometry, not an original-game recording. Exercise the real
 // online continuation boundary rather than reconstructing state by replaying spawn.
@@ -339,7 +346,7 @@ test("ground jump audio follows accepted checkpoints once; air presses and rejoi
   expect(sounds).toBe(2);
 });
 
-test("prediction sends usable input within authenticated lead despite inflated arrival timing", () => {
+test("prediction covers network delay within a bounded history horizon", () => {
   const sent = [];
   const simulation = createSimulation(world(), { x: 0, y: -10 });
   const prediction = new OnlinePrediction({
@@ -369,14 +376,19 @@ test("prediction sends usable input within authenticated lead despite inflated a
   for (let step = 0; step < 10; step++) {
     prediction.advance(now + step * PROTOCOL.TICK_MS, held);
   }
-  expect(sent).toHaveLength(1);
+  expect(sent.length).toBeGreaterThan(1);
   expect(sent[0]).toMatchObject({
-    targetTick: observation.serverTick + PROTOCOL.INPUT_LEAD_TICKS,
     horizontal: 1,
     vertical: 0,
     jump: false,
     attack: false,
   });
+  expect(sent[0].targetTick).toBeGreaterThan(
+    observation.serverTick + PROTOCOL.INPUT_LEAD_TICKS,
+  );
+  expect(sent.at(-1).targetTick).toBeLessThanOrEqual(
+    observation.serverTick + inputHorizonTicks(clock),
+  );
   // The same sample reports the bounded motion state it extends, for the server's
   // adoption check; the values are asserted by the divert-alignment suite.
   expect(Object.keys(sent[0].motion).sort()).toEqual(["vx", "vy", "x", "y"]);

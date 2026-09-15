@@ -12,6 +12,8 @@ import { ServerClock } from "./transport-clock.js";
 import { validStartingStats } from "../../../shared/starting-stats.js";
 import { resource } from "../rendering/stream-validation.js";
 import { sameWorldIdentity } from "../../../shared/world-content.js";
+import { inputHorizonTicks, inputTargetTick } from "./input-timing.js";
+import { TransportPresentation } from "./transport-presentation.js";
 
 const HTTP_BYTES = 1024 * 1024;
 const HTTP_TIMEOUT_MS = 10000;
@@ -22,6 +24,7 @@ const MAX_QUEUE = 256;
 const MAX_QUEUE_BYTES = 1024 * 1024;
 const SEND_SOFT_BYTES = 256 * 1024;
 const MAX_PENDING = 64;
+const ENTRY_BASELINE_AGE_MS = (PROTOCOL.INPUT_HISTORY * PROTOCOL.TICK_MS) / 2;
 const HASH = /^[a-f0-9]{64}$/;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const encoder = new TextEncoder();
@@ -152,6 +155,8 @@ export class OnlineTransport {
     this.baselines = new MultipartAssembly();
     this.shops = new MultipartAssembly();
     this.clock = new ServerClock();
+    this.renderer = new TransportPresentation(this);
+    this.presentationRetries = 0;
     this.lastMessageAt = 0;
     this.lastResyncAt = -Infinity;
     this.closed = false;
@@ -470,7 +475,7 @@ export class OnlineTransport {
         ? { worldContentHash: this.config.worldContent.sha256 }
         : {}),
     };
-    if (this.playSession && this.lastEventSeq > 0) {
+    if (this.playSession) {
       const motion = this.resumeMotion?.() ?? null;
       hello.resume = {
         playSession: this.playSession,
@@ -486,9 +491,14 @@ export class OnlineTransport {
   }
 
   resetConnection() {
+    this.renderer.clear();
+    this.presentationRecovery = false;
+    this.presentationReady = false;
+    this.presentationRetries = 0;
     this.seq = 0;
     this.lastInputTick = -1;
     this.nextCommandAt = 0;
+    this.lastNeutralInputSeq = null;
     this.connectionEpoch = null;
     this.baselineId = null;
     this.baselines.clear();
@@ -574,7 +584,8 @@ export class OnlineTransport {
       throw failure("STALE_CONNECTION");
     }
     if (message.type === "snapshot") {
-      return this.installPart(message, bytes, generation);
+      this.installPart(message, bytes, generation);
+      return;
     }
     if (this.baselines.pending) {
       this.deferred.push({ message, bytes, receivedAt });
@@ -602,7 +613,15 @@ export class OnlineTransport {
     }
     this.serverTick = Math.max(this.serverTick, message.serverTick);
     this.timing(message, receivedAt);
-    this.callbacks.onMotion?.(freezeView(message));
+    const observed = freezeView(message);
+    if (
+      this.status === "active" &&
+      this.renderer.fieldEpoch === message.fieldEpoch
+    ) {
+      // The installed simulation remains usable during same-field artwork refresh.
+      // Retire prediction history and apply impulses without waiting for textures.
+      this.callbacks.onMotion?.(observed);
+    } else this.renderer.push("motion", observed);
   }
 
   /** Admit an ordered publication against the fully installed baseline, never partial parts. */
@@ -651,6 +670,9 @@ export class OnlineTransport {
     this.expectedFieldEpoch = message.fieldEpoch;
     this.serverTick = message.serverTick;
     this.limits = message.limits;
+    if (this.openWaiter) {
+      this.openWaiter.deadline = receivedAt + HTTP_TIMEOUT_MS;
+    }
     // Hello includes lease acquisition and map loading, not just network latency.
     this.timing(message, receivedAt);
     this.setStatus("synchronizing");
@@ -669,7 +691,7 @@ export class OnlineTransport {
     this.callbacks.onTiming?.(timing);
   }
 
-  async installPart(message, bytes, generation) {
+  installPart(message, bytes, generation) {
     if (message.fieldEpoch !== this.expectedFieldEpoch) {
       throw failure("STALE_FIELD");
     }
@@ -688,29 +710,90 @@ export class OnlineTransport {
       this.setStatus("synchronizing");
     }
     const frozen = freezeView(model);
-    await this.callbacks.onSnapshot?.(frozen);
     if (generation !== this.generation) return;
     this.publishModel(frozen);
     this.restoreInteractionRevisions(frozen);
     this.baselineId = model.snapshotId;
+    this.baselineReceivedAt = performance.now();
     this.lastEventSeq = model.eventSeq;
     this.serverTick = model.serverTick;
     this.resyncing = false;
     this.ack();
-    this.send("ready", {
-      fieldEpoch: model.fieldEpoch,
-      snapshotId: model.snapshotId,
-    });
-    this.setStatus("active");
-    this.openWaiter?.resolve(this.model);
-    this.openWaiter = null;
-    this.recoverPending();
+    // Connection/snapshot reception succeeded. Asset preparation has its own bound.
+    if (this.openWaiter) this.openWaiter.deadline = Infinity;
+    this.presentationReady = true;
+    this.renderer.push("snapshot", frozen);
     if (this.deferred.length) {
       this.queue.unshift(...this.deferred);
       this.queueBytes += this.deferredBytes;
       this.deferred.length = 0;
       this.deferredBytes = 0;
     }
+    return this.renderer.task;
+  }
+
+  presentationIdle() {
+    if (!this.socket || this.presentationRecovery || this.resyncing) return;
+    if (
+      !this.presentationReady ||
+      this.renderer.fieldEpoch !== this.expectedFieldEpoch
+    ) {
+      return;
+    }
+    if (
+      this.status !== "active" &&
+      performance.now() - this.baselineReceivedAt > ENTRY_BASELINE_AGE_MS
+    ) {
+      // Assets may outlive the prediction history. Refresh the now-prepared scene
+      // before allowing input, so recovery cannot clear the first held key.
+      this.refreshPresentationBaseline();
+      return;
+    }
+    this.presentationReady = false;
+    this.send("ready", {
+      fieldEpoch: this.expectedFieldEpoch,
+      snapshotId: this.baselineId,
+    });
+    this.setStatus("active");
+    this.openWaiter?.resolve(this.model);
+    this.openWaiter = null;
+    this.recoverPending();
+  }
+
+  /** A failed renderer requests authoritative replacement without discarding the socket. */
+  presentationFailed(error) {
+    this.callbacks.onPresentationError?.(error);
+    this.presentationRecovery = true;
+    this.presentationReady = false;
+    this.setStatus("synchronizing", "PRESENTATION_FAILED");
+    if (this.presentationRetries >= 3) {
+      this.openWaiter?.reject(failure("PRESENTATION_FAILED"));
+      this.openWaiter = null;
+    }
+  }
+
+  refreshPresentationBaseline() {
+    if (this.presentationRetries >= 3) {
+      this.presentationFailed(failure("STALE_PRESENTATION_BASELINE"));
+      return;
+    }
+    this.presentationRecovery = true;
+    this.recoverPresentation(performance.now());
+  }
+
+  recoverPresentation(now) {
+    if (!this.presentationRecovery || !this.socket || this.renderer.active) {
+      return;
+    }
+    if (
+      this.presentationRetries >= 3 ||
+      now - this.lastResyncAt < RESYNC_INTERVAL_MS
+    ) {
+      return;
+    }
+    this.presentationRetries++;
+    this.presentationRecovery = false;
+    this.resync("baseline");
   }
 
   publishModel(model) {
@@ -749,7 +832,7 @@ export class OnlineTransport {
   state(message) {
     this.publishModel(applyEntityChanges(this.model, message));
     this.baselineId = message.snapshotId;
-    this.callbacks.onState?.(freezeView(message));
+    this.renderer.push("state", freezeView(message));
   }
 
   event(message, bytes) {
@@ -765,7 +848,7 @@ export class OnlineTransport {
       this.revisions.trade = event.revision;
       this.revisions.invitation = event.revision;
     }
-    this.callbacks.onEvent?.(freezeView(observed));
+    this.renderer.push("event", freezeView(observed));
   }
 
   observeConversation(event) {
@@ -813,7 +896,7 @@ export class OnlineTransport {
       pending.resolve(freezeView(message));
       pending.recoverResolve?.(message);
     }
-    this.callbacks.onEvent?.(freezeView(message));
+    this.renderer.push("event", freezeView(message));
   }
 
   transition(message) {
@@ -825,7 +908,7 @@ export class OnlineTransport {
       this.shops.clear();
       const deadline =
         performance.now() +
-        Math.min(15000, Math.max(0, message.deadline - Date.now())) +
+        PROTOCOL.ASSET_PREPARATION_TIMEOUT_MS +
         COMMAND_TIMEOUT_MS;
       for (const pending of this.pending.values()) {
         if (pending.fields.fieldEpoch === message.sourceEpoch) {
@@ -853,7 +936,7 @@ export class OnlineTransport {
       this.baselineId = null;
       this.setStatus("synchronizing");
     }
-    this.callbacks.onTransition?.(freezeView(message));
+    this.renderer.push("transition", freezeView(message));
   }
   sendTransitionReady(
     transitionId,
@@ -924,8 +1007,8 @@ export class OnlineTransport {
       throw failure("INVALID_INPUT");
     }
     if (sample.targetTick <= this.lastInputTick) return null;
-    // An arrival estimate cannot grant lead beyond the authenticated field tick.
-    // Late hints are legal (the server retires them); excess future lead is fatal.
+    // The received tick is a network leg old. The server independently validates
+    // admission against its current tick, never this client's latency estimate.
     const clock = this.clock;
     if (
       !clock.ready ||
@@ -933,7 +1016,7 @@ export class OnlineTransport {
       clock.fieldEpoch !== this.expectedFieldEpoch ||
       clock.paused ||
       sample.targetTick <= clock.serverTick ||
-      sample.targetTick > clock.serverTick + PROTOCOL.INPUT_LEAD_TICKS
+      sample.targetTick > clock.serverTick + inputHorizonTicks(clock)
     ) {
       return null;
     }
@@ -1157,23 +1240,22 @@ export class OnlineTransport {
 
   neutral() {
     if (this.status !== "active") return;
+    if (this.inputSeq === this.lastNeutralInputSeq) return;
     const arrivalTick = this.clock.arrivalTick(performance.now());
     if (arrivalTick === null) return;
     const targetTick = Math.max(
-      Math.min(
-        arrivalTick + PROTOCOL.INPUT_BUFFER_TICKS,
-        this.clock.serverTick + PROTOCOL.INPUT_LEAD_TICKS,
-      ),
+      inputTargetTick(this.clock, performance.now()),
       this.lastInputTick + 1,
     );
     try {
-      this.sendInput({
+      const sequence = this.sendInput({
         targetTick,
         horizontal: 0,
         vertical: 0,
         jump: false,
         attack: false,
       });
+      if (sequence !== null) this.lastNeutralInputSeq = sequence;
     } catch (error) {
       this.fail(error);
     }
@@ -1188,6 +1270,8 @@ export class OnlineTransport {
     try {
       this.baselines.check(now);
       this.shops.check(now);
+      this.recoverPresentation(now);
+      if (!this.renderer.task) this.presentationIdle();
       if (this.openWaiter && now > this.openWaiter.deadline) {
         throw failure("CONNECT_TIMEOUT");
       }
@@ -1230,7 +1314,9 @@ export class OnlineTransport {
     this.socket = null;
     this.generation++;
     if (socket && socket.readyState < WebSocket.CLOSING) {
-      socket.close(1000, "resynchronize");
+      // Close reasons are bounded and sanitized; the full failure remains local.
+      const label = /^[A-Z_]{1,80}$/.test(reason) ? reason : "CLIENT_ERROR";
+      socket.close(1000, label);
     }
     this.openWaiter?.reject(failure(reason));
     this.openWaiter = null;
@@ -1271,6 +1357,8 @@ export class OnlineTransport {
       pendingOperations: this.pending.size,
       queuedMessages: this.queue.length + this.deferred.length,
       queuedBytes: this.queueBytes + this.deferredBytes,
+      presentationMessages: this.renderer.queue.length,
+      presentationBytes: this.renderer.bytes,
       bufferedBytes: this.socket?.bufferedAmount ?? 0,
     });
   }

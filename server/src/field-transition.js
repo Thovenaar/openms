@@ -43,8 +43,9 @@ import {
 import { interactionReceipt } from "./interaction-common.js";
 import { operationFor } from "./action-rules.js";
 import { publishTravelPreview } from "./field-travel-preview.js";
+import { PROTOCOL } from "../../shared/protocol.js";
 
-const TRAVEL_TIMEOUT_MS = 15000;
+const TRAVEL_TIMEOUT_MS = PROTOCOL.ASSET_PREPARATION_TIMEOUT_MS;
 const AUTOMATIC_TYPES = new Set([3, 9, 12, 13]);
 
 function rawPortal(actor, portal) {
@@ -339,7 +340,6 @@ function commitTransition(world, actor, transition, operation) {
         profile: draft,
       });
       scoped.runtimePrepared = actor.id;
-      await awaitDestination(world, actor, transition);
       assertTransition(actor, transition);
     }
     return {
@@ -507,6 +507,9 @@ export async function transitionActor(world, actor, destination, operation) {
     } finally {
       target.entryReservations--;
     }
+    // Client downloads precede row locks. The transaction revalidates admission,
+    // effects and destination against fresh durable state after preparation.
+    await awaitDestination(world, actor, transition);
     const receipt = await commitTransition(world, actor, transition, operation);
     if (receipt.status !== "committed") return receipt;
     bindTransition(world, actor, transition);

@@ -1,0 +1,89 @@
+[2026-09-15T06:57:45.241Z] [server +1162.2ms] listener.ready {"origin":"http://127.0.0.1:3197","hostname":"127.0.0.1","port":3297}
+[2026-09-15T06:57:45.241Z] [server] openms.dev authoritative server ready at http://127.0.0.1:3297/ (1162.4ms)
+[2026-09-15T06:57:45.241Z] [server] Rules 6c5f64edcc08626b8ee49861ff0b2e2bff3802b7e84712924d09af61680fdd7a; assets 93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27; development
+[2026-09-15T06:57:45.242Z] [client +0.0ms] development.start {"hostname":"127.0.0.1","port":3197,"upstream":"http://127.0.0.1:3297"}
+[2026-09-15T06:57:45.242Z] [client +0.1ms] browser.build {"phase":"start"}
+[2026-09-15T06:57:45.242Z] [client] Online browser: hashing source inputs
+[2026-09-15T06:57:45.281Z] [client] Online browser: validating rules and existing asset catalog
+[2026-09-15T06:57:45.513Z] [client] Online browser: compiling verified source without an extraction rebuild
+[2026-09-15T06:57:45.585Z] [client] Online browser: compiled 936 modules; rechecking identities
+[2026-09-15T06:57:45.793Z] [client] Online browser: publishing 6 outputs
+[2026-09-15T06:57:45.802Z] [client +560.0ms] browser.build {"phase":"complete","ms":560}
+[2026-09-15T06:57:45.802Z] [client +560.2ms] browser.identity {"source":"beaf7e266dca6ea2eecca786a0d477ee1cc25b6bd33c64950900529c359537c3","rules":"6c5f64edcc08626b8ee49861ff0b2e2bff3802b7e84712924d09af61680fdd7a","assets":"93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27","outputs":6}
+[2026-09-15T06:57:45.804Z] [client] openms.dev online client ready at http://127.0.0.1:3197/ (561.9ms); development; API http://127.0.0.1:3297
+[2026-09-15T06:57:47.099Z] [client +1856.5ms] http {"method":"GET","path":"/generated/catalog.json","status":200,"ms":687}
+[2026-09-15T06:57:47.770Z] [server +3689.9ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":2}
+[2026-09-15T06:57:47.770Z] [client +2527.3ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":506}
+[2026-09-15T06:57:48.352Z] [client +3109.5ms] http {"method":"GET","path":"/","status":200,"ms":501}
+[2026-09-15T06:57:49.531Z] [server +5450.9ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":0}
+[2026-09-15T06:57:49.532Z] [client +4288.5ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":503}
+[2026-09-15T06:57:50.044Z] [client +4800.7ms] http {"method":"GET","path":"/generated/catalog.json","status":200,"ms":506}
+[2026-09-15T06:58:05.007Z] [server +20924.1ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":0}
+[2026-09-15T06:58:05.008Z] [client +19761.6ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":501}
+[2026-09-15T06:58:05.513Z] [server +21429.4ms] http {"method":"GET","path":"/api/v1/challenge","status":200,"ms":1}
+[2026-09-15T06:58:05.513Z] [client +20267.0ms] http {"method":"GET","path":"/api/v1/challenge","status":200,"ms":502}
+[2026-09-15T06:58:06.219Z] [server +22135.5ms] http {"method":"POST","path":"/api/v1/session","status":200,"ms":73}
+[2026-09-15T06:58:06.219Z] [client +20972.9ms] http {"method":"POST","path":"/api/v1/session","status":200,"ms":576}
+[2026-09-15T06:58:06.729Z] [server +22645.9ms] http {"method":"GET","path":"/api/v1/characters","status":200,"ms":7}
+[2026-09-15T06:58:06.730Z] [client +21483.7ms] http {"method":"GET","path":"/api/v1/characters","status":200,"ms":509}
+[2026-09-15T06:58:08.051Z] [server +23967.5ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":0}
+[2026-09-15T06:58:08.051Z] [client +22804.8ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":501}
+[2026-09-15T06:58:08.560Z] [server +24476.2ms] http {"method":"GET","path":"/api/v1/characters","status":200,"ms":4}
+[2026-09-15T06:58:08.560Z] [client +23313.8ms] http {"method":"GET","path":"/api/v1/characters","status":200,"ms":506}
+[2026-09-15T06:58:09.083Z] [server +24999.3ms] http {"method":"POST","path":"/api/v1/play-ticket","status":200,"ms":15}
+[2026-09-15T06:58:09.083Z] [client +23836.6ms] http {"method":"POST","path":"/api/v1/play-ticket","status":200,"ms":517}
+[2026-09-15T06:58:09.086Z] [client +23839.7ms] socket.open {"upstream":"http://127.0.0.1:3297"}
+[2026-09-15T06:58:09.086Z] [client +23839.9ms] http {"method":"GET","path":"/api/v1/play","status":101,"ms":1}
+[2026-09-15T06:58:09.087Z] [server +25003.3ms] socket.open {"account":"1d267f9e-266e-474c-a7d3-7d02a452c7ec","role":"player"}
+[2026-09-15T06:58:09.087Z] [server +25003.3ms] http {"method":"GET","path":"/api/v1/play","status":101,"ms":0}
+[2026-09-15T06:58:09.087Z] [client +23840.7ms] socket.upstream-ready {"upstream":"http://127.0.0.1:3297"}
+[2026-09-15T06:58:09.373Z] [server +25289.4ms] field.ready {"map":100000000,"instance":"6fc91a21-c71d-44cd-bbab-1fde5120677b","mobs":0,"npcs":30}
+[2026-09-15T06:58:09.562Z] [server +25478.7ms] field.join {"account":"1d267f9e-266e-474c-a7d3-7d02a452c7ec","character":"f941663e-167c-48a6-982e-da50b9d60c09","role":"player","map":100000000,"instance":"6fc91a21-c71d-44cd-bbab-1fde5120677b","players":1}
+[2026-09-15T06:58:09.571Z] [server +25487.2ms] socket.attached {"character":"f941663e-167c-48a6-982e-da50b9d60c09","map":100000000,"instance":"6fc91a21-c71d-44cd-bbab-1fde5120677b","status":"joined"}
+[2026-09-15T06:58:29.846Z] [client +44598.6ms] socket.closed {"reason":"fixture disconnect","code":1011,"sent":6,"received":13}
+[2026-09-15T06:58:29.847Z] [server +45762.1ms] socket.closed {"character":"f941663e-167c-48a6-982e-da50b9d60c09","code":1000,"reason":""}
+[2026-09-15T06:58:30.373Z] [client +45125.1ms] http {"method":"GET","path":"/generated/maps/86a5541cec6cad91f0b83373e59ec119a420f37c37f94335a7348fa69515056b.json","status":200,"ms":525}
+[2026-09-15T06:58:30.404Z] [server +46319.1ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":0}
+[2026-09-15T06:58:30.404Z] [client +45156.4ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":504}
+[2026-09-15T06:58:30.914Z] [server +46829.7ms] http {"method":"GET","path":"/api/v1/characters","status":200,"ms":5}
+[2026-09-15T06:58:30.915Z] [client +45667.0ms] http {"method":"GET","path":"/api/v1/characters","status":200,"ms":508}
+[2026-09-15T06:58:31.433Z] [server +47348.0ms] http {"method":"POST","path":"/api/v1/play-ticket","status":200,"ms":14}
+[2026-09-15T06:58:31.433Z] [client +46185.4ms] http {"method":"POST","path":"/api/v1/play-ticket","status":200,"ms":515}
+[2026-09-15T06:58:31.435Z] [client +46187.8ms] socket.open {"upstream":"http://127.0.0.1:3297"}
+[2026-09-15T06:58:31.435Z] [client +46187.8ms] http {"method":"GET","path":"/api/v1/play","status":101,"ms":0}
+[2026-09-15T06:58:31.436Z] [server +47350.8ms] socket.open {"account":"1d267f9e-266e-474c-a7d3-7d02a452c7ec","role":"player"}
+[2026-09-15T06:58:31.436Z] [server +47350.9ms] http {"method":"GET","path":"/api/v1/play","status":101,"ms":0}
+[2026-09-15T06:58:31.436Z] [client +46188.1ms] socket.upstream-ready {"upstream":"http://127.0.0.1:3297"}
+[2026-09-15T06:58:31.706Z] [server +47621.5ms] socket.attached {"character":"f941663e-167c-48a6-982e-da50b9d60c09","map":100000000,"instance":"6fc91a21-c71d-44cd-bbab-1fde5120677b","status":"resumed"}
+[2026-09-15T06:58:32.473Z] [client +47225.2ms] http {"method":"GET","path":"/generated/maps/86a5541cec6cad91f0b83373e59ec119a420f37c37f94335a7348fa69515056b.json","status":200,"ms":501}
+[2026-09-15T06:59:06.955Z] [server +82869.5ms] action.result {"character":"f941663e-167c-48a6-982e-da50b9d60c09","map":100000000,"operation":"13bcfc58-c418-472c-b27b-4ae5d8c907a8","action":"npc.open","status":"committed","code":"OK","ms":220}
+[2026-09-15T06:59:09.214Z] [server +85129.2ms] action.result {"character":"f941663e-167c-48a6-982e-da50b9d60c09","map":100000000,"operation":"94e5403b-3653-4e4b-b38c-3ee5621162cb","action":"npc.answer","status":"committed","code":"OK","ms":180}
+[2026-09-15T06:59:09.971Z] [server +85886.4ms] action.result {"character":"f941663e-167c-48a6-982e-da50b9d60c09","map":100000000,"operation":"174f9c3d-6688-4b44-8991-610efcff87c7","action":"npc.answer","status":"committed","code":"OK","ms":188}
+[2026-09-15T06:59:10.700Z] [server +86615.3ms] field.ready {"map":104000000,"instance":"55f4cd1f-c18b-41ce-a835-6a7b2cd797ca","mobs":0,"npcs":36}
+[2026-09-15T06:59:31.487Z] [client +106239.2ms] http {"method":"GET","path":"/generated/maps/daac417fea92f7eaa79578ab2d1a7c7b39ae340c36d1c84ec383c01859c45a2a.json","status":200,"ms":526}
+[2026-09-15T07:00:04.547Z] [server +140462.0ms] action.result {"character":"f941663e-167c-48a6-982e-da50b9d60c09","map":104000000,"operation":"40c45517-9b58-4bb6-994e-58f1b87202aa","action":"npc.answer","status":"committed","code":"OK","ms":54047}
+[2026-09-15T07:00:04.899Z] [client +139650.9ms] socket.closed {"reason":"browser closed","code":1000,"sent":414,"received":489}
+[2026-09-15T07:00:04.899Z] [server +140814.0ms] socket.closed {"character":"f941663e-167c-48a6-982e-da50b9d60c09","code":1000,"reason":""}
+[2026-09-15T07:00:05.410Z] [server +141324.5ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":0}
+[2026-09-15T07:00:05.410Z] [client +140161.8ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":502}
+[2026-09-15T07:00:05.916Z] [server +141830.3ms] http {"method":"GET","path":"/api/v1/characters","status":200,"ms":3}
+[2026-09-15T07:00:05.916Z] [client +140667.6ms] http {"method":"GET","path":"/api/v1/characters","status":200,"ms":504}
+[2026-09-15T07:00:06.434Z] [server +142348.9ms] http {"method":"POST","path":"/api/v1/play-ticket","status":200,"ms":15}
+[2026-09-15T07:00:06.434Z] [client +141186.3ms] http {"method":"POST","path":"/api/v1/play-ticket","status":200,"ms":516}
+[2026-09-15T07:00:06.438Z] [client +141189.6ms] socket.open {"upstream":"http://127.0.0.1:3297"}
+[2026-09-15T07:00:06.438Z] [client +141189.7ms] http {"method":"GET","path":"/api/v1/play","status":101,"ms":0}
+[2026-09-15T07:00:06.439Z] [server +142353.9ms] socket.open {"account":"1d267f9e-266e-474c-a7d3-7d02a452c7ec","role":"player"}
+[2026-09-15T07:00:06.439Z] [server +142353.9ms] http {"method":"GET","path":"/api/v1/play","status":101,"ms":0}
+[2026-09-15T07:00:06.439Z] [client +141191.2ms] socket.upstream-ready {"upstream":"http://127.0.0.1:3297"}
+[2026-09-15T07:00:06.703Z] [server +142617.8ms] socket.attached {"character":"f941663e-167c-48a6-982e-da50b9d60c09","map":104000000,"instance":"55f4cd1f-c18b-41ce-a835-6a7b2cd797ca","status":"resumed"}
+[2026-09-15T07:00:07.782Z] [client +142534.1ms] http {"method":"GET","path":"/generated/catalog.json","status":200,"ms":501}
+[2026-09-15T07:00:08.456Z] [server +144370.4ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":0}
+[2026-09-15T07:00:08.456Z] [client +143207.7ms] http {"method":"GET","path":"/api/v1/config","status":200,"ms":501}
+[2026-09-15T07:00:08.549Z] [client +143301.1ms] socket.closed {"reason":"browser closed","code":1000,"sent":54,"received":82}
+[2026-09-15T07:00:08.549Z] [server +144464.3ms] socket.closed {"character":"f941663e-167c-48a6-982e-da50b9d60c09","code":1000,"reason":""}
+[2026-09-15T07:00:08.569Z] [client +143320.5ms] shutdown {"phase":"start"}
+[2026-09-15T07:00:08.569Z] [client +143320.6ms] shutdown {"phase":"complete"}
+[2026-09-15T07:00:08.569Z] [server +144483.5ms] shutdown {"phase":"start"}
+[2026-09-15T07:00:08.586Z] [server +144501.2ms] field.leave {"character":"f941663e-167c-48a6-982e-da50b9d60c09","map":104000000,"players":0}
+[2026-09-15T07:00:08.587Z] [server +144501.6ms] shutdown {"phase":"complete"}
+{"status":"pass","timings":{"identity":1433.757666,"login":19682.015958999997,"coldEntryAndReconnect":51178.844584,"walkingAndStall":7769.340167000002,"dialogueAndColdTravel":58360.854209,"reconnect":2438.848834000004,"teardown":19.630042000004323},"checks":["Initial map download can exceed the connection deadline without disconnecting","Disconnect during initial map loading resumes the same character without CHARACTER_BUSY","Native walking survives 500ms RTT and a 1.5-second delivery stall with server-observed movement","NPC pages arrive inline; 20-second destination loading completes and charges the fare once"]}

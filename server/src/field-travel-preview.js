@@ -22,8 +22,9 @@ export function travelPreview(world, target, traveler) {
   for (const entity of entities) {
     const size = Buffer.byteLength(JSON.stringify(entity)) + 1;
     total += size;
-    if (size > MAX_PART_BYTES || total > MAX_TOTAL_BYTES)
-      {throw protocolError("SERVER_BUSY");}
+    if (size > MAX_PART_BYTES || total > MAX_TOTAL_BYTES) {
+      throw protocolError("SERVER_BUSY");
+    }
     if (
       chunk.length &&
       (bytes + size > MAX_PART_BYTES || chunk.length >= MAX_PART_ENTITIES)
@@ -49,7 +50,7 @@ export function publishTravelPreview(world, actor, transition) {
   const chunks = travelPreview(
     world,
     transition.target,
-    transition.skillCandidate,
+    transition.skillCandidate ?? actor,
   );
   for (const preparation of chunks) {
     world.publish(actor, {

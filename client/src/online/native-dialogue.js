@@ -38,20 +38,29 @@ export class NativeDialogue {
     }
   }
   async load(event, generation, signal) {
-    const response = await fetch(`/api/v1/content/${event.contentId}`, {
-      credentials: "same-origin",
-      cache: "no-store",
-      signal,
-    });
-    if (!response.ok) {
-      throw new Error(`Dialogue content HTTP ${response.status}`);
-    }
-    const content = await response.json();
+    const content =
+      event.text === undefined
+        ? await this.fetchProse(event.contentId, signal)
+        : { text: event.text };
     if (generation !== this.generation) return;
     if (typeof content.text !== "string" || content.text.length > 65536) {
       throw new Error("Invalid server dialogue prose");
     }
     this.view = this.dialogueView(event, content.text);
+    await this.show(event, generation);
+  }
+  async fetchProse(contentId, signal) {
+    const response = await fetch(`/api/v1/content/${contentId}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
+    });
+    if (!response.ok) {
+      throw new Error(`Dialogue content HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async show(event, generation) {
     if (generation !== this.generation) return;
     const existing = this.owner.ui.windows.get("UtilDlgEx");
     if (

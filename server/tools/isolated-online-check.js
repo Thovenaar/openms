@@ -8,6 +8,7 @@ import { openDatabase } from "../src/database.js";
 import { startServer } from "../src/index.js";
 import { startOnlineDevServer } from "../../client/tools/dev-online.js";
 import { startStudioServer } from "../../studio/tools/dev.js";
+import { measureStage } from "../../client/tools/native-evidence.js";
 
 /** Disposable database and listeners; never reset the configured development database. */
 export async function isolatedOnlineCheck({
@@ -16,6 +17,8 @@ export async function isolatedOnlineCheck({
   output,
   studio = false,
   productionClient = false,
+  network = null,
+  timings = {},
 }) {
   const environment = loadEnvironment("server");
   const name = `openms_check_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -32,26 +35,24 @@ export async function isolatedOnlineCheck({
   try {
     await admin.unsafe(`CREATE DATABASE "${name}"`);
     owner.created = true;
-    const url = new URL(environment.DATABASE_URL);
-    url.pathname = `/${name}`;
-    const config = serverConfig({
-      ...environment,
-      DATABASE_URL: url.href,
-      OPENMS_MODE: "development",
-      OPENMS_PORT: "3297",
-      OPENMS_ORIGIN: "http://127.0.0.1:3197",
-      OPENMS_STUDIO_ORIGIN: studio ? "http://127.0.0.1:3198" : "",
-    });
-    const { content, database } = await prepareDatabase(url.href);
-    try {
-      await seed(database, content);
-    } catch (error) {
-      await database.close();
-      throw error;
-    }
-    owner.runtime = await startServer({ config, content, database });
-    await startFrontends(owner, config, productionClient);
-    owner.browser = await launchBrowser();
+    const config = fixtureConfig(environment, name, studio);
+    const { content, database } = await measureStage(
+      timings,
+      "databaseAndContent",
+      () => prepareDatabase(config.databaseUrl),
+    );
+    await measureStage(timings, "seed", () =>
+      seedDatabase(seed, database, content),
+    );
+    owner.runtime = await measureStage(timings, "serverStartup", () =>
+      startServer({ config, content, database }),
+    );
+    await measureStage(timings, "frontendStartup", () =>
+      startFrontends(owner, config, productionClient, network),
+    );
+    owner.browser = await measureStage(timings, "browserAcquisition", () =>
+      launchBrowser(),
+    );
     const restart = async () => {
       await owner.runtime.close();
       owner.runtime = await startServer({ config, content });
@@ -62,9 +63,33 @@ export async function isolatedOnlineCheck({
       studioUrl: config.studioOrigin,
       output,
       restart,
+      network,
+      disconnect: () => owner.client.disconnect(),
     });
   } finally {
-    await release(owner);
+    await measureStage(timings, "fixtureTeardown", () => release(owner));
+  }
+}
+
+function fixtureConfig(environment, name, studio) {
+  const url = new URL(environment.DATABASE_URL);
+  url.pathname = `/${name}`;
+  return serverConfig({
+    ...environment,
+    DATABASE_URL: url.href,
+    OPENMS_MODE: "development",
+    OPENMS_PORT: "3297",
+    OPENMS_ORIGIN: "http://127.0.0.1:3197",
+    OPENMS_STUDIO_ORIGIN: studio ? "http://127.0.0.1:3198" : "",
+  });
+}
+
+async function seedDatabase(seed, database, content) {
+  try {
+    await seed(database, content);
+  } catch (error) {
+    await database.close();
+    throw error;
   }
 }
 
@@ -75,11 +100,12 @@ async function prepareDatabase(url) {
   return { content, database };
 }
 
-async function startFrontends(owner, config, productionClient) {
+async function startFrontends(owner, config, productionClient, network) {
   owner.client = await startOnlineDevServer({
     port: 3197,
     upstream: "http://127.0.0.1:3297",
     production: productionClient,
+    network,
   });
   if (config.studioOrigin) {
     owner.studio = await startStudioServer({

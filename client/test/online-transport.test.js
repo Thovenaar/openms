@@ -7,6 +7,7 @@ import {
 } from "../../shared/protocol.js";
 import { OnlineTransport } from "../src/online/transport.js";
 import { createDefaultBindings } from "../src/input/keymap.js";
+import { inputHorizonTicks } from "../src/online/input-timing.js";
 
 function transition(phase, fieldEpoch, eventSeq) {
   return decodeServer(
@@ -184,19 +185,19 @@ for (const [phase, destination] of [
   });
 }
 
-test("inflated arrival timing and repeated neutral events cannot exceed authenticated input lead", () => {
+test("neutral events are deduplicated within the bounded latency-adjusted input horizon", () => {
   const { transport, sent } = connected();
   try {
     // Synthetic receive time zero keeps the inflated estimate ahead regardless of
     // test-runner scheduling; no sleeps or process-global clock replacement.
-    transport.timing(timing("source", 13), 0, 300);
+    transport.timing(timing("source", 13), performance.now() - 1000, 300);
     for (let event = 0; event < 16; event++) transport.neutral();
     // The inflated wall-clock estimate cannot grant lead past the authenticated tick.
-    const leadTick = 13 + PROTOCOL.INPUT_LEAD_TICKS;
+    const leadTick = 13 + inputHorizonTicks(transport.clock);
     expect(sent.map((message) => message.targetTick)).toEqual([leadTick]);
     expect(transport.sendInput(input(leadTick))).toBeNull();
     expect(transport.sendInput(input(leadTick + 1))).toBeNull();
-    transport.timing(timing("source", 14), 1);
+    transport.timing(timing("source", 14), performance.now());
     expect(transport.sendInput(input(leadTick + 1))).toBe(2);
     expect(sent[1]).toMatchObject({
       type: "input",
@@ -242,8 +243,13 @@ test("committed travel cannot use source timing or an unscoped heartbeat for des
     expect(inputs).toHaveLength(1);
     expect(inputs[0]).toMatchObject({
       fieldEpoch: "destination",
-      targetTick: 13 + PROTOCOL.INPUT_LEAD_TICKS,
     });
+    expect(inputs[0].targetTick).toBeGreaterThan(
+      13 + PROTOCOL.INPUT_LEAD_TICKS,
+    );
+    expect(inputs[0].targetTick).toBeLessThanOrEqual(
+      13 + inputHorizonTicks(transport.clock),
+    );
   } finally {
     transport.close();
   }

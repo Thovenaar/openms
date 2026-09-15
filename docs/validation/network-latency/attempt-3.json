@@ -1,0 +1,114 @@
+{
+  "status": "fail",
+  "timings": {
+    "identity": 1419.9199999999996,
+    "login": 19971.309291999998,
+    "coldEntryAndReconnect": 50684.436707999994,
+    "walkingAndStall": 5262.464166000005,
+    "teardown": 25.684833999999682
+  },
+  "checks": [
+    "Initial map download can exceed the connection deadline without disconnecting",
+    "Disconnect during initial map loading resumes the same character without CHARACTER_BUSY"
+  ],
+  "errors": [],
+  "proseRequests": 0,
+  "identity": {
+    "source": "7d30e3d9f85120bb5b248a616a2e984205b48da399a39db6c2d2d95ad0a08f61",
+    "sourceBuildId": "973a0d9fbd7e5924ce6c48c0b4a76ed05d5a5f0d4601e006ddbf0cfa85e333f9",
+    "rulesHash": "9dd9d88f763f69a52caa572966521452d264ec977199d347e22007f4b59563e6",
+    "catalogHash": "5bd1177cb1269b1d8f366451f4cf6c1603652dc76266d83146fa68f4a6d0e0ca",
+    "assetBuildId": "93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27",
+    "maps": {
+      "100000000": {
+        "url": "/generated/maps/86a5541cec6cad91f0b83373e59ec119a420f37c37f94335a7348fa69515056b.json",
+        "sha256": "86a5541cec6cad91f0b83373e59ec119a420f37c37f94335a7348fa69515056b",
+        "bytes": 5217875,
+        "neighbors": [
+          "100000001",
+          "100000002",
+          "100000100",
+          "100000200",
+          "100010000",
+          "104040000",
+          "106010000"
+        ]
+      },
+      "104000000": {
+        "url": "/generated/maps/daac417fea92f7eaa79578ab2d1a7c7b39ae340c36d1c84ec383c01859c45a2a.json",
+        "sha256": "daac417fea92f7eaa79578ab2d1a7c7b39ae340c36d1c84ec383c01859c45a2a",
+        "bytes": 5208658,
+        "neighbors": [
+          "104000001",
+          "104000002",
+          "104000003",
+          "104000100"
+        ]
+      }
+    }
+  },
+  "failure": {
+    "message": "Server did not observe native movement",
+    "stack": "ScenarioAssertionError: Server did not observe native movement\n    at assertion (/Users/k/Development/tensorfish/openms/client/tools/native-evidence.js:20:21)\n    at walking (/Users/k/Development/tensorfish/openms/client/tools/scenarios/online-latency.js:194:3)\n    at async measureStage (/Users/k/Development/tensorfish/openms/client/tools/native-evidence.js:13:18)\n    at async runOnlineLatency (/Users/k/Development/tensorfish/openms/client/tools/scenarios/online-latency.js:48:11)\n    at async isolatedOnlineCheck (unknown)\n    at processTicksAndRejections (native:7:39)"
+  },
+  "observation": {
+    "status": "active",
+    "epoch": "7DnLnzOdr_iJav3sQp4YUg",
+    "x": 112,
+    "map": 100000000,
+    "meso": 2000,
+    "error": "Online login request failed (CONNECTION_LOST)",
+    "timing": {
+      "connectionEpoch": "7DnLnzOdr_iJav3sQp4YUg",
+      "fieldEpoch": "2d80006b-7d69-462f-82c6-648c79bc6166",
+      "receivedAt": 75904.70000004768,
+      "serverTick": 1795,
+      "roundTripMs": 507,
+      "oneWayMs": 253.5,
+      "offsetMs": 1789455270083,
+      "tickOffsetMs": -21797,
+      "paused": false,
+      "ready": true
+    },
+    "prediction": {
+      "ready": true,
+      "paused": false,
+      "serverTick": 1795,
+      "predictedTick": 1813,
+      "history": 18,
+      "ackInputSeq": 99,
+      "corrections": 0,
+      "maximumPositionError": 0,
+      "lastPositionError": 0,
+      "lastVelocityError": 0,
+      "replayedTicks": 0,
+      "timing": {
+        "connectionEpoch": "7DnLnzOdr_iJav3sQp4YUg",
+        "fieldEpoch": "2d80006b-7d69-462f-82c6-648c79bc6166",
+        "receivedAt": 75904.70000004768,
+        "serverTick": 1795,
+        "roundTripMs": 507,
+        "oneWayMs": 253.5,
+        "offsetMs": 1789455270083,
+        "tickOffsetMs": -21797,
+        "paused": false,
+        "ready": true
+      },
+      "arrivalTick": 1812,
+      "filledTicks": 61,
+      "overflows": 1,
+      "catchUpDebt": 0,
+      "diverts": 0,
+      "pendingImpulses": 0
+    },
+    "loading": false
+  },
+  "fixtureTimings": {
+    "databaseAndContent": 305.250458,
+    "seed": 107.30012499999998,
+    "serverStartup": 1279.7275840000002,
+    "frontendStartup": 559.432708,
+    "browserAcquisition": 489.507333,
+    "fixtureTeardown": 158.82879200000025
+  }
+}

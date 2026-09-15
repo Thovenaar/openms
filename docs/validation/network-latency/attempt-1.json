@@ -1,0 +1,104 @@
+{
+  "status": "fail",
+  "timings": {
+    "identity": 1424.0141250000001,
+    "login": 19564.418667,
+    "coldEntryAndReconnect": 142335.30275,
+    "teardown": 43.16862499999115
+  },
+  "checks": [
+    "Initial map download can exceed the connection deadline without disconnecting"
+  ],
+  "errors": [],
+  "proseRequests": 0,
+  "identity": {
+    "source": "22a60c7fcd78475cab2b0c717e799ab82211968eba4da8649756ded76c470454",
+    "sourceBuildId": "a03d672e3297c9395cf7b066bc40530d827c4a1ec62ac86c331a9f48361bda1a",
+    "rulesHash": "5b8ef9cf0a935dd6d9a6fa5715c715e180fd4ba46c71534bfa81857bac042807",
+    "catalogHash": "5bd1177cb1269b1d8f366451f4cf6c1603652dc76266d83146fa68f4a6d0e0ca",
+    "assetBuildId": "93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27",
+    "maps": {
+      "100000000": {
+        "url": "/generated/maps/86a5541cec6cad91f0b83373e59ec119a420f37c37f94335a7348fa69515056b.json",
+        "sha256": "86a5541cec6cad91f0b83373e59ec119a420f37c37f94335a7348fa69515056b",
+        "bytes": 5217875,
+        "neighbors": [
+          "100000001",
+          "100000002",
+          "100000100",
+          "100000200",
+          "100010000",
+          "104040000",
+          "106010000"
+        ]
+      },
+      "104000000": {
+        "url": "/generated/maps/daac417fea92f7eaa79578ab2d1a7c7b39ae340c36d1c84ec383c01859c45a2a.json",
+        "sha256": "daac417fea92f7eaa79578ab2d1a7c7b39ae340c36d1c84ec383c01859c45a2a",
+        "bytes": 5208658,
+        "neighbors": [
+          "104000001",
+          "104000002",
+          "104000003",
+          "104000100"
+        ]
+      }
+    }
+  },
+  "failure": {
+    "message": "Waiting failed: 120000ms exceeded",
+    "stack": "Error\n    at WaitTask (/Users/k/Development/tensorfish/openms/node_modules/.bun/puppeteer-core@24.40.0/node_modules/puppeteer-core/lib/esm/puppeteer/common/WaitTask.js:46:38)\n    at waitForFunction (/Users/k/Development/tensorfish/openms/node_modules/.bun/puppeteer-core@24.40.0/node_modules/puppeteer-core/lib/esm/puppeteer/api/Realm.js:22:30)\n    at waitForFunction (/Users/k/Development/tensorfish/openms/node_modules/.bun/puppeteer-core@24.40.0/node_modules/puppeteer-core/lib/esm/puppeteer/api/Frame.js:580:43)\n    at ready (/Users/k/Development/tensorfish/openms/client/tools/scenarios/online-latency.js:118:14)\n    at coldEntry (/Users/k/Development/tensorfish/openms/client/tools/scenarios/online-latency.js:162:9)\n    at async measureStage (unknown)\n    at async runOnlineLatency (unknown)\n    at async isolatedOnlineCheck (unknown)\n    at processTicksAndRejections (unknown:7:39)"
+  },
+  "observation": {
+    "status": "disconnected",
+    "epoch": null,
+    "x": 112,
+    "map": 100000000,
+    "meso": 2000,
+    "error": "Online login request failed (CONNECTION_LOST)",
+    "timing": {
+      "connectionEpoch": null,
+      "fieldEpoch": null,
+      "receivedAt": 0,
+      "serverTick": 0,
+      "roundTripMs": 0,
+      "oneWayMs": 0,
+      "offsetMs": 0,
+      "tickOffsetMs": 0,
+      "paused": false,
+      "ready": false
+    },
+    "prediction": {
+      "ready": false,
+      "paused": false,
+      "serverTick": 0,
+      "predictedTick": 0,
+      "history": 0,
+      "ackInputSeq": 0,
+      "corrections": 0,
+      "maximumPositionError": 0,
+      "lastPositionError": 0,
+      "lastVelocityError": 0,
+      "replayedTicks": 0,
+      "timing": {
+        "connectionEpoch": "RJ3D_grPN_yFrxjdWzx8_g",
+        "fieldEpoch": "5522e623-4fc0-43d7-a092-0c81cb1c86d1",
+        "receivedAt": 21885.099999904633,
+        "serverTick": 7,
+        "roundTripMs": 503,
+        "oneWayMs": 251.5,
+        "offsetMs": 1789454716501.8,
+        "tickOffsetMs": -21411.599999904633,
+        "paused": false,
+        "ready": true
+      },
+      "arrivalTick": 0,
+      "filledTicks": 0,
+      "overflows": 0,
+      "catchUpDebt": 0,
+      "diverts": 0,
+      "pendingImpulses": 0
+    },
+    "loading": false
+  }
+}

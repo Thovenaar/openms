@@ -97,6 +97,10 @@ const NEUTRAL = Object.freeze({
 });
 const CANCEL_SKILLS = Object.freeze({ kind: "skill.cancel" });
 
+function retireInput(actor, message) {
+  actor.ackInputSeq = Math.max(actor.ackInputSeq ?? 0, message.inputSeq);
+}
+
 function prepareNpcs(manifest, randomUint) {
   const npcs = new Map();
   for (const record of manifest.life.placements) {
@@ -497,11 +501,14 @@ export class OnlineWorld {
     actor.inputSeq = message.inputSeq;
     const tick = actor.field.tick;
     if (message.targetTick <= tick) {
-      actor.ackInputSeq = Math.max(actor.ackInputSeq ?? 0, message.inputSeq);
+      retireInput(actor, message);
       return;
     }
     if (message.targetTick > tick + PROTOCOL.INPUT_LEAD_TICKS) {
-      throw protocolError("NOT_ALLOWED");
+      // Clock jitter or a paused server can make a valid client estimate early.
+      // Retire it without advancing simulation or revoking a healthy session.
+      retireInput(actor, message);
+      return;
     }
     if (
       actor.inputQueue.has(message.targetTick) ||

@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { protocolError } from "../../shared/protocol.js";
+import { PROTOCOL, protocolError } from "../../shared/protocol.js";
 import { admitActor } from "./action-rules.js";
 import { admitVirtualNpc } from "./interaction-npc-lease.js";
 
@@ -46,8 +46,21 @@ export function interactionReceipt(revision, value) {
 }
 
 export function publishInteraction(world, actor, event) {
+  if (event.kind === "dialogue") event = dialogueProse(world, actor, event);
   retainInteraction(actor, event);
   world.publish(actor, { type: "event", fieldEpoch: actor.field.epoch, event });
+}
+
+/** Ordinary pages need one round trip. Oversized prose retains its private HTTP
+ * endpoint; budget JSON escaping and envelope space before choosing inline delivery. */
+function dialogueProse(world, actor, event) {
+  const content = getInteractionContent(world, actor, event.contentId);
+  requireInteraction(content, "CONTENT_MISMATCH");
+  const inline = { ...event, text: content.text };
+  return Buffer.byteLength(JSON.stringify(inline)) <=
+    PROTOCOL.MAX_SERVER_MESSAGE_BYTES - 1024
+    ? inline
+    : event;
 }
 
 /** Retain current leases and one terminal trade outcome; never replay script effects. */

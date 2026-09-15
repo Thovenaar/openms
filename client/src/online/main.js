@@ -82,6 +82,7 @@ const transport = new OnlineTransport({
   onTransition: transition,
   onStatus: status,
   onCommand: recordCommand,
+  onPresentationError: report,
 });
 const prediction = new OnlinePrediction({
   onInput: sendInput,
@@ -206,11 +207,10 @@ function state(message) {
     })
     .catch((error) => failedScene(error, owner));
 }
-function failedScene(error, owner) {
+function failedScene(error, owner = current) {
   if (owner !== current || error?.name === "AbortError" || destroyed) return;
   report(error);
-  transport.disconnect();
-  prediction.clear();
+  transport.presentationFailed(error);
 }
 
 /** Profile refreshes retain the active clock; entry, travel and recovery reinitialize it. */
@@ -224,28 +224,30 @@ function retainsMotion(snapshot) {
   );
 }
 
-async function refreshScene(snapshot, retainMotion) {
+async function refreshScene(snapshot, retainMotion, signal) {
   await current.queue;
+  signal?.throwIfAborted();
   await current.replace(snapshot);
+  signal?.throwIfAborted();
   if (!retainMotion) installPrediction(current, snapshot);
   await publishNative(snapshot);
 }
 
 /** Stage the authoritative field before replacing any visible field or native-window owner. */
-async function install(snapshot) {
+async function install(snapshot, signal = controller.signal) {
   const token = ++generation;
   const retainMotion = retainsMotion(snapshot);
   installing = true;
   refreshing = retainMotion;
   try {
     const staged = await ui.transitions.take(snapshot);
-    if (!staged && current?.fieldEpoch === snapshot.fieldEpoch) {
-      await refreshScene(snapshot, retainMotion);
+    if (!staged && refreshesInstalledField(snapshot)) {
+      await refreshScene(snapshot, retainMotion, signal);
       return;
     }
     clearInput();
-    const candidate = staged ?? (await prepareScene(snapshot));
-    if (token !== generation || destroyed) {
+    const candidate = staged ?? (await prepareScene(snapshot, signal));
+    if (expiredInstallation(token, signal)) {
       candidate.destroy();
       throw new DOMException("Scene replacement superseded", "AbortError");
     }
@@ -255,6 +257,7 @@ async function install(snapshot) {
     app.stage.addChildAt(candidate.scene.container, 0);
     try {
       await publishNative(snapshot);
+      signal.throwIfAborted();
       ui.transitions.installed(snapshot.fieldEpoch);
       previous?.destroy();
     } catch (error) {
@@ -273,7 +276,18 @@ async function install(snapshot) {
   }
 }
 
-async function prepareScene(snapshot) {
+function expiredInstallation(token, signal) {
+  return token !== generation || destroyed || signal.aborted;
+}
+
+function refreshesInstalledField(snapshot) {
+  return (
+    current?.fieldEpoch === snapshot.fieldEpoch &&
+    current.scene.failures.size === 0
+  );
+}
+
+async function prepareScene(snapshot, signal) {
   const descriptor =
     catalog.maps[String(snapshot.field.mapId).padStart(9, "0")];
   if (!descriptor) throw new Error("Server field is not in this asset catalog");
@@ -282,15 +296,15 @@ async function prepareScene(snapshot) {
     String(snapshot.field.mapId).padStart(9, "0");
   const owner = changingMap ? loading.beginMap(descriptor) : null;
   try {
-    return await loadScene(snapshot, descriptor, owner);
+    return await loadScene(snapshot, descriptor, owner, signal);
   } finally {
     if (owner) loading.endMap(owner);
   }
 }
 
-async function loadScene(snapshot, descriptor, loadingOwner) {
+async function loadScene(snapshot, descriptor, loadingOwner, signal) {
   const manifest = validateManifest(
-    await network.json(descriptor, controller.signal),
+    await network.json(descriptor, signal ?? controller.signal),
   );
   loading.includeMap(loadingOwner, manifest);
   const candidate = new OnlineScene({
@@ -301,12 +315,17 @@ async function loadScene(snapshot, descriptor, loadingOwner) {
     viewport: app.screen,
     intent,
   });
+  const cancel = () => candidate.controller.abort(signal.reason);
+  signal?.addEventListener("abort", cancel, { once: true });
   try {
+    signal?.throwIfAborted();
     await candidate.prepare(snapshot);
     return candidate;
   } catch (error) {
     candidate.destroy();
     throw error;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
   }
 }
 
@@ -402,7 +421,11 @@ function draw(now) {
 }
 function updateDemand() {
   current?.scene.updateDemand();
-  if (current?.scene.lastError) failedScene(new Error(current.scene.lastError));
+  if (current?.scene.lastError) {
+    const error = new Error(current.scene.lastError);
+    current.scene.lastError = null;
+    failedScene(error);
+  }
 }
 function inspect() {
   inspection?.update(transport.model);

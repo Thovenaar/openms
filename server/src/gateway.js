@@ -90,7 +90,9 @@ export class GameplayGateway {
       helloPending: false,
       ready: false,
       sequence: 0,
-      inputRate: new RateLimit(40, 8),
+      // Allow two seconds of normally paced input to arrive together after a
+      // network stall. The sustained limit and field queue remain bounded.
+      inputRate: new RateLimit(40, 80),
       commandRate: new RateLimit(12, 12),
       controlRate: new RateLimit(64, 128),
       devRate: new RateLimit(2, 4),
@@ -104,6 +106,7 @@ export class GameplayGateway {
       pongAt: Date.now(),
       pingMonotonic: null,
       roundTripMs: null,
+      warmupPings: 2,
     };
     if (
       !server.upgrade(request, {
@@ -165,6 +168,7 @@ export class GameplayGateway {
       this.attach(socket, actor);
       this.welcome(socket, Boolean(message.resume));
       this.publications.snapshot(actor);
+      this.ping(socket, Date.now());
       this.world.log?.("socket.attached", {
         character: actor.id,
         map: actor.field.mapId,
@@ -473,6 +477,10 @@ export class GameplayGateway {
       30_000,
       Math.max(0, Math.round(performance.now() - socket.data.pingMonotonic)),
     );
+    if (socket.data.warmupPings > 0) {
+      socket.data.warmupPings--;
+      this.ping(socket, Date.now());
+    }
   }
 
   fail(socket, error) {
@@ -498,6 +506,7 @@ export class GameplayGateway {
     if (actor?.connection !== socket) return;
     actor.connection = null;
     actor.disconnectedAt = Date.now();
+    actor.transition?.ready?.(false);
     this.world.neutralize(actor);
   }
 
@@ -555,6 +564,11 @@ export class GameplayGateway {
     ) {
       return;
     }
+    this.ping(socket, now);
+  }
+
+  /** Calibrate on entry; later heartbeats retain their ordinary interval. */
+  ping(socket, now) {
     socket.data.nonce = opaqueId();
     socket.data.pingAt = now;
     socket.data.pingMonotonic = performance.now();

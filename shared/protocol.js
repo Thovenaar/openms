@@ -141,12 +141,13 @@ export const PROTOCOL = Object.freeze({
    *  retires any late hint it cannot place. */
   INPUT_LEAD_TICKS: 8,
   INPUT_BUFFER_TICKS: 1,
-  INPUT_HISTORY: 64,
+  INPUT_HISTORY: 128,
   MAX_MESSAGE_BYTES: 16384,
   MAX_SERVER_MESSAGE_BYTES: 65536,
   MAX_SNAPSHOT_PARTS: 64,
   MAX_SNAPSHOT_BYTES: 1048576,
   ASSEMBLY_TIMEOUT_MS: 5000,
+  ASSET_PREPARATION_TIMEOUT_MS: 120000,
   MAX_ENTITY_CHANGES: 128,
   MAX_INPUT_HOLD_TICKS: 3,
 });
@@ -347,7 +348,7 @@ const clientSchema = union("type", {
     resume: optional(
       record({
         playSession: id,
-        lastEventSeq: seq,
+        lastEventSeq: revision,
         // Locally presented motion at reconnect. A resumed client that kept moving
         // (or was frozen ahead of the server) is the source of truth for its own
         // position, so the server adopts this instead of snapping the player back.
@@ -705,6 +706,7 @@ export const domainEventSchema = union("kind", {
         defaultValue: nullable(string(/^[\s\S]*$/u, 256)),
       }),
       contentId: hash,
+      text: optional(string(/^[\s\S]*$/u, 65536)),
       choices: array(u32, 128, 0, true),
       input: enumeration("next", "yesno", "choice", "number", "text"),
       minimum: nullable(integer),

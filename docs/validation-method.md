@@ -70,6 +70,10 @@ For production client presentation checks, pass `productionClient: true` to `iso
 
 Every browser report should identify the served source, rules and asset catalog. A stale source or mismatched catalog is a failed check. Use fresh module processes after editing scenario code so an older imported module cannot be mistaken for current evidence.
 
+### Slow-network gameplay check
+
+`bun server/tools/check-network-latency.js --output /tmp/openms-network-latency` runs one isolated native-input scenario with 500 ms HTTP delay and 250 ms in each WebSocket direction. It holds initial and destination map manifests for 20 seconds, reconnects during initial loading, walks through a 1.5-second traffic stall, advances Regular Cab dialogue, commits its fare and verifies that fare after reconnect. The report records identities, stage timings, received movement and whether dialogue required another HTTP request. Existing generated assets are reused; no extraction or personal account mutation is involved. This fixed workload establishes recovery behavior, not a general WAN or frame-rate benchmark.
+
 For two-player behavior, give each participant a separate browser context and account. Verify the sender receipt, other recipient's visible state and reconnect-restored result. The server fixture owns cleanup; do not run mutation scenarios against personal accounts.
 
 Movement presentation can be measured with:

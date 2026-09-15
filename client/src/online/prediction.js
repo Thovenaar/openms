@@ -8,8 +8,9 @@ import {
 } from "../../../shared/motion.js";
 import { applyExternalImpulse } from "../physics/simulation.js";
 import { FLASH_SKILLS } from "../skills/skill-world-rules.js";
+import { inputTargetTick } from "./input-timing.js";
 
-const STALE_OBSERVATION_MS = 1000;
+const STALE_OBSERVATION_MS = 5000;
 /** A server-owned reposition is the only thing that moves the drawn pose without the
  *  player's own prediction. Small disagreements inside the tolerance are absorbed by
  *  the presentation instead of snapping; beyond it the correction is immediate. */
@@ -438,10 +439,7 @@ export class OnlinePrediction {
     // The local clock paces presentation; the authenticated field tick only bounds how
     // far a sample may lead the input window. A briefly late server tick therefore
     // stretches the lead instead of freezing the player mid-step.
-    const desired = Math.min(
-      this.arrivalTick + PROTOCOL.INPUT_BUFFER_TICKS,
-      timing.serverTick + PROTOCOL.INPUT_LEAD_TICKS,
-    );
+    const desired = inputTargetTick(timing, now);
     let steps = 0;
     for (
       ;
