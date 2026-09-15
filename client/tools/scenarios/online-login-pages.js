@@ -11,7 +11,10 @@ export async function runOnlineLoginPages({
   output,
   scope = "pages",
 }) {
-  assertion(["pages", "controls"].includes(scope), "Invalid login check scope");
+  assertion(
+    ["pages", "controls", "utilities"].includes(scope),
+    "Invalid login check scope",
+  );
   await mkdir(output, { recursive: true });
   const report = {
     status: "running",
@@ -23,20 +26,22 @@ export async function runOnlineLoginPages({
   };
   const contexts = [],
     pages = [];
+  const identityOptions = { development: scope !== "utilities" };
   try {
-    report.identity = await onlineIdentity(url);
+    report.identity = await onlineIdentity(url, [], identityOptions);
     for (const width of [1280, 800]) {
       const page = await participant(browser, contexts, pages, report);
       await page.setViewport({ width, height: width === 800 ? 600 : 800 });
-      await measureStage(report.timings, `pages-${width}`, () =>
-        scope === "controls"
-          ? inspectControls(page, { url, output, width, report })
-          : inspectPages(page, { url, output, width, report }),
-      );
+      await measureStage(report.timings, `pages-${width}`, () => {
+        const options = { url, output, width, report };
+        if (scope === "utilities") return inspectUtilities(page, options);
+        if (scope === "controls") return inspectControls(page, options);
+        return inspectPages(page, options);
+      });
     }
     assertion(report.errors.length === 0, "Browser errors", report.errors);
     assertion(
-      (await onlineIdentity(url)).sourceBuildId ===
+      (await onlineIdentity(url, [], identityOptions)).sourceBuildId ===
         report.identity.sourceBuildId,
       "Source changed during check",
     );
@@ -57,6 +62,150 @@ export async function runOnlineLoginPages({
     );
   }
   return report;
+}
+
+/** Production account utilities remain visible and operable without inspection chrome. */
+async function inspectUtilities(page, { url, output, width, report }) {
+  await page.goto(url);
+  await page.waitForFunction(() => window.maple?.snapshot().login?.artwork);
+  assertion(!(await page.$("#console-toggle")), "Expected production shell");
+  await page.type('[name="name"]', "loginpages");
+  await page.type('[name="password"]', "password");
+  await page.click(".online-login-submit");
+  await page.waitForFunction(() => {
+    const login = window.maple.snapshot().login;
+    return (
+      login.stage === "characters" &&
+      !login.transition.active &&
+      login.portraits === 1
+    );
+  });
+  const bounds = await page.evaluate(utilityGeometry);
+  report.controls.push({ width, ...bounds });
+  assertion(
+    bounds.visible && bounds.separated && bounds.framed,
+    "Account utilities overlap, are clipped or lack button chrome",
+    { actual: bounds },
+  );
+  assertion(
+    (await page.evaluate(() => window.maple.snapshot().sourceBuildId)) ===
+      report.identity.sourceBuildId,
+    "Browser source identity mismatch",
+  );
+  await operateUtilities(page, { output, width });
+  assertion(
+    !(await page.$eval("#error", (node) => node.value)),
+    "Error journal is not empty",
+  );
+}
+
+/** Refresh through a native click, then sign out through the keyboard tab order. */
+async function operateUtilities(page, { output, width }) {
+  const refreshed = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/v1/characters") &&
+      response.request().method() === "GET",
+  );
+  await page.click(".online-login-refresh");
+  assertion((await refreshed).ok(), "Refresh request failed");
+  await page.waitForFunction(
+    () =>
+      document.querySelector(".online-login").getAttribute("aria-busy") ===
+      "false",
+  );
+  assertion(
+    (await page.evaluate(() => window.maple.snapshot().login)).stage ===
+      "characters",
+    "Refresh left character selection",
+  );
+  await focusSignOut(page);
+  await page.screenshot({ path: join(output, `utilities-${width}.png`) });
+  const signedOut = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/v1/session") &&
+      response.request().method() === "DELETE",
+  );
+  await page.keyboard.press("Enter");
+  assertion((await signedOut).ok(), "Sign out request failed");
+  await page.waitForFunction(
+    () =>
+      window.maple.snapshot().login.stage === "account" &&
+      !window.maple.snapshot().login.transition.active,
+  );
+  assertion(
+    await page.$eval(".online-login-characters", (node) => node.hidden),
+    "Account utilities remain visible after sign out",
+  );
+}
+
+async function focusSignOut(page) {
+  for (let step = 0; step < 12; step++) {
+    await page.keyboard.press("Tab");
+    if (
+      await page.$eval(
+        ".online-login-signout",
+        (node) => node === document.activeElement,
+      )
+    ) {
+      return;
+    }
+  }
+  throw new Error("Sign out is not reachable after Refresh by keyboard");
+}
+
+/** Read rendered hit targets and chrome, including the authored selection buttons. */
+function utilityGeometry() {
+  const buttons = ["refresh", "signout", "enter", "new", "delete"].map(
+    (name) => {
+      const node = document.querySelector(`.online-login-${name}`);
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return {
+        name,
+        ...rect.toJSON(),
+        background: style.backgroundColor,
+        border: style.borderTopWidth,
+        shadow: style.boxShadow,
+        enabled: !node.disabled,
+        hit:
+          document.elementFromPoint(
+            rect.x + rect.width / 2,
+            rect.y + rect.height / 2,
+          ) === node,
+      };
+    },
+  );
+  const utilities = buttons.slice(0, 2);
+  return {
+    buttons,
+    visible: utilities.every(
+      (button) =>
+        button.enabled &&
+        button.hit &&
+        button.width >= 80 &&
+        button.height >= 24 &&
+        button.left >= 0 &&
+        button.right <= innerWidth &&
+        button.top >= 0 &&
+        button.bottom <= innerHeight,
+    ),
+    separated: utilities.every((button) =>
+      buttons.every(
+        (other) =>
+          button === other ||
+          button.right <= other.left ||
+          button.left >= other.right ||
+          button.bottom <= other.top ||
+          button.top >= other.bottom,
+      ),
+    ),
+    framed: utilities.every(
+      (button) =>
+        button.background !== "rgba(0, 0, 0, 0)" &&
+        button.border !== "0px" &&
+        button.shadow !== "none",
+    ),
+  };
 }
 
 async function inspectControls(page, options) {

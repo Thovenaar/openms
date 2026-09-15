@@ -82,7 +82,7 @@ export function serverConfig(environment = loadEnvironment("server")) {
       environment.OPENMS_CONTENT_ROOT ??
       resolve(ROOT, "client/public/generated"),
     expectedRulesHash: reviewedRulesHash(environment),
-    secureCookie: !development,
+    secureCookie: new URL(origin).protocol === "https:",
     powBits: proofBits(environment.OPENMS_POW_BITS),
     sessionMs: 12 * 60 * 60 * 1000,
     reconnectMs: 30_000,

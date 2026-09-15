@@ -360,6 +360,48 @@
   left: 604px;
   top: 234px;
 }
+/* Production keeps account utilities on the book; development moves them into its sidebar. */
+.online-login-actions > :is(.online-login-refresh, .online-login-signout) {
+  bottom: 26px;
+  box-sizing: border-box;
+  width: 88px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid;
+  border-color: #fff #404040 #404040 #fff;
+  border-radius: 0;
+  box-shadow:
+    inset 1px 1px #dfdfdf,
+    inset -1px -1px #808080;
+  background: #c0c0c0;
+  color: #101010;
+  font:
+    12px/1 "MS Sans Serif",
+    Tahoma,
+    sans-serif;
+  white-space: nowrap;
+}
+.online-login-actions > .online-login-refresh {
+  left: 40px;
+}
+.online-login-actions > .online-login-signout {
+  left: 136px;
+}
+.online-login-actions
+  > :is(.online-login-refresh, .online-login-signout):active:not(:disabled) {
+  border-color: #404040 #fff #fff #404040;
+  box-shadow: inset 1px 1px #808080;
+}
+.online-login-actions
+  > :is(.online-login-refresh, .online-login-signout):focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+.online-login-actions
+  > :is(.online-login-refresh, .online-login-signout):disabled {
+  color: #808080;
+  text-shadow: 1px 1px #fff;
+}
 .online-login-create-layout {
   position: absolute;
   inset: 0;

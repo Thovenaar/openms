@@ -40,8 +40,8 @@ function options(args) {
     seen.add(token.name);
   }
   if (!values.output.trim()) throw new Error("--output must name a directory");
-  if (!["pages", "controls"].includes(values.scope)) {
-    throw new Error("--scope must be pages or controls");
+  if (!["pages", "controls", "utilities"].includes(values.scope)) {
+    throw new Error("--scope must be pages, controls or utilities");
   }
   return values;
 }
@@ -50,15 +50,16 @@ async function main() {
   const values = options(process.argv.slice(2));
   if (values.help) {
     console.log(
-      "Usage: bun server/tools/check-login-pages.js [--output DIR] [--scope pages|controls]\nDefaults: output=/tmp/openms-login-pages, scope=pages\nPages checks transitions/arrows; controls checks recovery buttons and character names. Uses a disposable account/database without entering gameplay.",
+      "Usage: bun server/tools/check-login-pages.js [--output DIR] [--scope pages|controls|utilities]\nDefaults: output=/tmp/openms-login-pages, scope=pages\nPages checks transitions/arrows; controls checks recovery buttons and character names; utilities checks production Refresh/Sign out. Uses a disposable account/database without entering gameplay.",
     );
     return;
   }
+  const count = { pages: 4, controls: 3, utilities: 1 }[values.scope];
   const report = await isolatedOnlineCheck({
-    seed: (database, content) =>
-      seed(database, content, values.scope === "controls" ? 3 : 4),
+    seed: (database, content) => seed(database, content, count),
     run: (options) => runOnlineLoginPages({ ...options, scope: values.scope }),
     output: values.output,
+    productionClient: values.scope === "utilities",
   });
   console.log(
     JSON.stringify({ status: report.status, failure: report.failure }),

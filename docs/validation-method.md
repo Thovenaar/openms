@@ -66,6 +66,8 @@ Domain checks under `server/tools/check-*.js` own disposable databases, server/c
 
 For production client presentation checks, pass `productionClient: true` to `isolatedOnlineCheck`. This compiles and serves the production shell through the fixture's local HTTP/API proxy, including real WebSocket connections. Its disposable backend still uses development authentication; this verifies browser behavior, not public HTTPS deployment.
 
+`bun server/tools/check-login-pages.js --scope utilities --output /tmp/openms-login-utilities` checks production character-selection Refresh and Sign out at 800×600 and 1280×800. It verifies visible, separate button targets, refresh by mouse and sign-out by keyboard, using a disposable account without entering gameplay. Production scenarios pass `{ development: false }` as the third argument to `onlineIdentity` so the expected source identity matches the production bundle.
+
 Every browser report should identify the served source, rules and asset catalog. A stale source or mismatched catalog is a failed check. Use fresh module processes after editing scenario code so an older imported module cannot be mistaken for current evidence.
 
 For two-player behavior, give each participant a separate browser context and account. Verify the sender receipt, other recipient's visible state and reconnect-restored result. The server fixture owns cleanup; do not run mutation scenarios against personal accounts.

@@ -358,7 +358,11 @@ async function deadLogout(page, tools) {
 }
 
 /** Shared online replay gate: served bytes and the compiled online source identity. */
-export async function onlineIdentity(url, mapIds = []) {
+export async function onlineIdentity(
+  url,
+  mapIds = [],
+  { development = true } = {},
+) {
   const response = await fetch(new URL("/generated/catalog.json", url));
   if (!response.ok) throw new Error(`Catalog HTTP ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
@@ -384,7 +388,7 @@ export async function onlineIdentity(url, mapIds = []) {
   const config = await configResponse.json();
   const source = await sourceIdentity();
   const sourceBuildId = digest(
-    `${source}\0online\0true\0${config.rulesHash}\0${digest(bytes)}`,
+    `${source}\0online\0${development}\0${config.rulesHash}\0${digest(bytes)}`,
   );
   return {
     source,

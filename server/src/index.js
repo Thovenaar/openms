@@ -8,6 +8,7 @@ import { OnlineHttp } from "./http.js";
 import { createContentService } from "./content-authoring.js";
 import { ContentHttp, CONTENT_REQUEST_BYTES } from "./content-http.js";
 import { loadWorldContent, WorldActivation } from "./world-content.js";
+import { rotateDefaultAccountPasswords } from "./production-accounts.js";
 import {
   createDevelopmentLog,
   logStage,
@@ -38,10 +39,11 @@ export async function startServer(options = {}) {
       openDatabase({ url: config.databaseUrl, items: original.items }),
     ));
   const auth = new SessionAuthority(config, database);
-  const { content, contentHttp, activation } = await prepareAuthoring(
+  const { content, contentHttp, activation } = await prepareServices(
     database,
     original,
     auth,
+    config,
   );
   const world = new OnlineWorld({
     content,
@@ -91,8 +93,10 @@ function logReady(log, { config, content, server, started }) {
   );
 }
 
-async function prepareAuthoring(database, original, auth) {
+/** Persist startup account/content changes before exposing any HTTP or game session. */
+async function prepareServices(database, original, auth, config) {
   try {
+    if (!config.development) await rotateDefaultAccountPasswords(database);
     const service = createContentService(database, original);
     await service.initialize(original.catalog);
     const content = await loadWorldContent(database, original);

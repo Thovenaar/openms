@@ -20,8 +20,76 @@ import {
 } from "../src/database-market.js";
 import { advanceMarketSchedule } from "../src/market-schedule.js";
 import { mutateMarket } from "../src/interaction-market.js";
+import { rotateDefaultAccountPasswords } from "../src/production-accounts.js";
+import { bootstrapDevelopmentAccounts } from "../tools/development-accounts.js";
 
 const databaseUrl = process.env.OPENMS_TEST_DATABASE_URL;
+
+test.skipIf(!databaseUrl)(
+  "PostgreSQL production default-password rotation preserves custom accounts and development restores defaults",
+  async () => {
+    await withDatabase(proveDefaultPasswordRotation);
+  },
+  30000,
+);
+
+async function proveDefaultPasswordRotation(database, content) {
+  expect(await rotateDefaultAccountPasswords(database)).toEqual([]);
+  expect(await database.accountByName("admin")).toBeNull();
+  expect(await database.accountByName("player")).toBeNull();
+  await bootstrapDevelopmentAccounts(database, content, {});
+  const passwordHash = await Bun.password.hash("password");
+  const unrelated = await database.createAccount({
+    name: "other",
+    passwordHash,
+    role: "player",
+  });
+  const before = await defaultAccountState(database);
+  const rotations = await Promise.all([
+    rotateDefaultAccountPasswords(database),
+    rotateDefaultAccountPasswords(database),
+  ]);
+  expect(rotations.flat().sort()).toEqual(["admin", "player"]);
+  const rotated = await defaultAccountState(database);
+  for (const entry of rotated) {
+    expect(
+      await Bun.password.verify("password", entry.account.passwordHash),
+    ).toBe(false);
+    expect(entry.account.passwordHash.startsWith("$argon2id$")).toBe(true);
+  }
+  expect(await rotateDefaultAccountPasswords(database)).toEqual([]);
+  expect(await defaultAccountState(database)).toEqual(rotated);
+  const custom = await Bun.password.hash("custom-admin-password");
+  await database.sql`UPDATE account SET password_hash=${custom} WHERE name='admin'`;
+  await database.sql`UPDATE account SET password_hash=${passwordHash} WHERE name='player'`;
+  expect(await rotateDefaultAccountPasswords(database)).toEqual(["player"]);
+  expect((await database.accountByName("admin")).passwordHash).toBe(custom);
+  expect(await database.accountByName("other")).toEqual(unrelated);
+  await bootstrapDevelopmentAccounts(database, content, {});
+  const restored = await defaultAccountState(database);
+  for (const [index, entry] of restored.entries()) {
+    expect(
+      await Bun.password.verify("password", entry.account.passwordHash),
+    ).toBe(true);
+    expect({ ...entry.account, passwordHash: null }).toEqual({
+      ...before[index].account,
+      passwordHash: null,
+    });
+    expect(entry.characters).toEqual(before[index].characters);
+  }
+}
+
+async function defaultAccountState(database) {
+  const result = [];
+  for (const name of ["admin", "player"]) {
+    const account = await database.accountByName(name);
+    result.push({
+      account,
+      characters: await database.listCharacters(account.id),
+    });
+  }
+  return result;
+}
 
 /** Separate database; never reset or mutate the supplied administrative database. */
 async function withDatabase(run) {

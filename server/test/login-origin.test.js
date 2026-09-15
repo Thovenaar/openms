@@ -73,12 +73,18 @@ async function fixture(settings = config()) {
 async function authenticate(f, origin, path, name) {
   // Same-origin browser GETs omit Origin; the proxy preserves it on the POST.
   const bootstrap = await f.http.fetch(request(null, "config"), f.server);
+  expect(bootstrap.headers.get("set-cookie").includes("; Secure")).toBe(
+    origin.startsWith("https:"),
+  );
   const cookie = bootstrap.headers.get("set-cookie").split(";")[0];
   const response = await f.http.fetch(
     request(null, "challenge", cookie),
     f.server,
   );
   expect(response.status).toBe(200);
+  expect(response.headers.get("set-cookie").includes("; Secure")).toBe(
+    origin.startsWith("https:"),
+  );
   const challenge = await response.json();
   return f.http.fetch(
     request(origin, path, cookie, {
@@ -119,6 +125,25 @@ test("development login and registration accept exact loopback aliases through H
     );
     expect(reply.status).toBe(200);
     expect((await reply.json()).role).toBe("player");
+  }
+});
+
+test("production registration and subsequent login use cookies matching the public origin", async () => {
+  for (const origin of ["http://game.example", "https://game.example"]) {
+    const f = await fixture(config(origin, false));
+    for (const path of ["accounts", "session"]) {
+      const reply = await authenticate(f, origin, path, "new_player");
+      expect(reply.status).toBe(200);
+      expect((await reply.json()).role).toBe("player");
+      expect(reply.headers.get("set-cookie").includes("; Secure")).toBe(
+        origin.startsWith("https:"),
+      );
+      const cookie = reply.headers.get("set-cookie").split(";")[0];
+      expect(
+        f.auth.session(request(origin, "characters", cookie)).accountId,
+      ).toBe("new_player");
+    }
+    expect(f.accounts.get("new_player").role).toBe("player");
   }
 });
 
