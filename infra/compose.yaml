@@ -1,4 +1,4 @@
-# Local development only; defaults match ../.env.server.
+# Local development only; defaults match ../.env.server.example.
 # Override POSTGRES_* in the shell or via --env-file; match server DATABASE_URL.
 # User/password/database initialize an empty volume only, not existing data.
 name: openms

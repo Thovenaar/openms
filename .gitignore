@@ -8,4 +8,9 @@ docs/.vitepress/dist/
 server/.cache/
 studio/dist/
 .DS_Store
+# Local environment settings stay out of Git; only example templates are tracked.
+.env
+.env.*
 .env*.local
+!.env.example
+!.env.*.example

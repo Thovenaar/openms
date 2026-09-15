@@ -4,7 +4,17 @@ Server and client settings, operation and architecture. For a first run, follow 
 
 ## Settings
 
-Scoped `.env.server`, `.env.client` and `.env.studio` are loaded relative to the repository. Process environment takes precedence. Ignored `.env*.local` files need explicit loading; they are not automatic overlays. `OPENMS_MODE` is process-only, and `NODE_ENV=production` forces production mode.
+Copy the tracked example templates once, without overwriting existing local settings:
+
+```sh
+cp -n .env.server.example .env.server
+cp -n .env.client.example .env.client
+cp -n .env.studio.example .env.studio
+```
+
+Scoped `.env.server`, `.env.client` and `.env.studio` are loaded relative to the repository. Git ignores `.env` and `.env.*`, with exceptions for `.env.example` and `.env.*.example`; only templates belong in commits. Keep shared defaults in the examples and real credentials in local files or the process environment. Example templates are not loaded directly.
+
+Process environment takes precedence. The scoped loader does not read `.env` or `.env*.local` as overlays; Bun's own environment loading still applies. `OPENMS_MODE` is process-only, and `NODE_ENV=production` forces production mode.
 
 ## Server
 

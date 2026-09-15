@@ -15,6 +15,11 @@ git clone https://github.com/tensorfish/openms.git
 cd openms
 bun install --frozen-lockfile
 
+# Create local settings without overwriting existing files.
+cp -n .env.server.example .env.server
+cp -n .env.client.example .env.client
+cp -n .env.studio.example .env.studio
+
 # Download and unpack the original assets beside the repository.
 curl --fail --location --output ../Maplestory-Assets.zip \
   http://bucket.openms.dev/Maplestory-Assets.zip

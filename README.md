@@ -26,9 +26,12 @@ Skip `podman machine init` if you already have a machine, and skip `start` if it
 git clone https://github.com/tensorfish/openms.git
 cd openms
 bun install --frozen-lockfile
+cp -n .env.server.example .env.server
+cp -n .env.client.example .env.client
+cp -n .env.studio.example .env.studio
 ```
 
-Run the remaining commands from this **`openms` directory**. Local settings are already supplied in `.env.server` and `.env.client`.
+Run the remaining commands from this **`openms` directory**. The copy commands create local settings without overwriting existing files. Edit `.env.server`, `.env.client` and `.env.studio` as needed; Git ignores them and `.env`. Only the `.example` templates are tracked.
 
 ### 3. Download and prepare the game assets
 
