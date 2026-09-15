@@ -236,6 +236,8 @@ Configure `.env.client`:
 | `ONLINE_HOST`, `ONLINE_PORT` | `127.0.0.1`, `3102`     | Browser client listener  |
 | `OPENMS_SERVER_URL`          | `http://127.0.0.1:3200` | Reachable backend origin |
 
+Both `client:dev` and `client:prod` use this one listener configuration. The unused `HOST` and `PORT` entries have been removed and are no longer read.
+
 ### Controls
 
 Click empty map space to focus the game. KeyConfig can change these recovered defaults.

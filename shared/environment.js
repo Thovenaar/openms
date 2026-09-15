@@ -15,7 +15,7 @@ const KEYS = Object.freeze({
     "OPENMS_POW_BITS",
     "OPENMS_DEV_PASSWORD",
   ],
-  client: ["HOST", "PORT", "ONLINE_HOST", "ONLINE_PORT", "OPENMS_SERVER_URL"],
+  client: ["ONLINE_HOST", "ONLINE_PORT", "OPENMS_SERVER_URL"],
   studio: [
     "STUDIO_HOST",
     "STUDIO_PORT",
@@ -55,7 +55,7 @@ export function loadEnvironment(scope) {
     const value = process.env[key] ?? defaults[key];
     if (value !== undefined) environment[key] = value;
   }
-  // A checked-in local file must never switch production into development mode.
+  // A local settings file must never switch production into development mode.
   if (scope === "server") {
     environment.OPENMS_MODE =
       process.env.NODE_ENV === "production"
