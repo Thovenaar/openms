@@ -254,6 +254,14 @@ Character creation follows **name → appearance → starting stats**. The serve
 
 One game tab may own a browser storage origin at a time. Use separate browser profiles or isolated contexts for two-player checks. [Sessions](browser-session.md) explains the boundary. The client does not continue gameplay while disconnected.
 
+### Startup asset cache
+
+The startup download screen prepares common game files before exposing sign-in and character selection. The working set includes login/HUD and common windows, NPC dialogue controls and quest markers, starter character appearances, common effects and sounds, and the catalog's default map plus Henesys and Lith Harbor. These maps include their region files, atlases, minimaps and music. Other maps, custom content and uncommon appearances remain on demand.
+
+Downloads use the existing hash-verified persistent cache, with four concurrent requests and a preload ceiling of 768 files / 64 MiB. Only encoded bytes are cached; preloading does not decode or reserve every texture on the GPU. The first startup takes longer while filling this cache; later starts reuse it. There is no game WebSocket or character lease during this preparation.
+
+Storage refusal or quota loss stops speculative preloading and leaves ordinary asset loading available. Corrupt or failed assets keep the startup error visible instead of exposing a partially prepared login page. In development, `window.maple.snapshot().startupPreload` reports completion or `cache-unavailable`; `streaming.cacheStatus` gives the storage result. See the [500 ms startup check](validation-method.md#slow-network-gameplay-check).
+
 ### Settings {#client-settings}
 
 Configure `.env.client`:

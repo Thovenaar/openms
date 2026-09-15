@@ -30,6 +30,7 @@ export async function runOnlineLatency({
   const holds = { paths: new Set(), request: null, started: null };
   page.setDefaultTimeout(TIMEOUT);
   try {
+    await disablePersistentCache(page);
     report.identity = await measureStage(report.timings, "identity", () =>
       onlineIdentity(url, ["100000000", "104000000"]),
     );
@@ -67,6 +68,17 @@ export async function runOnlineLatency({
     );
   }
   return report;
+}
+/** Exercise cold asset deadlines even when normal startup preloads these maps. */
+async function disablePersistentCache(page) {
+  await page.evaluateOnNewDocument(() => {
+    globalThis.caches.open = async () => {
+      throw new DOMException(
+        "Latency fixture disables persistent cache",
+        "SecurityError",
+      );
+    };
+  });
 }
 async function verify(page, url, network, report) {
   assertion(
@@ -114,7 +126,7 @@ async function login(page, url) {
     return login.stage === "characters" && !login.transition.active;
   });
 }
-async function ready(page) {
+export async function ready(page) {
   await page.waitForFunction(() => {
     const state = window.maple?.snapshot();
     return (
@@ -124,7 +136,7 @@ async function ready(page) {
     );
   });
 }
-function observe(page) {
+export function observe(page) {
   return page.evaluate(() => {
     const state = window.maple.snapshot();
     const model = window.mapleOnline.observation();
@@ -178,7 +190,7 @@ async function coldEntry({ page, holds, report, disconnect }) {
     "Disconnect during initial map loading resumes the same character without CHARACTER_BUSY",
   );
 }
-async function walking({ page, network, report }) {
+export async function walking({ page, network, report }) {
   await focusCanvas(page);
   const before = await observe(page);
   const serverBefore = network.lastMotion;
@@ -272,7 +284,7 @@ async function travel({ page, holds, report, url }) {
     "NPC pages arrive inline; 20-second destination loading completes and charges the fare once",
   );
 }
-async function reconnect(page) {
+export async function reconnect(page) {
   const before = await observe(page);
   if (await page.$eval("#gm-console", (node) => node.hidden)) {
     await page.click("#console-toggle");

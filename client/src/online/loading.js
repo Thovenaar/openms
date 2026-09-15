@@ -1,8 +1,8 @@
 import { LoadingDecoration } from "../delivery/loading-decoration.js";
 
-/** A required login resource failed; a manual reload is the only bounded recovery. */
+/** A required startup resource failed; a manual reload is the only bounded recovery. */
 export const STARTUP_ASSET_FAILURE_MESSAGE =
-  "The game files needed for the sign in page could not be loaded. Reload this page to try again.";
+  "The files needed to start the game could not be loaded. Reload this page to try again.";
 
 /** Bootstrap failed before the login page existed; the same surface owns that too. */
 export const STARTUP_CONNECTION_FAILURE_MESSAGE =

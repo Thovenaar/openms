@@ -16,6 +16,7 @@ Each v2 entity requires `order`, its global pre-partition input index. Equal-z e
 
 ## Ownership and demand
 
+- Before login, the [common asset preload](development.md#startup-asset-cache) fills the existing persistent cache using at most four requests, 768 unique files and 64 MiB of encoded data. It validates manifests and downloads the selected map regions and atlases without decoding them. Verified hits refresh eviction order, so filling a previously busy cache does not immediately discard the resources just warmed. Ordinary scene loading still owns all rendering resources.
 - Initial critical load: actor atlas set plus regions intersecting the initial viewport and all `always` regions. Other regions are not awaited.
 - Every 200 ms, a timer (not RAF) updates region demand. Visible regions are requested before regions within a half-viewport margin. At most two region loads are outstanding. Leaving that margin cancels pending loads and destroys resident region display objects/subtextures.
 - Each region commits its complete entity set only after all required atlases are fetched, decoded and uploaded. `VisualTextures` owns subtextures and per-consumer leases; the shared AtlasStore keys sources by content hash. Regions, map candidates, persistent HUD, demand-loaded windows/minimaps and effect previews participate in the same residency budget.
@@ -38,7 +39,7 @@ Each v2 entity requires `order`, its global pre-partition input index. Equal-z e
 | CPU decoded residency | 192 MiB reserved before fetch/decode, including pending and cancelled-but-not-yet-settled records                                                                             |
 | GPU estimate          | 192 MiB, same reservation discipline, including both current and candidate maps                                                                                               |
 | Upload batches        | Timer-driven, at most 16 MiB and 4 ms admission budget per batch                                                                                                              |
-| Persistent cache      | CacheStorage `maple-content-v2`, 192 MiB, 2048 entries, serialized FIFO eviction                                                                                              |
+| Persistent cache      | CacheStorage `maple-content-v2`, 192 MiB, 2048 entries; serialized eviction follows recent verified use within the current session, starting from stored insertion order on reload |
 | Draw surface          | Maximum 2560 by 1440 at resolution 1                                                                                                                                          |
 | Display data          | 8192 resident entities and 65536 resident sprites per map; at most 10000 pooled sprites per repeating background, 4096 parts per frame                                        |
 | Inspection samples    | Fixed 240-element frame-delta and draw-CPU rings                                                                                                                              |

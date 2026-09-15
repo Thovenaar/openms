@@ -36,6 +36,8 @@ Input is blocked during account/login stages, unresolved field replacement, moda
 
 The browser performs no WZ parsing. PNG decoding runs in a worker; decoded atlas and GPU-upload ownership are bounded. Asset requests have a 30-second idle deadline and five-minute total deadline. Timeout releases request admission and reports a timeout rather than fabricating missing content.
 
+Before login, a bounded [common asset preload](development.md#startup-asset-cache) fills the same persistent cache used by field streaming. Bundle manifests are validated before following their atlas descriptors; map manifests also declare the region downloads. Duplicate URLs are admitted once, conflicting hashes/lengths fail, and cancellation or failure retires the current batch before returning. The 64 MiB encoded preload allowance is separate from decoded CPU and GPU residency. It does not change map authority, simulation readiness or the existing scene-recovery deadlines.
+
 ## Inspection APIs
 
 `window.maple` exposes read-only state and presentation/debug operations:

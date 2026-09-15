@@ -1,5 +1,5 @@
 /**
- * Required login-page resource preparation: the catalog, the shared UI bundles and
+ * Required startup preparation: the catalog, cached common gameplay assets and
  * the login artwork. The browser entry owns the actual sequence; splitting the
  * outcome here keeps its failure contract testable without a DOM.
  *

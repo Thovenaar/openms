@@ -8,6 +8,7 @@ Read a result together with its **source/catalog identity, fixture, action and l
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Online 100% movement                   | [Movement parity](movement-parity.md#scoped-verification)                                                            | Shared-kernel/server steps, browser prediction and checkpoint continuation.                             |
 | Slow-network gameplay                 | [Latency repair](#slow-network-gameplay-repair) | 500 ms RTT, delayed map assets, native walking/dialogue/travel and reconnect. |
+| Startup asset preload                 | [Startup cache](#startup-asset-preload) | Cold/warm startup, map entry, cache residency and walking at 500 ms RTT. |
 | Client-owned motion and knockback      | [Movement parity](movement-parity.md#client-owned-motion) · [Browser check](#client-owned-motion-browser-check)      | One native browser hold and the real server/predictor divert tests; not original Windows parity.        |
 | Airborne skill continuity and recoil   | [Skill cast repair](#skill-cast-stutter-repair) · [Movement contract](movement-parity.md#skill-snapshot-continuity) | Same-field snapshot continuity, immediate impulses and recovered foothold-tangent mob recoil. |
 | Consecutive Flash Jump artwork         | [Replay validation](#consecutive-flash-jump-artwork-14-september-2026) | Five admitted casts, including a rapid direction reversal, with zero rendered-origin offset. |
@@ -142,4 +143,41 @@ Reproduce the native scenario and focused transport checks with:
 ```sh
 bun server/tools/check-network-latency.js --output /tmp/openms-network-latency
 bun test client/test/online-latency.test.js client/test/online-transport.test.js client/test/sync-alignment.test.js
+```
+
+## Startup asset preload
+
+On **2026-09-15**, sequential before/after runs of the [startup scope](validation-method.md#slow-network-gameplay-check) passed in headless Chrome at 1280×800, with a disposable account in Henesys, **500 ms HTTP delay and 250 ms in each WebSocket direction**. Both reused the same extraction/catalog. The final run includes eviction-order protection for recently used cache entries.
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| Cold startup to usable login | 16.585 s | 53.847 s |
+| Login to character selection | 3.378 s | 3.034 s |
+| Enter to playable Henesys | 29.063 s | 2.659 s |
+| Generated-asset HTTP requests during entry | 83 | 0 |
+| Startup after a retained-cache reload | 2.456 s | 2.562 s |
+| Generated-asset HTTP requests after reload | 1 | 1 |
+
+Startup completed **395 unique files / 48,112,678 encoded bytes (45.9 MiB)** before any game connection existed. Reload reused those files; its one generated-asset request fetched the catalog. The original login render allocation remained **16 atlases / 89,535,960 decoded CPU and estimated GPU bytes** before and after: warming encoded files added no texture residency. The tradeoff is a longer first startup, which also prepares the default starter map, Lith Harbor and common controls before a character holds a server session. Other maps and uncommon appearances still load on demand.
+
+Native movement at this latency survived a **1.5-second traffic stall** without changing the connection epoch or overflowing prediction history. The final walking/stall stage took **7.779 s**, followed by a **2.378 s** reconnect. No browser errors occurred. This is one fixed network workload, not a guarantee for every map, device or loss pattern.
+
+The separate storage-disabled latency scope also passed on the final source: both **20-second map-manifest holds** preserved their connections, a forced initial disconnect resumed without `CHARACTER_BUSY`, native walking survived the traffic stall, and NPC travel charged its fare once and retained 1,900 mesos after reconnect. Dialogue used no additional prose HTTP requests, and no browser errors occurred. Without persistent caching, cold entry including the deliberate hold/interruption took **55.672 s**, dialogue/cold travel **66.261 s**, and the final reconnect **53.552 s**. These longer waits remain possible when the browser refuses storage; preloading cannot accelerate files it cannot retain.
+
+| Identity | Value |
+| --- | --- |
+| Browser before | `7805701860e8159e0902af257469d1d82fd3a3399cd1041b583cab9ab3acdd6d` |
+| Browser after | `90cd16410d8590a93fe10b87baac85c5491437423b6c22a6e7e72e3dd10d292a` |
+| Rules before | `3984c2a6725e3acaaed5f97125a31277737c6ac5bbcb0cd45766667b9d28e5d1` |
+| Rules after | `9a5d446f0e603f960300bc28b6b5c5efaa8416ffee2163550020861b7667567c` |
+| Asset build | `93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27` |
+| Catalog | `5bd1177cb1269b1d8f366451f4cf6c1603652dc76266d83146fa68f4a6d0e0ca` |
+
+Final fixture preparation measured **300 ms** for database/content, **110 ms** for seed, **1.185 s** for server startup, **555 ms** for frontend startup, **492 ms** for browser acquisition and **1.432 s** for browser identity verification. Browser-context teardown took **13 ms** and enclosing fixture teardown **180 ms**. These stages were recorded separately, without adding overlapping timings. There was no extraction. An initial passing preload run measured **2.584 s** entry; the table uses the later final run after the full-cache regression fix.
+
+Focused validation passed **32 tests / 131 assertions**, covering verified cold/warm loads, shared atlas/region deduplication, byte/file limits, corrupt resources, batch cancellation/failure, unavailable/quota-limited storage and eviction from a full cache. Changed-file Prettier/ESLint and the production guarded build (**938 modules**) passed. The documentation checker retained **884 existing missing historical targets**. Raw reports and logs stay outside the repository under the [artifact policy](validation-method.md#artifact-policy).
+
+```sh
+bun server/tools/check-network-latency.js --scope startup --output /tmp/openms-startup
+bun test client/test/online-startup-preload.test.js client/test/online-loading.test.js client/test/stream-network.test.js
 ```

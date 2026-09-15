@@ -62,7 +62,7 @@ export class Gate {
   }
 }
 
-/** Persistent FIFO cache has one serialized writer and a hard byte/entry ceiling. */
+/** Persistent cache has serialized eviction by recent use and a hard byte/entry ceiling. */
 export class Network {
   constructor(timeouts = NETWORK_TIMEOUTS, activity = null) {
     this.activity = activity;
@@ -126,11 +126,22 @@ export class Network {
       this.cacheBytes -= bytes;
     }
   }
-  async store(url, buffer) {
-    if (this.releaseControlled() || !this.cache || this.cacheEntries.has(url)) {
+  async store(url, buffer, cached = false) {
+    if (this.releaseControlled() || !this.cache) {
+      return;
+    }
+    // A verified hit must survive newer downloads during the same preload/session.
+    const previous = this.cacheEntries.get(url);
+    if (cached && previous !== undefined) {
+      this.cacheEntries.delete(url);
+      this.cacheEntries.set(url, previous);
       return;
     }
     try {
+      if (previous !== undefined) {
+        this.cacheEntries.delete(url);
+        this.cacheBytes -= previous;
+      }
       await this.evict(buffer.byteLength);
       if (this.releaseControlled()) return;
       await this.cache.put(
@@ -254,8 +265,10 @@ export class Network {
           await this.verify(buffer, info);
         }
         check(signal);
-        if (!cached && cacheable) {
-          this.writes = this.writes.then(() => this.store(url, buffer));
+        if (cacheable) {
+          this.writes = this.writes.then(() =>
+            this.store(url, buffer, Boolean(cached)),
+          );
           await this.writes;
         }
         check(signal);
