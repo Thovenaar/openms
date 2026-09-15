@@ -13,6 +13,7 @@ test("production removes development chrome while preserving game entry and diag
   const selectors = [
     "#console-access, #gm-console, #console-toggle, #inspection-controls, #audio-controls",
     "#viewport",
+    "#project-bar",
     'script[type="module"][src="/dist/online/main.js"]',
     "[hidden] #ui-status",
     "[hidden] #error",
@@ -27,6 +28,6 @@ test("production removes development chrome while preserving game entry and diag
     });
   }
   await reader.transform(new Response(html)).text();
-  expect([...counts.values()]).toEqual([0, 1, 1, 1, 1]);
+  expect([...counts.values()]).toEqual([0, 1, 1, 1, 1, 1]);
   expect(html).not.toContain("inspection-chrome");
 });

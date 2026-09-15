@@ -1,5 +1,6 @@
 /* Percentage heights use the root's zoom-adjusted viewport, unlike 100dvh. */
 html {
+  --project-bar-height: 24px;
   height: 100%;
 }
 /* Theme variables live on external chrome only, never the game viewport. */
@@ -11,6 +12,81 @@ body {
   flex-direction: column;
   background: #101820;
   overflow: hidden;
+}
+#project-bar {
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 var(--project-bar-height);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 20px;
+  padding: 0 14px;
+  border-bottom: 1px solid #ffffff12;
+  background: #0b1015;
+  color: #aeb8c2;
+  font:
+    11px/1 system-ui,
+    sans-serif;
+}
+#project-bar a,
+#project-bar button {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+#project-bar a:hover,
+#project-bar button:hover {
+  color: #fff;
+}
+#project-bar a:focus-visible,
+#project-bar button:focus-visible,
+#project-about button:focus-visible {
+  outline: 1px solid #aeb8c2;
+  outline-offset: 2px;
+}
+#project-about {
+  box-sizing: border-box;
+  width: min(360px, calc(100% - 32px));
+  padding: 22px;
+  border: 1px solid #ffffff24;
+  border-radius: 6px;
+  background: #101820;
+  color: #dce3e9;
+  font:
+    13px/1.55 system-ui,
+    sans-serif;
+}
+#project-about::backdrop {
+  background: #0009;
+}
+#project-about h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+#project-about p {
+  margin: 0;
+}
+#project-about form {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+#project-about button {
+  padding: 5px 14px;
+  border: 1px solid #ffffff24;
+  border-radius: 3px;
+  background: #1c2732;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 main {
   position: relative;
@@ -38,7 +114,7 @@ main {
 /* Browser startup admission precedes both the game and its shared storage. */
 #game-tab-gate {
   position: fixed;
-  inset: 0;
+  inset: var(--project-bar-height) 0 0;
   z-index: 2147483647;
   display: grid;
   place-items: center;

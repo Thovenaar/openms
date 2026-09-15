@@ -9,6 +9,43 @@
     <link rel="icon" href="/openms-icon.png" type="image/png" sizes="500x500" />
   </head>
   <body>
+    <nav id="project-bar" aria-label="Project links">
+      <a
+        href="https://x.com/tensorfish"
+        target="_blank"
+        rel="noopener noreferrer"
+        >X</a
+      >
+      <a
+        href="https://github.com/tensorfish/openms"
+        target="_blank"
+        rel="noopener noreferrer"
+        >Github</a
+      >
+      <a
+        href="https://docs.openms.dev"
+        target="_blank"
+        rel="noopener noreferrer"
+        >Docs</a
+      >
+      <a href="mailto:tensorfish@proton.me?subject=OpenMS%20bug%20report"
+        >Bug Report</a
+      >
+      <button id="project-about-open" type="button">About</button>
+    </nav>
+    <dialog
+      id="project-about"
+      aria-labelledby="project-about-title"
+      aria-describedby="project-about-summary"
+    >
+      <h2 id="project-about-title">About OpenMS</h2>
+      <p id="project-about-summary">
+        OpenMS is a fan-made MapleStory v83 browser game, still in development.
+        It is provided as-is, at your own risk, with no responsibility or
+        liability accepted for its use.
+      </p>
+      <form method="dialog"><button type="submit">Close</button></form>
+    </dialog>
     <main>
       <div
         id="console-access"
