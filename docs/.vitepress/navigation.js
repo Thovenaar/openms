@@ -78,6 +78,7 @@ export const sidebar = [
       ["Hitboxes", "/client/hitboxes"],
       ["Actions", "/client/avatar-actions"],
       ["Drops", "/client/drop-motion"],
+      ["Native lag handling", "/client/native-lag-handling"],
       ["Portals", "/client/ingame-portals"],
     ]),
     group("Interface", "window", [
