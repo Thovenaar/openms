@@ -14,6 +14,7 @@ Read a result together with its **source/catalog identity, fixture, action and l
 | Refresh without asset downloads       | [Catalog reuse](#catalog-reuse-on-refresh) | Fresh server hash, local catalog verification and zero retained-cache asset requests. |
 | Single startup download | [Startup pack](#single-startup-download) | One generated-file request, cold/warm timing and gameplay at 500 ms RTT. |
 | Immediate local feedback and lag tolerance | [Local feedback](#local-feedback-and-watchdog-lag-tolerance) | Pending chat, skill Use artwork/audio before delayed replies, echo suppression and Win95 loading indicator. |
+| Portal feedback and regional caching | [Portal and downloads check](#portal-feedback-and-regional-caching) | Pending-portal movement, local speech bubble, portal audio, map progress and pausable region downloads at 500 ms RTT. |
 | Client-owned motion and knockback      | [Movement parity](movement-parity.md#client-owned-motion) · [Browser check](#client-owned-motion-browser-check)      | One native browser hold and the real server/predictor divert tests; not original Windows parity.        |
 | Airborne skill continuity and recoil   | [Skill cast repair](#skill-cast-stutter-repair) · [Movement contract](movement-parity.md#skill-snapshot-continuity) | Same-field snapshot continuity, immediate impulses and recovered foothold-tangent mob recoil. |
 | Consecutive Flash Jump artwork         | [Replay validation](#consecutive-flash-jump-artwork-14-september-2026) | Five admitted casts, including a rapid direction reversal, with zero rendered-origin offset. |
@@ -31,6 +32,23 @@ Read a result together with its **source/catalog identity, fixture, action and l
 | Documentation                          | [Maintenance and checks](documentation-guide.md)                                                                     | Source links/routes, current constants, readable navigation and rendered diagrams.                     |
 
 Reports above retain the build they actually measured. A later source edit does not retroactively refresh their results.
+
+## Portal feedback and regional caching
+
+On **2026-09-15**, `bun server/tools/check-skill-effects.js --output /tmp/openms-region-downloads-complete` passed with **500 ms simulated RTT**, a held chat/skill reply, and an additional two-second hold on an uncached destination manifest. The native browser established:
+
+- The local speech bubble was visible while the outgoing chat row was still pending. The committed echo settled one row and did not replay local skill artwork/audio.
+- Held movement survived repeated Up taps. At a real portal, holding Right while the travel request was pending advanced X from **−64.325 to −54.920** before the transition began.
+- Travel from `001000000` to `000050000` played original `Sound.wz:Game.img/Portal`. The mushroom window showed “Loading Dangerous Forest…”, a visible progress bar/counter and the current map-layout resource; travel then committed.
+- Victoria Island queued automatically. Entering the starter field prioritized Maple Island, whose cache advanced to **26 / 286 discovered files**, with Victoria still queued. The **310×71** download button opened a **530×344** Windows 95 dialog within the **800×600** viewport; native Pause and close controls worked. Both the modal and mushroom captures were visually reviewed. No browser errors were recorded.
+
+Fixture timing: database/content **300 ms**, seed **91 ms**, backend startup **1,157 ms**, frontend startup **1,467 ms**, browser acquisition **477 ms**. Scenario stages: identity **1,405 ms**, login/readiness **15,319 ms**, chat **2,946 ms**, cast **3,311 ms**, download controls **941 ms**, movement/travel **14,312 ms**, context teardown **18 ms**, fixture teardown **150 ms**. These are instrumented stage durations, including deliberate latency/holds, not throughput or ordinary portal-duration claims. No extraction ran.
+
+The browser used source build `7bd71ee7239df5b750c040b7d9267a5b9a7fadf14df6e9715fa84e886959f41a`, rules `29a483ff939e12d7075e18d8cb9594e48f7babf5f1ad0864f9f364982ef46ee1`, catalog `5bd1177cb1269b1d8f366451f4cf6c1603652dc76266d83146fa68f4a6d0e0ca`, and asset build `93fd94109cabeafcaa948e48c86447e4f723d2cc9d3d73a70ca79a625cd3fa27`. Formatting afterward changed source identity only. The final production build compiled **952 modules** and published three outputs in **1.548 s**, including **954 ms** rebuilding the startup pack from retained assets: source build `382f3fa87b6fb408bdf314d38a5131accc963b33c43a8679299631be7f3c02e2`, rules `4d21b67c95d46137a4e493edb1c23381acbea44de4ae06ab34f2aa019ade8c95`, unchanged catalog/assets. The updated pack includes the speech skin: **398 members**, **83,802,352 unpacked bytes**, **32,184,378 compressed bytes**.
+
+The ten affected suites passed **84 tests / 497 assertions** in **804 ms**, covering regional membership, complete scenery/mob-art/sound dependency traversal, shared-file deduplication, foreground network reservations, quota/cache loss including the final batch, synchronous prepared speech, cache eviction, startup pack, portal/input behavior and network latency. Scoped formatting/lint passed. Documentation checking retains its existing **884 missing historical targets** with no missing headings.
+
+Local manifest-only planning measured Victoria's available closure at **268 maps / 6,498 files / 1,475,943,505 bytes** in **3.032 s**. This motivated the quota-aware 4 GiB cache ceiling; no image payloads were decoded or extraction rebuilt. The browser check proves partial background progress and controls, not a complete 1.4 GB transfer, every map's appearance or persistence across browser eviction. Plans stop explicitly when the region cannot fit with foreground headroom. Raw reports, logs and captures remain outside the repository under `/tmp/openms-…`.
 
 ## Iteration-loop investigation
 

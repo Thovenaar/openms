@@ -1,4 +1,5 @@
 import { LoadingDecoration } from "../delivery/loading-decoration.js";
+import { DownloadDetails, assetLabel } from "./download-details.js";
 
 /** A required startup resource failed; a manual reload is the only bounded recovery. */
 export const STARTUP_ASSET_FAILURE_MESSAGE =
@@ -26,18 +27,6 @@ export function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** Nonblocking background activity with the startup window's native desktop styling. */
-function createActivityIndicator() {
-  const indicator = document.createElement("div");
-  indicator.id = "asset-loading";
-  indicator.hidden = true;
-  indicator.setAttribute("role", "status");
-  indicator.setAttribute("aria-label", "Loading game files");
-  indicator.textContent = "Loading…";
-  indicator.title = "Loading game files";
-  return indicator;
 }
 
 /**
@@ -96,8 +85,10 @@ export class OnlineLoading {
     card.append(this.status, this.progress, this.count, this.hint);
     windowNode.append(titlebar, card);
     this.overlay.append(windowNode);
-    this.indicator = createActivityIndicator();
-    viewport.append(this.overlay, this.indicator);
+    this.downloads = new DownloadDetails(viewport, formatBytes);
+    this.downloads.onRefresh = () => this.refresh();
+    this.indicator = this.downloads.indicator;
+    viewport.append(this.overlay);
     signal.addEventListener("abort", () => this.destroy(), { once: true });
   }
 
@@ -115,6 +106,12 @@ export class OnlineLoading {
     if (this.destroyed) return;
     this.startup = false;
     this.live = null;
+    this.refresh();
+  }
+
+  setBackground(state) {
+    if (this.destroyed) return;
+    this.downloads.background(state);
     this.refresh();
   }
 
@@ -164,8 +161,8 @@ export class OnlineLoading {
   }
 
   /** Only an uncached download admitted during map preparation can cover the field. */
-  beginMap(descriptor) {
-    const owner = { downloading: false, urls: new Set([descriptor.url]) };
+  beginMap(descriptor, name = "map assets") {
+    const owner = { downloading: false, urls: new Set([descriptor.url]), name };
     this.maps.add(owner);
     // A field replaces the startup surface; its manifest bounds the destination.
     this.startup = false;
@@ -255,8 +252,14 @@ export class OnlineLoading {
     if (fullscreen) {
       this.overlay.dataset.state = this.startup ? "startup" : "map";
     }
-    this.indicator.hidden = fullscreen || this.owners.size === 0;
+    this.indicator.hidden =
+      fullscreen || (this.owners.size === 0 && !this.downloads?.visible);
     this.render();
+    this.downloads?.update({
+      active: this.owners.size > 0,
+      current: this.current,
+      count: this.count.textContent,
+    });
   }
 
   /** Byte frontier and file counters over the resources the pipeline declared. */
@@ -314,8 +317,11 @@ export class OnlineLoading {
   renderText(determinate, { planned, done, complete, files, streamed }) {
     const downloading =
       this.live || [...this.owners].some((owner) => owner.kind === "download");
-    if (!this.startup) this.status.textContent = "Loading map assets…";
-    else if (downloading) this.status.textContent = "Downloading game files…";
+    if (!this.startup) {
+      const map = this.maps.values().next().value;
+      this.status.textContent = `Loading ${map?.name ?? "map assets"}…`;
+      this.hint.textContent = assetLabel(this.current);
+    } else if (downloading) this.status.textContent = "Downloading game files…";
     else if (determinate && done >= planned && files > 0) {
       this.status.textContent = "Finishing up…";
     } else {
@@ -379,6 +385,7 @@ export class OnlineLoading {
     this.maps.clear();
     this.resetPlan();
     this.indicator.remove();
+    this.downloads?.destroy();
     this.overlay.remove();
   }
 }

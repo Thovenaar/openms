@@ -74,6 +74,11 @@ export class NativeTransitions {
       }
       active.parts = new Array(message.preparation.parts).fill(null);
       const boundary = this.fade.begin(generation);
+      if (message.portalSound) {
+        this.owner.audio
+          .playSound("Game", "Portal")
+          .catch((error) => this.owner.report(error));
+      }
       this.acceptPart(active, message);
       const preparation = await partsReady.promise;
       if (!preparation || this.active !== active) return;
@@ -111,7 +116,10 @@ export class NativeTransitions {
       ];
     if (!descriptor) throw new Error("Transition map descriptor is missing");
     const owner = changingMap
-      ? this.owner.hooks.loading.beginMap(descriptor)
+      ? this.owner.hooks.loading.beginMap(
+          descriptor,
+          this.owner.catalog.mapNames[Number(message.destination.mapId)],
+        )
       : null;
     try {
       return await this.loadScene(message, signal, preparation, owner);

@@ -19,16 +19,17 @@ export class Gate {
   constructor(limit) {
     this.limit = limit;
     this.active = 0;
+    this.backgroundActive = 0;
     this.queue = [];
     this.pumpBound = this.pump.bind(this);
   }
-  run(work, signal) {
+  run(work, signal, background = false) {
     check(signal);
     if (this.queue.length >= LIMITS.queue) {
       return Promise.reject(new Error("Streaming queue backpressure"));
     }
     return new Promise((resolve, reject) => {
-      const job = { work, signal, resolve, reject, cancel: null };
+      const job = { work, signal, background, resolve, reject, cancel: null };
       job.cancel = () => {
         const index = this.queue.indexOf(job);
         if (index >= 0) this.queue.splice(index, 1);
@@ -41,13 +42,19 @@ export class Gate {
   }
   pump() {
     while (this.active < this.limit && this.queue.length) {
-      const job = this.queue.shift();
+      let index = this.queue.findIndex((job) => !job.background);
+      if (index < 0) {
+        if (this.backgroundActive >= Math.max(1, this.limit - 2)) break;
+        index = 0;
+      }
+      const [job] = this.queue.splice(index, 1);
       job.signal.removeEventListener("abort", job.cancel);
       if (job.signal.aborted) {
         job.reject(aborted());
         continue;
       }
       this.active++;
+      if (job.background) this.backgroundActive++;
       this.execute(job);
     }
   }
@@ -58,6 +65,7 @@ export class Gate {
       job.reject(error);
     } finally {
       this.active--;
+      if (job.background) this.backgroundActive--;
       queueMicrotask(this.pumpBound);
     }
   }
@@ -86,30 +94,35 @@ export class Network extends ResourceCache {
       throw new Error(`Asset hash mismatch: ${info.url}`);
     }
   }
-  async fetchBytes(url, signal, maximum) {
+  async fetchBytes(url, signal, maximum, background = false) {
     const deadline = networkDeadline(signal, this.timeouts);
-    const activity = this.activity?.begin("download", url);
+    const activity = background ? null : this.activity?.begin("download", url);
     try {
-      return await this.download(url, deadline, maximum);
+      return await this.download(url, deadline, maximum, background);
     } finally {
       deadline.dispose();
-      this.activity?.end(activity);
+      if (activity) this.activity.end(activity);
     }
   }
   /** Encoded progress is advisory; the frontier owns every declared total. */
-  report(url, loaded) {
+  report(url, loaded, background = false) {
+    if (background) return;
     this.activity?.stream?.(url, loaded);
   }
-  async download(url, deadline, maximum) {
+  async download(url, deadline, maximum, background = false) {
     const signal = deadline.signal;
     signal.throwIfAborted();
     const response = await withinDeadline(
-      fetch(url, { signal, cache: "no-store" }),
+      fetch(url, {
+        signal,
+        cache: "no-store",
+        priority: background ? "low" : "high",
+      }),
       signal,
     );
     if (!response.ok) throw new Error(`${response.status} fetching ${url}`);
     deadline.progress();
-    this.report(url, 0);
+    this.report(url, 0, background);
     const reader = response.body.getReader();
     const chunks = [];
     let length = 0;
@@ -123,7 +136,7 @@ export class Network extends ResourceCache {
           throw new Error("Network resource limit exceeded");
         }
         chunks.push(part.value);
-        this.report(url, length);
+        this.report(url, length, background);
       }
     } catch (error) {
       // Do not let a broken stream's cancellation hold a fetch gate forever.
@@ -141,51 +154,59 @@ export class Network extends ResourceCache {
     this.downloadBytes += length;
     return result.buffer;
   }
-  async load(info, signal) {
+  async load(info, signal, background = false) {
     resource(info);
-    return this.gate.run(async () => {
-      await this.ready;
-      check(signal);
-      const url = new URL(info.url, location.origin).href;
-      const cacheable = info.url.startsWith("/generated/");
-      // One token per admitted resource: cached and downloaded work both settle it.
-      const activity = this.activity?.begin("resource", url, info.bytes);
-      try {
-        const cached =
-          cacheable && !this.releaseControlled() && this.cache
-            ? await this.cache.match(url)
-            : null;
-        let buffer;
-        if (cached) {
-          try {
-            buffer = await cached.arrayBuffer();
+    return this.gate.run(
+      async () => {
+        await this.ready;
+        check(signal);
+        const url = new URL(info.url, location.origin).href;
+        const cacheable = info.url.startsWith("/generated/");
+        // One token per admitted resource: cached and downloaded work both settle it.
+        const activity = background
+          ? null
+          : this.activity?.begin("resource", url, info.bytes);
+        try {
+          const cached =
+            cacheable && !this.releaseControlled() && this.cache
+              ? await this.cache.match(url)
+              : null;
+          let buffer;
+          if (cached) {
+            try {
+              buffer = await cached.arrayBuffer();
+              await this.verify(buffer, info);
+            } catch (error) {
+              this.writes = this.writes.then(() => this.invalidate(url));
+              await this.writes;
+              throw error;
+            }
+            this.hits++;
+          } else {
+            buffer = await this.fetchBytes(url, signal, info.bytes, background);
             await this.verify(buffer, info);
-          } catch (error) {
-            this.writes = this.writes.then(() => this.invalidate(url));
-            await this.writes;
-            throw error;
           }
-          this.hits++;
-        } else {
-          buffer = await this.fetchBytes(url, signal, info.bytes);
-          await this.verify(buffer, info);
+          check(signal);
+          if (cacheable) {
+            this.writes = this.writes.then(() =>
+              this.store(url, buffer, Boolean(cached)),
+            );
+            await this.writes;
+          }
+          check(signal);
+          return buffer;
+        } finally {
+          if (activity) this.activity.end(activity);
         }
-        check(signal);
-        if (cacheable) {
-          this.writes = this.writes.then(() =>
-            this.store(url, buffer, Boolean(cached)),
-          );
-          await this.writes;
-        }
-        check(signal);
-        return buffer;
-      } finally {
-        this.activity?.end(activity);
-      }
-    }, signal);
+      },
+      signal,
+      background,
+    );
   }
-  async json(info, signal) {
-    return JSON.parse(new TextDecoder().decode(await this.load(info, signal)));
+  async json(info, signal, background = false) {
+    return JSON.parse(
+      new TextDecoder().decode(await this.load(info, signal, background)),
+    );
   }
   async catalog(signal, expectedHash) {
     return loadCatalog(this, expectedHash, signal);

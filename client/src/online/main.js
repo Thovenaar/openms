@@ -34,6 +34,7 @@ import { NativeOperationRefusal } from "./native-source.js";
 import { portalEntryContains } from "../world/portal-presentation.js";
 import { applyWorldContent } from "../../../shared/world-content.js";
 import { CommunityMaps } from "./community-maps.js";
+import { RegionDownloads } from "./region-downloads.js";
 
 const app = new Application();
 const controller = new AbortController();
@@ -52,6 +53,7 @@ const neutral = Object.freeze({
 });
 let catalog = null;
 let startupPreload = null;
+let regionDownloads = null;
 let communityMaps = null;
 let current = null;
 let ui = null;
@@ -121,7 +123,6 @@ function report(error) {
 
 function recordCommand(value) {
   inspection?.record("command", value);
-  if (transport.pendingTravel) clearInput();
 }
 
 function sendInput(sample) {
@@ -143,12 +144,15 @@ function isFieldBlocked() {
     destroyed ||
     (installing && !refreshing) ||
     transport.status !== "active" ||
-    transport.pendingTravel > 0 ||
     Boolean(ui?.transitions.blocksInput)
   );
 }
 function isBlocked() {
-  return isFieldBlocked() || Boolean(ui?.ui.blocksGameplay());
+  return (
+    isFieldBlocked() ||
+    Boolean(ui?.ui.blocksGameplay()) ||
+    loading.downloads.dialog.open
+  );
 }
 
 function status(value) {
@@ -268,6 +272,7 @@ async function install(snapshot, signal = controller.signal) {
     }
     resize();
     app.canvas.focus();
+    regionDownloads?.select(snapshot.field.mapId);
   } finally {
     if (token === generation) {
       installing = false;
@@ -295,7 +300,12 @@ async function prepareScene(snapshot, signal) {
   const changingMap =
     current?.scene.manifest.id !==
     String(snapshot.field.mapId).padStart(9, "0");
-  const owner = changingMap ? loading.beginMap(descriptor) : null;
+  const owner = changingMap
+    ? loading.beginMap(
+        descriptor,
+        catalog.mapNames[Number(snapshot.field.mapId)],
+      )
+    : null;
   try {
     return await loadScene(snapshot, descriptor, owner, signal);
   } finally {
@@ -358,19 +368,15 @@ async function publishNative(snapshot) {
 
 /** Native portal intent uses the original contact rectangle; the server admits the transition. */
 function portal() {
-  if (!current || isBlocked()) return;
-  const self = transport.model?.self.entity;
-  if (
-    !self ||
-    self.foothold === null ||
-    prediction.simulation?.movementLocked
-  ) {
+  if (!current || isBlocked() || transport.pendingTravel) return;
+  const self = prediction.simulation;
+  if (!self?.foothold || self.movementLocked) {
     return;
   }
   if (ui.skillVisuals.enterDoor()) return;
   const selected = entryPortal(
     current.scene.manifest.physics.portals ?? [],
-    self.position,
+    self,
   );
   if (selected) intent({ kind: "portal.enter", portalId: Number(selected.id) });
 }
@@ -489,6 +495,7 @@ function entityIds() {
 
 function snapshotSession() {
   return {
+    regionDownloads: regionDownloads?.snapshot() ?? null,
     paused: transport.model?.presentation?.paused ?? prediction.paused,
     input: input ? { ...input.state } : null,
   };
@@ -551,6 +558,9 @@ async function loadCatalog() {
 
 function initializeInterfaces() {
   input = createPlayerInput(app.canvas);
+  loading.downloads.onOpen = clearInput;
+  loading.downloads.onClose = () => app.canvas.focus();
+  loading.downloads.onToggle = () => regionDownloads?.toggle();
   ui = new OnlineUI(app, services, transport, {
     scene: () => current,
     loading,
@@ -643,6 +653,13 @@ async function prepareLoginPage() {
   await ui.prepare(catalog, controller.signal);
   startPresentation();
   await login.prepare(catalog, controller.signal);
+  regionDownloads = new RegionDownloads(
+    catalog,
+    network,
+    loading,
+    controller.signal,
+  );
+  void regionDownloads.start();
 }
 
 async function initialize() {

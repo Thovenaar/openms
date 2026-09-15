@@ -65,6 +65,7 @@ export const WORLD_CLIENT_MESSAGES = {
 /** Root supplies its current complete entity union, keeping domain schemas acyclic. */
 export function worldTransitionFields(entitySchema, maxEntities) {
   return {
+    portalSound: optional(boolean),
     preparation: optional(
       record(
         {

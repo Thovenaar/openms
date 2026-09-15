@@ -66,6 +66,7 @@ export function planStartupAssets(plan, catalog) {
   plan.add(catalog.ui.avatar.projectiles, "bundle");
   plan.add(catalog.ui.npcWorld?.markers, "bundle");
   plan.add(catalog.ui.npcWorld?.speech?.bundle, "bundle");
+  plan.add(catalog.ui.speechBubbles?.bundle, "bundle");
   planCommonAudio(plan, catalog.audiovisual);
   planStarterAvatars(plan, catalog.ui);
   for (const id of new Set([catalog.defaultMap, "100000000", "104000000"])) {

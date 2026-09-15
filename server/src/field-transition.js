@@ -408,7 +408,8 @@ function publishTransition(world, actor, transition) {
       },
     });
   }
-  if (request.sound) {
+  // Cross-map audio accompanies prepare; a destination event can precede its baseline.
+  if (request.sound && !request.packet) {
     world.publish(actor, {
       type: "event",
       fieldEpoch: target.epoch,

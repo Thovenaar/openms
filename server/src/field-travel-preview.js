@@ -57,6 +57,7 @@ export function publishTravelPreview(world, actor, transition) {
       type: "transition",
       transitionId: transition.transitionId,
       phase: "prepare",
+      portalSound: Boolean(transition.request.sound),
       sourceEpoch: transition.source.epoch,
       destination: transition.reference,
       requiredContent: [

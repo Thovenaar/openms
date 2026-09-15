@@ -10,10 +10,10 @@ import { ResourceCache } from "../src/rendering/resource-cache.js";
 
 const MiB = 1024 * 1024;
 
-test("disk budget targets 1 GiB, leaves quota headroom and protects other origin data", () => {
+test("disk budget targets 4 GiB, leaves quota headroom and protects other origin data", () => {
   expect(
     cacheBudget({ quota: 10 * 1024 * MiB, usage: 300 * MiB }, 200 * MiB),
-  ).toBe(1024 * MiB);
+  ).toBe(4096 * MiB);
   expect(cacheBudget({ quota: 500 * MiB, usage: 250 * MiB }, 100 * MiB)).toBe(
     250 * MiB,
   );
@@ -168,7 +168,7 @@ test("an oversized file skips cache storage without evicting useful cached asset
   expect(operations).toHaveLength(0);
 });
 
-test("the disk cache retains more than 192 MiB and evicts at its new 1 GiB ceiling", async () => {
+test("the disk cache retains regional assets and evicts at its 4 GiB ceiling", async () => {
   const { owner, operations } = cacheFixture();
   owner.cacheByteLimit = LIMITS.cacheBytes;
   // Logical stored sizes exercise admission without allocating a gigabyte in the test runner.
@@ -176,9 +176,9 @@ test("the disk cache retains more than 192 MiB and evicts at its new 1 GiB ceili
   await owner.store("new", new ArrayBuffer(1));
   expect(owner.cacheBytes).toBe(256 * MiB + 1);
   expect(operations).toEqual([["put", "new"]]);
-  for (let id = 8; id < 32; id++) owner.remember(String(id), 32 * MiB);
+  for (let id = 8; id < 128; id++) owner.remember(String(id), 32 * MiB);
   await owner.store("last", new ArrayBuffer(1));
-  expect(owner.cacheBytes).toBe(992 * MiB + 2);
+  expect(owner.cacheBytes).toBe(4064 * MiB + 2);
   expect(owner.cacheEntries.has("0")).toBe(false);
 });
 

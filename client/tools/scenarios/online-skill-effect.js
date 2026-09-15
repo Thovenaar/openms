@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { localChat, localCast } from "./local-feedback.js";
+import { downloadDetails, portalTravel } from "./online-downloads.js";
 import { assertion, failureDetails, measureStage } from "../native-evidence.js";
 import { onlineIdentity } from "./online-lifecycle.js";
 import { participant, ready } from "./online-ui-repairs.js";
@@ -20,7 +21,7 @@ export async function runSkillEffect({ browser, url, output, network }) {
     pages = [];
   try {
     report.identity = await measureStage(report.timings, "identity", () =>
-      onlineIdentity(url),
+      onlineIdentity(url, ["000050000"]),
     );
     const page = await participant(browser, contexts, pages, report);
     await measureStage(report.timings, "login", () =>
@@ -31,6 +32,12 @@ export async function runSkillEffect({ browser, url, output, network }) {
     );
     await measureStage(report.timings, "cast", () =>
       localCast(page, network, output, report),
+    );
+    await measureStage(report.timings, "downloads", () =>
+      downloadDetails(page, output, report),
+    );
+    await measureStage(report.timings, "portal", () =>
+      portalTravel(page, output, report, report.identity.maps["000050000"]),
     );
     await ready(page);
     assertion(report.errors.length === 0, "Browser errors", report.errors);

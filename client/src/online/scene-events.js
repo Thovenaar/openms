@@ -31,6 +31,7 @@ export class SceneEvents {
       "Enchant/Success",
       "Enchant/Failure",
     ]);
+    await this.prepareSpeech(this.owner.selfId);
   }
 
   async event(message) {
@@ -173,7 +174,10 @@ export class SceneEvents {
     }
     this.seenChat.add(key);
     this.speechMessages.set(event.senderId, event.messageId);
-    const speech = await this.prepareSpeech(event.senderId);
+    const prepared = this.speech.get(event.senderId);
+    const speech = prepared?.resource
+      ? prepared
+      : await this.prepareSpeech(event.senderId);
     if (this.speechMessages.get(event.senderId) === event.messageId) {
       speech.show(event.text, event.senderName);
     }
@@ -202,8 +206,11 @@ export class SceneEvents {
   rejectChat(senderId, messageId) {
     if (this.speechMessages.get(senderId) !== messageId) return;
     this.speechMessages.delete(senderId);
-    this.speech.get(senderId)?.destroy();
-    this.speech.delete(senderId);
+    const speech = this.speech.get(senderId);
+    if (speech) {
+      speech.root.visible = false;
+      speech.remainingMs = -1;
+    }
   }
 
   draw(elapsed) {

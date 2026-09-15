@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { NativeSocialChat } from "../src/online/native-social-chat.js";
 import { LocalSkillFeedback } from "../src/online/local-skill-feedback.js";
+import { SceneEvents } from "../src/online/scene-events.js";
 
 function chatFixture() {
   const records = [],
@@ -76,6 +77,41 @@ test("a rejected local chat is marked unsent and clears only its own bubble", as
   await f.response.promise;
   expect(f.records[0].delivery).toBe("failed");
   expect(f.cleared).toEqual([["self", "operation"]]);
+});
+
+test("prepared local speech displays synchronously and keeps its skin after refusal", async () => {
+  const shown = [];
+  const speech = {
+    resource: {},
+    root: { visible: true },
+    remainingMs: 5000,
+    show: (...args) => shown.push(args),
+  };
+  const events = Object.assign(Object.create(SceneEvents.prototype), {
+    owner: { views: new Map([["self", { entity: { appearance: {} } }]]) },
+    speech: new Map([["self", speech]]),
+    seenChat: new Set(),
+    speechMessages: new Map(),
+  });
+  const event = {
+    senderId: "self",
+    senderName: "Player",
+    messageId: "one",
+    text: "Hello",
+  };
+  const pending = events.chat(event);
+  expect(shown).toEqual([["Hello", "Player"]]);
+  await pending;
+  await events.chat(event);
+  expect(shown).toHaveLength(1);
+  events.rejectChat("self", "old");
+  expect(speech.remainingMs).toBe(5000);
+  events.rejectChat("self", "one");
+  expect(speech.root.visible).toBe(false);
+  expect(events.speech.get("self")).toBe(speech);
+  const second = events.chat({ ...event, messageId: "two" });
+  expect(shown).toHaveLength(2);
+  await second;
 });
 
 function skillFixture() {

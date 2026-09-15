@@ -589,12 +589,10 @@ function unavailableMinimap(owner, panel, entry, id) {
   releaseMap(panel);
   panel.mapId = id;
   panel.mapNames = entry ?? null;
-  const reason = entry?.reason || "Map not in packaged UI index";
-  panel.mapStatus.textContent = reason;
+  panel.mapStatus.textContent = "";
   rebuildMinimap(panel);
   owner.positionWindow(panel, panel.x, panel.y);
   panel.renderArtwork();
-  owner.status(reason);
 }
 
 function releaseMap(panel) {

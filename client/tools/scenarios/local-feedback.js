@@ -17,6 +17,20 @@ export async function localChat(page, network, report) {
     ".maple-ui-chat-log",
     (node) => node.textContent,
   );
+  await page.waitForFunction(() => window.maple.snapshot().speech?.visible, {
+    timeout: 700,
+  });
+  report.chatBeforeReply = await page.evaluate(() => ({
+    bubble: window.maple.snapshot().speech,
+    pending: Boolean(
+      document.querySelector('.maple-ui-chat-log [data-delivery="pending"]'),
+    ),
+  }));
+  assertion(
+    report.chatBeforeReply.pending,
+    "Speech waited for server delivery",
+    report.chatBeforeReply,
+  );
   await page.waitForFunction(
     () =>
       !document.querySelector('.maple-ui-chat-log [data-delivery="pending"]'),
@@ -108,12 +122,12 @@ async function indicator(page, output, filename) {
     };
   });
   assertion(
-    measured.width >= 140 &&
-      measured.height >= 48 &&
+    measured.width >= 300 &&
+      measured.height >= 60 &&
       measured.right <= measured.viewportWidth &&
       measured.bottom <= measured.viewportHeight - 80 &&
-      measured.pointerEvents === "none",
-    "Loading indicator obscures input or lies outside the usable viewport",
+      measured.pointerEvents === "auto",
+    "Download details button lies outside the usable viewport",
     measured,
   );
   await page.screenshot({ path: join(output, filename) });

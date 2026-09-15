@@ -311,7 +311,7 @@ export class AudiovisualSystem {
   }
   async prepareEventSounds(signal) {
     if (!this.index) return;
-    for (const name of ["LevelUp", "QuestClear"]) {
+    for (const name of ["LevelUp", "QuestClear", "Portal", "Portal2"]) {
       const descriptor = this.index.sounds.Game[name];
       if (!descriptor) throw new Error(`Unpackaged original Game/${name}`);
       await this.audio.prepareSound(descriptor, signal);

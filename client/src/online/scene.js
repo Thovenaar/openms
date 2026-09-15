@@ -619,6 +619,7 @@ export class OnlineScene {
       npcPresentation: this.native?.snapshotNpcs() ?? [],
       combat: this.events.combat.snapshot(),
       enhancements: this.events.enchant.snapshot(),
+      speech: this.events.speech.get(this.selfId)?.snapshot() ?? null,
     };
   }
   effectTarget(actorId) {
