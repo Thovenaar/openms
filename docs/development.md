@@ -120,14 +120,16 @@ Stop/start the database explicitly with `podman compose -f infra/compose.yaml st
 
 ### Production
 
-Apply database updates with `bun run migrate --database-url URL`, then build and start from the repository root:
+Apply database updates with `bun run migrate --database-url URL`, then start these commands in separate terminals from the repository root:
 
 ```sh
-bun run client:prod:build
 bun run server:prod
+bun run client:prod
 ```
 
-The client build writes **`client/dist/online/site/`**, with no development sidebar or toggle. Login, gameplay, native windows and audio remain available; `client:dev` retains the sidebar. The existing `client:build` command produces the same production output. Publish the entire `site/` directory, mount the existing `client/public/generated/` tree at `/generated/`, and follow `site/deployment.json` for resource hashes and API/worker routing.
+`client:prod` builds **`client/dist/online/site/`** without the development sidebar or toggle, then keeps serving it. Login, gameplay, native windows and audio remain available; `client:dev` retains the sidebar. The listener uses `.env.client` settings `ONLINE_HOST` and `ONLINE_PORT` (default `http://127.0.0.1:3102`) and proxies `/api/`, including WebSocket connections, to `OPENMS_SERVER_URL`. Generated assets are served automatically from `client/public/generated/`. Stop it with Ctrl+C; restart to rebuild changed sources.
+
+For public hosting, terminate HTTPS at a reverse proxy in front of the client listener and preserve the **public Host**, Origin, cookies and WebSocket upgrades. The backend validates its configured public HTTPS origin. To build files without starting a listener, run `bun client/tools/build-online.js`; publish the entire `site/` directory, mount `client/public/generated/` at `/generated/`, and follow `site/deployment.json` for API/worker routing.
 
 `server:prod` forces production mode, including when `OPENMS_MODE=development` is inherited. Configure `DATABASE_URL`, the exact HTTPS `OPENMS_ORIGIN`, and the reviewed `OPENMS_RULES_HASH` before starting. Set `OPENMS_STUDIO_ORIGIN` to Studio's exact HTTPS origin, or an empty value to disable Studio access; the checked-in HTTP development origin is unsuitable. This command checks migrations and starts the server without creating or resetting development accounts.
 

@@ -121,7 +121,7 @@ The integrated cold-ready measurement was25.441 s under page-target150-ms/187,50
 
 ## Verification and remaining authority boundaries
 
-The retained reports record the exact retired extraction, formatting, test, browser-validator and documentation-build invocations. Those offline entry points are no longer runnable. Current checks use `bun run client:build`, focused online scenarios and the [online validation procedure](validation-method.md).
+The retained reports record the exact retired extraction, formatting, test, browser-validator and documentation-build invocations. Those offline entry points are no longer runnable. Current checks use `bun client/tools/build-online.js`, focused online scenarios and the [online validation procedure](validation-method.md).
 
 The isolated acceptance server used3101 and did not replace the user's3100 server. Throwaway corruption/publication/capacity probes were used for boundary proof rather than left as production features. The two final retained regressions specifically defend failed icon retention and contact-versus-authored audio provenance; the latter's first fixture mistake was corrected before observing the actual pre-fix wrong sound.
 

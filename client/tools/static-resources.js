@@ -20,8 +20,14 @@ const HASH_RESOURCE =
 
 /** Resolve the online shell, compiled bundles and immutable generated resources. */
 function resourcePath(path, options) {
-  const { root } = options;
+  const { root, siteRoot } = options;
   if (path === "/") path = "/index.html";
+  if (
+    siteRoot &&
+    (path === "/generated/catalog.json" || !path.startsWith("/generated/"))
+  ) {
+    return siteResourcePath(path, siteRoot);
+  }
   const shell = SHELL.get(path);
   const dist = "/dist/online/";
   let directory, relative;
@@ -41,6 +47,21 @@ function resourcePath(path, options) {
   const filename = resolve(directory, relative);
   if (!filename.startsWith(directory + sep)) return null;
   return { filename, directory, immutable: HASH_RESOURCE.test(path) };
+}
+
+/** Published shell and worker aliases stay pinned to the production output directory. */
+function siteResourcePath(path, siteRoot) {
+  const shell =
+    SHELL.has(path) ||
+    path === "/deployment.json" ||
+    path === "/generated/catalog.json";
+  const worker = WORKERS.has(path);
+  if (!shell && !worker && !path.startsWith("/dist/online/")) return null;
+  const directory = resolve(siteRoot);
+  const relative = worker ? path.replace("/dist/", "/dist/online/") : path;
+  const filename = resolve(directory, `.${relative}`);
+  if (!filename.startsWith(directory + sep)) return null;
+  return { filename, directory, immutable: false };
 }
 
 function acceptsGzip(header) {

@@ -30,7 +30,7 @@ function configuration(options) {
       clientEnvironment.OPENMS_SERVER_URL ??
       "http://127.0.0.1:3200",
   );
-  return { hostname, port, upstream };
+  return { hostname, port, upstream, production: options.production === true };
 }
 
 function upstreamOrigin(value) {
@@ -48,8 +48,8 @@ function upstreamOrigin(value) {
   return upstream.origin;
 }
 
-/** Development proxy changes transport routing only; the upstream remains sole authority. */
-class OnlineProxy {
+/** Same-origin relay changes transport routing only; the upstream remains sole authority. */
+export class OnlineProxy {
   constructor(config, resources, log) {
     this.resources = resources;
     this.config = config;
@@ -117,7 +117,7 @@ class OnlineProxy {
       });
       console.error(
         logPrefix("client"),
-        "Online development request failed:",
+        "Online client request failed:",
         error.message,
       );
       return Response.json(
@@ -135,7 +135,7 @@ class OnlineProxy {
     const requestUrl = new URL(request.url);
     if (
       requestUrl.protocol !== "http:" ||
-      origin !== requestUrl.origin ||
+      !this.acceptsOrigin(origin, requestUrl) ||
       requestUrl.search ||
       request.headers.get("sec-websocket-protocol") !== PROTOCOL.SUBPROTOCOL
     ) {
@@ -177,6 +177,14 @@ class OnlineProxy {
     }
     this.stop(relay);
     return new Response("Upgrade refused", { status: 400 });
+  }
+
+  /** TLS termination must preserve the public Host; backend admission still checks Origin. */
+  acceptsOrigin(origin, requestUrl) {
+    return (
+      origin === requestUrl.origin ||
+      (this.config.production && origin === `https://${requestUrl.host}`)
+    );
   }
 
   open(socket) {
@@ -243,10 +251,10 @@ export async function startOnlineDevServer(options = {}) {
   const config = configuration(options);
   const started = performance.now();
   const log = options.log ?? createDevelopmentLog("client");
-  log("development.start", config);
+  log(config.production ? "production.start" : "development.start", config);
   const identity = await logStage(log, "browser.build", () =>
     buildOnlineBrowser({
-      development: !options.production,
+      development: !config.production,
       progress:
         options.progress ??
         ((message) => console.log(logPrefix("client"), message)),
@@ -255,6 +263,7 @@ export async function startOnlineDevServer(options = {}) {
   const resources = createStaticResources({
     root: ROOT,
     html: identity.html,
+    siteRoot: identity.deployment?.directory,
   });
   log("browser.identity", {
     source: identity.sourceBuildId,
@@ -272,7 +281,7 @@ export async function startOnlineDevServer(options = {}) {
   });
   console.log(
     logPrefix("client"),
-    `openms.dev online client ready at ${server.url} (${(performance.now() - started).toFixed(1)}ms); API ${config.upstream}`,
+    `openms.dev online client ready at ${server.url} (${(performance.now() - started).toFixed(1)}ms); ${config.production ? "production, no sidebar" : "development"}; API ${config.upstream}`,
   );
   return {
     server,

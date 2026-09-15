@@ -79,6 +79,10 @@ These accounts are created by `server:dev` for local development. Click empty ma
 
 **Next launch:** start the Podman machine if needed, start the database with the Compose command above, then run the server and client in separate terminals. After game-code changes, restart both processes and reload the browser. See [troubleshooting](docs/development.md#troubleshooting) if startup or login fails.
 
+### Production
+
+Run `bun run server:prod` and `bun run client:prod` in separate terminals. The client command builds without the development sidebar and keeps serving the files at `http://127.0.0.1:3102` by default. Configure the production database, rules hash and public HTTPS routing first; follow the [production setup](docs/development.md#production). Production server startup does not create or reset admin accounts.
+
 ### Optional: open Studio
 
 Keep the database and server running. In another terminal:

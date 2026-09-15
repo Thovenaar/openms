@@ -42,10 +42,12 @@ When extraction performance is explicitly in scope, retain preflight, input scan
 The browser build consumes the existing catalog:
 
 ```sh
-bun run client:build
+bun client/tools/build-online.js
 ```
 
 It verifies catalog and server-rule identities, compiles the guarded entry at `client/src/browser/online/main.js`, and writes bundles under `client/dist/online/`. The build does not perform extraction or publish an offline release.
+
+`bun run client:prod` builds and serves the resulting `client/dist/online/site/` without the development sidebar, alongside the generated asset mount and API proxy. Serving uses the published site files, so a separate development build does not replace the running production bundle.
 
 During development, `bun run client:dev` serves the checked-in online `index.html`, styles, compiled bundles and `/generated/` resources. It proxies same-origin `/api/` HTTP and WebSocket requests to the authoritative server. Static immutable resources receive long-lived caching headers; the shell and catalog are revalidated.
 

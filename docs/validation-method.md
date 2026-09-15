@@ -53,10 +53,12 @@ Open `http://127.0.0.1:3102`. The client development server builds the online en
 For a production bundle:
 
 ```sh
-bun run client:prod:build
+bun client/tools/build-online.js
 ```
 
 The build verifies the current catalog/rules identities, compiles the guarded browser graph and writes the deployable shell, bundles and deployment metadata to `client/dist/online/site/`. Its HTML excludes the development sidebar and its startup skips inspection controls; `client:dev` retains both. It does not regenerate assets.
+
+`bun run client:prod` performs the same build and then serves the production site, generated assets and API proxy using `.env.client` listener settings.
 
 ## Online browser scenarios
 
