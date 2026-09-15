@@ -1,10 +1,12 @@
 # Build with `bun client/tools/build-online.js`; run `bun run server:prod`.
 # Set OPENMS_ORIGIN=https://openms.dev in .env.server. No client listener is needed.
-# Adjust the domain and both /srv/openms roots; Caddy must be able to read them.
+# Debian checkout: Caddy needs traversal through parent directories and read access
+# to both public trees. The build puts only catalog.json in site/generated/;
+# the remaining generated assets stay in client/public/generated/.
 # Regenerate any precompressed sidecars whenever the original files change.
 # Compatible with Caddy 2.6; avoid newer header response-status matchers.
 openms.dev {
-	root * /srv/openms/client/dist/online/site
+	root * /home/debian/openms/client/dist/online/site
 
 	log
 	encode zstd gzip
@@ -30,7 +32,7 @@ openms.dev {
 
 		# Strip /generated/ before resolving the asset filename.
 		handle_path /generated/* {
-			root * /srv/openms/client/public/generated
+			root * /home/debian/openms/client/public/generated
 
 			# Content-hashed assets are immutable; errors override this below.
 			@immutable path_regexp immutable ^/([a-z][a-z0-9-]*/)+[a-f0-9]{64}[.](png|json|mp3|wav|bin)$
