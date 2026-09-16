@@ -140,7 +140,7 @@ export function createCharacterStats() {
     projectilePAD: 0,
     padWithoutProjectile: 0,
     mastery: 0,
-    criticalChance: 5,
+    criticalChance: 0,
     criticalDamage: 0,
     hands: 0,
     invincible: 0,
@@ -279,16 +279,13 @@ function projectShieldMastery(profile, hooks, output) {
 
 /** Adapt authored total critical percent to a modern bonus over the base 20..50% roll. */
 function projectCritical(hooks, output, temporary) {
-  output.criticalChance = 5;
+  output.criticalChance = 0;
   output.criticalDamage = 0;
   for (const [id, minimum, maximum] of CRITICAL_PASSIVES) {
     if (output.weaponType < minimum || output.weaponType > maximum) continue;
     const info = learnedInfo(hooks, id);
     if (!info) continue;
-    output.criticalChance = Math.max(
-      output.criticalChance,
-      5 + Number(info.prop),
-    );
+    output.criticalChance = Math.max(output.criticalChance, Number(info.prop));
     output.criticalDamage = Math.max(output.criticalDamage, info.damage - 100);
   }
   const sharpEyes = temporary?.sharpEyes ?? 0;

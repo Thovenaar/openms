@@ -93,7 +93,12 @@ function motionMessage(publications) {
  *  On the server the commit drains asynchronously, so it is merged between field ticks. */
 function mobKnockback(actor, direction) {
   actor.skillField.receiveHitImpulse(
-    { amount: 30, direction, locallyInitiated: false },
+    {
+      amount: 30,
+      direction,
+      locallyInitiated: false,
+      source: { id: "hit-source" },
+    },
     { kind: "ordinary", direction, roll: 0 },
   );
 }
@@ -192,6 +197,7 @@ test("a midair mob knockback is published as a divert the client merges, not ado
     const divert = divertMessage.diverts[0];
     expect(divert.tick).toBe(divertTick);
     expect(divert.source).toBe("hit");
+    expect(divert.sourceId).toBe("hit-source");
     expect(divert.vx).toBe(270);
     expect(divert.vy).toBe(-270);
     expect(divert.skillId).toBe(0);

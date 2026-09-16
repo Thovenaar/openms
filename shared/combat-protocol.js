@@ -162,6 +162,7 @@ export const COMBAT_ENTITY_FIELDS = {
 };
 export const COMBAT_EVENT_SCHEMAS = {
   "combat.impact": record({
+    knockback: optional(boolean),
     kind: enumeration("combat.impact"),
     actorId: id,
     targetId: id,

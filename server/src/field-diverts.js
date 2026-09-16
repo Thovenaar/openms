@@ -20,6 +20,7 @@ export function recordMotionDivert(actor, simulation, divert) {
     source: divert.source,
     skillId: Number.isSafeInteger(divert.skillId) ? divert.skillId : 0,
     tick: actor.field.tick,
+    ...(divert.sourceId ? { sourceId: divert.sourceId } : {}),
   });
 }
 
@@ -50,6 +51,7 @@ export function takeMotionDiverts(actor, field) {
       vy: entry.vy,
       source: entry.source,
       skillId: entry.skillId,
+      ...(entry.sourceId ? { sourceId: entry.sourceId } : {}),
     });
   }
   pending.entries.length = keep;

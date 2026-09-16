@@ -848,9 +848,7 @@ export class OnlineScene {
     // whether movement is being accepted; a portal or resync pause must not replace the
     // player with the remote interpolator and move it to an older server position.
     this.drawPrediction = prediction?.ready ? prediction : null;
-    for (const view of this.views.values()) {
-      this.drawView(view, now, elapsed, active);
-    }
+    this.drawActors(now, elapsed, active);
     this.drawNpcs(elapsed, active);
     this.updateCamera(now);
     this.native?.update(elapsed);
@@ -860,9 +858,20 @@ export class OnlineScene {
     if (this.geometry.visible) this.showGeometry(true);
     this.drawScenery(elapsed, active);
   }
+  drawActors(now, elapsed, active) {
+    if (this.remoteActive) this.localCombat?.incoming.advance(elapsed);
+    const self = this.views.get(this.selfId);
+    if (self) this.drawView(self, now, elapsed, active);
+    for (const view of this.views.values()) {
+      if (view !== self) this.drawView(view, now, elapsed, active);
+    }
+  }
   drawView(view, now, elapsed, active) {
     const simulation = this.interpolateView(view, now);
-    if (view.entity.id === this.selfId) this.drawSelfPose(view, simulation);
+    if (view.entity.id === this.selfId) {
+      this.drawSelfPose(view, simulation);
+      this.localCombat?.incoming.drawSelf(view);
+    }
     if (active && !this.paused) this.observeMob(view, elapsed);
     if (active && !this.paused) this.advanceView(view, elapsed);
     if (view.mobName) {
@@ -880,7 +889,9 @@ export class OnlineScene {
     // An action locks input, not gravity or the local presentation clock. The
     // predictor already imports that lock in each authoritative motion checkpoint.
     const prediction = self ? this.drawPrediction : null;
-    const simulation = prediction?.simulation ?? null;
+    const simulation = prediction?.hitPreview?.sourceId
+      ? prediction.hitPreview.simulation
+      : (prediction?.simulation ?? null);
     let x;
     let y;
     if (simulation) {

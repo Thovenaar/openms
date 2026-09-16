@@ -535,3 +535,43 @@ bun client/tools/peer-latency-trace.js --interval 3 --gated
 Client suite: **648 tests, 0 failures**. Server suite: **218 pass / 5 fail / 18 skip**, the same
 pre-existing `publication`/lifecycle fixture failures as the baseline. Changed files pass
 Prettier and ESLint.
+
+## Local hit feedback and critical eligibility (2026-09-16)
+
+Outgoing and incoming feedback both read an absent `owner.hooks.characterStats` hook in the real online client. Their unit fixtures supplied that hook, hiding the failure. Both now read the live `state.presentation.stats`, and fixtures use that production shape. Incoming contact protection also advanced once per mob instead of once per frame; crowded fields could exhaust it early.
+
+Local release/contact now presents damage digits, pose/expression, sound and provisional recoil before a server reply. A separate shared-kernel continuation supplies the player's drawn recoil without reporting unconfirmed displacement. A source-tagged hit adopts that continuation once; misses, resisted recoil, mismatched vectors, relocation and expiry release it. Multi-line skill confirmations consume each matching prediction once, and the audio and digit consumers share the same reconciliation result. HP, death, drops and statuses remain server-owned. Predicted random damage can differ from the committed amount; these are visual previews, not authoritative damage rolls.
+
+Removed the universal 5% critical chance. Missing stats now mean zero, weapon-compatible learned passives supply their authored chance, and temporary/conditional critical sources retain their own requirements.
+
+```sh
+bun test client/test/local-hits.test.js client/test/local-incoming.test.js \
+  client/test/local-hit-motion.test.js client/test/physical-damage.test.js \
+  client/test/combat-latency.test.js client/test/divert-alignment.test.js \
+  server/test/hit-divert-replay.test.js server/test/field-combat.test.js \
+  client/test/online-protocol.test.js
+bun server/tools/check-combat-latency.js --scope hits --output /tmp/openms-hit-feedback
+```
+
+The targeted suite passed **94 tests / 501 assertions**. Native runs use the retained extraction and an isolated database/account/browser at 500 ms RTT. An early outgoing trial showed the local mob reaction after 421 ms (the authored attack release) with replies held for 1200 ms. Two initial contact trials did not establish contact during the hold: an earlier server recoil displaced the player, and a long traffic hold exhausted the bounded prediction lead before the player reached the mob. The scenario now approaches through native movement before holding replies just outside the drawn contact boundary. The original baseline had no local outgoing reaction. These runs are bounded behavior checks, not seeded AI or internet-throughput benchmarks. Reports and raw logs remain outside the repository.
+
+
+The final native run passed both checks: **437 ms** to the mob's authored local hit frame and **98 ms** to contact feedback after the approach, with all socket replies held for **1200 ms**. That contact roll was a local MISS; an earlier positive contact trial presented recoil after **83 ms** during the same hold. The final browser run recorded no JavaScript errors. Additional setup failures identified a spawn request sent before the authority observed landing and an outgoing attack aimed at a mob that had crossed behind the player. The scenario now waits for server grounding and aims from two observed positions before attacking.
+
+| Final run stage | Milliseconds |
+| --- | ---: |
+| Content/database setup | 316 |
+| Account seed | 189 |
+| Server startup | 1127 |
+| Frontend startup/build | 1472 |
+| Browser acquisition | 487 |
+| Identity read | 1418 |
+| Login/readiness | 24417 |
+| Native spawn | 2237 |
+| Outgoing exercise | 2283 |
+| Approach/contact exercise | 6116 |
+| Browser / fixture teardown | 23 / 150 |
+
+Extraction was reused. The separate nonpublishing browser build passed its authority-boundary guard (**969 modules**). JavaScript formatting/lint passed. The documentation checker still reports **881 existing missing targets**, with no heading failures; generated evidence was not added to repair historical links.
+
+Final native source build: `cbbd776c52b8d5c0236df0f655ad79fb09167298ce24c7a3f924056842c84bf8`; rules: `97170e96c871e40c535af16328573c3b707a100a0d4bed81ff58dbe473b0fcce`. Shared retained catalog: `bf4d12c856304ed77c55a1296dcd7bf82d11f2bea505e111c517ae1b1e482af4`; asset build: `11be20f84c507b5d85eba2fbdbd91f06c6b591922b11bad32ad0d02d3a16a939`. Baseline source build: `ea50fbc3018755b0fb608bbe4bcc7e7e1fabb80d99d372767de515191abe86aa`; rules: `79f202d4737a3764323a4be42fe85f4973a2e8a628cbe634359fb322263ad078`. No conversion was performed. Deploying the runtime/protocol change requires rebuilding/restarting client and server together.

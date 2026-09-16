@@ -50,7 +50,12 @@ function generator(word = 0) {
 }
 function target(overrides = {}) {
   const info = { level: 50, acc: 100, eva: 999, PDDamage: 999, ...overrides };
-  return { hp: 10000, maxHP: 10000, skillStatus: createMobSkillStatus(info) };
+  return {
+    hp: 10000,
+    maxHP: 10000,
+    template: { info },
+    skillStatus: createMobSkillStatus(info),
+  };
 }
 function context(overrides = {}) {
   return {
@@ -398,13 +403,70 @@ test("projection separates INT from magic attack and publishes the modern range 
   expect(output.defense).toBe(45);
   expect(output.mdd).toBe(output.pdd);
   expect(output.masteryPercent).toBe(75);
-  expect(output.criticalChance).toBe(5);
+  expect(output.criticalChance).toBe(0);
   expect(output.criticalDamage).toBe(0);
   expect(output.finalDamagePercent).toBeCloseTo(56);
   expect(output.ignoreDefensePercent).toBeCloseTo(58);
   projectCharacterStats(profile, hooks, output);
   expect(output.defense).toBe(45);
   expect(output.finalDamagePercent).toBeCloseTo(56);
+});
+
+test("critical chance requires a learned weapon-compatible passive or active Sharp Eyes", () => {
+  const { profile, hooks } = projectionFixture();
+  const output = createCharacterStats();
+  expect(output.criticalChance).toBe(0);
+  profile.job = 300;
+  profile.equipment[0].id = 1452000;
+  hooks.items[1452000] = { info: { incPAD: 20 } };
+  let learned = false;
+  hooks.skillLevel = (id) => (learned && id === 3000001 ? 1 : 0);
+  hooks.skillInfo = () => ({ prop: 40, damage: 200 });
+  projectCharacterStats(profile, hooks, output);
+  expect(output.criticalChance).toBe(0);
+  learned = true;
+  projectCharacterStats(profile, hooks, output);
+  expect(output.criticalChance).toBe(40);
+  profile.equipment[0].id = 1372000;
+  projectCharacterStats(profile, hooks, output);
+  expect(output.criticalChance).toBe(0);
+  hooks.derivedStats = () => ({ sharpEyes: (15 << 8) | 20 });
+  projectCharacterStats(profile, hooks, output);
+  expect(output.criticalChance).toBe(15);
+  hooks.derivedStats = () => null;
+  projectCharacterStats(profile, hooks, output);
+  expect(output.criticalChance).toBe(0);
+});
+
+test("missing critical stats never grant implicit criticals, even on a zero RNG roll", () => {
+  const player = stats();
+  delete player.criticalChance;
+  const physical = generator();
+  physical.generate(player, target().skillStatus.projected);
+  expect(physical.lastCritical).toBe(false);
+  const skills = new SkillDamage(generator(), HOOKS);
+  skills.generate(BASIC, { damage: 100 }, target(), context({ stats: player }));
+  expect(skills.critical).toBe(false);
+});
+
+test("Stun Mastery only grants critical chance while the learned skill's target is stunned", () => {
+  let learned = false;
+  const damage = new SkillDamage(generator(), {
+    skillLevel: (id) => (learned && id === 5110000 ? 1 : 0),
+    skillInfo: () => ({ prop: 100, damage: 200 }),
+  });
+  const mob = target();
+  damage.generate(BASIC, { damage: 100 }, mob, context());
+  expect(damage.critical).toBe(false);
+  learned = true;
+  damage.generate(BASIC, { damage: 100 }, mob, context());
+  expect(damage.critical).toBe(false);
+  setMobStatus(mob, "stun", 1, { source: 1, duration: 1000 });
+  damage.generate(BASIC, { damage: 100 }, mob, context());
+  expect(damage.critical).toBe(true);
+  learned = false;
+  damage.generate(BASIC, { damage: 100 }, mob, context());
+  expect(damage.critical).toBe(false);
 });
 
 test("shadow skill percentage applies before the damage cap and Arrow Bomb scales its own cap", () => {

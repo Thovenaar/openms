@@ -86,12 +86,14 @@ export const PLAYER_HIT = Object.freeze({
 
 /** Directional merge through the shared kernel entry point. `hooks.onExternalImpulse`
  *  lets an authority publish the exact divert it applied; offline it is absent. */
-function applyHitImpulse(simulation, direction, onExternalImpulse = null) {
+function applyHitImpulse(simulation, hit, onExternalImpulse = null) {
   applyExternalImpulse(
     simulation,
-    (direction < 0 ? -1 : 1) * PLAYER_HIT.horizontalImpulse,
+    (hit.direction < 0 ? -1 : 1) * PLAYER_HIT.horizontalImpulse,
     PLAYER_HIT.verticalImpulse,
-    onExternalImpulse,
+    onExternalImpulse
+      ? (sim, vx, vy) => onExternalImpulse(sim, vx, vy, hit)
+      : null,
   );
 }
 
@@ -1296,7 +1298,7 @@ export class OfflineField {
     if (impulse.kind === "ordinary") {
       applyHitImpulse(
         this.simulation,
-        impulse.direction,
+        { ...hit, direction: impulse.direction },
         this.hooks.onExternalImpulse ?? null,
       );
     }

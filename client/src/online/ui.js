@@ -1078,6 +1078,7 @@ export class OnlineUI {
     }
   }
   impactAudio(event) {
+    const predicted = this.localCombat.consumeImpact(event);
     const target = this.entities.find((entry) => entry.id === event.targetId);
     if (target?.kind === "mob" && event.damage > 0) {
       const mob = {
@@ -1086,8 +1087,10 @@ export class OnlineUI {
         alive: !event.lethal,
       };
       if (event.lethal) this.audio.onMobDeath(mob, this.scene.presentation);
-      else this.audio.onMobHit(mob, event.damage, this.scene.presentation);
-    } else if (target?.kind === "player") {
+      else if (!predicted) {
+        this.audio.onMobHit(mob, event.damage, this.scene.presentation);
+      }
+    } else if (target?.kind === "player" && !predicted) {
       const source = this.entities.find((entry) => entry.id === event.actorId);
       this.audio.onPlayerHit(
         {

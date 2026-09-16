@@ -60,12 +60,13 @@ function combatAdmissionHooks(context) {
     onMobStatus: (mob, id) => claimMobController(context.actor, mob, id),
     // A server-owned knockback is published as a divert so the client merges the exact
     // vector into its own kernel; the browser owns the resulting trajectory.
-    onExternalImpulse: (simulation, vx, vy, skillId = 0) =>
+    onExternalImpulse: (simulation, vx, vy, hit) =>
       recordMotionDivert(context.actor, simulation, {
         vx,
         vy,
         source: "hit",
-        skillId,
+        skillId: 0,
+        sourceId: hit.source?.id,
       }),
     mobs: actor.field.mobs,
     authoritativePartyHealing: true,
@@ -232,6 +233,7 @@ function playerHit(world, actor, hit) {
     mesoDamage: hit.mesoDamage ?? 0,
     line: 0,
     critical: false,
+    knockback: actor.skillField.lastKnockback === "ordinary",
     lethal: actor.profile.hp === 0,
     attackAction: hit.attackAction,
     element: incomingElementCode(hit.element),

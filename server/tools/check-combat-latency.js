@@ -3,18 +3,19 @@ import { parseFlags } from "../../client/tools/source-options.js";
 import { createProfile } from "../../client/src/profile/profile-validation.js";
 import { DelayedTraffic } from "../../client/tools/scenarios/delayed-traffic.js";
 import { runCombatLatency } from "../../client/tools/scenarios/online-combat-latency.js";
+import { runHitFeedback } from "../../client/tools/scenarios/online-hit-feedback.js";
 import { isolatedOnlineCheck } from "./isolated-online-check.js";
 
-async function seed(database) {
-  await seedCharacter(database, "fighter", 100, 1001004);
-  await seedCharacter(database, "mage", 200, 2001004);
+async function seed(database, scope) {
+  await seedCharacter(database, "fighter", 100, { skillId: 1001004, scope });
+  await seedCharacter(database, "mage", 200, { skillId: 2001004, scope });
 }
 
-async function seedCharacter(database, name, job, skillId) {
+async function seedCharacter(database, name, job, { skillId, scope }) {
   const account = await database.createAccount({
     name,
     passwordHash: await Bun.password.hash("password"),
-    role: "player",
+    role: scope === "hits" ? "developer" : "player",
   });
   const profile = createProfile({
     mapId: "000050000",
@@ -40,22 +41,27 @@ if (import.meta.main) {
   const flags = parseFlags(process.argv.slice(2), {
     output: { type: "string" },
     baseline: { type: "boolean" },
+    scope: { type: "string" },
     help: { type: "boolean" },
   });
   if (flags.help) {
     console.log(
-      "bun server/tools/check-combat-latency.js [--output DIR] [--baseline]\n500 ms RTT, native attacks and skills, interrupted monster updates. Baseline records before-repair behavior without smoothness assertions.",
+      "bun server/tools/check-combat-latency.js [--output DIR] [--baseline] [--scope combat|hits]\n500 ms RTT; combat (default) checks attack poses/projectiles, hits checks local impact/contact reactions. Output defaults to /tmp/openms-combat-latency. Baseline records without repaired-behavior assertions.",
     );
   } else {
     const timings = {},
       output = flags.output ?? "/tmp/openms-combat-latency";
+    const scope = flags.scope ?? "combat";
+    if (scope !== "combat" && scope !== "hits") {
+      throw new Error("Unknown combat scope");
+    }
+    const run = scope === "hits" ? runHitFeedback : runCombatLatency;
     const report = await isolatedOnlineCheck({
-      seed,
+      seed: (database) => seed(database, scope),
       output,
       timings,
       network: new DelayedTraffic(500),
-      run: (options) =>
-        runCombatLatency({ ...options, baseline: Boolean(flags.baseline) }),
+      run: (options) => run({ ...options, baseline: Boolean(flags.baseline) }),
     });
     report.fixtureTimings = timings;
     await Bun.write(
@@ -68,6 +74,8 @@ if (import.meta.main) {
         timings: report.timings,
         actions: report.actions,
         movement: report.movement,
+        outgoing: report.outgoing,
+        incoming: report.incoming,
         failure: report.failure,
       }),
     );

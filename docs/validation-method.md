@@ -100,6 +100,8 @@ The tool samples the presented player and authoritative prediction state while r
 
 `bun server/tools/check-combat-latency.js --output /tmp/openms-combat-latency` runs native basic attack, Power Strike and Magic Bolt input in isolated fighter/mage contexts at 500 ms RTT, with 1.2-second traffic pauses. It measures first local pose/flight, checks one animation run across confirmation, requires the original action's confirmation, and samples mobs through a separate 450 ms pause. `--baseline` records the older behavior without repaired-behavior assertions. Frame reports and logs stay outside the repository. AI choices are not seeded across runs, so aggregate moving/idle counts are diagnostics, not a matched AI benchmark.
 
+`bun server/tools/check-combat-latency.js --scope hits --output /tmp/openms-hit-feedback` isolates outgoing impact and incoming contact feedback. It logs in a disposable developer fighter, spawns a Stump through the native console, attacks with Control and walks into its drawn body. With 500 ms RTT and separately held replies, it records first local hit pose/contact timestamps and bounded frame samples. This checks presentation before confirmation; deterministic tests separately cover critical eligibility, shared protection timing, recoil confirmation/refusal and multi-line echo ownership.
+
 `bun test client/test/combat-latency.test.js server/test/attack-input.test.js server/test/field-combat.test.js` checks bounded motion/correction, local clocks and echo ownership, projectile refusal/teardown, expired movement with a retained attack edge, and immediate server action identity. Reuse extracted assets; this check does not require extraction.
 
 ### Remote player and drop check

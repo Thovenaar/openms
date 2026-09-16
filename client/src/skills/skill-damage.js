@@ -179,7 +179,7 @@ export class SkillDamage {
   }
 
   criticalDamage(damage, mob, stats) {
-    let chance = stats.criticalChance ?? 5;
+    let chance = stats.criticalChance ?? 0;
     let bonus = stats.criticalDamage ?? 0;
     const stun = learnedCombatInfo(this.hooks, 5110000);
     if (stun && hasMobStatus(mob, "stun")) {

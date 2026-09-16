@@ -117,7 +117,7 @@ function fixture(options = {}) {
   let now = 0;
   const host = {
     scene,
-    owner: { hooks: { characterStats: () => options.stats ?? stats() } },
+    owner: { state: { presentation: { stats: options.stats ?? stats() } } },
   };
   const hits = new LocalHits(host, () => now, options.random ?? (() => 0.5));
   return {
@@ -197,9 +197,6 @@ test("the local prediction is consumed by exactly one matching authoritative hit
     f.hits.consume({ actorId: "peer", targetId: "mob-a", damage: 12 }),
   ).toBe(false);
   expect(
-    f.hits.consume({ actorId: "self", targetId: "mob-a", damage: 0 }),
-  ).toBe(false);
-  expect(
     f.hits.consume({ actorId: "self", targetId: "mob-a", damage: 12 }),
   ).toBe(true);
   expect(
@@ -217,6 +214,47 @@ test("a stale prediction is dropped instead of suppressing a later authoritative
   expect(
     f.hits.consume({ actorId: "self", targetId: "mob-a", damage: 12 }),
   ).toBe(false);
+});
+
+test("a refused hit retires its prediction instead of consuming the next successful attack", () => {
+  const f = fixture({ views: [mobView("mob-a", { x: 50 })] });
+  const record = basic(0);
+  f.hits.begin(record);
+  releaseNow(f, record);
+  expect(
+    f.hits.consume({ actorId: "self", targetId: "mob-a", damage: 0 }),
+  ).toBe(false);
+  expect(f.hits.pending.has("mob-a")).toBe(false);
+  expect(
+    f.hits.consume({ actorId: "self", targetId: "mob-a", damage: 12 }),
+  ).toBe(false);
+});
+
+test("each skill damage line is reconciled once and an unrelated skill cannot consume it", () => {
+  const f = fixture({ views: [mobView("mob-a", { x: 50 })] });
+  const record = {
+    ...basic(0),
+    skillId: 1001004,
+    info: { damage: 100, attackCount: 3 },
+    spec: { kind: "melee" },
+  };
+  f.hits.begin(record);
+  releaseNow(f, record);
+  expect(f.shown).toHaveLength(3);
+  const event = {
+    actorId: "self",
+    targetId: "mob-a",
+    damage: 12,
+    line: 0,
+    skillId: 1001005,
+  };
+  expect(f.hits.consume(event)).toBe(false);
+  event.skillId = 1001004;
+  for (let line = 0; line < 3; line++) {
+    event.line = line;
+    expect(f.hits.consume(event)).toBe(true);
+    expect(f.hits.consume(event)).toBe(false);
+  }
 });
 
 test("the local hit pose yields after its authored duration if authority never confirms it", () => {
@@ -357,7 +395,7 @@ test("a ray waits for its projectile before drawing or reacting", async () => {
     info: null,
     spec: null,
     use: null,
-    projectile: { range: 400, templateId: 2060000 },
+    projectile: { range: 400, templateId: 2060000, start: 65 },
   };
   f.hits.begin(record);
   releaseNow(f, record);
@@ -365,6 +403,7 @@ test("a ray waits for its projectile before drawing or reacting", async () => {
   expect(f.hits.reaction(view)).toBe(null);
   const queued = f.hits.pending.get("mob-a");
   expect(queued.length).toBe(1);
+  expect(queued[0].at).toBe(Math.trunc(Math.hypot(200 - 65, 28 - 20) * 1.5));
   await Bun.sleep(queued[0].at + 30);
   expect(f.shown.length).toBe(1);
   expect(f.hits.reaction(view)).toBe("hit1");

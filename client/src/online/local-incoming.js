@@ -5,6 +5,7 @@ import {
   rectangleState,
 } from "../world/life-geometry-numeric.js";
 import { animationName } from "../../../shared/motion-schema.js";
+import { LocalHitMotion } from "./local-hit-motion.js";
 
 /** 00af14b8/00af14c8 ordinary and prone receiver rectangles, the same body the authority
  *  tests an incoming authored area against. */
@@ -20,9 +21,8 @@ const MAX_ARMS = 256;
 /** The attacking client resolves its own outgoing feedback locally. Incoming feedback has
  *  the same problem in reverse: the mob's authored swing is already drawn from a published
  *  action, so the defender can resolve the number at that frame instead of waiting for the
- *  authoritative impact. This owner predicts only the digit. HP, death, knockback, status
- *  and the hit sound remain authoritative, and the confirmed impact consumes the prediction
- *  so the number is shown once. */
+ *  authoritative impact. Digits, flinch, sound and disposable recoil start locally;
+ *  HP, death and status remain authoritative. Confirmation consumes the preview once. */
 export class LocalIncoming {
   constructor(combat, now = () => performance.now(), random = Math.random) {
     this.combat = combat;
@@ -34,6 +34,31 @@ export class LocalIncoming {
     this.armed = new Set();
     this.pending = new Map();
     this.contactCooldownMs = 0;
+    this.hitRemainingMs = 0;
+    this.presentedAt = null;
+  }
+
+  bind() {
+    const prediction = this.combat.owner.hooks.prediction;
+    if (prediction) {
+      this.motion = new LocalHitMotion(prediction, this.stage.manifest.physics);
+    }
+  }
+
+  /** Advance the shared protection window once per field frame, regardless of mob count. */
+  advance(elapsed) {
+    this.contactCooldownMs = Math.max(0, this.contactCooldownMs - elapsed);
+    this.hitRemainingMs = Math.max(0, this.hitRemainingMs - elapsed);
+    this.prune();
+  }
+
+  drawSelf(view) {
+    const blinking =
+      this.hitRemainingMs > 0 &&
+      Math.floor((HIT_EXPRESSION_MS - this.hitRemainingMs) / 30) % 4 < 2;
+    view.animation.setTint(
+      blinking ? 0x808080 : (view.entity.combatState?.tint ?? 0xffffff),
+    );
   }
 
   /** The online scene owns the entity views. */
@@ -51,9 +76,7 @@ export class LocalIncoming {
   observe(view, elapsed) {
     const entity = view.entity;
     if (!entity || entity.kind !== "mob") return;
-    const step = Number.isFinite(elapsed) ? elapsed : 0;
-    // One shared hit window, as `rejectsHit` uses for every incoming outcome.
-    this.contactCooldownMs = Math.max(0, this.contactCooldownMs - step);
+    if (!entity.mobState?.hp || entity.mobState.phase === "spawning") return;
     this.resolveContact(view);
     const attacks = view.life?.combat?.attacks;
     if (!this.tracking(entity, attacks)) return;
@@ -69,14 +92,14 @@ export class LocalIncoming {
     const info = view.life?.info;
     if (!this.contactEligible(info)) return;
     const self = this.localTarget();
-    const stats = this.combat.owner.hooks.characterStats?.();
+    const stats = this.combat.owner.state?.presentation.stats;
     if (!self || !stats) return;
     if (!this.contactOverlaps(view, self)) return;
     const amount = this.roll(info, stats, null);
-    this.contactCooldownMs = HIT_EXPRESSION_MS;
     if (amount === null) return;
+    this.contactCooldownMs = HIT_EXPRESSION_MS;
     this.remember(view.entity.id, amount);
-    this.present(self, amount);
+    this.present(self, amount, view, null);
   }
 
   contactEligible(info) {
@@ -138,21 +161,25 @@ export class LocalIncoming {
   }
 
   resolve(view, attack) {
+    if (this.contactCooldownMs > 0) return;
     const self = this.localTarget();
     const info = view.life?.info;
-    const stats = this.combat.owner.hooks.characterStats?.();
+    const stats = this.combat.owner.state?.presentation.stats;
     if (!self || !info || !stats) return;
     if (!this.overlapsPlayer(view, attack, self, info)) return;
     const amount = this.roll(info, stats, attack);
     if (amount === null) return;
+    this.contactCooldownMs = HIT_EXPRESSION_MS;
     this.remember(view.entity.id, amount);
-    this.present(self, amount);
+    this.present(self, amount, view, attack.action);
   }
 
   localTarget() {
     const scene = this.scene;
     const self = scene?.views.get(scene.selfId);
     if (!self || self.entity.combatState?.phase === "dead") return null;
+    const protection = Math.abs(self.entity.combatState?.protectionMs ?? 0);
+    if (protection > (self.observedAge ?? 0)) return null;
     return self;
   }
 
@@ -194,7 +221,7 @@ export class LocalIncoming {
     } catch {
       return null;
     }
-    return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
+    return Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
   }
 
   remember(sourceId, amount) {
@@ -210,18 +237,37 @@ export class LocalIncoming {
 
   /** Draw the predicted digit over the local player at the frame the swing lands, and start
    *  the authored flinch face on the same clock (`PLAYER_HIT.timerMs`, `00959321`). */
-  present(view, amount) {
+  present(view, amount, source, attackAction) {
     const events = this.scene?.events;
     if (!events || !this.reserve(events)) return;
+    this.presentedAt = this.now();
     const animation = view.animation;
-    if (animation.expressions?.has("hit")) {
+    if (amount > 0 && animation.expressions?.has("hit")) {
       animation.setExpression("hit", HIT_EXPRESSION_MS);
     }
+    if (amount > 0) this.feedback(view, source, amount, attackAction);
     const geometry = animation.current?.geometry?.[animation.frame] ?? { y: 0 };
     events.combat.show(
       amount,
       2,
       events.combat.fixedNumberPlacement(view.drawX, view.drawY + geometry.y),
+    );
+  }
+
+  feedback(view, source, amount, attackAction) {
+    this.hitRemainingMs = HIT_EXPRESSION_MS;
+    this.motion?.begin(source.entity.id, view.drawX >= source.drawX ? 1 : -1);
+    this.combat.owner.audio?.onPlayerHit(
+      {
+        amount,
+        attackAction,
+        source: {
+          x: source.drawX,
+          y: source.drawY,
+          templateId: source.entity.templateId,
+        },
+      },
+      this.stage.presentation,
     );
   }
 
@@ -242,14 +288,20 @@ export class LocalIncoming {
     if (event.cause !== "mob-attack" && event.cause !== "contact") return false;
     if (event.targetId !== this.combat.scene?.selfId) return false;
     // Any admitted incoming outcome, including a miss, starts the shared hit window.
-    this.contactCooldownMs = HIT_EXPRESSION_MS;
     const queue = this.pending.get(event.actorId);
-    if (!queue?.length) return false;
-    // A missed or refused authoritative outcome is still drawn, so the correction is seen.
-    if (event.damage <= 0) return false;
+    if (!queue?.length) {
+      this.contactCooldownMs = HIT_EXPRESSION_MS;
+      return false;
+    }
     const prediction = queue.shift();
     if (!queue.length) this.pending.delete(event.actorId);
-    return this.now() - prediction.at <= PREDICTION_TTL_MS;
+    if (event.damage <= 0 || event.knockback === false) {
+      this.motion?.reject(event.actorId);
+    }
+    return (
+      this.now() - prediction.at <= PREDICTION_TTL_MS &&
+      event.damage > 0 === prediction.damage > 0
+    );
   }
 
   prune() {
@@ -263,6 +315,9 @@ export class LocalIncoming {
   }
 
   destroy() {
+    this.motion?.destroy();
+    this.motion = null;
+    this.contactCooldownMs = this.hitRemainingMs = 0;
     this.clocks.clear();
     this.armed.clear();
     this.pending.clear();

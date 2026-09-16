@@ -94,7 +94,7 @@ export class LocalHits {
     if (record.rejected || !record.hits) return;
     const scene = this.combat.scene;
     const origin = this.stage?.presentation;
-    const stats = this.combat.owner.hooks.characterStats?.();
+    const stats = this.combat.owner.state?.presentation.stats;
     if (!scene || !origin || !stats) return;
     record.hitFacing = origin.facing > 0 ? 1 : -1;
     const count = this.select(record, origin);
@@ -102,7 +102,9 @@ export class LocalHits {
       const view = this.targets[index];
       this.targets[index] = null;
       // 00953fca: the number and the reaction wait for the ball, not for the release frame.
-      const delay = record.hitRay ? flightMs(origin, view) : 0;
+      const delay = record.hitRay
+        ? flightMs(origin, view, record.projectile)
+        : 0;
       this.roll(record, view, stats, delay);
     }
   }
@@ -189,7 +191,9 @@ export class LocalHits {
       if (!Number.isSafeInteger(amount) || amount < 0) return;
       rolls.push({ amount, critical: this.damage.lastCritical });
     }
-    this.remember(view, rolls[0].amount, delay);
+    for (let line = 0; line < rolls.length; line++) {
+      this.remember(view, rolls[line].amount, delay, { record, line });
+    }
     if (delay > 0) {
       this.schedule(record, delay, () => this.present(record, view, rolls));
       return;
@@ -210,7 +214,7 @@ export class LocalHits {
     return Number.isSafeInteger(percent) && percent > 0 ? percent : 100;
   }
 
-  remember(view, amount, delay) {
+  remember(view, amount, delay, details = {}) {
     this.prune();
     const id = view.entity.id;
     let queue = this.pending.get(id);
@@ -219,7 +223,13 @@ export class LocalHits {
       this.pending.set(id, queue);
     }
     if (queue.length >= MAX_PENDING) queue.shift();
-    queue.push({ at: this.now() + delay, damage: amount });
+    queue.push({
+      at: this.now() + delay,
+      damage: amount,
+      line: details.line ?? 0,
+      skillId: details.record?.skillId ?? 0,
+      record: details.record,
+    });
   }
 
   /** Reserve one display slot, or give up instead of throwing out of a timer callback. */
@@ -258,6 +268,22 @@ export class LocalHits {
     }
     this.react(view, rolls[0].amount);
     this.recoil(view, rolls[0].amount, record.hitFacing ?? 1);
+    this.playSound(view, rolls[0].amount);
+  }
+
+  playSound(view, amount) {
+    if (amount > 0) {
+      this.combat.owner.audio?.onMobHit?.(
+        {
+          x: view.drawX,
+          y: view.drawY,
+          templateId: view.entity.templateId,
+          alive: true,
+        },
+        amount,
+        this.stage.presentation,
+      );
+    }
   }
 
   /** `0066b6fc`/`009bbdfd`: the attacker resolves the mob's recoil locally, so the knockback
@@ -378,16 +404,28 @@ export class LocalHits {
   /** True when one local prediction already presented this authoritative event. */
   consume(event) {
     if (event.actorId !== this.combat.scene?.selfId) return false;
-    const queue = this.pending.get(event.targetId);
-    if (!queue?.length) return false;
-    // A rejected or missed authoritative outcome is still shown, so the correction is visible.
-    if (event.damage <= 0) return false;
-    const prediction = queue.shift();
-    if (!queue.length) this.pending.delete(event.targetId);
+    const prediction = this.takePrediction(event);
+    if (!prediction || this.now() - prediction.at > PREDICTION_TTL_MS) {
+      return false;
+    }
     // The authority confirmed the hit, so the predicted recoil is no longer provisional.
     const view = this.combat.scene?.views?.get(event.targetId);
-    if (view?.recoil) view.recoil.confirmed = true;
-    return this.now() - prediction.at <= PREDICTION_TTL_MS;
+    if (view?.recoil && event.damage > 0) view.recoil.confirmed = true;
+    return event.damage > 0 === prediction.damage > 0;
+  }
+
+  takePrediction(event) {
+    const queue = this.pending.get(event.targetId);
+    if (!queue?.length) return null;
+    const index = queue.findIndex(
+      (entry) =>
+        entry.line === (event.line ?? 0) &&
+        entry.skillId === (event.skillId ?? 0),
+    );
+    if (index < 0) return null;
+    const [prediction] = queue.splice(index, 1);
+    if (!queue.length) this.pending.delete(event.targetId);
+    return prediction;
   }
 
   prune() {
@@ -402,6 +440,12 @@ export class LocalHits {
 
   cancel(record) {
     record.hits = null;
+    for (const [id, queue] of this.pending) {
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (queue[i].record === record) queue.splice(i, 1);
+      }
+      if (!queue.length) this.pending.delete(id);
+    }
     if (!record.hitTimer) return;
     clearTimeout(record.hitTimer);
     this.timers.delete(record.hitTimer);
@@ -416,8 +460,8 @@ export class LocalHits {
   }
 }
 
-function flightMs(origin, view) {
-  const dx = view.drawX - origin.x;
+function flightMs(origin, view, projectile) {
+  const dx = view.drawX - (origin.x + origin.facing * (projectile.start ?? 0));
   const dy = view.drawY - FLIGHT_HIT_Y - (origin.y - FLIGHT_SHOULDER);
   return Math.max(1, Math.trunc(Math.hypot(dx, dy) * FLIGHT_SCALE));
 }

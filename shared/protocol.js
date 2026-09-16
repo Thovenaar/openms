@@ -819,6 +819,7 @@ const serverBase = {
  *  receipt through the same `applyExternalImpulse` entry point the authority used
  *  rather than replaying a pre-impulse checkpoint. */
 const motionDivertSchema = record({
+  sourceId: optional(id),
   tick: revision,
   vx: coordinate,
   vy: coordinate,

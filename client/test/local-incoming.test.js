@@ -114,7 +114,7 @@ function fixture(options = {}) {
   };
   const host = {
     scene,
-    owner: { hooks: { characterStats: () => options.stats ?? stats() } },
+    owner: { state: { presentation: { stats: options.stats ?? stats() } } },
     // The real owner is the local hit resolver; contact prediction reuses its authored
     // frame receiver, so the double mirrors that one method.
     hits: {
@@ -243,9 +243,13 @@ test("contact damage shares the hit window instead of ticking every frame", () =
   f.incoming.observe(f.view, 16);
   expect(f.shown.length).toBe(1);
   // Still inside the 1500 ms window the authority uses for every incoming outcome.
-  for (let frame = 0; frame < 10; frame++) f.incoming.observe(f.view, 30);
+  for (let frame = 0; frame < 10; frame++) {
+    f.incoming.advance(30);
+    f.incoming.observe(f.view, 30);
+  }
   expect(f.shown.length).toBe(1);
   // Past the window the next overlapping frame resolves again.
+  f.incoming.advance(1200);
   f.incoming.observe(f.view, 1200);
   expect(f.shown.length).toBe(2);
 });
@@ -285,4 +289,32 @@ test("the authoritative contact impact consumes one local prediction", () => {
       damage: 7,
     }),
   ).toBe(false);
+});
+
+test("many nearby mobs share one frame clock and cannot shorten hit protection", () => {
+  const view = mobView({ life: contactLife(), phase: "idle" });
+  const f = fixture({ view });
+  f.incoming.observe(view, 16);
+  for (let frame = 0; frame < 20; frame++) {
+    f.incoming.advance(30);
+    for (let mob = 0; mob < 30; mob++) f.incoming.observe(view, 30);
+  }
+  expect(f.shown).toHaveLength(1);
+  expect(f.incoming.contactCooldownMs).toBe(900);
+});
+
+test("dead or spawning mobs cannot predict contact and field teardown clears protection", () => {
+  const view = mobView({ life: contactLife(), phase: "idle" });
+  const f = fixture({ view });
+  view.entity.mobState.hp = 0;
+  f.incoming.observe(view, 16);
+  view.entity.mobState.hp = 400;
+  view.entity.mobState.phase = "spawning";
+  f.incoming.observe(view, 16);
+  expect(f.shown).toHaveLength(0);
+  view.entity.mobState.phase = "idle";
+  f.incoming.observe(view, 16);
+  expect(f.shown).toHaveLength(1);
+  f.incoming.destroy();
+  expect(f.incoming.contactCooldownMs).toBe(0);
 });

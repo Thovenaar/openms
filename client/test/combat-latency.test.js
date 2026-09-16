@@ -110,6 +110,10 @@ async function fixture() {
       removeWorldContainer: (node) => containers.delete(node),
     },
     store: { profile },
+    state: {
+      self: { entity: { combatState: { modifiers: {} } } },
+      presentation: {},
+    },
     catalog,
     ui: {},
     hooks: { scene: () => scene },
@@ -298,21 +302,23 @@ test("an admitted basic attack resolves its own hit on the local release frame",
   const view = mobView("mob-a", 50);
   const scene = f.owner.hooks.scene();
   scene.views.set("mob-a", view);
-  f.owner.hooks.characterStats = () => ({
-    level: 10,
-    job: 100,
-    weaponType: 30,
-    damageSupported: true,
-    str: 200,
-    dex: 40,
-    pad: 60,
-    padWithoutProjectile: 60,
-    projectilePAD: 0,
-    mastery: 0,
-    masteryPercent: 20,
-    criticalChance: 0,
-    criticalDamage: 0,
-  });
+  f.owner.state.presentation = {
+    stats: {
+      level: 10,
+      job: 100,
+      weaponType: 30,
+      damageSupported: true,
+      str: 200,
+      dex: 40,
+      pad: 60,
+      padWithoutProjectile: 60,
+      projectilePAD: 0,
+      mastery: 0,
+      masteryPercent: 20,
+      criticalChance: 0,
+      criticalDamage: 0,
+    },
+  };
   const shown = [];
   scene.events = {
     reserveNumber() {},
@@ -339,10 +345,11 @@ test("an admitted basic attack resolves its own hit on the local release frame",
   expect(shown.length).toBe(1);
   expect(shown[0].amount).toBeGreaterThan(0);
   expect(f.local.hits.reaction(view)).toBe("hit1");
-  // The authoritative copy of this hit never draws a second number.
-  expect(
-    f.local.hits.consume({ actorId: "self", targetId: "mob-a", damage: 5 }),
-  ).toBe(true);
+  // Independent audio and number consumers share one result; a later hit stays new.
+  const event = { actorId: "self", targetId: "mob-a", damage: 5 };
+  expect(f.local.consumeImpact(event)).toBe(true);
+  expect(f.local.consumeImpact(event)).toBe(true);
+  expect(f.local.consumeImpact({ ...event })).toBe(false);
   f.local.destroy();
 });
 

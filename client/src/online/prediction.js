@@ -119,6 +119,7 @@ export class OnlinePrediction {
     this.drawnX = Number.NaN;
     this.drawnY = Number.NaN;
     this.diverts = 0;
+    this.hitPreview = null;
   }
 
   /** Simulation must be built only from the authoritative field's immutable physics. */
@@ -162,6 +163,7 @@ export class OnlinePrediction {
     this.ready = true;
     this.controlFrame = message;
     this.observeJump(message.motion.groundJumpSequence);
+    if (message.authoritative) this.hitPreview?.clear();
     // Impulses merge into the client's own trajectory; they never reload it.
     this.applyDiverts(message.diverts);
     if (!wasReady || message.authoritative) {
@@ -236,17 +238,26 @@ export class OnlinePrediction {
     let applied = 0;
     for (const divert of diverts) {
       if (!Number.isFinite(divert.vx) || !Number.isFinite(divert.vy)) continue;
+      if (divert.source === "hit" && this.hitPreview?.confirm(divert)) continue;
       if (
         divert.source === "skill" &&
         this.retireOptimisticSkill(divert.skillId)
       ) {
         continue;
       }
-      applyExternalImpulse(this.simulation, divert.vx, divert.vy);
+      this.mergeImpulse(divert.vx, divert.vy);
       applied++;
     }
     this.diverts += applied;
     return applied;
+  }
+
+  /** Keep a disposable hit path aligned with additional admitted movement impulses. */
+  mergeImpulse(vx, vy) {
+    applyExternalImpulse(this.simulation, vx, vy);
+    if (this.hitPreview?.sourceId) {
+      applyExternalImpulse(this.hitPreview.simulation, vx, vy);
+    }
   }
 
   /** Apply one movement-skill impulse immediately and remember it so the authoritative
@@ -263,7 +274,7 @@ export class OnlinePrediction {
       flashUsed: this.flashUsed,
       impulseUntilTick: this.impulseUntilTick,
     };
-    applyExternalImpulse(this.simulation, action.vx, action.vy);
+    this.mergeImpulse(action.vx, action.vy);
     this.pendingImpulses.push(token);
     if (FLASH_SKILLS.has(skillId)) this.flashUsed = true;
     // Original recovery: SkillWorldController.impulse; same 1000/1500-ms durations.
@@ -292,6 +303,9 @@ export class OnlinePrediction {
     if (index < 0) return;
     this.pendingImpulses.splice(index, 1);
     restoreMotion(this.simulation, token.motion);
+    if (this.hitPreview?.sourceId) {
+      this.hitPreview.reject(this.hitPreview.sourceId);
+    }
     this.flashUsed = token.flashUsed;
     this.impulseUntilTick = token.impulseUntilTick;
   }
@@ -388,6 +402,7 @@ export class OnlinePrediction {
   relocate(x, y) {
     const sim = this.simulation;
     if (!sim || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    this.hitPreview?.clear();
     relocateSimulation(sim, { x, y });
     this.head = 0;
     this.count = 0;
@@ -512,7 +527,9 @@ export class OnlinePrediction {
    * @param {{x:number,y:number}} target Reused pose scratch; never allocated per frame.
    */
   interpolate(now, target) {
-    const sim = this.simulation;
+    const sim = this.hitPreview?.sourceId
+      ? this.hitPreview.simulation
+      : this.simulation;
     if (!sim) return target;
     let alpha = 1;
     if (this.ready && this.lastStepAt > 0 && Number.isFinite(now)) {
@@ -557,6 +574,7 @@ export class OnlinePrediction {
     entry.attack = sample.attack;
     assignHeldInput(this.held, sample);
     stepMotion(this.simulation, this.held);
+    this.hitPreview?.step(this.held);
     this.recordPose(entry);
     if (this.simulation.state === "ground") this.flashUsed = false;
     this.count++;
@@ -617,6 +635,7 @@ export class OnlinePrediction {
   }
 
   clear() {
+    this.hitPreview?.clear();
     this.controlFrame = null;
     this.groundJumpSequence = null;
     this.ready = false;

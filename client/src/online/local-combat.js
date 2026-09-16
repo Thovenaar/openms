@@ -24,13 +24,17 @@ export class LocalCombat {
     this.projectiles = new LocalProjectiles(this);
     this.hits = new LocalHits(this, now);
     this.incoming = new LocalIncoming(this, now);
+    this.impacts = new WeakMap();
   }
   bind() {
     const scene = this.owner.hooks.scene();
     if (scene === this.scene) return;
     this.destroy();
     this.scene = scene;
-    if (scene) scene.localCombat = this;
+    if (scene) {
+      scene.localCombat = this;
+      this.incoming.bind();
+    }
   }
   input(sample, inputSeq) {
     this.bind();
@@ -98,7 +102,11 @@ export class LocalCombat {
   observe(entity) {
     const record = this.match(entity.combatState);
     if (record) record.confirmed = true;
-    if (entity.combatState?.phase === "dead") this.reject(this.active);
+    if (entity.combatState?.phase === "dead") {
+      this.reject(this.active);
+      this.incoming.motion?.clear();
+      this.incoming.hitRemainingMs = 0;
+    }
   }
   movementLock(message) {
     if (message.authoritative) return message.motion.movementLocked;
@@ -123,6 +131,16 @@ export class LocalCombat {
       event.actorId === this.scene?.selfId ? this.match(event) : null;
     if (record) record.confirmed = true;
     return Boolean(record?.soundPlayed);
+  }
+  /** Audio and scene publication share one decision even when their consumers run apart. */
+  consumeImpact(event) {
+    if (!this.impacts.has(event)) {
+      this.impacts.set(
+        event,
+        this.hits.consume(event) || this.incoming.consume(event),
+      );
+    }
+    return this.impacts.get(event);
   }
   reject(record) {
     if (!record) return;
@@ -151,6 +169,8 @@ export class LocalCombat {
         : null,
       projectiles: this.projectiles.flights.size,
       incoming: this.incoming.pending.size,
+      incomingAt: this.incoming.presentedAt,
+      hitPreview: this.incoming.motion?.sourceId ?? null,
       records: [...this.records.values()].map((record) => ({
         identity: record.identity,
         skillId: record.skillId,

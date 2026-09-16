@@ -20,7 +20,7 @@ This is a modern combat ruleset running the existing v83 content. The following 
 | Equipment `incPDD` and temporary PDD | Added DEF in the unified character defense formula. The old separate MDD contribution is superseded. |
 | Weapon mastery field | Five percentage points per authored unit, added to modern job base mastery and capped at 99%. |
 | Per-spell mastery | Strongest currently learned spell mastery becomes the magician's common mastery. |
-| Legacy passive critical `damage` | Subtract 100 to obtain the additional critical-damage stat; the common base critical chance is 5%. |
+| Legacy passive critical `damage` | Subtract 100 to obtain the additional critical-damage stat. Base critical chance is **0%**; a learned, weapon-compatible passive supplies its authored `prop`. |
 | Skill `damage` | Skill percentage for each hit. |
 | Legacy spell/summon `mad` or `pad` | Skill percentage when `damage` is absent. Heal's undead attack uses `hp`; Meso Explosion uses `x` when `damage` is absent. |
 | `fixdamage` / `damagepc` | Fixed and maximum-HP-relative attacks keep their explicit skill semantics. |
@@ -36,6 +36,8 @@ New authored equipment may supply `damagePercent`, `bossDamagePercent`, `normalD
 The current catalog supplies v83 jobs, skills, maps and equipment. Modern-only jobs, force maps, symbols, potentials, rings and their associated stat sources require corresponding content before those conditional systems can apply. Existing HP/MP limits and progression remain part of the retained content rules.
 
 ## Validation
+
+Critical eligibility follows the user's September 16 correction: there is no universal 5% chance. Bow/crossbow, claw and knuckle passives retain their existing weapon gates; active Sharp Eyes adds its encoded chance, and skill-specific conditions such as Stun Mastery and Combo Critical retain their own admission rules. Missing critical stats mean zero in both basic and skill generators. Removing the skill, compatible weapon or temporary buff removes its contribution on the next stat projection. The remaining modern range and critical-damage multiplier formulas are unchanged.
 
 - `client/test/physical-damage.test.js`: numeric examples, job/weapon weights, rounding, defense/level boundaries, critical hits, spells, summons, DOT, fixed damage, cap and random-window refill.
 - `server/test/field-combat.test.js`: actual authority runtime with packaged WZ content, client/server agreement, incoming admission, dodge, and large-hit publication with correct HP loss.
