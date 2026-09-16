@@ -135,6 +135,8 @@ export class SceneEvents {
     // The attacker already drew its own number at its release frame; the authoritative event
     // still moves HP, death and loot, so only the duplicate digits are dropped.
     if (this.owner.localCombat?.hits?.consume(event)) return;
+    // A mob's swing was already resolved against the local player at its authored frame.
+    if (this.owner.localCombat?.incoming?.consume(event)) return;
     const view = this.owner.views.get(event.targetId);
     if (!view) return;
     this.reserveNumber();

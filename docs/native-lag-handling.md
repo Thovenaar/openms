@@ -380,38 +380,46 @@ Rotation is assigned at `00506142` inside `00505900` from the master clock
 
 ## Implementation status
 
-| Native mechanism                        | Browser implementation                                                   |
-| --------------------------------------- | ------------------------------------------------------------------------ |
-| Carry-over replay clock (`SetMovePath`) | `remote-motion.js` buffer keyed on arrival time; never reset by a packet |
-| Hermite with velocity (`0068b108`)      | `RemoteMotion.hermite`                                                   |
-| Fixed 30/32 ms step                     | `PROTOCOL.TICK_MS`; playout slewed from the measured publication cadence |
-| Hold at end of path (`0068adcc`)        | bounded forecast then exponential coast to rest                          |
-| Snap only on relocation (`0068b492`)    | `HARD_SNAP_PX` presentation plus generation reset                        |
-| Local input edge (`0094a144`)           | unchanged; `OnlinePrediction` + `LocalCombat`                            |
-| Scheduled damage numbers (`0043da05`)   | `CombatPresentation` lifetime and per-line delay                         |
-| Swept mob receiver (`00664559(...,1)`)  | `SkillAttack.targetBody` unions the current and previous body            |
-| View-time hit judgement (`00678476`)    | `attackRewindTicks` widens the same sweep over the measured view window  |
-| Local damage and popup (`009581a9`)     | `local-hits.js` records damage and draws the popup at the release frame  |
-| Attack display (`0095931c`)             | `local-hits.js` starts the authored `hit1` pose from the local reaction  |
+| Native mechanism                        | Browser implementation                                                                    |
+| --------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Move packet `0xb6` sample list          | un-acked `peers` frame, one changed peer sample per 30 ms tick ([peer-move-path.txt](ghidra-physics-motion/peer-move-path.txt)) |
+| Carry-over replay clock (`SetMovePath`) | `remote-motion.js` buffer keyed on arrival time; never reset by a packet                  |
+| Hermite with velocity (`0068b108`)      | `RemoteMotion.hermite`, plus `clampContact` to the landed sample's foothold surface        |
+| Fixed 30/32 ms step                     | `PROTOCOL.TICK_MS`; playout slewed from the measured sample cadence                        |
+| Hold at end of path (`0068adcc`)        | bounded forecast then exponential coast to rest                                           |
+| Snap only on relocation (`0068b492`)    | `HARD_SNAP_PX` presentation plus generation reset                                         |
+| Local input edge (`0094a144`)           | unchanged; `OnlinePrediction` + `LocalCombat`                                             |
+| Scheduled damage numbers (`0043da05`)   | `CombatPresentation` lifetime and per-line delay                                          |
+| Swept mob receiver (`00664559(...,1)`)  | `SkillAttack.targetBody` unions the current and previous body                             |
+| View-time hit judgement (`00678476`)    | `attackRewindTicks` widens the same sweep over the measured view window                   |
+| Local damage and popup (`009581a9`)     | `local-hits.js` records damage and draws the popup at the release frame                   |
+| Attack display (`0095931c`)             | `local-hits.js` starts the authored `hit1` pose from the local reaction                   |
+| Ordinary receiver (`00af14b8/c8`)       | `local-incoming.js` tests the drawn swing's area against it and predicts the digit        |
 
-One earlier proposal is withdrawn after measurement reasoning: a **per-tick sample stream
-inside the 90 ms entity view would not shrink the playout delay**. The binding constraint is
-the publication _cadence_ (90 ms), not the sample spacing within a batch, because the
-receiver must retain a whole batch interval to avoid running dry between batches. Cutting
-the playout needs publishing moving entities every tick, which triples the entity-view
-bandwidth and is not justified while Hermite interpolation at ~11 publications/s is already
-artifact-free.
+One earlier proposal is superseded by the move stream above. A **per-tick sample stream inside
+the 90 ms entity view** really would not have shrunk anything, because that view is serialized
+behind the application-level ack and so is bounded by the **round trip**, not by its 90 ms
+period: at 500 ms ping a peer's published position refreshed only about twice a second and
+every forecast had to bridge a full round trip, which is what produced the floating and the
+brief floor penetration. Publishing the sample stream un-acknowledged, as the native move
+packet was, decouples it from the receipt. A dense per-tick stream converges to the **60 ms**
+playout floor and interpolates between two authentic 30 ms states, so the forecast horizon
+collapses and the landing can be clamped to the sender's own contact.
 
-Still open on the incoming side, and deliberately so. A mob's attack on the local player is
-published as the mob's own action, so the swing the player sees already carries the playout
-delay (~90–320 ms) on top of the 90 ms entity publication cadence, while the `combat.impact`
-that names the player arrives about half a round trip later. The two therefore land within a
-few tens of milliseconds of each other, and the reaction the player presents comes from the
-same authoritative state. Predicting the number would need the browser to decide its own HP
-debit, which is durable state the server owns; resolving it any earlier would also draw the
-damage before the swing. The browser likewise does not predict a mob's knockback
-displacement: the server's divert merges the impulse into the local kernel, which then owns
-the resulting trajectory.
+**Implemented, as an OpenMS extension.** A mob's attack on the local player is published as
+the mob's own action, so the swing the defender draws already carries the playout delay on
+top of the entity publication cadence, while the `combat.impact` that names the player
+arrives about half a round trip later. [local-incoming.js](../client/src/online/local-incoming.js)
+now resolves that digit and the authored flinch face at the frame the drawn swing reaches its
+authored `attackAfter`, against the same authored area and the same ordinary receiver the
+authority tests. This is
+presentation only: HP, death, knockback, status and the hit sound remain authoritative, and
+the confirmed impact consumes the prediction so the digit is drawn once. The original client
+does not predict incoming damage — it is decisive for its own outgoing attack
+(`009581a9`/`0096a86e`) and server-driven for damage it receives — so this is marked as a
+latency policy for the 500 ms link, not a recovered Nexon rule. The browser still does not
+predict a mob's knockback displacement: the server's divert merges the impulse into the local
+kernel, which then owns the resulting trajectory.
 
 ## Reproduce
 

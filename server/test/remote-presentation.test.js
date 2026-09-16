@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { actorEntity } from "../src/field-views.js";
+import { actorEntity, peerMotionEntity } from "../src/field-views.js";
+import { OnlineWorld } from "../src/world.js";
 import { createProfile } from "../../client/src/profile/profile-validation.js";
-import { decodeServer } from "../../shared/protocol.js";
+import { decodeServer, PROTOCOL } from "../../shared/protocol.js";
 
 function message(entity) {
   return {
@@ -64,4 +65,142 @@ test("peer projection publishes detached effective gravity and ladder limits in 
   expect(() => decodeServer(JSON.stringify(message(view)))).toThrow(
     "INVALID_MESSAGE",
   );
+});
+
+test("the un-acked peer move stream validates and carries only sampled motion", () => {
+  const profile = createProfile({ mapId: "000050000", x: 0, y: 0, facing: 1 });
+  const sim = {
+    x: 20,
+    y: 30,
+    vx: 125,
+    vy: -100,
+    facing: -1,
+    action: "jump",
+    state: "air",
+    effectiveSettings: { gravityAcc: 2000, gravity: 1, fallSpeed: 670 },
+    ignoredFootholdId: 0,
+    contactLayer: 7,
+    contactGroup: 0,
+    ladder: null,
+  };
+  const entry = peerMotionEntity({
+    id: "peer",
+    profile,
+    simulation: sim,
+    actionStartTick: 7,
+  });
+  const frame = {
+    v: 1,
+    type: "peers",
+    connectionEpoch: "connection",
+    serverTick: 4,
+    fieldEpoch: "field",
+    tick: 4,
+    entries: [entry],
+  };
+  const decoded = decodeServer(JSON.stringify(frame));
+  expect(decoded.entries[0].position).toEqual({ x: 20, y: 30 });
+  expect(decoded.entries[0].velocity).toEqual({ x: 125, y: -100 });
+  expect(decoded.entries[0].actionStartTick).toBe(7);
+  expect(decoded.entries[0].playerMotion.state).toBe("air");
+  // No appearance, inventory or input may ride the un-acked stream.
+  expect(decoded.entries[0].appearance).toBeUndefined();
+  expect(decoded.entries[0].playerMotion.held).toBeUndefined();
+  expect(JSON.stringify(entry).length).toBeLessThan(320);
+  // Bounded entry count is enforced by the wire schema, not by hope.
+  const oversized = {
+    ...frame,
+    entries: new Array(PROTOCOL.MAX_PEER_MOTIONS + 1).fill(entry),
+  };
+  expect(() => decodeServer(JSON.stringify(oversized))).toThrow(
+    "INVALID_MESSAGE",
+  );
+});
+
+function movingActor(id, x) {
+  return {
+    id,
+    state: "active",
+    retiring: false,
+    deliveryError: null,
+    actionStartTick: 1,
+    skillField: null,
+    profile: { hp: 50 },
+    simulation: {
+      x,
+      y: 0,
+      vx: 125,
+      vy: 0,
+      facing: 1,
+      action: "walk1",
+      state: "ground",
+      foothold: { id: 1 },
+      ignoredFootholdId: 0,
+      contactLayer: 1,
+      contactGroup: 0,
+      ladder: null,
+      effectiveSettings: { gravityAcc: 2000, gravity: 1, fallSpeed: 670 },
+    },
+  };
+}
+
+function peerField(actors, tick = 4) {
+  return {
+    epoch: "field",
+    tick,
+    characters: new Map(actors.map((a) => [a.id, a])),
+  };
+}
+
+test("the un-acked move stream publishes each changed peer once per tick and never for itself", () => {
+  const a = movingActor("a", 0),
+    b = movingActor("b", 10);
+  const sent = [];
+  const host = Object.create(OnlineWorld.prototype);
+  host.publish = (actor, record) => sent.push({ to: actor.id, record });
+  host.publishPeerMotions(peerField([a, b]));
+  expect(sent.length).toBe(2);
+  for (const entry of sent) expect(entry.record.type).toBe("peers");
+  expect(
+    sent.find((entry) => entry.to === "a").record.entries.map((e) => e.id),
+  ).toEqual(["b"]);
+  expect(
+    sent.find((entry) => entry.to === "b").record.entries.map((e) => e.id),
+  ).toEqual(["a"]);
+  // An unchanged field publishes nothing.
+  sent.length = 0;
+  host.publishPeerMotions(peerField([a, b], 5));
+  expect(sent.length).toBe(0);
+  // Only the mover crosses the wire, and only to the other actor.
+  b.simulation.x = 20;
+  sent.length = 0;
+  host.publishPeerMotions(peerField([a, b], 6));
+  expect(sent.length).toBe(1);
+  expect(sent[0].to).toBe("a");
+  expect(sent[0].record.entries.map((e) => e.id)).toEqual(["b"]);
+});
+
+test("a crowded field bounds the move stream without starving an actor forever", () => {
+  const actors = Array.from({ length: 30 }, (_, index) =>
+    movingActor(`p${index}`, index),
+  );
+  const sent = [];
+  const host = Object.create(OnlineWorld.prototype);
+  host.publish = (actor, record) => sent.push({ to: actor.id, record });
+  const field = peerField(actors);
+  const seen = new Set();
+  for (let tick = 1; tick <= 30; tick++) {
+    field.tick = tick;
+    for (const actor of actors) actor.simulation.x += 1;
+    sent.length = 0;
+    host.publishPeerMotions(field);
+    for (const entry of sent) {
+      expect(entry.record.entries.length).toBeLessThanOrEqual(
+        PROTOCOL.MAX_PEER_MOTIONS,
+      );
+      for (const item of entry.record.entries) seen.add(item.id);
+    }
+  }
+  // Rotation across the bounded sample window reaches every actor.
+  expect(seen.size).toBe(30);
 });

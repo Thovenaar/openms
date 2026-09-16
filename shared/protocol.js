@@ -155,6 +155,9 @@ export const PROTOCOL = Object.freeze({
   ASSET_PREPARATION_TIMEOUT_MS: 120000,
   MAX_ENTITY_CHANGES: 128,
   MAX_INPUT_HOLD_TICKS: 3,
+  /** Bounded per-tick peer motion projection. A field renders at most this many moving
+   *  peers in one frame; the rest release on their next changed tick. */
+  MAX_PEER_MOTIONS: 24,
 });
 
 // The 89-key preference command exceeds 256 schema nodes. Domain admission and
@@ -429,6 +432,34 @@ function mobEntityFragments(value) {
   );
 }
 
+/** Closed per-tick presentation projection of another actor's own simulation. It carries
+ *  no input, inventory or private checkpoint: only what the native move path (0xb6) made
+ *  observable, at the sender's fixed 30 ms sampling cadence. */
+const playerMotionSchema = record({
+  state: enumeration("ground", "air", "ladder", "swim", "fly"),
+  gravity: number(0, 1000000, false),
+  fallSpeed: number(0, 1000000, false),
+  ignoredFoothold: u32,
+  // 009b4929: the drawing contact plane follows a foothold or a ladder's page, and it
+  // is the only depth source while climbing, when no foothold is reported.
+  contactLayer: number(0, 4096),
+  contactGroup: number(0, 4096),
+  ladder: nullable(
+    record({ x: coordinate, top: coordinate, bottom: coordinate }),
+  ),
+});
+
+const peerMotionSchema = record({
+  id,
+  position: point,
+  velocity: point,
+  foothold: nullable(u32),
+  facing,
+  action: animation,
+  actionStartTick: revision,
+  playerMotion: playerMotionSchema,
+});
+
 const entity = record(
   {
     id,
@@ -442,21 +473,7 @@ const entity = record(
     action: animation,
     actionStartTick: revision,
     appearance: nullable(appearance),
-    playerMotion: optional(
-      record({
-        state: enumeration("ground", "air", "ladder", "swim", "fly"),
-        gravity: number(0, 1000000, false),
-        fallSpeed: number(0, 1000000, false),
-        ignoredFoothold: u32,
-        // 009b4929: the drawing contact plane follows a foothold or a ladder's page, and it
-        // is the only depth source while climbing, when no foothold is reported.
-        contactLayer: number(0, 4096),
-        contactGroup: number(0, 4096),
-        ladder: nullable(
-          record({ x: coordinate, top: coordinate, bottom: coordinate }),
-        ),
-      }),
-    ),
+    playerMotion: optional(playerMotionSchema),
     dropMotion: optional(
       record({
         state: enumeration("waiting", "launching", "falling", "grounded"),
@@ -891,6 +908,14 @@ export const serverSchema = union("type", {
     roundTripMs: nullable(u32),
   }),
   closing: serverRecord("closing", { code, retryAfterMs: u32 }),
+  /** The native move packet: an unacknowledged, per-tick stream of other actors' sampled
+   *  motion. It is deliberately outside the ordered/acked publication sequence, so a slow
+   *  round trip cannot throttle how often peers move on screen. */
+  peers: serverRecord("peers", {
+    fieldEpoch: id,
+    tick: revision,
+    entries: array(peerMotionSchema, PROTOCOL.MAX_PEER_MOTIONS),
+  }),
   motion: serverRecord("motion", {
     fieldEpoch: id,
     ackInputSeq: nullable(seq),

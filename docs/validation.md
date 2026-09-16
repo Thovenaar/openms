@@ -426,3 +426,57 @@ bun server/tools/check-remote-motion.js --output /tmp/openms-remote-motion
 bun test client/test/remote-presentation.test.js server/test/remote-presentation.test.js client/test/combat-latency.test.js client/test/drop-rotation.test.js client/test/drop-system.test.js server/test/field-drops.test.js client/test/online-protocol.test.js server/test/field-combat.test.js
 bun client/tools/build-online.js
 ```
+
+## Peer move stream and incoming feedback
+
+**Symptom.** At 500 ms ping a peer appeared to float and briefly clip through a platform after a
+jump or a rope drop.
+
+**Cause.** Peer membership/appearance rode the ordered `state` frame, which the server
+serializes behind an application-level ack (`pendingStateId` in
+[publication.js](../server/src/publication.js)). At most one state frame is outstanding, so
+that path is bounded by the **round trip**, not by its 90 ms period: the browser received a
+new peer position only about twice a second and had to forecast across a full round trip. That
+forecast is where the floating and the brief floor penetration came from.
+
+**Correction.** Sampled motion now rides a separate un-acknowledged `peers` frame, the browser
+form of the native move packet `0xb6`: one sample per changed peer per 30 ms tick
+([world.js](../server/src/world.js) `publishPeerMotions`), applied directly to the drawn actor
+([scene.js](../client/src/online/scene.js) `peers`). The ordered `state` frame keeps
+membership, appearance and removal, and no longer replays its older sample over a peer the
+move stream already owns. `RemoteMotion` interpolates between two authentic 30 ms states and
+clamps a landing span to the landed sample's foothold surface.
+
+A deterministic trace tool ([peer-latency-trace.js](../client/tools/peer-latency-trace.js), no
+browser, account or database) drives the peer through the real shared kernel over a run, jump,
+rope climb and rope drop, delivers samples at a **250 ms one-way** leg and measures the drawn
+pose against the true state at the presented content time:
+
+| Sample delivery                                 | Playout | Worst grounded error |
+| ----------------------------------------------- | ------: | -------------------: |
+| One sample per 90 ms, serialized behind the ack |  192 ms |               14.1 px |
+| One sample per 90 ms, un-throttled              |  144 ms |                5.3 px |
+| Native move stream, one sample per 30 ms tick   |   60 ms |                5.6 px |
+
+This establishes the reconstruction lag and playout of the presentation path only; it is not a
+Windows capture, an internet bandwidth measurement or a claim about every movement controller.
+
+**Incoming feedback.** [local-incoming.js](../client/src/online/local-incoming.js) additionally
+resolves the defender's damage digit and authored flinch face at the frame the drawn mob swing
+reaches its authored `attackAfter`, against the same authored area and ordinary receiver (`00af14b8`/`00af14c8`)
+the authority tests. HP, death, knockback, status and the hit sound remain authoritative; the
+confirmed `combat.impact` consumes the prediction by actor so the digit is drawn once, and a
+missed or refused outcome is still shown as a correction. This is an OpenMS latency policy,
+not a recovered Nexon rule (the original client is server-driven for damage it receives).
+
+```sh
+bun test client/test/remote-move-stream.test.js client/test/local-incoming.test.js \
+  server/test/remote-presentation.test.js client/test/remote-presentation.test.js \
+  client/test/combat-latency.test.js server/test/motion-adoption.test.js
+bun client/tools/peer-latency-trace.js --interval 3 --gated   # round-trip-bound path
+bun client/tools/peer-latency-trace.js                        # native per-tick move stream
+```
+
+Changed files pass Prettier and ESLint. Two pre-existing `client/test/online-skill-motion.test.js`
+failures and five pre-existing `server/test/publication.test.js`/lifecycle fixture failures
+remain at the baseline commit and are unrelated to this path.

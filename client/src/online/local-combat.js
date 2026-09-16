@@ -1,5 +1,6 @@
 import { LocalProjectiles } from "./local-projectiles.js";
 import { LocalHits } from "./local-hits.js";
+import { LocalIncoming } from "./local-incoming.js";
 import { localAttackSpec } from "./local-combat-rules.js";
 import {
   weaponActionDuration,
@@ -22,6 +23,7 @@ export class LocalCombat {
     this.sequence = 0;
     this.projectiles = new LocalProjectiles(this);
     this.hits = new LocalHits(this, now);
+    this.incoming = new LocalIncoming(this, now);
   }
   bind() {
     const scene = this.owner.hooks.scene();
@@ -148,6 +150,7 @@ export class LocalCombat {
         ? { ...entity.combatState, owned: this.owns(entity) }
         : null,
       projectiles: this.projectiles.flights.size,
+      incoming: this.incoming.pending.size,
       records: [...this.records.values()].map((record) => ({
         identity: record.identity,
         skillId: record.skillId,
@@ -165,6 +168,7 @@ export class LocalCombat {
   destroy() {
     for (const record of this.records.values()) this.reject(record);
     this.hits.destroy();
+    this.incoming.destroy();
     if (this.scene) this.scene.localCombat = null;
     this.scene = null;
     this.records.clear();

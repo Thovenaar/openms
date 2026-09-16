@@ -1,6 +1,8 @@
-const SAMPLE_CAPACITY = 16;
-/** Playout adapts between these bounds. A 90 ms publication cadence converges to ~150 ms,
- *  enough to survive one late packet without ever rendering an extrapolated frame. */
+/** The native move path is refilled every tick; 32 samples hold ~960 ms, comfortably more
+ *  than one network leg plus the playout delay, so the render time stays inside the buffer. */
+const SAMPLE_CAPACITY = 32;
+/** Playout adapts between these bounds. A dense per-tick stream converges to ~60 ms, enough
+ *  to absorb jitter without rendering an extrapolated frame. */
 const MIN_PLAYOUT_MS = 60;
 const MAX_PLAYOUT_MS = 320;
 const BASE_PLAYOUT_MS = 120;
@@ -50,16 +52,19 @@ function sampleEntry() {
   };
 }
 
-/** Display-only reconstruction of a peer's motion from received publications.
+/** Display-only reconstruction of a peer's motion from received move samples.
  *
- *  Publications are buffered and the actor is drawn slightly in the past, interpolating
- *  with a cubic Hermite that uses both the position and the velocity of the two bracketing
- *  samples. That is the native `CMovePath` replay: a continuous clock refilled by packets,
- *  never restarted by them. When the buffer is momentarily shallow the newest sample is
- *  forecast for at most one interval, then coasts smoothly to rest. The drawn pose chases
- *  the buffered target along the error vector at a rate above any original movement speed,
- *  so reconciliation bends the path instead of snapping it and never lags a real jump; only
- *  a relocation or an impossible discontinuity is presented outright. */
+ *  The peer's own simulation is published every tick on the un-acked `peers` stream, exactly
+ *  as the native move path (`0xb6`) carried a list of 30 ms samples. Those samples are
+ *  buffered and the actor is drawn slightly in the past, interpolating with a cubic Hermite
+ *  that uses both the position and the velocity of the two bracketing samples. That is the
+ *  native `CMovePath` replay: a continuous clock refilled by packets, never restarted by
+ *  them, landing on the sender's own foothold contact instead of a reconstruction. When the
+ *  buffer is momentarily shallow the newest sample is forecast for at most one interval, then
+ *  coasts smoothly to rest. The drawn pose chases the buffered target along the error vector
+ *  at a rate above any original movement speed, so reconciliation bends the path instead of
+ *  snapping it and never lags a real jump; only a relocation or an impossible discontinuity
+ *  is presented outright. */
 export class RemoteMotion {
   constructor(entity, tick, now, trajectory = null) {
     this.trajectory = trajectory;
@@ -230,11 +235,31 @@ export class RemoteMotion {
         after = this.at(index + 1);
       if (time < before.time) continue;
       this.hermite(before, after, time);
+      this.clampContact(before, after);
       return this.scratch;
     }
     this.scratch.x = newest.x;
     this.scratch.y = newest.y;
     return this.scratch;
+  }
+
+  /** A cubic Hermite between an airborne sample and the sample where the peer lands
+   *  overshoots a couple of pixels through the platform. The native replay applies the
+   *  landed sample's foothold contact; this never draws the peer below the surface it is
+   *  arriving on, and never pulls back a peer that is leaving a contact. */
+  clampContact(before, after) {
+    const floor = after.foothold;
+    if (!floor) return;
+    if (before.foothold && before.foothold !== floor) return;
+    if (floor.x1 === floor.x2) return;
+    const x = this.scratch.x;
+    if (x < Math.min(floor.x1, floor.x2) || x > Math.max(floor.x1, floor.x2)) {
+      return;
+    }
+    const y =
+      floor.y1 +
+      ((x - floor.x1) * (floor.y2 - floor.y1)) / (floor.x2 - floor.x1);
+    if (this.scratch.y > y) this.scratch.y = y;
   }
 
   /** Cubic Hermite between two publications, matching both positions and both velocities. */

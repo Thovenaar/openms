@@ -79,6 +79,7 @@ export class OnlineScene {
     this.selfId = null;
     this.tick = 0;
     this.motionNow = performance.now();
+    this.peerClockOffset = null;
     this.remoteGeometry = null;
     this.paused = false;
     this.follow = true;
@@ -121,6 +122,7 @@ export class OnlineScene {
   }
   async replace(snapshot) {
     this.tick = snapshot.serverTick;
+    this.peerClockOffset = null;
     const ids = new Set([snapshot.self.entity.id]);
     await this.upsert(snapshot.self.entity);
     for (const entity of snapshot.entities) {
@@ -148,6 +150,50 @@ export class OnlineScene {
     });
     return work;
   }
+  /** The native move packet: another actor's sampled motion, one entry per changed tick.
+   *  Display-only and un-acked. It never admits state or spawns/removes an entity, and an
+   *  unknown id is ignored until its ordered view arrives. Samples are placed on the server
+   *  tick timeline (offset once onto the presentation clock) so a burst or an idle gap keeps
+   *  its true 30 ms spacing instead of collapsing into the arrival time. */
+  peers(message) {
+    if (message.fieldEpoch !== this.fieldEpoch) return;
+    this.peerClockOffset ??= this.motionNow - message.tick * PROTOCOL.TICK_MS;
+    const now = message.tick * PROTOCOL.TICK_MS + this.peerClockOffset;
+    for (const entry of message.entries) {
+      const view = this.views.get(entry.id);
+      if (!view || view.entity.kind !== "player" || entry.id === this.selfId) {
+        continue;
+      }
+      const previousY = view.entity.position.y;
+      view.entity = {
+        ...view.entity,
+        position: entry.position,
+        velocity: entry.velocity,
+        foothold: entry.foothold,
+        facing: entry.facing,
+        action: entry.action,
+        actionStartTick: entry.actionStartTick,
+        playerMotion: entry.playerMotion,
+      };
+      view.received = this.motionNow;
+      view.observedAge = 0;
+      view.motionTick = message.tick;
+      view.actionClock.observe(view.entity);
+      view.motion.observe(
+        view.entity,
+        message.tick,
+        now,
+        this.footholds.get(entry.foothold),
+      );
+      view.holdClimb = holdObservedClimb(
+        animationName(entry.action),
+        previousY,
+        entry.position.y,
+      );
+      this.updateViewDepth(view);
+    }
+  }
+
   async upsert(entity) {
     this.controller.signal.throwIfAborted();
     if (entity.kind === "npc") return this.upsertNpc(entity);
@@ -213,6 +259,25 @@ export class OnlineScene {
   }
   updateView(view, entity) {
     const previousY = view.entity.position.y;
+    // The ordered state frame is acked and therefore round-trip bound; the un-gated peer
+    // move stream is newer. Never regress a moving peer's sampled motion behind it, and do
+    // not replay its older sample: the peer stream already owns this actor's clock.
+    const peerOwned =
+      entity.kind === "player" &&
+      view.motionTick !== undefined &&
+      this.tick <= view.motionTick;
+    if (peerOwned) {
+      entity = {
+        ...entity,
+        position: view.entity.position,
+        velocity: view.entity.velocity,
+        foothold: view.entity.foothold,
+        facing: view.entity.facing,
+        action: view.entity.action,
+        actionStartTick: view.entity.actionStartTick,
+        playerMotion: view.entity.playerMotion,
+      };
+    }
     if (entity.placementId) {
       this.lifeEntities.set(entity.placementId, view);
       view.animation.gameplayOwned = true;
@@ -222,13 +287,15 @@ export class OnlineScene {
     view.received = this.motionNow;
     view.observedAge = 0;
     view.entity = entity;
-    view.actionClock.observe(entity);
-    view.motion.observe(
-      entity,
-      this.tick,
-      view.received,
-      this.footholds.get(entity.foothold),
-    );
+    if (!peerOwned) {
+      view.actionClock.observe(entity);
+      view.motion.observe(
+        entity,
+        this.tick,
+        view.received,
+        this.footholds.get(entity.foothold),
+      );
+    }
     if (entity.id === this.selfId) this.localCombat?.observe(entity);
     view.holdClimb = holdObservedClimb(
       animationName(entity.action),
@@ -783,6 +850,11 @@ export class OnlineScene {
     const simulation = this.interpolateView(view, now);
     if (view.entity.id === this.selfId) this.drawSelfPose(view, simulation);
     if (active && !this.paused) this.advanceView(view, elapsed);
+    // A drawn mob swing releases its authored area locally; the confirmation only replaces
+    // the digit if the authority actually landed a different outcome.
+    if (active && !this.paused && view.entity.kind === "mob") {
+      this.localCombat?.incoming?.observe(view, elapsed);
+    }
     if (view.mobName) {
       view.mobName.visible =
         view.entity.mobState.nameVisible &&

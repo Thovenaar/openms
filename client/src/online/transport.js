@@ -588,11 +588,15 @@ export class OnlineTransport {
       return;
     }
     if (this.baselines.pending) {
+      // Peer motion is display-only and meaningless before a baseline installs; unlike the
+      // local checkpoint it must not accumulate in the deferred buffer.
+      if (message.type === "peers") return;
       this.deferred.push({ message, bytes, receivedAt });
       this.deferredBytes += bytes;
       return;
     }
     if (message.type === "motion") return this.motion(message, receivedAt);
+    if (message.type === "peers") return this.peers(message);
     if (!this.admitPublication(message)) return;
     this.publishOrdered(message, bytes);
   }
@@ -622,6 +626,22 @@ export class OnlineTransport {
       // Retire prediction history and apply impulses without waiting for textures.
       this.callbacks.onMotion?.(observed);
     } else this.renderer.push("motion", observed);
+  }
+
+  /** The native move packet: an ordered-by-arrival, unacknowledged peer sample stream.
+   *  It never gates the acked publication sequence and carries no durable state. */
+  peers(message) {
+    if (message.fieldEpoch !== this.expectedFieldEpoch || this.resyncing) {
+      return;
+    }
+    this.serverTick = Math.max(this.serverTick, message.serverTick);
+    const observed = freezeView(message);
+    if (
+      this.status === "active" &&
+      this.renderer.fieldEpoch === message.fieldEpoch
+    ) {
+      this.callbacks.onPeers?.(observed);
+    } else this.renderer.push("peers", observed);
   }
 
   /** Admit an ordered publication against the fully installed baseline, never partial parts. */

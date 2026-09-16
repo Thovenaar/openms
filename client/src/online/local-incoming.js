@@ -1,0 +1,234 @@
+import { PhysicalDamage } from "../combat/physical-damage.js";
+import {
+  overlaps,
+  placeBody,
+  rectangleState,
+} from "../world/life-geometry-numeric.js";
+import { animationName } from "../../../shared/motion-schema.js";
+
+/** 00af14b8/00af14c8 ordinary and prone receiver rectangles, the same body the authority
+ *  tests an incoming authored area against. */
+const ORDINARY_BODY = { left: -22, top: -65, right: 22, bottom: 0 };
+const PRONE_BODY = { left: -46, top: -31, right: 0, bottom: 0 };
+const PREDICTION_TTL_MS = 4000;
+/** `PLAYER_HIT.timerMs` in offline-field.js; the authored flinch face duration (00959321). */
+const HIT_EXPRESSION_MS = 1500;
+const MAX_PENDING = 32;
+const MAX_ARMS = 256;
+
+/** The attacking client resolves its own outgoing feedback locally. Incoming feedback has
+ *  the same problem in reverse: the mob's authored swing is already drawn from a published
+ *  action, so the defender can resolve the number at that frame instead of waiting for the
+ *  authoritative impact. This owner predicts only the digit. HP, death, knockback, status
+ *  and the hit sound remain authoritative, and the confirmed impact consumes the prediction
+ *  so the number is shown once. */
+export class LocalIncoming {
+  constructor(combat, now = () => performance.now(), random = Math.random) {
+    this.combat = combat;
+    this.now = now;
+    this.damage = new PhysicalDamage(random);
+    this.attackBody = rectangleState();
+    this.receiver = rectangleState();
+    this.clocks = new Map();
+    this.armed = new Set();
+    this.pending = new Map();
+  }
+
+  /** The online scene owns the entity views. */
+  get scene() {
+    return this.combat.scene;
+  }
+
+  /** The stream scene exposes the local observed simulation (crouch/prone receiver). */
+  get stage() {
+    return this.combat.scene?.scene ?? null;
+  }
+
+  /** Observe one drawn mob frame and resolve the authored release once per attack instance.
+   *  The published action clock is advanced locally between round-trip-bound snapshots. */
+  observe(view, elapsed) {
+    const entity = view.entity;
+    if (!entity || entity.kind !== "mob") return;
+    const attacks = view.life?.combat?.attacks;
+    if (!this.tracking(entity, attacks)) return;
+    const clock = this.advanceClock(entity, elapsed);
+    const attack = this.releasedAttack(attacks, clock);
+    if (!attack || !this.arm(entity)) return;
+    this.resolve(view, attack);
+  }
+
+  tracking(entity, attacks) {
+    if (entity.mobState?.phase === "attack" && attacks?.length) return true;
+    this.clocks.delete(entity.id);
+    this.armed.delete(entity.id);
+    return false;
+  }
+
+  advanceClock(entity, elapsed) {
+    const action = animationName(entity.action);
+    let clock = this.clocks.get(entity.id);
+    if (
+      !clock ||
+      clock.action !== action ||
+      clock.tick !== entity.actionStartTick
+    ) {
+      clock = { action, tick: entity.actionStartTick, elapsed: 0 };
+      this.clocks.set(entity.id, clock);
+    }
+    const step = Number.isFinite(elapsed) ? elapsed : 0;
+    clock.elapsed = Math.max(
+      clock.elapsed + step,
+      entity.mobState?.elapsedMs ?? 0,
+    );
+    return clock;
+  }
+
+  releasedAttack(attacks, clock) {
+    const attack = attacks.find(
+      (entry) =>
+        entry.action === clock.action && entry.supported && entry.rectangle,
+    );
+    if (!attack) return null;
+    const after = Number(attack.properties?.attackAfter);
+    return clock.elapsed >= (Number.isFinite(after) ? after : 0)
+      ? attack
+      : null;
+  }
+
+  arm(entity) {
+    const key = `${entity.id}:${entity.actionStartTick}`;
+    if (this.armed.has(key)) return false;
+    if (this.armed.size >= MAX_ARMS) this.armed.clear();
+    this.armed.add(key);
+    return true;
+  }
+
+  resolve(view, attack) {
+    const self = this.localTarget();
+    const info = view.life?.info;
+    const stats = this.combat.owner.hooks.characterStats?.();
+    if (!self || !info || !stats) return;
+    if (!this.overlapsPlayer(view, attack, self, info)) return;
+    const amount = this.roll(info, stats, attack);
+    if (amount === null) return;
+    this.remember(view.entity.id, amount);
+    this.present(self, amount);
+  }
+
+  localTarget() {
+    const scene = this.scene;
+    const self = scene?.views.get(scene.selfId);
+    if (!self || self.entity.combatState?.phase === "dead") return null;
+    return self;
+  }
+
+  /** The local player's receiver as the authority computes it for an incoming area. */
+  overlapsPlayer(view, attack, self, info) {
+    const flipped = view.entity.facing > 0 && !info.noFlip;
+    placeBody(
+      this.attackBody,
+      attack.rectangle,
+      { x: view.drawX, y: view.drawY },
+      flipped,
+    );
+    this.placeReceiver(self);
+    return overlaps(this.attackBody, this.receiver);
+  }
+
+  placeReceiver(view) {
+    const simulation = this.stage?.simulation;
+    const prone =
+      simulation?.crouching === true && simulation?.state === "ground";
+    placeBody(
+      this.receiver,
+      prone ? PRONE_BODY : ORDINARY_BODY,
+      { x: view.drawX, y: view.drawY },
+      view.entity.facing > 0,
+    );
+  }
+
+  roll(info, stats, attack) {
+    const magic = attack.properties?.magic === 1;
+    const authored = attack.properties?.PADamage;
+    let amount;
+    try {
+      amount = this.damage.receive(stats, info, {
+        magic,
+        attackPADamage:
+          Number.isSafeInteger(authored) && authored >= 0 ? authored : null,
+      });
+    } catch {
+      return null;
+    }
+    return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
+  }
+
+  remember(sourceId, amount) {
+    this.prune();
+    let queue = this.pending.get(sourceId);
+    if (!queue) {
+      queue = [];
+      this.pending.set(sourceId, queue);
+    }
+    if (queue.length >= MAX_PENDING) queue.shift();
+    queue.push({ at: this.now(), damage: amount });
+  }
+
+  /** Draw the predicted digit over the local player at the frame the swing lands, and start
+   *  the authored flinch face on the same clock (`PLAYER_HIT.timerMs`, `00959321`). */
+  present(view, amount) {
+    const events = this.scene?.events;
+    if (!events || !this.reserve(events)) return;
+    const animation = view.animation;
+    if (animation.expressions?.has("hit")) {
+      animation.setExpression("hit", HIT_EXPRESSION_MS);
+    }
+    const geometry = animation.current?.geometry?.[animation.frame] ?? { y: 0 };
+    events.combat.show(
+      amount,
+      2,
+      events.combat.fixedNumberPlacement(view.drawX, view.drawY + geometry.y),
+    );
+  }
+
+  reserve(events) {
+    const numbers = events.combat?.snapshot?.();
+    if (
+      numbers &&
+      numbers.active + numbers.pending + 1 > numbers.hardCapacity
+    ) {
+      return false;
+    }
+    events.reserveNumber();
+    return true;
+  }
+
+  /** True when one local prediction already presented this authoritative incoming event. */
+  consume(event) {
+    if (event.cause !== "mob-attack") return false;
+    if (event.targetId !== this.combat.scene?.selfId) return false;
+    const queue = this.pending.get(event.actorId);
+    if (!queue?.length) return false;
+    // A missed or refused authoritative outcome is still drawn, so the correction is seen.
+    if (event.damage <= 0) return false;
+    const prediction = queue.shift();
+    if (!queue.length) this.pending.delete(event.actorId);
+    return this.now() - prediction.at <= PREDICTION_TTL_MS;
+  }
+
+  prune() {
+    const now = this.now();
+    for (const [sourceId, queue] of this.pending) {
+      while (queue.length && now - queue[0].at > PREDICTION_TTL_MS) {
+        queue.shift();
+      }
+      if (!queue.length) this.pending.delete(sourceId);
+    }
+  }
+
+  destroy() {
+    this.clocks.clear();
+    this.armed.clear();
+    this.pending.clear();
+  }
+}

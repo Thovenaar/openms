@@ -81,6 +81,25 @@ function playerMotion(sim) {
   };
 }
 
+/** The per-tick move-path sample another actor needs to replay this one's motion.
+ *  The native client published the same fields on its move packet: position, velocity,
+ *  foothold contact, action and the effective movement coefficients. */
+export function peerMotionEntity(actor) {
+  const sim = actor.simulation;
+  return {
+    id: actor.id,
+    position: { x: sim.x, y: sim.y },
+    velocity: { x: sim.vx, y: sim.vy },
+    foothold: sim.foothold?.id ?? null,
+    facing: sim.facing,
+    action: animationId(
+      actor.profile.hp <= 0 ? "dead" : (actor.skillField?.action ?? sim.action),
+    ),
+    actionStartTick: actor.actionStartTick,
+    playerMotion: playerMotion(sim),
+  };
+}
+
 export function lifeEntity(entity, kind) {
   return {
     id: entity.id,

@@ -80,6 +80,7 @@ const transport = new OnlineTransport({
   onSnapshot: install,
   onState: state,
   onMotion: motion,
+  onPeers: peers,
   onTiming: timing,
   onEvent: event,
   onTransition: transition,
@@ -192,6 +193,14 @@ function motion(message) {
   } catch (error) {
     report(error);
     transport.resync("prediction-overflow");
+  }
+}
+/** The un-gated peer move stream: display-only, never admitted into the local kernel. */
+function peers(message) {
+  try {
+    current?.peers(message);
+  } catch (error) {
+    report(error);
   }
 }
 function timing(value) {

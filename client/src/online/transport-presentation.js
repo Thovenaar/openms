@@ -116,6 +116,9 @@ export class TransportPresentation {
       case "motion":
         callbacks.onMotion?.(value);
         break;
+      case "peers":
+        callbacks.onPeers?.(value);
+        break;
       case "state":
         callbacks.onState?.(value);
         break;
