@@ -194,7 +194,7 @@ export class DownloadDetails {
       : state.status === "complete"
         ? "Saved"
         : "Saving";
-    return `${verb} ${state.complete} / ${state.files} files · ${this.formatBytes(state.doneBytes)} / ${this.formatBytes(state.bytes)}`;
+    return `${verb} ${state.complete} / ${state.files} files${downloadCountText(state)} · ${this.formatBytes(state.doneBytes)} / ${this.formatBytes(state.bytes)}`;
   }
   updateBar(target, state) {
     const percent = state?.bytes
@@ -212,4 +212,14 @@ export class DownloadDetails {
     this.dialog.remove();
     this.indicator.remove();
   }
+}
+
+/**
+ * Members are cache entries, not transfers: one packed or shared container can
+ * save hundreds of requests. Only say so when the two counts really differ.
+ */
+export function downloadCountText(state) {
+  return Number.isInteger(state?.downloads) && state.downloads < state.files
+    ? ` (${state.downloads} downloads)`
+    : "";
 }

@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { indicatorPresentation } from "../src/online/download-details.js";
+import {
+  downloadCountText,
+  indicatorPresentation,
+} from "../src/online/download-details.js";
 
 const HINT = "Show download details";
 
@@ -48,4 +51,15 @@ test("paused and terminal states describe themselves, not a fake transfer", () =
   expect(
     indicatorPresentation({ status: "cache-unavailable" }, false, "R").label,
   ).toBe(`Downloads unavailable. ${HINT}`);
+});
+
+test("saved members report the transfers that actually carried them", () => {
+  expect(downloadCountText({ files: 6498, downloads: 304 })).toBe(
+    " (304 downloads)",
+  );
+  // One request per member is not worth restating.
+  expect(downloadCountText({ files: 12, downloads: 12 })).toBe("");
+  expect(downloadCountText({ files: 12, downloads: 13 })).toBe("");
+  expect(downloadCountText({ files: 12 })).toBe("");
+  expect(downloadCountText(null)).toBe("");
 });

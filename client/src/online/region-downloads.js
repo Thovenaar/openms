@@ -1,6 +1,7 @@
 import { assetRegions } from "./asset-regions.js";
 import { RegionDownloadPlan } from "./region-download-plan.js";
 import { visualBundle } from "../rendering/stream-validation.js";
+import { validateRegionPackIndex } from "../assets/region-pack.js";
 
 /** Encoded cache warming only; foreground networking keeps two reserved slots. */
 export class RegionDownloads {
@@ -10,6 +11,8 @@ export class RegionDownloads {
     this.loading = loading;
     this.signal = signal;
     this.regions = null;
+    this.packs = null;
+    this.packStatus = "pending";
     this.plans = new Map();
     this.queue = [];
     this.currentMap = null;
@@ -27,11 +30,30 @@ export class RegionDownloads {
         ),
       );
       this.regions = assetRegions(this.catalog, world.metadata);
+      this.packs = await this.loadPacks();
       this.enqueue(this.regions.defaultRegion);
       if (this.currentMap) this.select(this.currentMap);
       this.kick();
     } catch (error) {
       this.failed(error);
+    }
+  }
+  /** A missing, stale or unreadable index only downgrades delivery to one file per request. */
+  async loadPacks() {
+    const descriptor = import.meta.OPENMS_REGION_PACK_INDEX;
+    if (!descriptor || typeof DecompressionStream !== "function") {
+      this.packStatus = "absent";
+      return null;
+    }
+    try {
+      const index = await this.network.json(descriptor, this.signal, true);
+      const packs = validateRegionPackIndex(index, this.catalog.buildId);
+      this.packStatus = "loaded";
+      return packs;
+    } catch (error) {
+      if (this.signal.aborted) throw error;
+      this.packStatus = `rejected: ${error.message}`;
+      return null;
     }
   }
   select(mapId) {
@@ -46,7 +68,12 @@ export class RegionDownloads {
     if (!region) return;
     let plan = this.plans.get(id);
     if (!plan) {
-      plan = new RegionDownloadPlan(region, this.catalog, this.network);
+      plan = new RegionDownloadPlan(
+        region,
+        this.catalog,
+        this.network,
+        this.packs,
+      );
       this.plans.set(id, plan);
     }
     if (plan.status !== "downloading") return;
@@ -88,6 +115,7 @@ export class RegionDownloads {
     if (!plan || this.signal.aborted) return;
     this.state = {
       ...plan.snapshot(),
+      packStatus: this.packStatus,
       paused: this.paused,
       queuedRegions: this.queue
         .filter((item) => item !== plan)

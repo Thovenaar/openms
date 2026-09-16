@@ -87,6 +87,35 @@ After the initial login artwork is ready, the client automatically queues **Vict
 
 Each region follows every packaged map manifest to its complete scenery-region and atlas descriptors, including all declared mob artwork and available mob sound families, plus map minimaps and music. Shared files deduplicate by URL/hash. The retained catalog's Victoria plan contains **268 maps, 6,498 files and 1,475,943,505 bytes**; this is the available extracted region, not a claim that unavailable original maps have been extracted. Planning that closure from local manifests took **3.032 s**, without reading/decoding image payloads or rebuilding extraction.
 
+### Region packs and shared asset containers
+
+A member count is not a transfer count. The online browser build now publishes two aggregation layers under `/generated/packs/`, both derived from the retained generated tree without rerunning extraction:
+
+- One **map pack** per packaged map, carrying its manifest, its scenery regions and its minimap bundle as a self-describing container of individually gzipped members.
+- **Shared asset containers** carrying the atlas artwork, map music and mob sounds that many maps reach. Grouping follows original WorldMap ownership (widest reach last), so a region's own artwork stays together while genuinely global mob artwork shares one container instead of being duplicated into every map pack.
+
+Both layers use the same container format: an 8-byte `OPENMSRP` magic, a bounded big-endian header length, a JSON member index, then each member's bytes. JSON members are gzipped; PNG and MP3 travel as identity members because they are already compressed. Every member is content-addressed, so its URL restates its hash and a verified container authenticates its own index. The client fetches one container, verifies the container hash against the compiled index descriptor, verifies every member against its URL-derived hash, and only then writes the existing per-file cache entries. Each member keeps its own stream, so the persistent cache stays exactly as small as ordinary per-file delivery; the container itself is never cached.
+
+`client/tools/region-packs.js` builds both layers during the online build and publishes a catalog-bound index (`generated.regionPackIndex`, compiled in as `OPENMS_REGION_PACK_INDEX`). The index binds to the catalog build id, so a stale pack set is ignored rather than mixed with fresh descriptors. Pack identity is a digest of the map and minimap descriptors, and container identity is a digest of the whole shared-asset set, so an unchanged rebuild reuses every published blob without reading or recompressing it.
+
+The retained catalog measured **735 map packs / 17,119 JSON members / 3,658,861,975 declared bytes -> 235,155,687 container bytes**, plus **98 shared containers / 4,557 unique assets / 437,376,219 declared bytes -> 438,291,012 container bytes**, with a **1,003,191-byte** index (**244 KiB** gzipped). A cold build published every blob in **20.3 s**; an unchanged rebuild reuses packs and containers and adds no measurable stage beyond the existing startup pack.
+
+The effect is on requests, not bytes:
+
+| Warm target | Member files | Before | After |
+| --- | ---: | ---: | ---: |
+| Victoria Island | 6,498 | ~10,979 requests | **304** (268 packs + 36 shared containers) |
+| Every packaged map | — | ~35,700 requests | **833** (735 packs + 98 containers) |
+
+The "before" column counts the guaranteed `<url>.gz` probe that every sub-64 KiB JSON member cost before its raw fetch; the "after" column leaves no per-file leftovers for these regions. Bytes are essentially unchanged (Victoria ~233 MiB -> ~236 MiB) because grouping only trades a small amount of partial-container overhead for far fewer round trips.
+
+```sh
+bun client/tools/build-online.js
+bun test client/test/online-region-pack.test.js client/test/region-downloads.test.js client/test/download-details.test.js
+```
+
+The details window distinguishes the two counts: `Saving 1986 / 6498 files (304 downloads)`. A missing, stale or damaged index, a failed container transfer or storage loss all downgrade that region to ordinary per-file delivery without disconnecting gameplay.
+
 Downloads use the existing verified cache and at most two background requests. The shared four-slot gate reserves two slots for foreground work and chooses queued gameplay work first; browser requests also carry low priority for prefetch. No background image decoding or GPU upload occurs. Plans contain at most 16,384 files, yield between two-file batches, and report discovered/verified bytes as their frontier expands. The quota-aware disk ceiling is now **4 GiB / 32,768 files**, still leaving browser quota headroom. Admission is judged on descriptor byte lengths, while compressed siblings mean the resulting disk cost is usually lower than that conservative estimate. A plan that cannot fit with 256 MiB reserved for foreground assets stops with an explicit storage message. Cache loss or a failed request stops that regional plan without disconnecting gameplay. Closing the details window keeps downloading; Pause stops admission after the current small batch.
 
 ### Slow downloads and recovery
