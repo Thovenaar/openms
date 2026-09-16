@@ -47,6 +47,37 @@ body {
   cursor: pointer;
   text-decoration: none;
 }
+/* Live server ping on the shell's left edge; the dot and text share the quality color. */
+#project-ping {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: auto;
+  padding: 0 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+#project-ping::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 1px #ffffff88;
+}
+#project-ping[data-quality="good"] {
+  color: #0a7a0a;
+}
+#project-ping[data-quality="fair"] {
+  color: #a15c00;
+}
+#project-ping[data-quality="poor"] {
+  color: #c00000;
+}
+#project-ping[data-quality="unknown"] {
+  color: #6b6b6b;
+}
 #project-bar a:hover,
 #project-bar button:hover {
   border-color: #dfdfdf #808080 #808080 #dfdfdf;
@@ -959,8 +990,8 @@ aside.inspection-chrome {
 /* Background activity borrows the startup window's Windows 95 bevel and navy accent. */
 #asset-loading {
   position: absolute;
-  right: 14px;
-  bottom: 86px;
+  right: 6px;
+  bottom: 6px;
   z-index: 2147483646;
   display: flex;
   align-items: center;

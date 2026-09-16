@@ -30,6 +30,7 @@ import {
 import { prepareLoginStartup } from "./login-startup.js";
 import { preloadStartupAssets } from "./startup-preload.js";
 import { prepareStartupPack } from "./startup-pack.js";
+import { setProjectPing } from "../browser/project-ping.js";
 import { NativeOperationRefusal } from "./native-source.js";
 import { portalEntryContains } from "../world/portal-presentation.js";
 import { applyWorldContent } from "../../../shared/world-content.js";
@@ -166,6 +167,8 @@ function status(value) {
   login?.status(value);
   ui?.status(value);
   inspection?.status(value);
+  // Connection teardown resets the clock, so a stale round trip clears itself.
+  setProjectPing(value.timing.roundTripMs);
   if (value.status !== "active") clearInput();
 }
 
@@ -205,6 +208,7 @@ function peers(message) {
 }
 function timing(value) {
   prediction.timing(value);
+  setProjectPing(value.roundTripMs);
 }
 function event(message) {
   inspection?.event(message);
