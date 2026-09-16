@@ -13,6 +13,34 @@ export function assetLabel(url) {
   return `${kind} · ${url.split("/").at(-1).slice(0, 18)}…`;
 }
 
+/**
+ * The project-bar symbol reports activity only; the dialog carries the detail.
+ * @param {{status?: string, paused?: boolean}|null} state Background download state.
+ * @param {boolean} active Whether a foreground resource token is in flight.
+ * @param {string} title Human name of the current resource or region.
+ * @returns {{phase: string, label: string}} Symbol phase and accessible description.
+ */
+export function indicatorPresentation(state, active, title) {
+  const status = state?.status ?? (active ? "downloading" : "idle");
+  const phase = state?.paused ? "paused" : status;
+  const hint = "Show download details";
+  switch (phase) {
+    case "complete":
+      return { phase, label: `Downloads complete. ${hint}` };
+    case "paused":
+      return { phase, label: `Downloads paused. ${hint}` };
+    case "failed":
+      return { phase, label: `Downloads stopped. ${hint}` };
+    case "cache-unavailable":
+    case "storage-full":
+      return { phase, label: `Downloads unavailable. ${hint}` };
+    case "downloading":
+      return { phase, label: `Downloading ${title}. ${hint}` };
+    default:
+      return { phase, label: `${title}. ${hint}` };
+  }
+}
+
 function element(tag, className, text = "") {
   const node = document.createElement(tag);
   node.className = className;
@@ -40,14 +68,7 @@ export class DownloadDetails {
     this.indicator.id = "asset-loading";
     this.indicator.type = "button";
     this.indicator.hidden = true;
-    this.indicator.setAttribute("aria-label", "Show download details");
     this.indicator.setAttribute("aria-haspopup", "dialog");
-    const content = element("span", "download-summary");
-    this.title = element("strong", "", "Loading…");
-    this.count = element("span", "download-count");
-    this.smallBar = bar();
-    content.append(this.title, this.count, this.smallBar.root);
-    this.indicator.append(content);
     this.dialog = element("dialog", "download-dialog");
     this.dialog.setAttribute("aria-label", "Game downloads");
     this.buildDialog();
@@ -56,7 +77,22 @@ export class DownloadDetails {
       this.dialog.showModal();
     });
     this.dialog.addEventListener("close", () => this.onClose?.());
-    viewport.append(this.indicator, this.dialog);
+    this.mount(viewport);
+  }
+  /**
+   * The activity symbol sits beside the project-bar ping; the dialog stays with the
+   * viewport so its top layer is never clipped by the bar's layout.
+   * @param {Element} viewport Game viewport that hosts the modal dialog.
+   */
+  mount(viewport) {
+    const ping = document.querySelector("#project-ping");
+    if (ping) {
+      ping.after(this.indicator);
+    } else {
+      this.indicator.dataset.host = "viewport";
+      viewport.append(this.indicator);
+    }
+    viewport.append(this.dialog);
   }
   buildDialog() {
     const titlebar = element("div", "download-titlebar", "Game downloads");
@@ -114,8 +150,6 @@ export class DownloadDetails {
         ? state.name
         : "Loading game files…";
     const detail = this.describe(state);
-    this.title.textContent = title;
-    this.count.textContent = foreground.active ? foreground.count : detail;
     this.heading.textContent = state?.maps
       ? `${state.name} · ${state.maps} maps`
       : "Current map";
@@ -124,8 +158,15 @@ export class DownloadDetails {
       (state?.current ?? []).join("\n") ||
       (foreground.active ? assetLabel(foreground.current) : "");
     this.updateStorage(state);
-    this.updateBar(this.smallBar, state);
     this.updateBar(this.largeBar, state);
+    const { phase, label } = indicatorPresentation(
+      state,
+      foreground.active,
+      title,
+    );
+    this.indicator.dataset.state = phase;
+    this.indicator.setAttribute("aria-label", label);
+    this.indicator.title = label;
   }
   updateStorage(state) {
     this.storage.textContent = state?.cacheLimit

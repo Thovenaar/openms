@@ -987,66 +987,69 @@ aside.inspection-chrome {
   gap: 6px;
 }
 
-/* Background activity borrows the startup window's Windows 95 bevel and navy accent. */
-#asset-loading {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  z-index: 2147483646;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 310px;
-  min-height: 64px;
-  text-align: left;
-  cursor: pointer;
-  padding: 7px 10px;
-  box-sizing: border-box;
-  border: 2px solid;
-  border-color: #dfdfdf #000 #000 #dfdfdf;
-  background: #c0c0c0;
-  box-shadow:
-    inset 1px 1px #fff,
-    inset -1px -1px #808080,
-    2px 2px #0008;
-  color: #000;
-  font:
-    bold 12px "MS Sans Serif",
-    Tahoma,
-    sans-serif;
-  pointer-events: auto;
+/* Background activity is a compact project-bar symbol; the dialog owns the detail. */
+#project-bar #asset-loading {
+  justify-content: center;
+  width: 24px;
+  min-height: 21px;
+  padding: 0;
+  margin-right: auto;
+  color: #000080;
 }
 #asset-loading::before {
   content: "";
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
+  width: 13px;
+  height: 13px;
   box-sizing: border-box;
-  border: 4px solid #808080;
+  border: 2px solid #808080;
   border-top-color: #000080;
   border-right-color: #000080;
   border-radius: 50%;
-  box-shadow: 0 0 0 1px #fff;
+}
+#asset-loading[data-state="downloading"]::before {
   animation: asset-loading-spin 1s steps(8) infinite;
+}
+#asset-loading[data-state="complete"]::before {
+  content: "✓";
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  color: #0a7a0a;
+  font-weight: bold;
+}
+#asset-loading:is(
+    [data-state="failed"],
+    [data-state="cache-unavailable"],
+    [data-state="storage-full"]
+  )::before {
+  border-color: #a15c00;
 }
 #asset-loading[hidden] {
   display: none;
 }
-.download-summary {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  width: 100%;
+/* The activity symbol, not the ping, absorbs the gap while it is visible. */
+#project-bar:has(#asset-loading:not([hidden])) #project-ping {
+  margin-right: 0;
 }
-.download-summary strong,
-.download-count {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.download-count {
-  font-size: 11px;
-  font-weight: normal;
+/* Fallback for shells without the project bar; keeps the symbol out of the scene. */
+#asset-loading[data-host="viewport"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 24px;
+  height: 21px;
+  padding: 0;
+  z-index: 2147483646;
+  border: 1px solid;
+  border-color: #dfdfdf #000 #000 #dfdfdf;
+  background: #c0c0c0;
+  cursor: pointer;
 }
 .download-progress {
   height: 14px;
@@ -1139,7 +1142,7 @@ aside.inspection-chrome {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  #asset-loading::before {
+  #asset-loading[data-state="downloading"]::before {
     animation: none;
   }
 }
