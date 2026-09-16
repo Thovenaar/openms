@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { hash, publishFile, resource } from "./atlas.js";
 import { verifyBytes } from "../src/assets/resource-validation.js";
@@ -13,7 +13,7 @@ import { visualBundle } from "../src/rendering/stream-validation.js";
 
 const STATE_SCHEMA = 1;
 /** Pack identity changes only with the bytes it is built from; bump to invalidate every pack. */
-const PACK_VERSION = 1;
+const PACK_VERSION = 2;
 const PROGRESS_INTERVAL = 64;
 /** Shared containers are grouped by regional ownership and filled to this bound. */
 const CONTAINER_BYTES = 6 * 1024 * 1024;
@@ -26,7 +26,9 @@ function descriptorFields(info) {
 /**
  * A map manifest and its minimap descriptor fully determine the closure, because
  * every member is content-addressed. An unchanged pair therefore reuses its blob
- * without reading or recompressing any packaged bytes.
+ * and its collected asset list without reading any packaged bytes. Bump
+ * PACK_VERSION whenever the closure or asset-collection rule changes, so a
+ * reused entry cannot keep a stale asset list.
  */
 function packIdentity(info, minimap) {
   return hash(
@@ -94,11 +96,21 @@ function soundAssets(catalog, manifest) {
   return sounds;
 }
 
+/** A map's minimap bundle carries its own artwork, exactly as the runtime closure does. */
+async function bundleAtlases(generatedRoot, catalog, id) {
+  const descriptor = catalog.ui?.minimaps?.[id]?.descriptor;
+  if (!descriptor) return [];
+  const bytes = await memberBytes(generatedRoot, descriptor);
+  const bundle = visualBundle(JSON.parse(new TextDecoder().decode(bytes)));
+  return Object.values(bundle.atlases);
+}
+
 /** Non-JSON closure members stay per file unless a shared container carries them. */
-function mapAssets(catalog, id, manifest) {
+async function mapAssets(generatedRoot, catalog, id, manifest) {
   const assets = Object.values(manifest.atlases);
   const bgm = catalog.audiovisual?.maps?.[id]?.bgm;
   if (bgm) assets.push(bgm);
+  assets.push(...(await bundleAtlases(generatedRoot, catalog, id)));
   assets.push(...soundAssets(catalog, manifest));
   return assets.map(descriptorFields);
 }
@@ -141,7 +153,7 @@ async function buildOne(context) {
   return {
     pack,
     members: closure.length,
-    assets: mapAssets(catalog, id, manifest),
+    assets: await mapAssets(generatedRoot, catalog, id, manifest),
   };
 }
 
@@ -372,6 +384,31 @@ async function sharedContainers(context) {
   return { containers, links, digest, reused: false };
 }
 
+const PACK_FILE = /\.(?:bin|json)(?:\.gz)?$/;
+
+/** Blobs are content-addressed and never overwritten, so a rebuild must retire the ones it replaced. */
+async function pruneStale(generatedRoot, index, descriptor) {
+  const directory = resolve(generatedRoot, "packs");
+  const keep = new Set([
+    descriptor.url.slice(descriptor.url.lastIndexOf("/") + 1),
+    ...Object.values(index.packs).map((pack) =>
+      pack.url.slice(pack.url.lastIndexOf("/") + 1),
+    ),
+    ...Object.values(index.containers).map((pack) =>
+      pack.url.slice(pack.url.lastIndexOf("/") + 1),
+    ),
+  ]);
+  const names = await readdir(directory);
+  let removed = 0;
+  for (const name of names) {
+    if (!PACK_FILE.test(name)) continue;
+    if (keep.has(name) || keep.has(name.replace(/\.gz$/, ""))) continue;
+    await rm(resolve(directory, name));
+    removed++;
+  }
+  return removed;
+}
+
 async function publishIndex(context) {
   const { generatedRoot, index } = context;
   const bytes = Buffer.from(JSON.stringify(index));
@@ -436,16 +473,15 @@ export async function buildRegionPacks(options) {
     catalog,
     progress,
   });
-  const descriptor = await publishIndex({
-    generatedRoot,
-    index: {
-      schemaVersion: 1,
-      catalog: catalogBuildId,
-      packs,
-      containers: shared.containers,
-      assets: shared.links,
-    },
-  });
+  const index = {
+    schemaVersion: 1,
+    catalog: catalogBuildId,
+    packs,
+    containers: shared.containers,
+    assets: shared.links,
+  };
+  const descriptor = await publishIndex({ generatedRoot, index });
+  const pruned = await pruneStale(generatedRoot, index, descriptor);
   await writeState(statePath, {
     schemaVersion: STATE_SCHEMA,
     catalog: catalogBuildId,
@@ -466,6 +502,7 @@ export async function buildRegionPacks(options) {
       0,
     ),
     containerReused: shared.reused,
+    pruned,
     assets: Object.keys(shared.links).length,
     assetBytes: rows.reduce((sum, row) => sum + row.info.bytes, 0),
   };

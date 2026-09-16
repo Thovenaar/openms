@@ -148,7 +148,7 @@ export class RegionDownloadPlan {
   async loadPacked(job, signal) {
     this.downloads++;
     try {
-      const { manifest: data } = await installRegionPack(
+      const { manifest: data, bundle } = await installRegionPack(
         this.network,
         job.pack,
         { manifest: job.info, minimap: job.minimap },
@@ -157,6 +157,12 @@ export class RegionDownloadPlan {
       const parsed = manifest(data);
       for (const info of regionPackClosure(job.info, parsed, job.minimap)) {
         this.deliver(info);
+      }
+      // A packed map no longer queues its minimap separately, so take its artwork here.
+      if (bundle) {
+        for (const info of Object.values(visualBundle(bundle).atlases)) {
+          this.add(info, "bytes", `${job.label} — minimap artwork`);
+        }
       }
       this.packed++;
       return parsed;

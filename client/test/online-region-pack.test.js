@@ -41,18 +41,12 @@ async function packagedFiles(publish) {
     encode({ schemaVersion: 2, id: "r0", entities: [] }),
   );
   const artwork = await publish("atlases", "png", new Uint8Array([1, 2, 3, 4]));
-  const bundle = await publish(
-    "bundles",
-    "json",
-    encode({
-      schemaVersion: 1,
-      id: "mini",
-      metadata: {},
-      atlases: {},
-      textures: {},
-      entities: [],
-    }),
+  const minimapArt = await publish(
+    "atlases",
+    "png",
+    new Uint8Array([8, 9, 10, 11]),
   );
+  const bundle = await minimapBundle(publish, minimapArt);
   const bgm = await publish("audio", "mp3", new Uint8Array([5, 6, 7]));
   const worldmap = await publish(
     "bundles",
@@ -84,7 +78,32 @@ async function packagedFiles(publish) {
     "json",
     encode(mapManifest(region, artwork, "000010001")),
   );
-  return { region, artwork, bundle, bgm, worldmap, map, map2 };
+  return {
+    region,
+    artwork,
+    minimapArt,
+    bundle,
+    bgm,
+    worldmap,
+    map,
+    map2,
+  };
+}
+
+/** The bundle owns distinct artwork, so a packed map must still warm it. */
+function minimapBundle(publish, minimapArt) {
+  return publish(
+    "bundles",
+    "json",
+    encode({
+      schemaVersion: 1,
+      id: "mini",
+      metadata: {},
+      atlases: { m: { ...minimapArt, width: 4, height: 4 } },
+      textures: {},
+      entities: [],
+    }),
+  );
 }
 
 /** Two manifests differ only by identity, so they share every other closure member. */
@@ -249,6 +268,13 @@ test("one container carries the manifest, its scenery and its minimap with per-m
     ]),
   ).toThrow("closure mismatch");
   expect(REGION_PACK_PREFIX).toBe(12);
+  // A map pack carries the bundle, but the bundle's own artwork belongs to the shared layer.
+  expect(Object.keys(index.assets)).toEqual(
+    expect.arrayContaining([files.artwork.url, files.minimapArt.url]),
+  );
+  expect(index.assets[files.minimapArt.url]).toBe(
+    index.packs["000010000"] ? index.assets[files.minimapArt.url] : null,
+  );
 });
 
 test("an unchanged map reuses its published blob without recompressing anything", async () => {
@@ -285,19 +311,23 @@ test("one map costs a pack plus one shared asset container and caches every memb
     files.region.bytes +
     files.bundle.bytes +
     files.artwork.bytes +
+    files.minimapArt.bytes +
     files.bgm.bytes;
   expect(plan.snapshot()).toMatchObject({
     status: "complete",
-    files: 5,
-    complete: 5,
+    files: 6,
+    complete: 6,
     bytes: total,
     doneBytes: total,
     packed: 1,
     assetContainers: 1,
     packFallbacks: 0,
   });
+  // The packed map must still warm the artwork its minimap bundle owns.
+  expect(plan.seen.has(files.minimapArt.url)).toBe(true);
+  expect(cached.has(`http://localhost${files.minimapArt.url}`)).toBe(true);
   expect(fetchMock).toHaveBeenCalledTimes(2);
-  expect(cached.size).toBe(5);
+  expect(cached.size).toBe(6);
   expect(cached.has(`http://localhost${index.packs["000010000"].url}`)).toBe(
     false,
   );
@@ -330,11 +360,12 @@ test("a shared asset container is fetched once for every map that reaches it", a
     files.region.bytes +
     files.bundle.bytes +
     files.artwork.bytes +
+    files.minimapArt.bytes +
     files.bgm.bytes;
   expect(plan.snapshot()).toMatchObject({
     status: "complete",
-    files: 6,
-    complete: 6,
+    files: 7,
+    complete: 7,
     bytes: total,
     doneBytes: total,
     packed: 2,
@@ -364,8 +395,8 @@ test("a damaged container downgrades that map to per-file delivery and still com
   );
   expect(plan.snapshot()).toMatchObject({
     status: "complete",
-    files: 5,
-    complete: 5,
+    files: 6,
+    complete: 6,
     packed: 0,
     packFallbacks: 1,
   });

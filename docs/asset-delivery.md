@@ -98,14 +98,17 @@ Both layers use the same container format: an 8-byte `OPENMSRP` magic, a bounded
 
 `client/tools/region-packs.js` builds both layers during the online build and publishes a catalog-bound index (`generated.regionPackIndex`, compiled in as `OPENMS_REGION_PACK_INDEX`). The index binds to the catalog build id, so a stale pack set is ignored rather than mixed with fresh descriptors. Pack identity is a digest of the map and minimap descriptors, and container identity is a digest of the whole shared-asset set, so an unchanged rebuild reuses every published blob without reading or recompressing it.
 
-The retained catalog measured **735 map packs / 17,119 JSON members / 3,658,861,975 declared bytes -> 235,155,687 container bytes**, plus **98 shared containers / 4,557 unique assets / 437,376,219 declared bytes -> 438,291,012 container bytes**, with a **1,003,191-byte** index (**244 KiB** gzipped). A cold build published every blob in **20.3 s**; an unchanged rebuild reuses packs and containers and adds no measurable stage beyond the existing startup pack.
+The retained catalog measured **735 map packs / 17,119 JSON members / 3,658,861,975 declared bytes -> 235,155,687 container bytes**, plus **99 shared containers / 5,211 unique assets** (including each minimap bundle's own artwork) **/ 442,884,896 declared bytes -> 443,930,240 container bytes**, with a **1,119,903-byte** index (**271 KiB** gzipped). A cold build published every blob in **24.0 s**; an unchanged rebuild reuses packs and containers in **0.3 s**. Because blobs are content-addressed and never overwritten, each rebuild retires the ones its new index does not reference, so the directory holds exactly the 735 packs and 99 containers it publishes.
 
 The effect is on requests, not bytes:
 
 | Warm target | Member files | Before | After |
 | --- | ---: | ---: | ---: |
 | Victoria Island | 6,498 | ~10,979 requests | **304** (268 packs + 36 shared containers) |
-| Every packaged map | — | ~35,700 requests | **833** (735 packs + 98 containers) |
+| Maple Island | 346 | ~600 requests | **32** (17 packs + 15 shared containers) |
+| Every packaged map | — | ~35,700 requests | **834** (735 packs + 99 containers) |
+
+Driving `RegionDownloadPlan` against the served tree over real HTTP reproduces those counts exactly, with `packed`/`assetContainers` set and zero fallbacks, and the packed Victoria frontier stays the full **6,498** members: a map pack carries its minimap bundle, and the bundle's own artwork still enters the frontier through the shared layer.
 
 The "before" column counts the guaranteed `<url>.gz` probe that every sub-64 KiB JSON member cost before its raw fetch; the "after" column leaves no per-file leftovers for these regions. Bytes are essentially unchanged (Victoria ~233 MiB -> ~236 MiB) because grouping only trades a small amount of partial-container overhead for far fewer round trips.
 

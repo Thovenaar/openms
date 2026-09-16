@@ -62,13 +62,29 @@ async function installMapPack(network, pack, targets, signal) {
   validateRegionPackHeader(entries, closure);
   await verifyMembers(entries, slices, signal);
   await cacheMembers(network, entries, slices, signal);
-  return { manifest, members: entries.length };
+  // The minimap bundle carries its own artwork, which a packed map no longer queues separately.
+  const bundle = await expandBundle(slices, entries, minimapInfo, signal);
+  return { manifest, bundle, members: entries.length };
+}
+
+async function expandBundle(slices, entries, minimapInfo, signal) {
+  if (!minimapInfo) return null;
+  const index = entries.findIndex((entry) => entry.url === minimapInfo.url);
+  if (index < 0) return null;
+  const bytes = await expandMember(slices[index], entries[index], signal);
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
 
 /** Fetch, hash-check and frame one container; no member is trusted before this returns. */
 async function openContainer(network, pack, signal) {
+  // The catalog stores site-relative URLs; fetch needs an absolute one, exactly as Network.load does.
   const container = new Uint8Array(
-    await network.fetchBytes(pack.url, signal, pack.bytes, true),
+    await network.fetchBytes(
+      new URL(pack.url, location.origin).href,
+      signal,
+      pack.bytes,
+      true,
+    ),
   );
   await verifyBytes(container, pack);
   signal.throwIfAborted();
