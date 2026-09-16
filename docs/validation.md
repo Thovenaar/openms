@@ -509,3 +509,29 @@ and are now green. Five pre-existing `publication`/lifecycle fixture failures re
 unrelated. Generated evidence JSON (`docs/ghidra-physics-motion/*.json`,
 `docs/ghidra-physics-refinements/*.json`) is produced locally by
 `bun client/tools/regenerate-physics-evidence.js` and is not committed.
+
+## Peer drops, projectile flights and contact damage
+
+Three latency artifacts reported at 500 ms RTT, and the optimistic-client policy they follow.
+
+| Symptom | Cause | Correction |
+| --- | --- | --- |
+| An observer saw only the second half of a peer's item-drop arc | The ack-gated entity frame arrives hundreds of ms after the drop spawns, and the presentation anchored its projection to the authority's already-elapsed age | A drop first seen in `waiting`/`launching` re-seeds the projection at the published origin and keeps its own monotonic clock; a late-join drop still anchors to the authority age |
+| A peer's projectile did not match the thrower's | The observer received no flight plan, only acknowledged `position` samples chased over a fixed 90 ms window on a different timeline than the drawn thrower | `skillVisual` publishes `flight: {startX,startY,endX,endY,durationMs,delayMs}` and the observer integrates that line locally; the thrower adopts the authoritative plan and bends onto it |
+| Walking into a monster dealt damage only after a round trip | Only authored mob attacks were predicted; `bodyAttack` contact damage was authority-only | [local-incoming.js](../client/src/online/local-incoming.js) resolves contact on the first overlapping drawn frame against the same ordinary receiver, sharing the authority's 1500 ms hit window |
+
+A dedicated investigation confirmed the projectile trajectory math was already identical on both
+sides at every 30 ms step when fed the same plan, so no damage or hit rule was changed: the
+divergence was entirely the missing plan and the sampling timeline. Generated evidence JSON
+stays untracked and is produced by `bun client/tools/regenerate-physics-evidence.js`.
+
+```sh
+bun test client/test/remote-presentation.test.js client/test/drop-rotation.test.js \
+  client/test/skill-projectile-chase.test.js client/test/local-incoming.test.js \
+  client/test/combat-latency.test.js server/test/skill-visual-replay.test.js
+bun client/tools/peer-latency-trace.js --interval 3 --gated
+```
+
+Client suite: **648 tests, 0 failures**. Server suite: **218 pass / 5 fail / 18 skip**, the same
+pre-existing `publication`/lifecycle fixture failures as the baseline. Changed files pass
+Prettier and ESLint.

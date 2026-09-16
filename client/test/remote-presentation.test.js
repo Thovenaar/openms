@@ -329,3 +329,43 @@ test("a publication exactly at the fall transition keeps its original endpoint b
     projected.y,
   ]).toEqual([slot.state, slot.phaseAge, slot.x, slot.y]);
 });
+
+test("a drop first seen at its spawn replays the whole launch, not the second half", () => {
+  const slot = drop();
+  // The authority has already flown for a while before the acknowledged entity frame reaches
+  // an observer; the old anchor started the observer at that elapsed age.
+  let advanced = 0;
+  while (slot.state !== "launching" && advanced < 40) {
+    advance(slot);
+    advanced++;
+  }
+  for (let i = 0; i < 5; i++) {
+    advance(slot);
+    advanced++;
+  }
+  expect(slot.state).toBe("launching");
+  expect(slot.age).toBeGreaterThan(60);
+  const source = entity(slot);
+  const motion = new DropPresentationMotion(source, 1, 0);
+  // The projection itself is rewound to the authored origin, not merely the clock: the first
+  // drawn frame is the start of the launch rather than the received mid-arc phase.
+  expect(motion.lower.state).toBe("waiting");
+  expect(motion.lower.phaseAge).toBe(0);
+  expect(motion.lower.sourceX).toBe(slot.sourceX);
+  expect(motion.lower.sourceY).toBe(slot.sourceY);
+  expect(motion.age).toBeLessThan(slot.age);
+  // It then advances through the same authored phases from that origin.
+  motion.sample(60);
+  expect(
+    motion.lower.state === "waiting" || motion.lower.state === "launching",
+  ).toBe(true);
+  expect(motion.lower.phaseAge).toBeLessThan(60);
+  let steps = 0;
+  while (motion.lower.state === "launching" && steps < 200) {
+    steps++;
+    motion.sample(60 + (steps + 1) * 30);
+  }
+  expect(
+    motion.lower.state === "falling" || motion.lower.state === "grounded",
+  ).toBe(true);
+});

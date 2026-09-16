@@ -345,3 +345,47 @@ test("an admitted basic attack resolves its own hit on the local release frame",
   ).toBe(true);
   f.local.destroy();
 });
+
+test("the thrower adopts the authoritative projectile plan and converges onto it", async () => {
+  const f = await fixture();
+  f.owner.store.profile.skills[2001004] = { level: 1 };
+  f.owner.store.profile.mp = 100;
+  const lease = emptyBall();
+  f.owner.skillVisuals = { warmup: { get: () => lease } };
+  const record = f.local.begin(2001004, "bolt");
+  clearTimeout(record.timer);
+  await f.local.projectiles.launch(record);
+  expect(f.containers.size).toBe(1);
+  const flight = [...f.local.projectiles.flights][0];
+  const startX = flight.animation.container.position.x;
+  // The authoritative plan differs from the preview only by the usual sub-pixel origin and
+  // the server's chosen target, so convergence is a short bend rather than a long chase.
+  const plan = {
+    startX: startX + 15,
+    startY: 0,
+    endX: startX + 215,
+    endY: 0,
+    durationMs: 500,
+    delayMs: 0,
+  };
+  expect(
+    f.local.projectiles.visualEcho({
+      actorId: "self",
+      visual: {
+        feedbackId: "bolt",
+        id: "flight",
+        playbackId: "one",
+        bundle: record.projectile.descriptor.bundle,
+        flight: plan,
+      },
+    }),
+  ).toBe(true);
+  expect(record.authoritativeFlight).toEqual(plan);
+  // The preview bends toward the authoritative line instead of snapping to it.
+  f.local.projectiles.draw(16);
+  expect(flight.animation.container.position.x).toBeGreaterThan(startX);
+  for (let frame = 0; frame < 10; frame++) f.local.projectiles.draw(16);
+  const expected = plan.startX + (plan.endX - plan.startX) * (flight.age / 500);
+  expect(flight.animation.container.position.x).toBeCloseTo(expected, 0);
+  f.local.destroy();
+});

@@ -295,6 +295,9 @@ export class AuthoritySkillResources extends SkillResources {
       depth: node.zIndex,
       replacesActor: false,
       riding: null,
+      // A flight slot publishes its authored plan so an observer drives the same straight
+      // line locally instead of chasing acknowledged position samples.
+      flight: animation.flight ?? null,
     };
     return view;
   }

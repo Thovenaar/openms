@@ -115,6 +115,18 @@ function fixture(options = {}) {
   const host = {
     scene,
     owner: { hooks: { characterStats: () => options.stats ?? stats() } },
+    // The real owner is the local hit resolver; contact prediction reuses its authored
+    // frame receiver, so the double mirrors that one method.
+    hits: {
+      mobBody: (subject, slot) => {
+        slot.active = true;
+        slot.left = subject.drawX - 90;
+        slot.top = subject.drawY - 60;
+        slot.right = subject.drawX + 90;
+        slot.bottom = subject.drawY;
+        return slot;
+      },
+    },
   };
   let now = 1000;
   const incoming = new LocalIncoming(
@@ -206,6 +218,71 @@ test("an expired prediction is no longer consumed by a late confirmation", () =>
       actorId: "mob-a",
       targetId: "self",
       damage: 12,
+    }),
+  ).toBe(false);
+});
+
+/** A mob whose authored controller deals damage by touching the player (`bodyAttack`). */
+function contactLife() {
+  return mobLife({ info: { bodyAttack: 1 }, attacks: [] });
+}
+
+test("a body-attack mob resolves contact damage on the first overlapping frame", () => {
+  const view = mobView({ life: contactLife(), phase: "idle" });
+  const f = fixture({ view });
+  f.incoming.observe(f.view, 16);
+  expect(f.shown.length).toBe(1);
+  expect(f.shown[0].family).toBe(2);
+  expect(f.shown[0].amount).toBeGreaterThan(0);
+  expect(f.self.faces).toEqual([{ name: "hit", duration: 1500 }]);
+});
+
+test("contact damage shares the hit window instead of ticking every frame", () => {
+  const view = mobView({ life: contactLife(), phase: "idle" });
+  const f = fixture({ view });
+  f.incoming.observe(f.view, 16);
+  expect(f.shown.length).toBe(1);
+  // Still inside the 1500 ms window the authority uses for every incoming outcome.
+  for (let frame = 0; frame < 10; frame++) f.incoming.observe(f.view, 30);
+  expect(f.shown.length).toBe(1);
+  // Past the window the next overlapping frame resolves again.
+  f.incoming.observe(f.view, 1200);
+  expect(f.shown.length).toBe(2);
+});
+
+test("a mob without the authored body attack deals no contact damage", () => {
+  const view = mobView({ life: mobLife(), phase: "idle" });
+  const f = fixture({ view });
+  f.incoming.observe(f.view, 16);
+  expect(f.shown.length).toBe(0);
+});
+
+test("a body-attack mob out of reach deals no contact damage", () => {
+  const view = mobView({ life: contactLife(), phase: "idle", x: 900 });
+  const f = fixture({ view });
+  f.incoming.observe(f.view, 16);
+  expect(f.shown.length).toBe(0);
+});
+
+test("the authoritative contact impact consumes one local prediction", () => {
+  const view = mobView({ life: contactLife(), phase: "idle" });
+  const f = fixture({ view });
+  f.incoming.observe(f.view, 16);
+  expect(f.shown.length).toBe(1);
+  expect(
+    f.incoming.consume({
+      cause: "contact",
+      actorId: "mob-a",
+      targetId: "self",
+      damage: 7,
+    }),
+  ).toBe(true);
+  expect(
+    f.incoming.consume({
+      cause: "contact",
+      actorId: "mob-a",
+      targetId: "self",
+      damage: 7,
     }),
   ).toBe(false);
 });

@@ -243,22 +243,32 @@ export class NativeSkillPresentation {
     const state = entry.state,
       animation = entry.animation;
     if (!animation) return;
+    const flightRestart = this.beginFlight(entry);
     animation.setAction(state.action, state.playback);
-    animation.seek(
-      state.sourceFrame === null
-        ? state.elapsedMs
-        : state.sourceFrame === 0
-          ? 0
-          : animation.current.ends[state.sourceFrame - 1],
-    );
-    animation.holdFrame = state.sourceFrame !== null;
-    this.positionVisual(entry);
+    if (entry.flight) {
+      // The plan is complete, so the flight clock starts on receipt and the ball animation
+      // starts with it, exactly like the thrower's own preview.
+      if (flightRestart) animation.seek(0);
+      animation.holdFrame = false;
+    } else {
+      animation.seek(
+        state.sourceFrame === null
+          ? state.elapsedMs
+          : state.sourceFrame === 0
+            ? 0
+            : animation.current.ends[state.sourceFrame - 1],
+      );
+      animation.holdFrame = state.sourceFrame !== null;
+      this.positionVisual(entry);
+    }
     animation.setTint(state.tint);
     animation.container.scale.x = state.scaleX;
     animation.container.scale.y = state.scaleY;
     animation.container.rotation = state.rotation;
     animation.container.alpha = state.opacity;
-    animation.container.visible = true;
+    animation.container.visible = entry.flight
+      ? entry.flightAge >= entry.flight.delayMs
+      : true;
     // A mount/morph visual replaces its actor and shares the actor's world depth;
     // every other effect draws on the native effect layer above characters.
     const actorDepth = state.replacesActor
@@ -266,6 +276,24 @@ export class NativeSkillPresentation {
       : null;
     animation.container.zIndex =
       actorDepth === null ? skillEffectDepth(state.depth) : actorDepth;
+  }
+  /** Adopt an authored flight plan on a new playback. Returns true when it restarted. */
+  beginFlight(entry) {
+    const state = entry.state;
+    if (!state.flight) {
+      entry.flight = null;
+      entry.flightPlaybackId = undefined;
+      return false;
+    }
+    const restart = entry.flightPlaybackId !== state.playbackId;
+    if (restart) {
+      entry.flightPlaybackId = state.playbackId;
+      entry.flight = state.flight;
+      entry.flightAge = 0;
+      entry.positioned = true;
+      entry.playbackId = state.playbackId;
+    }
+    return restart;
   }
   /** Chase samples within one playback; a pooled restart starts at its new origin. */
   positionVisual(entry) {
@@ -291,11 +319,25 @@ export class NativeSkillPresentation {
   /** Advance one chased visual by the render delta; never a simulation step. */
   chase(entry, ms) {
     const animation = entry.animation;
-    if (
-      !animation ||
-      entry.chaseMs === undefined ||
-      entry.chaseMs >= PUBLISH_MS
-    ) {
+    if (!animation) return;
+    // An authored flight integrates locally from the plan, so the observed ball flies the
+    // identical straight line and duration the thrower's preview and the authority use.
+    if (entry.flight) {
+      entry.flightAge += ms;
+      const active = entry.flightAge - entry.flight.delayMs;
+      if (active < 0) {
+        animation.container.visible = false;
+        return;
+      }
+      const t = Math.min(1, active / entry.flight.durationMs);
+      animation.setPosition(
+        entry.flight.startX + (entry.flight.endX - entry.flight.startX) * t,
+        entry.flight.startY + (entry.flight.endY - entry.flight.startY) * t,
+      );
+      animation.container.visible = true;
+      return;
+    }
+    if (entry.chaseMs === undefined || entry.chaseMs >= PUBLISH_MS) {
       return;
     }
     entry.chaseMs = Math.min(PUBLISH_MS, entry.chaseMs + ms);
@@ -403,6 +445,15 @@ export class NativeSkillPresentation {
     this.local.draw(ms);
     for (const entry of this.visuals.values()) {
       this.chase(entry, ms);
+      // A completed flight stops at its authored endpoint instead of waiting for the next
+      // acknowledged snapshot to retire it.
+      if (
+        entry.flight &&
+        entry.flightAge >= entry.flight.delayMs + entry.flight.durationMs
+      ) {
+        this.releaseVisual(entry);
+        continue;
+      }
       if (!entry.animation || entry.state.sourceFrame !== null) continue;
       entry.animation.advance(ms);
       if (entry.animation.completed && entry.state.playback === "once") {

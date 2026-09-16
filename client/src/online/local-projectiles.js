@@ -4,6 +4,9 @@ import { previewDestination } from "./local-projectile-rules.js";
 
 const MAX_FLIGHTS = 128;
 const DESTROY = Object.freeze({ children: true });
+/** Above every original movement speed, so adopting the authoritative plan never slows the
+ *  ball below the flight the player already saw leave their hand. */
+const CORRECTION_PX_PER_MS = 1.2;
 
 /** Disposable flight previews; confirmed hits still own numbers, HP, knockback and loot. */
 export class LocalProjectiles {
@@ -121,6 +124,10 @@ export class LocalProjectiles {
       return false;
     }
     record.serverProjectile = true;
+    // Adopt the authoritative plan so the thrower converges onto exactly the flight every
+    // observer renders. The plan is only published while the ball is in the air, and the
+    // preview keeps its own age, so the correction is a bounded chase rather than a restart.
+    if (event.visual.flight) record.authoritativeFlight = event.visual.flight;
     const key = `${event.visual.id}:${event.visual.playbackId}`;
     if (record.projectileEchoes.has(key)) return true;
     if (record.projectileEchoes.size >= record.previewCount) return false;
@@ -141,15 +148,34 @@ export class LocalProjectiles {
   draw(ms) {
     for (const flight of this.flights) {
       flight.age += ms;
-      const t = Math.min(1, flight.age / flight.shot.duration),
-        shot = flight.shot;
-      flight.animation.setPosition(
-        shot.x + (shot.endX - shot.x) * t,
-        shot.y + (shot.endY - shot.y + flight.spread) * t,
-      );
+      const shot = flight.shot;
+      const plan = flight.record.authoritativeFlight;
+      const duration = plan ? plan.durationMs : shot.duration;
+      const t = Math.min(1, flight.age / Math.max(1, duration));
+      const targetX = plan
+        ? plan.startX + (plan.endX - plan.startX) * t
+        : shot.x + (shot.endX - shot.x) * t;
+      const targetY = plan
+        ? plan.startY + (plan.endY - plan.startY) * t
+        : shot.y + (shot.endY - shot.y + flight.spread) * t;
+      this.approach(flight.animation, targetX, targetY, ms);
       flight.animation.advance(ms);
       if (t === 1 || flight.record.rejected) this.release(flight);
     }
+  }
+  /** Move the preview toward the authoritative target at a rate no original speed exceeds,
+   *  so adopting the server's plan bends the thrower's flight instead of snapping it. */
+  approach(animation, x, y, ms) {
+    const position = animation.container.position;
+    const dx = x - position.x;
+    const dy = y - position.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance === 0) return;
+    const step = Math.min(distance, CORRECTION_PX_PER_MS * Math.max(0, ms));
+    animation.setPosition(
+      position.x + (dx / distance) * step,
+      position.y + (dy / distance) * step,
+    );
   }
   release(flight) {
     this.combat.scene?.scene.removeWorldContainer(flight.animation.container);

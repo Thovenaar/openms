@@ -118,3 +118,55 @@ test("a delayed original spell flight retains its attack identity across another
     resources.destroy();
   }
 });
+
+test("a flying skill slot publishes its authored flight plan for observers", () => {
+  const resources = new AuthoritySkillResources({ content }, {}, {}, {});
+  const bundle = {
+    url: "/generated/bundles/" + "a".repeat(64) + ".json",
+    bytes: 1,
+    sha256: "b".repeat(64),
+  };
+  const animation = {
+    id: "ball",
+    sourceId: "skill:1000:level/1/ball",
+    action: "play",
+    frame: 0,
+    current: { frames: [{ parts: [] }] },
+    elapsedMs: 0,
+    playback: "loop",
+    playbackId: 1,
+    tint: 0xffffff,
+    sources: new Map([["play", bundle]]),
+    container: {
+      x: 0,
+      y: 0,
+      zIndex: 0,
+      rotation: 0,
+      alpha: 1,
+      scale: { x: 1, y: 1 },
+    },
+  };
+  resources.frameSources.set(animation.current.frames[0].parts, {
+    bundle,
+    entityId: "skill:1000:level/1/ball",
+    action: "play",
+    index: 0,
+  });
+  const slot = { animation };
+  resources.startFlight(
+    slot,
+    { x: 10, y: -28, endX: 160, endY: -28, duration: 300 },
+    { delayMs: 0, spreadY: 7 },
+  );
+  expect(resources.view(animation).flight).toEqual({
+    startX: 10,
+    startY: -28,
+    endX: 160,
+    endY: -21,
+    durationMs: 300,
+    delayMs: 0,
+  });
+  // A non-flying visual publishes no plan, so observers keep chasing its samples.
+  animation.flight = null;
+  expect(resources.view(animation).flight).toBeNull();
+});

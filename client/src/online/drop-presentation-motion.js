@@ -66,6 +66,27 @@ export function projectDrop(slot, entity, elapsed) {
   return slot;
 }
 
+/** The authored origin phase of a published drop plan. `projectDrop` seeds its projection from
+ *  the stored plan, so a replaying drop needs the state/phase/age rewound to spawn — not just a
+ *  local clock reset — while keeping the authority's duration and launch speed. */
+function replayPlan(motion) {
+  return {
+    state: "waiting",
+    age: 0,
+    phaseAge: 0,
+    sourceX: motion.sourceX,
+    sourceY: motion.sourceY,
+    groundX: motion.groundX,
+    groundY: motion.groundY,
+    durationMs: motion.durationMs,
+    launchSpeed: motion.launchSpeed,
+    x: motion.sourceX,
+    y: motion.sourceY,
+    rotation: 0,
+    alpha: 1,
+  };
+}
+
 /** A server-published source/landing plan owns a disposable, monotonic local visual clock. */
 export class DropPresentationMotion {
   constructor(entity, tick, now) {
@@ -82,7 +103,35 @@ export class DropPresentationMotion {
     if (this.entity) this.sample(now);
     const priorX = this.x,
       priorY = this.y;
-    this.anchorAge = Math.max(this.age ?? 0, entity.dropMotion.age);
+    // The whole source/landing plan is published, so a drop first seen at its spawn replays
+    // the authored launch from the beginning. Anchoring it to the authority's already-elapsed
+    // age (what `max(local, server)` did) showed an observer only the second half of the arc
+    // once the ack-gated entity frame arrived. A drop already in flight or grounded when it is
+    // first seen (a late join) still anchors to the authority's own age, and once a drop has
+    // started it keeps its own monotonic clock, so a delayed copy can never rewind it.
+    const motion = entity.dropMotion;
+    const fresh =
+      !this.entity &&
+      (motion.state === "waiting" || motion.state === "launching");
+    if (fresh) {
+      this.replay = true;
+      // Rewind the projection itself, not only the clock: `projectDrop` seeds its phase from
+      // the stored plan, so the received mid-flight state has to be replaced by the origin.
+      this.plan = replayPlan(motion);
+    }
+    if (this.replay) {
+      entity = {
+        ...entity,
+        position: { x: this.plan.sourceX, y: this.plan.sourceY },
+        dropMotion: this.plan,
+      };
+    }
+    const localAge = Number.isFinite(this.age) ? this.age : 0;
+    this.anchorAge = this.replay
+      ? fresh
+        ? 0
+        : localAge
+      : Math.max(localAge, motion.age);
     this.entity = entity;
     this.tick = tick;
     this.received = now;

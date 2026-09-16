@@ -174,3 +174,93 @@ test("a snapshot-confirmed skill visual releases as soon as its snapshot omits i
   presentation.reconcileObservation(emptyObservation());
   expect(presentation.visuals.has("v1")).toBe(false);
 });
+
+test("an observed projectile flies the published plan instead of chasing samples", () => {
+  const presentation = new NativeSkillPresentation({});
+  const entry = {
+    id: "ball",
+    state: {
+      ...visualState({ x: 0, y: -28 }),
+      flight: {
+        startX: 0,
+        startY: -28,
+        endX: 150,
+        endY: -21,
+        durationMs: 1000,
+        delayMs: 0,
+      },
+    },
+    animation: animationDouble(),
+    owners: [],
+  };
+  presentation.applyVisual(entry);
+  expect(entry.animation.container.position.x).toBe(0);
+  // The same linear progress the thrower's preview and the authority's flight slot use.
+  presentation.chase(entry, 500);
+  expect(entry.animation.container.position.x).toBeCloseTo(75);
+  expect(entry.animation.container.position.y).toBeCloseTo(-24.5);
+  presentation.chase(entry, 500);
+  expect(entry.animation.container.position.x).toBeCloseTo(150);
+  expect(entry.animation.container.position.y).toBeCloseTo(-21);
+});
+
+test("a delayed projectile is hidden until its authored launch", () => {
+  const presentation = new NativeSkillPresentation({});
+  const entry = {
+    id: "ball",
+    state: {
+      ...visualState({ x: 0, y: 0 }),
+      flight: {
+        startX: 0,
+        startY: 0,
+        endX: 100,
+        endY: 0,
+        durationMs: 200,
+        delayMs: 120,
+      },
+    },
+    animation: animationDouble(),
+    owners: [],
+  };
+  presentation.applyVisual(entry);
+  expect(entry.animation.container.visible).toBe(false);
+  presentation.chase(entry, 60);
+  expect(entry.animation.container.visible).toBe(false);
+  presentation.chase(entry, 60);
+  expect(entry.animation.container.visible).toBe(true);
+  expect(entry.animation.container.position.x).toBeCloseTo(0);
+  presentation.chase(entry, 100);
+  expect(entry.animation.container.position.x).toBeCloseTo(50);
+});
+
+test("a completed projectile flight is retired at its authored endpoint", () => {
+  const presentation = new NativeSkillPresentation({});
+  presentation.scene = presentation.owner.scene;
+  const released = [];
+  presentation.releaseVisual = (entry) => {
+    released.push(entry.id);
+    presentation.visuals.delete(entry.id);
+  };
+  const entry = {
+    id: "ball",
+    state: {
+      ...visualState({ x: 0, y: 0 }),
+      flight: {
+        startX: 0,
+        startY: 0,
+        endX: 100,
+        endY: 0,
+        durationMs: 200,
+        delayMs: 0,
+      },
+    },
+    animation: animationDouble(),
+    owners: [],
+  };
+  presentation.visuals.set("ball", entry);
+  presentation.applyVisual(entry);
+  presentation.update(100);
+  expect(released).toEqual([]);
+  presentation.update(150);
+  expect(released).toEqual(["ball"]);
+});

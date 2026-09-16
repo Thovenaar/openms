@@ -51,6 +51,12 @@ test("online artwork uses its advancing visual clock, wraps forward and freezes 
     entity,
     motion: new DropPresentationMotion(entity, 1, 0),
   };
+  // This slot is already in flight when it is first seen (a late join), so it anchors to the
+  // published age instead of replaying its launch from the start.
+  view.motion.replay = false;
+  view.motion.anchorAge = slot.age;
+  view.motion.age = slot.age;
+  view.motion.sample(0);
   view.motion.sample(15);
   drops.observe(view);
   expect(animation.container.rotation).toBeCloseTo(Math.PI * 1.9);
@@ -61,7 +67,8 @@ test("online artwork uses its advancing visual clock, wraps forward and freezes 
   owner.paused = true;
   drops.observe(view);
   expect(animation.container.rotation).toBe(rotation);
-  entity.templateId = 0;
+  // Mesos never spin; the drawn motion owns its own entity copy.
+  view.motion.entity.templateId = 0;
   view.motion.sample(60);
   drops.observe(view);
   expect(animation.container.rotation).toBe(0);

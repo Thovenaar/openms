@@ -11,7 +11,8 @@ import { animationName } from "../../../shared/motion-schema.js";
 const ORDINARY_BODY = { left: -22, top: -65, right: 22, bottom: 0 };
 const PRONE_BODY = { left: -46, top: -31, right: 0, bottom: 0 };
 const PREDICTION_TTL_MS = 4000;
-/** `PLAYER_HIT.timerMs` in offline-field.js; the authored flinch face duration (00959321). */
+/** `PLAYER_HIT.timerMs` in offline-field.js; the flinch face and the shared hit window
+ *  (`rejectsHit` refuses another incoming outcome while `hitTimerMs !== 0`). */
 const HIT_EXPRESSION_MS = 1500;
 const MAX_PENDING = 32;
 const MAX_ARMS = 256;
@@ -32,6 +33,7 @@ export class LocalIncoming {
     this.clocks = new Map();
     this.armed = new Set();
     this.pending = new Map();
+    this.contactCooldownMs = 0;
   }
 
   /** The online scene owns the entity views. */
@@ -44,17 +46,49 @@ export class LocalIncoming {
     return this.combat.scene?.scene ?? null;
   }
 
-  /** Observe one drawn mob frame and resolve the authored release once per attack instance.
-   *  The published action clock is advanced locally between round-trip-bound snapshots. */
+  /** Observe one drawn mob frame. Authored attacks resolve at their release; a `bodyAttack`
+   *  mob resolves contact damage on the frame it first overlaps the player. */
   observe(view, elapsed) {
     const entity = view.entity;
     if (!entity || entity.kind !== "mob") return;
+    const step = Number.isFinite(elapsed) ? elapsed : 0;
+    // One shared hit window, as `rejectsHit` uses for every incoming outcome.
+    this.contactCooldownMs = Math.max(0, this.contactCooldownMs - step);
+    this.resolveContact(view);
     const attacks = view.life?.combat?.attacks;
     if (!this.tracking(entity, attacks)) return;
     const clock = this.advanceClock(entity, elapsed);
     const attack = this.releasedAttack(attacks, clock);
     if (!attack || !this.arm(entity)) return;
     this.resolve(view, attack);
+  }
+
+  /** `009581a9`/`bodyAttack`: the defender resolves a contact hit on the frame it touches
+   *  the mob, instead of one round trip after the authority's own `contactDamage` tick. */
+  resolveContact(view) {
+    const info = view.life?.info;
+    if (!this.contactEligible(info)) return;
+    const self = this.localTarget();
+    const stats = this.combat.owner.hooks.characterStats?.();
+    if (!self || !stats) return;
+    if (!this.contactOverlaps(view, self)) return;
+    const amount = this.roll(info, stats, null);
+    this.contactCooldownMs = HIT_EXPRESSION_MS;
+    if (amount === null) return;
+    this.remember(view.entity.id, amount);
+    this.present(self, amount);
+  }
+
+  contactEligible(info) {
+    if (!info || this.contactCooldownMs > 0) return false;
+    return info.bodyAttack === 1 && info.notAttack !== 1;
+  }
+
+  contactOverlaps(view, self) {
+    const body = this.combat.hits?.mobBody(view, this.attackBody);
+    if (!body) return false;
+    this.placeReceiver(self);
+    return overlaps(this.attackBody, this.receiver);
   }
 
   tracking(entity, attacks) {
@@ -147,9 +181,9 @@ export class LocalIncoming {
     );
   }
 
-  roll(info, stats, attack) {
-    const magic = attack.properties?.magic === 1;
-    const authored = attack.properties?.PADamage;
+  roll(info, stats, attack = null) {
+    const magic = attack?.properties?.magic === 1;
+    const authored = attack?.properties?.PADamage;
     let amount;
     try {
       amount = this.damage.receive(stats, info, {
@@ -205,8 +239,10 @@ export class LocalIncoming {
 
   /** True when one local prediction already presented this authoritative incoming event. */
   consume(event) {
-    if (event.cause !== "mob-attack") return false;
+    if (event.cause !== "mob-attack" && event.cause !== "contact") return false;
     if (event.targetId !== this.combat.scene?.selfId) return false;
+    // Any admitted incoming outcome, including a miss, starts the shared hit window.
+    this.contactCooldownMs = HIT_EXPRESSION_MS;
     const queue = this.pending.get(event.actorId);
     if (!queue?.length) return false;
     // A missed or refused authoritative outcome is still drawn, so the correction is seen.

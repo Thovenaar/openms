@@ -2,6 +2,7 @@ import { COMBAT_VALUE_LIMIT } from "./combat-formulas.js";
 import {
   array,
   boolean,
+  coordinate,
   enumeration,
   hash,
   id,
@@ -43,6 +44,21 @@ const skillVisual = record({
   opacity: number(0, 1, false),
   tint: number(0, 16777215),
   depth: number(-2147483648, 2147483647),
+  // Authored projectile flight plan. An observer that only sampled `position` saw the ball
+  // move in acknowledged-snapshot steps; with the plan it integrates the same straight-line
+  // path the thrower's local preview and the authority's flight slot both use.
+  flight: optional(
+    nullable(
+      record({
+        startX: coordinate,
+        startY: coordinate,
+        endX: coordinate,
+        endY: coordinate,
+        durationMs: u32,
+        delayMs: u32,
+      }),
+    ),
+  ),
 });
 const combatState = record({
   modifiers: optional(

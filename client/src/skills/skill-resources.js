@@ -433,6 +433,18 @@ export class SkillResources {
     slot.flightY = target.y;
     slot.flightDX = target.endX - target.x;
     slot.flightDY = target.endY - target.y + (options.spreadY ?? 0);
+    // The observer integrates this plan instead of sampling acknowledged positions, so a
+    // peer ball follows the same straight line, duration and per-ball offset as the thrower.
+    if (slot.animation) {
+      slot.animation.flight = {
+        startX: slot.flightX,
+        startY: slot.flightY,
+        endX: slot.flightX + slot.flightDX,
+        endY: slot.flightY + slot.flightDY,
+        durationMs: Math.max(1, slot.flightDuration),
+        delayMs: Math.max(0, options.delayMs ?? 0),
+      };
+    }
   }
 
   stepFlight(slot, ms) {
@@ -460,7 +472,10 @@ export class SkillResources {
     slot.activeIndex = -1;
     slot.remaining = 0;
     slot.target = null;
-    slot.animation.container.visible = false;
+    if (slot.animation) {
+      slot.animation.flight = null;
+      slot.animation.container.visible = false;
+    }
   }
 
   step(ms) {
