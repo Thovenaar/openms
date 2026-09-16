@@ -993,7 +993,6 @@ aside.inspection-chrome {
   width: 24px;
   min-height: 21px;
   padding: 0;
-  margin-right: auto;
   color: #000080;
 }
 #asset-loading::before {
@@ -1028,10 +1027,6 @@ aside.inspection-chrome {
 }
 #asset-loading[hidden] {
   display: none;
-}
-/* The activity symbol, not the ping, absorbs the gap while it is visible. */
-#project-bar:has(#asset-loading:not([hidden])) #project-ping {
-  margin-right: 0;
 }
 /* Fallback for shells without the project bar; keeps the symbol out of the scene. */
 #asset-loading[data-host="viewport"] {

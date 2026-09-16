@@ -80,14 +80,14 @@ export class DownloadDetails {
     this.mount(viewport);
   }
   /**
-   * The activity symbol sits beside the project-bar ping; the dialog stays with the
-   * viewport so its top layer is never clipped by the bar's layout.
+   * The activity symbol sits to the left of the project-bar ping; the dialog stays
+   * with the viewport so its top layer is never clipped by the bar's layout.
    * @param {Element} viewport Game viewport that hosts the modal dialog.
    */
   mount(viewport) {
     const ping = document.querySelector("#project-ping");
     if (ping) {
-      ping.after(this.indicator);
+      ping.before(this.indicator);
     } else {
       this.indicator.dataset.host = "viewport";
       viewport.append(this.indicator);
