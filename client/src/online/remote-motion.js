@@ -118,6 +118,7 @@ export class RemoteMotion {
     this.clearSamples();
     this.lastSampleAt = now;
     if (this.trajectory) this.trajectory.enabled = false;
+    if (this.pendingTrajectory) this.pendingTrajectory.enabled = false;
   }
 
   /** Draw the actor at `now - playoutMs`, then chase the buffered target at a bounded rate. */

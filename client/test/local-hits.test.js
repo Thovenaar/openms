@@ -57,6 +57,7 @@ function mobView(id, options = {}) {
     },
     drawX: x,
     drawY: y,
+    motion: { x, y },
     life: options.life ?? life(),
   };
   return view;
@@ -418,4 +419,69 @@ test("the drawn pose follows the local reaction and hands the mob back to its ob
   OnlineScene.prototype.pose.call(host, view, 0, 0);
   expect(action).toEqual(["stand", "loop"]);
   expect(sought).toBe(true);
+});
+
+test("a local hit recoils the mob on the release frame and releases as authority catches up", () => {
+  const view = mobView("mob-a", { x: 50 });
+  const f = fixture({ views: [view] });
+  f.hits.present({ rejected: false, hitFacing: 1, skillId: null }, view, [
+    { amount: 25, critical: false },
+  ]);
+  expect(view.recoil).toBeTruthy();
+  expect(view.recoil.facing).toBe(1);
+  // The first frames move the drawn pose before the authority has applied anything.
+  f.time(100);
+  const first = f.hits.recoilOffset(view, 30);
+  expect(first.x).toBeGreaterThan(0);
+  const advanced = f.hits.recoilOffset(view, 30);
+  expect(advanced.x).toBeGreaterThanOrEqual(first.x);
+  // Once the authoritative position has covered the whole predicted displacement, nothing
+  // is added: the same trajectory is not counted twice.
+  // Let the authored reaction finish, then let the authority cover the displacement.
+  for (let frame = 0; frame < 20; frame++) f.hits.recoilOffset(view, 30);
+  expect(view.recoil.ms).toBe(0);
+  view.motion = {
+    x: view.recoil.originX + view.recoil.distance * view.recoil.facing,
+    y: 0,
+  };
+  expect(f.hits.recoilOffset(view, 16)).toBeNull();
+});
+
+test("a refused or missed hit cannot leave a mob permanently displaced", () => {
+  const view = mobView("mob-a", { x: 50 });
+  const f = fixture({ views: [view] });
+  f.hits.present({ rejected: false, hitFacing: -1, skillId: null }, view, [
+    { amount: 25, critical: false },
+  ]);
+  expect(view.recoil.facing).toBe(-1);
+  f.time(100);
+  expect(f.hits.recoilOffset(view, 30).x).toBeLessThan(0);
+  // No authoritative confirmation arrives; after the reaction window the offset is freed.
+  f.time(view.recoil.releaseAfterMs + 200);
+  let offset = f.hits.recoilOffset(view, 100);
+  for (let frame = 0; frame < 60 && offset; frame++) {
+    offset = f.hits.recoilOffset(view, 100);
+  }
+  expect(view.recoil).toBeNull();
+});
+
+test("the authoritative impact marks the predicted recoil confirmed", () => {
+  const view = mobView("mob-a", { x: 50 });
+  const f = fixture({ views: [view] });
+  f.hits.present({ rejected: false, hitFacing: 1, skillId: null }, view, [
+    { amount: 25, critical: false },
+  ]);
+  f.hits.remember(view, 25, 0);
+  const record = f.hits.pending.get("mob-a")[0];
+  expect(record).toBeTruthy();
+  expect(view.recoil.confirmed).toBe(false);
+  expect(
+    f.hits.consume({
+      actorId: "self",
+      targetId: "mob-a",
+      damage: 25,
+      cause: "basic",
+    }),
+  ).toBe(true);
+  expect(view.recoil.confirmed).toBe(true);
 });

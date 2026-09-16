@@ -1,6 +1,7 @@
 import {
   admitTutorialPortal,
   resolveTutorialPortal,
+  tutorialNpcOffered,
   tutorialPortalKind,
 } from "../npc/npc-script-portals.js";
 import {
@@ -571,7 +572,7 @@ export class PortalSystem {
     if (Number(profile?.location?.mapId) !== Number(this.scene.manifest.id)) {
       throw new Error("Tutorial portal no longer owns its character field");
     }
-    if (record.tutorialProgram.openNpc) {
+    if (tutorialNpcOffered(record.tutorialProgram)) {
       await this.dispatchTutorialNpc(record, token);
     }
     const path = resolveTutorialPortal(record.tutorialProgram, profile);

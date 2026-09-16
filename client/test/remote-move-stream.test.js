@@ -362,3 +362,74 @@ test("a peer sample from a retired field is ignored outright", () => {
   });
   expect(observed.length).toBe(0);
 });
+
+/** The server freezes a preparing actor in createSimulation's initial airborne state. */
+function loadingPeer(x = 0, y = -100) {
+  return {
+    id: "peer",
+    kind: "player",
+    position: { x, y },
+    velocity: { x: 0, y: 0 },
+    foothold: null,
+    facing: 1,
+    action: 1,
+    actionStartTick: 1,
+    combatState: { phase: "idle", phaseMs: 0 },
+    playerMotion: {
+      state: "air",
+      gravity: 2000,
+      fallSpeed: 670,
+      ignoredFoothold: 0,
+      contactLayer: 7,
+      contactGroup: 0,
+      ladder: null,
+    },
+  };
+}
+
+test("a still-loading peer holds its spawn instead of dropping once per round trip", () => {
+  const segments = geometry();
+  // The ordered state frame alone must not arm the free-fall forecast.
+  const motion = new RemoteMotion(loadingPeer(), -1, 0, null);
+  motion.pendingTrajectory = new RemotePlayerPath(segments);
+  let tick = 1;
+  let lowest = -Infinity;
+  for (let now = 0; now <= 4000; now += 15) {
+    // One ack-gated state frame per 500 ms round trip, all identical.
+    if (now % 500 === 0) motion.observe(loadingPeer(), tick++, now, null);
+    lowest = Math.max(lowest, motion.sample(now).y);
+  }
+  expect(motion.trajectory).toBeNull();
+  // Never more than a rounding error below the frozen spawn, at any latency.
+  expect(lowest).toBeLessThanOrEqual(-100 + 0.01);
+});
+
+test("the first un-acked move sample arms the shared-geometry forecast", () => {
+  const { host, view } = peerSceneHost();
+  const armed = [];
+  view.motion = {
+    trajectory: null,
+    pendingTrajectory: { observe: (entity) => armed.push(entity) },
+    observe: () => {},
+  };
+  OnlineScene.prototype.peers.call(host, {
+    fieldEpoch: "field",
+    tick: 20,
+    entries: [
+      {
+        id: "peer",
+        position: { x: 50, y: -10 },
+        velocity: { x: 125, y: -100 },
+        foothold: null,
+        facing: 1,
+        action: 2,
+        actionStartTick: 20,
+        playerMotion: { state: "air" },
+      },
+    ],
+  });
+  expect(view.motion.trajectory).toBeTruthy();
+  expect(view.motion.pendingTrajectory).toBeNull();
+  expect(armed.length).toBe(1);
+  expect(armed[0].position).toEqual({ x: 50, y: -10 });
+});

@@ -22,3 +22,8 @@ studio/dist/
 .env*.local
 !.env.example
 !.env.*.example
+
+# Generated evidence JSON is produced locally by client/tools/regenerate-physics-evidence.js
+# and never committed. Text/decompiler findings in these directories remain tracked.
+docs/ghidra-physics-motion/*.json
+docs/ghidra-physics-refinements/*.json

@@ -5,6 +5,7 @@ import {
   sweepBody,
 } from "../world/life-geometry-numeric.js";
 import { knockbackChance } from "./combat-knockback.js";
+import { MOB_HIT } from "./mob-hit.js";
 import { mobFlipped, mobMovementMetadata } from "./mob-movement-metadata.js";
 import {
   createMobFlight,
@@ -37,14 +38,9 @@ export const MOB_POLICY = Object.freeze({
 /** 00663070..0066313e: new-spawn mode-2 alpha0→255 over800ms.
  * Existing-enter mode-1 is opaque; death alpha belongs to the WZ die frames. */
 export const MOB_APPEARANCE = Object.freeze({ spawnMs: 800 });
-/** 0066bb1a/009bbdfd: ordinary hit velocity, braking force and base ability mass. */
-export const MOB_HIT = Object.freeze({
-  velocity: 130,
-  deceleration: 40000 / 100,
-  strongVelocity: 300,
-  strongDeceleration: 20000 / 100,
-  minimumMotionMs: 90,
-});
+/** 0066bb1a/009bbdfd: ordinary hit velocity, braking force and base ability mass.
+ *  Re-exported so the authority and the attacker's local prediction share one source. */
+export { MOB_HIT } from "./mob-hit.js";
 /** Cosmic MonsterAggroCoordinator/config.yaml, not the native 180–240s target lease. */
 export const MOB_AGGRO = Object.freeze({
   updateMs: 5000,

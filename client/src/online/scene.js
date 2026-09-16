@@ -178,6 +178,13 @@ export class OnlineScene {
       view.received = this.motionNow;
       view.observedAge = 0;
       view.motionTick = message.tick;
+      // The first real move sample arms the shared-geometry forecast for this actor.
+      if (!view.motion.trajectory && view.motion.pendingTrajectory) {
+        const trajectory = view.motion.pendingTrajectory;
+        view.motion.pendingTrajectory = null;
+        trajectory.observe(view.entity);
+        view.motion.trajectory = trajectory;
+      }
       view.actionClock.observe(view.entity);
       view.motion.observe(
         view.entity,
@@ -255,7 +262,14 @@ export class OnlineScene {
       }
       path = new RemotePlayerPath(this.remoteGeometry);
     }
-    return new RemoteMotion(entity, -1, this.motionNow, path);
+    // The ordered state frame is membership/appearance only. A still-loading actor is frozen
+    // by the server in its initial airborne spawn state and is excluded from the move stream,
+    // so arming the free-fall forecast from that frame would drop the peer once per round
+    // trip. Arm the path on the first un-acked move sample instead; until then the held
+    // sample has zero velocity and the peer stands frozen at its spawn.
+    const motion = new RemoteMotion(entity, -1, this.motionNow, null);
+    motion.pendingTrajectory = path;
+    return motion;
   }
   updateView(view, entity) {
     const previousY = view.entity.position.y;
@@ -849,12 +863,8 @@ export class OnlineScene {
   drawView(view, now, elapsed, active) {
     const simulation = this.interpolateView(view, now);
     if (view.entity.id === this.selfId) this.drawSelfPose(view, simulation);
+    if (active && !this.paused) this.observeMob(view, elapsed);
     if (active && !this.paused) this.advanceView(view, elapsed);
-    // A drawn mob swing releases its authored area locally; the confirmation only replaces
-    // the digit if the authority actually landed a different outcome.
-    if (active && !this.paused && view.entity.kind === "mob") {
-      this.localCombat?.incoming?.observe(view, elapsed);
-    }
     if (view.mobName) {
       view.mobName.visible =
         view.entity.mobState.nameVisible &&
@@ -896,6 +906,22 @@ export class OnlineScene {
     view.drawX = x;
     view.drawY = y;
     return simulation;
+  }
+  /** Mob-only per-frame presentation: the locally resolved knockback and the locally
+   *  resolved incoming swing. Both are display-only; the authority owns the durable state. */
+  observeMob(view, elapsed) {
+    if (view.entity.kind !== "mob") return;
+    // A locally resolved hit recoils the mob on its own frame; the authority's later
+    // displacement is the same trajectory, so only the unapplied remainder is drawn.
+    const recoil = this.localCombat?.hits?.recoilOffset(view, elapsed);
+    if (recoil) {
+      view.drawX += recoil.x;
+      view.drawY += recoil.y;
+      this.pose(view, view.drawX, view.drawY);
+    }
+    // A drawn mob swing releases its authored area locally; the confirmation only replaces
+    // the digit if the authority actually landed a different outcome.
+    this.localCombat?.incoming?.observe(view, elapsed);
   }
   advanceView(view, elapsed) {
     view.observedAge += elapsed;

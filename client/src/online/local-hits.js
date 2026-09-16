@@ -1,4 +1,5 @@
 import { PhysicalDamage } from "../combat/physical-damage.js";
+import { MOB_HIT } from "../combat/mob-hit.js";
 import {
   overlaps,
   placeBody,
@@ -14,6 +15,12 @@ const MAX_TARGETS = 30;
 const MAX_LINES = 30;
 const MAX_PENDING = 128;
 const PREDICTION_TTL_MS = 4000;
+/** One drawn frame cannot advance the predicted recoil further than this. */
+const MAX_RECOIL_STEP_MS = 100;
+/** A locally predicted knockback the authority never confirms is freed after this long. */
+const RECOIL_RELEASE_MS = 500;
+/** Presentation tolerance: below this the predicted and authoritative paths have met. */
+const RECOIL_EPSILON_PX = 0.01;
 const REACTION_ACTION = "hit1";
 const BASIC_INFO = Object.freeze({ damage: 100 });
 /** 009537d5/0092fb41 flight speed used by the local projectile preview. */
@@ -89,6 +96,7 @@ export class LocalHits {
     const origin = this.stage?.presentation;
     const stats = this.combat.owner.hooks.characterStats?.();
     if (!scene || !origin || !stats) return;
+    record.hitFacing = origin.facing > 0 ? 1 : -1;
     const count = this.select(record, origin);
     for (let index = 0; index < count; index++) {
       const view = this.targets[index];
@@ -249,6 +257,90 @@ export class LocalHits {
       scene.events.combat.onMobHit(target, rolls[0].amount, rolls[0].critical);
     }
     this.react(view, rolls[0].amount);
+    this.recoil(view, rolls[0].amount, record.hitFacing ?? 1);
+  }
+
+  /** `0066b6fc`/`009bbdfd`: the attacker resolves the mob's recoil locally, so the knockback
+   *  starts on the same frame as the number and the hit pose instead of one round trip later.
+   *  The displacement is expressed against the authority's own progress at draw time, so the
+   *  server's later identical trajectory is not added twice. */
+  recoil(view, amount, facing) {
+    const info = view.life?.info;
+    const state = view.entity.mobState;
+    const action = view.animation.actions.get(REACTION_ACTION);
+    if (!this.recoilAdmitted(info, state, amount, action)) return;
+    const duration = Math.max(1, action.duration);
+    const motion = view.motion;
+    view.recoil = {
+      facing: facing > 0 ? 1 : -1,
+      speed: MOB_HIT.velocity,
+      deceleration: MOB_HIT.deceleration,
+      ms: duration,
+      distance: 0,
+      originX: motion && Number.isFinite(motion.x) ? motion.x : view.drawX,
+      age: 0,
+      confirmed: false,
+      generation: state.generation,
+      releaseAfterMs: duration + RECOIL_RELEASE_MS,
+    };
+  }
+
+  recoilAdmitted(info, state, amount, action) {
+    // Flying recoil uses its own flight controller and is not predicted here.
+    if (!info || !state || state.phase === "attack") return false;
+    if (state.movementType === 3) return false;
+    if (amount < (info.pushed ?? 1)) return false;
+    return Boolean(action && action.duration >= MOB_HIT.minimumMotionMs);
+  }
+
+  /** Current presentation offset for a locally predicted mob knockback, or null. */
+  recoilOffset(view, elapsed) {
+    const state = view.recoil;
+    if (!state) return null;
+    if (state.generation !== view.entity.mobState?.generation) {
+      view.recoil = null;
+      return null;
+    }
+    const dt = Math.min(Math.max(0, Number(elapsed) || 0), MAX_RECOIL_STEP_MS);
+    this.advanceRecoil(state, dt);
+    const applied = this.appliedRecoil(view, state, dt);
+    // A sub-pixel residue is not a displacement; the same path must settle, not jitter.
+    if (applied < RECOIL_EPSILON_PX) {
+      if (state.ms === 0 && state.distance === 0) view.recoil = null;
+      return null;
+    }
+    return { x: state.facing * applied, y: 0 };
+  }
+
+  /** Integrate the authored knockback profile: trapezoidal distance at a fixed braking rate. */
+  advanceRecoil(state, dt) {
+    state.age += dt;
+    if (state.ms <= 0) return;
+    const seconds = Math.min(dt, state.ms) / 1000;
+    const before = state.speed;
+    state.speed = Math.max(0, before - state.deceleration * seconds);
+    state.distance += ((before + state.speed) / 2) * seconds;
+    state.ms = Math.max(0, state.ms - dt);
+  }
+
+  /** The authority owns the durable displacement; show only the part it has not applied.
+   *  A refused or missed hit must not leave the mob permanently displaced, so after the
+   *  reaction window an unconfirmed prediction is retired at the same braking rate. */
+  appliedRecoil(view, state, dt) {
+    const motionX =
+      view.motion && Number.isFinite(view.motion.x)
+        ? view.motion.x
+        : view.drawX;
+    const server = (motionX - state.originX) * state.facing;
+    if (!state.confirmed && state.age > state.releaseAfterMs) {
+      state.distance = Math.max(
+        0,
+        state.distance - (MOB_HIT.velocity * dt) / 1000,
+      );
+    }
+    const applied = state.distance - server;
+    if (applied < 0) return 0;
+    return applied > state.distance ? state.distance : applied;
   }
 
   /** `0066b98b`: the hit pose persists for its authored duration and only then yields. */
@@ -292,6 +384,9 @@ export class LocalHits {
     if (event.damage <= 0) return false;
     const prediction = queue.shift();
     if (!queue.length) this.pending.delete(event.targetId);
+    // The authority confirmed the hit, so the predicted recoil is no longer provisional.
+    const view = this.combat.scene?.views?.get(event.targetId);
+    if (view?.recoil) view.recoil.confirmed = true;
     return this.now() - prediction.at <= PREDICTION_TTL_MS;
   }
 

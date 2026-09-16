@@ -124,3 +124,53 @@ test("observed skill artwork draws on the native effect layer above actors", () 
   presentation.applyVisual(entry);
   expect(entry.animation.container.zIndex).toBe(398525);
 });
+
+/** Reconcile scratch with no retained rows, as an older state snapshot produces. */
+function emptyObservation() {
+  return { retained: new Set(), retainedVoices: new Set(), pending: [] };
+}
+
+function visualEvent(id) {
+  return {
+    actorId: "peer",
+    visual: {
+      ...visualState({ x: 0, y: 0 }),
+      id,
+      bundle: { sha256: "bundle" },
+    },
+  };
+}
+
+test("an event-created skill visual survives the snapshot that predates it", () => {
+  const presentation = new NativeSkillPresentation({});
+  presentation.prepareVisual = async (entry) => {
+    entry.animation = null;
+  };
+  const released = [];
+  presentation.releaseVisual = (entry) => {
+    released.push(entry.id);
+    presentation.visuals.delete(entry.id);
+  };
+  // A `skill.visual` event arrives immediately, but the state frame naming it is acked and
+  // can still be older than the event at high latency.
+  const entry = presentation.retainVisual(visualEvent("v1"), null, false);
+  expect(entry.unconfirmed).toBe(true);
+  presentation.reconcileObservation(emptyObservation());
+  expect(presentation.visuals.has("v1")).toBe(true);
+  // One later snapshot has had the chance to confirm it; still absent, it is released.
+  presentation.reconcileObservation(emptyObservation());
+  expect(presentation.visuals.has("v1")).toBe(false);
+  expect(released).toEqual(["v1"]);
+});
+
+test("a snapshot-confirmed skill visual releases as soon as its snapshot omits it", () => {
+  const presentation = new NativeSkillPresentation({});
+  presentation.prepareVisual = async (entry) => {
+    entry.animation = null;
+  };
+  presentation.releaseVisual = (entry) => presentation.visuals.delete(entry.id);
+  presentation.retainVisual(visualEvent("v1"), null, true);
+  expect(presentation.visuals.get("v1").unconfirmed).toBe(false);
+  presentation.reconcileObservation(emptyObservation());
+  expect(presentation.visuals.has("v1")).toBe(false);
+});

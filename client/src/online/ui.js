@@ -540,7 +540,7 @@ export class OnlineUI {
       : "No available SP or active server field.";
   }
   cast(skillId) {
-    if (this.blocked() || this.localCombat.current()) return false;
+    if (this.blocked() || this.localCombat?.current()) return false;
     // Movement skills are predicted locally so the arc starts on the key press. The
     // authoritative divert for the same skill is then not merged twice, and a refused
     // cast restores the exact pre-cast kernel checkpoint so no unadmitted impulse
@@ -550,19 +550,19 @@ export class OnlineUI {
       ? (this.hooks.prediction?.beginOptimistic?.(impulse, skillId) ?? null)
       : null;
     const response = this.command({ kind: "skill.cast", skillId });
-    const pose = this.localCombat.begin(skillId, response.operationId);
+    const pose = this.localCombat?.begin(skillId, response.operationId);
     const feedback = this.skillVisuals?.predict(skillId, response.operationId);
     response
       .then((receipt) => {
         if (feedback) feedback.confirmed = true;
         if (receipt.status !== "committed") {
-          this.localCombat.reject(pose);
+          this.localCombat?.reject(pose);
           this.rollbackOptimistic(token);
           this.skillVisuals?.local.reject(feedback);
         }
       })
       .catch((error) => {
-        this.localCombat.reject(pose);
+        this.localCombat?.reject(pose);
         this.rollbackOptimistic(token);
         this.skillVisuals?.local.reject(feedback);
         this.report(error);

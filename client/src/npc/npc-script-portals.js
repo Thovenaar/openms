@@ -46,6 +46,15 @@ export const TUTORIAL_PORTAL_PROGRAMS = Object.freeze({
   }),
 });
 
+/** Conversations a tutorial portal may still admit but must no longer offer.
+ *
+ *  `scripts/npc/2007.js` (Shanks, Maple Island) is the "Would you like to skip the tutorials
+ *  and head straight to Lith Harbor?" prompt: answering yes warps to 104000000. The original
+ *  client only renders what the server script asks for, so removing the option is a content
+ *  policy, not a client change. This project removes it, so the `tutoChatNPC` portal opens no
+ *  NPC and the skip prompt is never shown. */
+export const REMOVED_TUTORIAL_NPCS = Object.freeze(new Set([2007]));
+
 /** Only these complete closed programs may enter the portal authority. */
 export function admitTutorialPortal(program) {
   const expected = TUTORIAL_PORTAL_PROGRAMS[program?.script];
@@ -53,6 +62,13 @@ export function admitTutorialPortal(program) {
     throw new Error("Tutorial portal source program is missing or altered");
   }
   return expected;
+}
+
+/** A removed conversation is treated as absent, never as a missing/broken program. */
+export function tutorialNpcOffered(program) {
+  return Boolean(
+    program?.openNpc && !REMOVED_TUTORIAL_NPCS.has(program.openNpc.npcId),
+  );
 }
 
 export function tutorialPortalKind(portal, raw) {

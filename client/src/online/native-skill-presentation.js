@@ -88,7 +88,9 @@ export class NativeSkillPresentation {
     }
     for (const visual of entity.skillVisuals ?? EMPTY_ROWS) {
       observation.retained.add(visual.id);
-      observation.pending.push(this.visual({ actorId: entity.id, visual }));
+      observation.pending.push(
+        this.visual({ actorId: entity.id, visual }, true),
+      );
     }
     for (const voice of entity.skillVoices ?? EMPTY_ROWS) {
       observation.retainedVoices.add(voice.voiceId);
@@ -104,7 +106,20 @@ export class NativeSkillPresentation {
   }
   reconcileObservation(observation) {
     for (const [id, entry] of this.visuals) {
-      if (!observation.retained.has(id)) this.releaseVisual(entry);
+      if (observation.retained.has(id)) {
+        entry.unconfirmed = false;
+        continue;
+      }
+      // An `skill.visual` event reaches the browser immediately, but the entity snapshot that
+      // also names it is serialized behind the acknowledged state frame and can be older than
+      // the event. Releasing on the first snapshot that predates the visual made a projectile
+      // or buff effect vanish for a whole round trip. Keep it until one later snapshot has had
+      // the chance to confirm it.
+      if (entry.unconfirmed) {
+        entry.unconfirmed = false;
+        continue;
+      }
+      this.releaseVisual(entry);
     }
     for (const [voiceId, record] of this.voices) {
       if (record.loop && !observation.retainedVoices.has(voiceId)) {
@@ -112,7 +127,7 @@ export class NativeSkillPresentation {
       }
     }
   }
-  async visual(event) {
+  async visual(event, observed = false) {
     this.setScene(this.owner.scene);
     if (!this.scene) return;
     if (this.local.visualEcho(event)) return;
@@ -121,12 +136,12 @@ export class NativeSkillPresentation {
     const rider = state.riding
       ? this.owner.hooks.scene()?.views.get(event.actorId)?.owner?.resource
       : null;
-    const entry = this.retainVisual(event, rider);
+    const entry = this.retainVisual(event, rider, observed);
     await entry.pending;
     if (entry.disposed || entry.generation !== this.generation) return;
     this.applyVisual(entry);
   }
-  retainVisual(event, rider) {
+  retainVisual(event, rider, observed) {
     const state = event.visual;
     let entry = this.visuals.get(state.id);
     if (
@@ -151,11 +166,13 @@ export class NativeSkillPresentation {
         generation: this.generation,
         disposed: false,
         rider,
+        unconfirmed: !observed,
       };
       this.visuals.set(state.id, entry);
       entry.pending = this.prepareVisual(entry);
     }
     entry.state = state;
+    if (observed) entry.unconfirmed = false;
     return entry;
   }
   async prepareVisual(entry) {

@@ -480,3 +480,32 @@ bun client/tools/peer-latency-trace.js                        # native per-tick 
 Changed files pass Prettier and ESLint. Two pre-existing `client/test/online-skill-motion.test.js`
 failures and five pre-existing `server/test/publication.test.js`/lifecycle fixture failures
 remain at the baseline commit and are unrelated to this path.
+
+## Combat responsiveness, remote visibility and peer entry
+
+Four reported issues were corrected. Each is a presentation or content-policy change; the
+authority still owns admission, HP, death, drops, rewards and durable status.
+
+| Symptom | Cause | Correction |
+| --- | --- | --- |
+| A new character was offered "skip the tutorials and head straight to Lith Harbor" | The admitted `tutoChatNPC` portal program opens the authored `scripts/npc/2007.js` conversation, whose Yes branch warps to 104000000 | `REMOVED_TUTORIAL_NPCS`/`tutorialNpcOffered` in `npc-script-portals.js`; the portal settles without opening the NPC |
+| Damage and the mob's knockback arrived after the swing | The attacker resolved the digit and pose locally but left all displacement to the authority, one round trip later | [local-hits.js](../client/src/online/local-hits.js) integrates the recovered `0066b6fc`/`009bbdfd` recoil profile on the release frame, drawing only `predicted − authoritative` and releasing an unconfirmed prediction |
+| A peer's projectile on login appeared to drop over and over | The ordered, acknowledged state frame armed the free-fall forecast while a still-loading actor was frozen in the initial airborne spawn state, so each round trip re-dropped it | The shared-geometry forecast is armed only by the first un-acked move sample ([scene.js](../client/src/online/scene.js) `peers`); before that the held sample has zero velocity |
+| Projectiles and buff effects could vanish for a peer | An event-created `skill.visual` could be released by an acknowledged snapshot older than the event, and `OnlineUI.cast` dereferenced a missing local-combat owner | [native-skill-presentation.js](../client/src/online/native-skill-presentation.js) holds an event-created visual for one reconciliation; `cast` uses optional chaining |
+
+Every admitted cast is already broadcast to the whole field — there is no self-only skill
+category — so no skill filter was added. The recovered recoil coefficients are ordinary
+130 px/s braking at 400 px/s² and strong 300/200, matching the authority's mob step.
+
+```sh
+bun test client/test/local-hits.test.js client/test/remote-move-stream.test.js \
+  client/test/portal.test.js client/test/skill-projectile-chase.test.js \
+  client/test/online-skill-motion.test.js server/test/remote-presentation.test.js
+```
+
+The client suite passes **638 tests / 10,095 assertions** with no failures; the two
+`online-skill-motion` failures present before this batch were the missing local-combat owner
+and are now green. Five pre-existing `publication`/lifecycle fixture failures remain
+unrelated. Generated evidence JSON (`docs/ghidra-physics-motion/*.json`,
+`docs/ghidra-physics-refinements/*.json`) is produced locally by
+`bun client/tools/regenerate-physics-evidence.js` and is not committed.

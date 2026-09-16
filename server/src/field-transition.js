@@ -23,6 +23,7 @@ import {
 import {
   admitTutorialPortal,
   tutorialPortalKind,
+  tutorialNpcOffered,
   resolveTutorialPortal,
 } from "../../client/src/npc/npc-script-portals.js";
 import {
@@ -474,7 +475,7 @@ async function tutorialPortal(world, actor, portal) {
   if (!token) throw protocolError("COOLDOWN");
   let committed = false;
   try {
-    if (program.openNpc) await world.openPortalNpc(actor, portal);
+    if (tutorialNpcOffered(program)) await world.openPortalNpc(actor, portal);
     const path = resolveTutorialPortal(program, actor.profile);
     if (path) {
       world.publish(actor, {

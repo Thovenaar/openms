@@ -6,7 +6,10 @@ import {
   resolveMarketTravel,
   selectMarketReturnPortal,
 } from "../src/world/portal-system.js";
-import { TUTORIAL_PORTAL_PROGRAMS } from "../src/npc/npc-script-portals.js";
+import {
+  TUTORIAL_PORTAL_PROGRAMS,
+  tutorialNpcOffered,
+} from "../src/npc/npc-script-portals.js";
 import { compileTutorialPortal } from "../tools/portal-data.js";
 
 test("portal admission is response-timed and stale completions cannot release a successor", () => {
@@ -207,28 +210,28 @@ test("beginner tutorial overlap silently blocks ineligible account without trave
   system.destroy();
 });
 
-test("eligible tutorial offers the authored NPC once, but a failed opening remains retryable", async () => {
-  let available = false;
+test("the removed Lith Harbor skip conversation is never offered, even to an eligible account", async () => {
   const opened = [];
   const { system, scene, gate, errors } = tutorialRuntime(true, async (id) => {
-    if (!available) throw new Error("NPC asset unavailable");
     opened.push(id);
   });
   system.update(30, { upPressed: false });
   await Bun.sleep(0);
-  expect(errors.length).toBe(1);
-  expect(gate.blockedScripts.has("tutoChatNPC")).toBe(false);
-  expect(scene.manifest.id).toBe("000010000");
-  available = true;
-  // Failed automatic overlap requires exit/reentry; settlement recovery still applies.
-  gate.clock = () => 2000;
-  scene.simulation.x = 100;
-  system.update(30, { upPressed: false });
-  scene.simulation.x = -93;
-  system.update(30, { upPressed: false });
-  await Bun.sleep(0);
-  expect(opened).toEqual([2007]);
+  expect(errors).toEqual([]);
+  // The tutorial portal still settles, but the "skip to Lith Harbor" NPC is not opened.
+  expect(opened).toEqual([]);
   expect(gate.blockedScripts.has("tutoChatNPC")).toBe(true);
   expect(scene.manifest.id).toBe("000010000");
+  system.update(30, { upPressed: false });
+  expect(system.requests).toBe(1);
   system.destroy();
+});
+
+test("a conversation is treated as absent only for the removed NPC identity", () => {
+  const program = TUTORIAL_PORTAL_PROGRAMS.tutoChatNPC;
+  expect(tutorialNpcOffered(program)).toBe(false);
+  expect(tutorialNpcOffered({ openNpc: { npcId: 2007 } })).toBe(false);
+  expect(tutorialNpcOffered({ openNpc: { npcId: 9010000 } })).toBe(true);
+  expect(tutorialNpcOffered({ openNpc: null })).toBe(false);
+  expect(tutorialNpcOffered(null)).toBe(false);
 });
