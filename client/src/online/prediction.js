@@ -6,7 +6,10 @@ import {
   assignHeldInput,
   captureMotion,
 } from "../../../shared/motion.js";
-import { applyExternalImpulse } from "../physics/simulation.js";
+import {
+  applyExternalImpulse,
+  relocateSimulation,
+} from "../physics/simulation.js";
 import { FLASH_SKILLS } from "../skills/skill-world-rules.js";
 import { inputTargetTick } from "./input-timing.js";
 
@@ -376,6 +379,23 @@ export class OnlinePrediction {
     if (previous === null) return;
     const delta = (sequence - previous) >>> 0;
     if (delta > 0 && delta < 0x80000000) this.onGroundJump?.();
+  }
+
+  /** Adopt a server-owned relocation — a same-map portal or teleport — into the local
+   *  kernel. The browser owns its own XY for ordinary movement, but a transition is a
+   *  server-authored reposition: it must reach the prediction, not just the drawn pose, or
+   *  the next predicted frame pulls the player back to the pre-portal position. */
+  relocate(x, y) {
+    const sim = this.simulation;
+    if (!sim || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    relocateSimulation(sim, { x, y });
+    this.head = 0;
+    this.count = 0;
+    this.clearCorrection();
+    // The next presentation step draws the relocation directly instead of gliding to it.
+    this.drawnX = Number.NaN;
+    this.drawnY = Number.NaN;
+    this.lastStepAt = performance.now();
   }
 
   retireHistory() {

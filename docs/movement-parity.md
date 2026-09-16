@@ -102,6 +102,12 @@ Remote animation clocks advance between publications, and a dropped frame may ad
 
 The [remote motion check](validation-method.md#remote-player-and-drop-check) exercises two native browser clients under delayed delivery. This forecast cannot know another player's future keys, and does not implement every wall collision, movement skill or special controller. The [combat latency check](validation-method.md#combat-latency-check) covers local combat and the simpler mob forecast. Neither establishes original Windows runtime parity.
 
+## Portals and transitions
+
+The local player is presented from its own prediction, never from the remote interpolator — including while the transport is `transitioning` or `synchronizing`. Drawing the self from received publications would place it at a delayed server snapshot and throw its coordinates before the map changes. While a transition is pending the prediction is simply not stepped, so the character holds its portal position; its coordinates change at the destination install.
+
+A **same-map** portal or teleport is the authority's own relocation, delivered as an observed `world.teleport` event. The client adopts it into the prediction kernel with the same `relocateSimulation` the authority applies, so the next predicted step extends the arrival instead of pulling the player back to the pre-portal position. Cross-map travel replaces the predictor outright from the destination snapshot.
+
 ## Skill snapshot continuity
 
 The September 14 follow-up traced three independent failures in the real online path:

@@ -337,6 +337,105 @@ test("midair attack locks retain the local interpolation clock instead of chasin
   expect(captureMotion(simulation)).toEqual(before);
 });
 
+test("a server-owned relocation reaches the local prediction, not only the drawn pose", () => {
+  const { prediction, simulation } = presentable();
+  const before = captureMotion(simulation);
+  expect(before.x).not.toBe(10);
+  prediction.relocate(10, -20);
+  expect(simulation.x).toBe(10);
+  expect(simulation.y).toBe(-20);
+  expect(simulation.previousX).toBe(10);
+  expect(simulation.previousY).toBe(-20);
+  expect(simulation.vx).toBe(0);
+  expect(simulation.vy).toBe(0);
+  // History is retired so the next report extends the relocated state, not the old one.
+  expect(prediction.snapshot().history).toBe(0);
+});
+
+test("a committed transition holds the local pose instead of using remote interpolation", () => {
+  // Between the commit message and the destination install the predictor is briefly not
+  // ready. The self must hold its last predicted pose, never the delayed remote sample.
+  const view = {
+    entity: { id: "self" },
+    motion: { x: 0, y: 0, sample: () => ({ x: 0, y: 0 }) },
+    drawX: 0,
+    drawY: 0,
+  };
+  const owner = {
+    selfId: "self",
+    drawPrediction: null,
+    simulationSource: { x: 340, y: -12 },
+    remoteActive: true,
+    motionNow: 500,
+    pose() {},
+  };
+  const result = OnlineScene.prototype.interpolateView.call(owner, view, 500);
+  expect(result).toBeNull();
+  expect(view.drawX).toBe(340);
+  expect(view.drawY).toBe(-12);
+});
+
+test("a paused portal transition keeps drawing the local player from its own prediction", () => {
+  // While the transport is transitioning `active` is false. The self must still present its
+  // own prediction: falling back to the remote interpolator would draw the player from a
+  // delayed server snapshot and throw its coordinates before the map changes.
+  const simulation = { x: 120, y: 30 };
+  const prediction = {
+    ready: true,
+    paused: false,
+    simulation,
+    interpolate(now, target) {
+      target.x = simulation.x;
+      target.y = simulation.y;
+      return target;
+    },
+  };
+  const view = {
+    entity: {
+      id: "self",
+      position: { x: 0, y: 0 },
+      action: 1,
+      combatState: null,
+    },
+    motion: { sample: () => ({ x: 0, y: 0 }) },
+    fromX: 0,
+    fromY: 0,
+    drawX: 0,
+    drawY: 0,
+  };
+  const owner = {
+    selfId: "self",
+    paused: false,
+    remoteActive: false,
+    motionNow: 0,
+    selfPose: {},
+    presentation: { x: 0, y: 0, facing: 0, action: "stand1" },
+    localCombat: null,
+    drawPrediction: null,
+    observedSimulation: Object.create(null),
+    simulationSource: null,
+    views: new Map([["self", view]]),
+    geometry: { visible: false },
+    scene: { updateActor() {} },
+    events: { draw() {} },
+    drops: { draw() {} },
+    chairs: { draw() {}, observe() {} },
+    native: null,
+    syncPrediction: OnlineScene.prototype.syncPrediction,
+    drawView: OnlineScene.prototype.drawView,
+    interpolateView: OnlineScene.prototype.interpolateView,
+    drawSelfPose: OnlineScene.prototype.drawSelfPose,
+    drawNpcs() {},
+    updateCamera() {},
+    drawScenery() {},
+  };
+  OnlineScene.prototype.draw.call(owner, 1000, 16, prediction, false);
+  expect(owner.drawPrediction).toBe(prediction);
+  expect(owner.simulationSource).toBe(simulation);
+  expect(view.drawX).toBe(120);
+  expect(view.drawY).toBe(30);
+});
+
 test("ground jump audio follows accepted checkpoints once; air presses and rejoin are silent", () => {
   let sounds = 0;
   const { prediction, simulation } = presentable(() => sounds++);

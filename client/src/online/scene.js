@@ -566,7 +566,11 @@ export class OnlineScene {
       : "loop";
   }
   /** Borrow predictor state through getter-only fields; never step a field here. */
-  syncPrediction(prediction, active) {
+  /** The observed simulation always follows the live prediction. A paused or transitioning
+   *  transport still owns a complete local simulation: falling back to the remote
+   *  interpolator here would draw the local player from a delayed server snapshot and throw
+   *  its coordinates. Only a cleared prediction (a resync) retains the previous state. */
+  syncPrediction(prediction) {
     if (!prediction?.simulation) return;
     if (!this.simulationSource) {
       for (const key of Object.keys(prediction.simulation)) {
@@ -577,10 +581,10 @@ export class OnlineScene {
       }
       Object.freeze(this.observedSimulation);
     }
-    // Disconnects retain the last complete predictor state for native inspection.
-    if (active || !this.simulationSource) {
-      this.simulationSource = prediction.simulation;
-    }
+    this.simulationSource = prediction.simulation;
+    // Retained so a server-authored relocation (a same-map portal or teleport) can be
+    // adopted by the local kernel, not only by the drawn pose.
+    this.predictionOwner = prediction;
   }
   get life() {
     return this.native?.life ?? null;
@@ -639,6 +643,12 @@ export class OnlineScene {
     if (event.actorId === this.selfId) {
       this.presentation.x = this.selfPose.x = event.destination.x;
       this.presentation.y = this.selfPose.y = event.destination.y;
+      // A same-map portal moves the authority's simulation; the local prediction must adopt
+      // it or its next step pulls the player back to the pre-portal coordinates.
+      this.predictionOwner?.relocate?.(
+        event.destination.x,
+        event.destination.y,
+      );
     }
   }
   resize(width, height) {
@@ -706,8 +716,11 @@ export class OnlineScene {
     this.paused = prediction?.paused ?? false;
     this.remoteActive = active && !this.paused;
     if (this.remoteActive) this.motionNow += elapsed;
-    this.syncPrediction(prediction, active);
-    this.drawPrediction = prediction?.ready && active ? prediction : null;
+    this.syncPrediction(prediction);
+    // The local player is always presented from its own prediction. `active` only reports
+    // whether movement is being accepted; a portal or resync pause must not replace the
+    // player with the remote interpolator and move it to an older server position.
+    this.drawPrediction = prediction?.ready ? prediction : null;
     for (const view of this.views.values()) {
       this.drawView(view, now, elapsed, active);
     }
@@ -746,6 +759,14 @@ export class OnlineScene {
       prediction.interpolate(now, this.selfPose);
       x = this.selfPose.x;
       y = this.selfPose.y;
+    } else if (self && this.simulationSource) {
+      // A committed transition briefly clears the predictor's ready flag while the
+      // destination scene installs. The local player must hold its last predicted pose
+      // rather than fall back to the remote interpolator, which would move it to an older
+      // server snapshot before the map changes.
+      x = this.simulationSource.x;
+      y = this.simulationSource.y;
+      this.pose(view, x, y);
     } else {
       const pose = this.remoteActive
         ? view.motion.sample(this.motionNow)

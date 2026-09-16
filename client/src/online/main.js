@@ -355,7 +355,7 @@ function installPrediction(candidate, snapshot) {
     ),
     snapshot.serverTick,
   );
-  candidate.syncPrediction(prediction, false);
+  candidate.syncPrediction(prediction);
   if (presented) prediction.seedCorrection(presented.x, presented.y);
 }
 
