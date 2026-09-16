@@ -18,6 +18,22 @@ export function sweepBody(target, current, delta) {
   target.bottom = current.bottom + Math.max(0, delta.y);
 }
 
+export function rectangleState() {
+  return { active: false, left: 0, top: 0, right: 0, bottom: 0 };
+}
+
+/** Exact rectangle intersection; no pixel bounds can enter this path. */
+export function overlaps(a, b) {
+  return (
+    a.active &&
+    b.active &&
+    a.left < b.right &&
+    a.right > b.left &&
+    a.top < b.bottom &&
+    a.bottom > b.top
+  );
+}
+
 export function containsPoint(slot, point) {
   return (
     slot.active &&

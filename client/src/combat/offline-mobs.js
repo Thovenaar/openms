@@ -1,4 +1,9 @@
-import { placeBody, sweepBody } from "../world/life-geometry-numeric.js";
+import {
+  overlaps,
+  placeBody,
+  rectangleState,
+  sweepBody,
+} from "../world/life-geometry-numeric.js";
 import { knockbackChance } from "./combat-knockback.js";
 import { mobFlipped, mobMovementMetadata } from "./mob-movement-metadata.js";
 import {
@@ -49,21 +54,9 @@ const MAX_MOBS = 4096;
 const MAX_ACTIONS = 128;
 const MAX_FRAMES = 1024;
 
-export function rectangleState() {
-  return { active: false, left: 0, top: 0, right: 0, bottom: 0 };
-}
-
-/** Exact rectangle intersection; no pixel bounds can enter this path. */
-export function overlaps(a, b) {
-  return (
-    a.active &&
-    b.active &&
-    a.left < b.right &&
-    a.right > b.left &&
-    a.top < b.bottom &&
-    a.bottom > b.top
-  );
-}
+// Life geometry is shared with the browser's own presentation; the authority half of this
+// module must not be the only home for a rectangle test the online graph is allowed to use.
+export { overlaps, rectangleState };
 
 /** Compile original frame delays once; unknown timing remains frozen. */
 export function compileActions(template) {

@@ -1,7 +1,10 @@
 import { PhysicalDamage } from "../combat/physical-damage.js";
-import { overlaps, rectangleState } from "../combat/offline-mobs.js";
-import { placeBody } from "../world/life-geometry-numeric.js";
-import { actionWeapon, attackRectangle } from "../skills/skill-attack.js";
+import {
+  overlaps,
+  placeBody,
+  rectangleState,
+} from "../world/life-geometry-numeric.js";
+import { actionWeapon, attackRectangle } from "../skills/skill-rectangle.js";
 import { skillLineCount } from "../skills/skill-damage.js";
 import { skillNumber } from "../skills/skill-costs.js";
 import { animationName } from "../../../shared/motion-schema.js";
