@@ -512,6 +512,7 @@ function attachMinimap(
   markers.layer.root.visible = true;
   panel.mapMarkerLayer = markers.layer;
   panel.mapMarkers = markers.markers;
+  panel.mapPeerMarkers = markers.peers;
   panel.mapPlayerMarker = markers.player;
   panel.mapGeometry = geometry;
   panel.mapNames = resource.manifest.metadata;
@@ -599,6 +600,7 @@ function releaseMap(panel) {
   panel.mapMarkerLayer?.destroy();
   panel.mapMarkerLayer = null;
   panel.mapMarkers = [];
+  panel.mapPeerMarkers = null;
   panel.mapPlayerMarker = null;
   panel.mapGeometry = null;
   panel.mapNames = null;

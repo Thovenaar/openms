@@ -1,6 +1,9 @@
 import { Container } from "pixi.js";
 
 const MAX_MARKERS = 4096;
+/** Bounded pool for the other users in the field; the native minimap draws every one. */
+const PEER_MARKERS = 64;
+const EMPTY_PEERS = Object.freeze([]);
 const COMPACT_WIDTH = 260;
 const COMPACT_HEIGHT = 153;
 const MAX_WINDOW_WIDTH = 600;
@@ -303,6 +306,23 @@ function addMarker(markers, layer, kind, { x, y }) {
   });
 }
 
+/** `another` is packaged with the rest of the minimap branch; an older catalog without it
+ *  simply draws no peer markers instead of failing the whole panel. */
+function peerMarkers(layer) {
+  const path = "MapHelper/minimap/another";
+  if (!layer.assets[path] || !layer.entities.has(path)) return EMPTY_PEERS;
+  const asset = layer.assets[path];
+  const pool = [];
+  for (let index = 0; index < PEER_MARKERS; index++) {
+    pool.push({
+      sprite: layer.image(path, 0, 0),
+      halfWidth: Math.floor(asset.width / 2),
+      halfHeight: Math.floor(asset.height / 2),
+    });
+  }
+  return pool;
+}
+
 /** NPCs are authored map-wide positions; hidden NPCs and invisible portal types are excluded. */
 export function createMinimapMarkers(panel, manifest) {
   const layer = panel.layer("minimap-markers");
@@ -331,7 +351,14 @@ export function createMinimapMarkers(panel, manifest) {
       }
     }
     addMarker(markers, layer, "user", { x: 0, y: 0 });
-    return { layer, markers, player: markers[markers.length - 1] };
+    const peers = peerMarkers(layer);
+    for (const peer of peers) peer.sprite.container.visible = false;
+    return {
+      layer,
+      markers,
+      peers,
+      player: markers[markers.length - 1],
+    };
   } catch (error) {
     layer.destroy();
     throw error;
@@ -356,8 +383,45 @@ function cropCoordinate(value, axis, geometry, viewport) {
   );
 }
 
+/** Place one live marker: signed world coordinate, cropped, at the viewport origin. */
+function placeMarker(marker, geometry, viewport, position) {
+  const mx =
+    minimapCoordinate(position.x, geometry.centerX, geometry.mag) -
+    geometry.cropX;
+  const my =
+    minimapCoordinate(position.y, geometry.centerY, geometry.mag) -
+    geometry.cropY;
+  marker.sprite.setPosition(
+    viewport.x + mx - marker.halfWidth,
+    viewport.y + my - marker.halfHeight,
+  );
+  marker.sprite.container.visible =
+    mx >= 0 && my >= 0 && mx < viewport.width && my < viewport.height;
+}
+
+/** 008594a7: every user other than the local player is drawn with the authored `another`
+ *  canvas at the same coordinate transform, so the local player sees its whole field. */
+function updatePeerMarkers(panel, peers) {
+  const pool = panel.mapPeerMarkers;
+  if (!pool || !pool.length) return;
+  const geometry = panel.mapGeometry;
+  const viewport = panel.mapViewport;
+  const count = Math.min(peers.length, pool.length);
+  for (let index = 0; index < pool.length; index++) {
+    const marker = pool[index];
+    if (index >= count) {
+      marker.sprite.container.visible = false;
+      continue;
+    }
+    const peer = peers[index];
+    if (Number.isFinite(peer.x) && Number.isFinite(peer.y)) {
+      placeMarker(marker, geometry, viewport, peer);
+    } else marker.sprite.container.visible = false;
+  }
+}
+
 /** Called with live feet coordinates; no allocations or DOM changes in the frame loop. */
-export function updateMinimap(panel, x, y) {
+export function updateMinimap(panel, x, y, peers = null) {
   panel.mapPlayerX = x;
   panel.mapPlayerY = y;
   const geometry = panel.mapGeometry;
@@ -380,17 +444,7 @@ export function updateMinimap(panel, x, y) {
     viewport.y - geometry.cropY + geometry.asset.origin.y,
   );
   for (const marker of panel.mapMarkers) {
-    const mx =
-      minimapCoordinate(marker.x, geometry.centerX, geometry.mag) -
-      geometry.cropX;
-    const my =
-      minimapCoordinate(marker.y, geometry.centerY, geometry.mag) -
-      geometry.cropY;
-    marker.sprite.setPosition(
-      viewport.x + mx - marker.halfWidth,
-      viewport.y + my - marker.halfHeight,
-    );
-    marker.sprite.container.visible =
-      mx >= 0 && my >= 0 && mx < viewport.width && my < viewport.height;
+    placeMarker(marker, geometry, viewport, marker);
   }
+  updatePeerMarkers(panel, peers ?? EMPTY_PEERS);
 }

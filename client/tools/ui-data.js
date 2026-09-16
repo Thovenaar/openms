@@ -226,7 +226,9 @@ async function branchBundle(context, imageName, branch, extras = []) {
 
 async function addMinimapMarkers(context, stack) {
   const markers = await context.image("Map", "MapHelper.img");
-  for (const name of ["user", "npc", "portal"]) {
+  // 008594a7 draws every other user in the field with the authored `another` canvas; NPCs,
+  // portals and the local `user` share the same transform.
+  for (const name of ["user", "another", "npc", "portal"]) {
     stack.push({
       node: at(markers, `minimap/${name}`),
       path: `MapHelper/minimap/${name}`,

@@ -115,6 +115,27 @@ export class OnlineUI {
       this.transport.model?.entities ?? this.state?.entities ?? EMPTY_ENTITIES
     );
   }
+  /** Live peer footsteps for the minimap. The buffer is reused, so the per-frame call
+   *  allocates nothing; the panel only draws as many as its own bounded marker pool. */
+  minimapPeers() {
+    const scene = this.hooks.scene();
+    const buffer = (this.minimapPeerBuffer ??= []);
+    let count = 0;
+    if (scene) {
+      for (const view of scene.views.values()) {
+        if (view.entity.kind !== "player" || view.entity.id === scene.selfId) {
+          continue;
+        }
+        const slot = buffer[count] ?? (buffer[count] = { x: 0, y: 0 });
+        slot.x = view.drawX;
+        slot.y = view.drawY;
+        count++;
+      }
+    }
+    buffer.length = count;
+    return buffer;
+  }
+
   nativeHooks() {
     return {
       ...this.profileHooks(),
@@ -167,6 +188,7 @@ export class OnlineUI {
           text: "If you invest your AP in HP or MP, your character may have\\r\\ninsufficient stats to become as strong as it could be.\\r\\nDo you still wish to raise this skill?",
         }),
       characterStats: () => this.state?.presentation.stats,
+      minimapPeers: () => this.minimapPeers(),
       petEquipmentUnavailable: () => unsupported("pet equipment").reason,
       onRecover: () => {
         this.ui.showRevival(this.scene).catch((error) => this.report(error));

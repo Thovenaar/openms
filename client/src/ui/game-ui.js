@@ -1542,6 +1542,7 @@ export class GameUI {
         minimap,
         this.scene.presentation.x,
         this.scene.presentation.y,
+        this.hooks.minimapPeers?.(),
       );
     }
     for (const panel of this.windows.values()) {
