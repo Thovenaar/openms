@@ -448,6 +448,10 @@ const entity = record(
         gravity: number(0, 1000000, false),
         fallSpeed: number(0, 1000000, false),
         ignoredFoothold: u32,
+        // 009b4929: the drawing contact plane follows a foothold or a ladder's page, and it
+        // is the only depth source while climbing, when no foothold is reported.
+        contactLayer: number(0, 4096),
+        contactGroup: number(0, 4096),
         ladder: nullable(
           record({ x: coordinate, top: coordinate, bottom: coordinate }),
         ),

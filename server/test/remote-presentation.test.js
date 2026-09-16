@@ -30,6 +30,8 @@ test("peer projection publishes detached effective gravity and ladder limits in 
     state: "ladder",
     effectiveSettings: { gravityAcc: 2000, gravity: 0.5, fallSpeed: 600 },
     ignoredFootholdId: 2,
+    contactLayer: 1,
+    contactGroup: 0,
     ladder: { x: 20, y1: 0, y2: 90 },
   };
   const view = actorEntity({
@@ -45,6 +47,8 @@ test("peer projection publishes detached effective gravity and ladder limits in 
     gravity: 1000,
     fallSpeed: 300,
     ignoredFoothold: 2,
+    contactLayer: 1,
+    contactGroup: 0,
     ladder: { x: 20, top: 0, bottom: 90 },
   });
   expect(JSON.stringify(projection).length).toBeLessThan(200);

@@ -73,6 +73,8 @@ function playerMotion(sim) {
     gravity: settings.gravityAcc * settings.gravity,
     fallSpeed: settings.fallSpeed * settings.gravity,
     ignoredFoothold: sim.ignoredFootholdId,
+    contactLayer: sim.contactLayer,
+    contactGroup: sim.contactGroup,
     ladder: sim.ladder
       ? { x: sim.ladder.x, top: sim.ladder.y1, bottom: sim.ladder.y2 }
       : null,

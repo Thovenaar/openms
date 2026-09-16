@@ -262,7 +262,20 @@ export class OnlineScene {
             ? 29991 + (foothold.layer * 3000 - foothold.group) * 10
             : 239991,
       );
-    } else if (foothold) {
+      return;
+    }
+    // 009b4929: a drawing contact is a foothold or a ladder's page, and while climbing no
+    // foothold is reported at all. A peer therefore uses the plane the server published
+    // instead of keeping the plane it left, which drew it behind the rope it was on.
+    const motion = entity.playerMotion;
+    if (motion) {
+      this.scene.setEntityDepth(
+        view.animation,
+        29997 + (motion.contactLayer * 3000 - motion.contactGroup) * 10,
+      );
+      return;
+    }
+    if (foothold) {
       this.scene.setEntityDepth(
         view.animation,
         (entity.kind === "drop" ? 29999 : 29997) +

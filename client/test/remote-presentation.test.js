@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { RemoteMotion } from "../src/online/remote-motion.js";
 import { RemotePlayerPath } from "../src/online/remote-player-path.js";
 import { RemoteAnimationClock } from "../src/online/remote-animation-clock.js";
+import { OnlineScene } from "../src/online/scene.js";
 import {
   DropPresentationMotion,
   projectDrop,
@@ -58,6 +59,8 @@ function player(state = "ground", x = 40, y = 0, [vx, vy] = [100, 0]) {
       gravity: 2000,
       fallSpeed: 600,
       ignoredFoothold: 0,
+      contactLayer: 1,
+      contactGroup: 4,
       ladder: null,
     },
   };
@@ -189,6 +192,34 @@ test("ladder, buoyant motion and death preserve their own movement modes", () =>
   const dead = player("air", 0, -20, [30, -40]);
   dead.combatState.phase = "dead";
   expect(remote(dead).sample(1200).y).toBe(-20);
+});
+
+test("a climbing peer keeps the published contact plane instead of the foothold it left", () => {
+  const depths = [];
+  const host = {
+    footholds: new Map([[1, { layer: 1, group: 4 }]]),
+    scene: {
+      setEntityDepth: (animation, z) => depths.push([animation.id, z]),
+    },
+  };
+  const climbing = player("ladder", 10, 50, [0, -100]);
+  climbing.foothold = null;
+  climbing.playerMotion.contactLayer = 2;
+  climbing.playerMotion.contactGroup = 0;
+  OnlineScene.prototype.updateViewDepth.call(host, {
+    entity: climbing,
+    animation: { id: "climb" },
+  });
+  expect(depths.pop()).toEqual(["climb", 29997 + (2 * 3000 - 0) * 10]);
+  // A grounded peer without a published plane still follows its foothold.
+  const grounded = player("ground", 40, 0, [100, 0]);
+  delete grounded.playerMotion;
+  grounded.foothold = 1;
+  OnlineScene.prototype.updateViewDepth.call(host, {
+    entity: grounded,
+    animation: { id: "walk" },
+  });
+  expect(depths.pop()).toEqual(["walk", 29997 + (1 * 3000 - 4) * 10]);
 });
 
 test("remote attack phase does not rewind on delayed copies and resets for a new action", () => {

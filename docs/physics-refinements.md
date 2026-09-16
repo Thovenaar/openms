@@ -13,12 +13,12 @@ This supersedes the conveyor, drag, drop-target and lowest-ID/transported-distan
 
 Let `c = force * 0.01`, `a = abs(trunc(c))`, and `d` be held horizontal direction. `009b2582..2712` gives:
 
-| Input | Force before slope factor | Walk-limit multiplier |
-|---|---|---|
-| neutral, c nonzero | c × base walk force × map force | a |
-| same direction as c | ordinary directional force × 2a | 2a |
-| opposite direction to c | ordinary directional force × 0.2/a | 0.2/a |
-| c zero | ordinary directional force | 1 |
+| Input                   | Force before slope factor          | Walk-limit multiplier |
+| ----------------------- | ---------------------------------- | --------------------- |
+| neutral, c nonzero      | c × base walk force × map force    | a                     |
+| same direction as c     | ordinary directional force × 2a    | 2a                    |
+| opposite direction to c | ordinary directional force × 0.2/a | 0.2/a                 |
+| c zero                  | ordinary directional force         | 1                     |
 
 Swimming scales the ordinary directional force before this branch; neutral conveyor force replaces it and therefore does not inherit that force reduction. The walk limit retains swimming reduction. Slope factors and steep-slip combinations remain in their original order.
 
@@ -84,7 +84,7 @@ The debug overlay consumes the actual `simulation.bounds`: orange X/top edges ar
 
 ## Contact-dependent actor drawing order
 
-`0092fd16` computes ordinary local-user depth as `B + 29997 + (plane*3000−group)*10`, with an additional `5` for the separate dynamic-object branch. `009b4929` updates the contact plane/group from footholds or a ladder's page; entry without a contact uses plane 7/group 0. Evidence: [`actor-depth.txt`](ghidra-physics-refinements/actor-depth.txt), [`depth-factors.txt`](ghidra-physics-refinements/depth-factors.txt), [`drawing-contact-state.txt`](ghidra-physics-refinements/drawing-contact-state.txt), and the disassembly above. The browser removes the shared base `B` and reorders only the actor when that contact-derived key changes. The unimplemented dynamic-object branch is not approximated.
+`0092fd16` computes ordinary local-user depth as `B + 29997 + (plane*3000−group)*10`, with an additional `5` for the separate dynamic-object branch. `009b4929` updates the contact plane/group from footholds or a ladder's page; entry without a contact uses plane 7/group 0. Evidence: [`actor-depth.txt`](ghidra-physics-refinements/actor-depth.txt), [`depth-factors.txt`](ghidra-physics-refinements/depth-factors.txt), [`drawing-contact-state.txt`](ghidra-physics-refinements/drawing-contact-state.txt), and the disassembly above. The browser removes the shared base `B` and reorders only the actor when that contact-derived key changes. A peer publishes that same contact plane in its `playerMotion` projection, because a climbing actor reports no foothold at all: resolving depth from a foothold id alone left a remote character on the plane it left, which drew it behind the rope it was climbing (the local actor already follows the plane directly). The unimplemented dynamic-object branch is not approximated.
 
 This replaces the constant actor depth that the independent slope, conveyor and ice scenarios exposed as hiding the avatar behind map artwork. Their original failure artifacts remain available rather than being overwritten.
 
