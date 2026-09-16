@@ -119,6 +119,49 @@ test("a jittery publication stream never draws a backward step", () => {
   expect(maxBack).toBeLessThan(2);
 });
 
+test("a falling peer stays on its own arc instead of trailing a hundred pixels behind", () => {
+  // Original globals: walkSpeed125, jumpSpeed555, fallSpeed670, gravityAcc2000.
+  const motion = remote(player("air", 0, 0, [125, 670]));
+  let tick = 1,
+    next = 90,
+    worst = 0,
+    previous = null,
+    risen = 0;
+  for (let ms = 0; ms <= 2000; ms += 15) {
+    while (ms >= next) {
+      motion.observe(
+        player("air", (125 * next) / 1000, (670 * next) / 1000, [125, 670]),
+        ++tick,
+        next,
+        null,
+      );
+      next += 90;
+    }
+    const drawn = motion.sample(ms).y;
+    const target = motion.evaluate(motion.renderTime(ms)).y;
+    if (ms >= 300) worst = Math.max(worst, Math.abs(drawn - target));
+    if (previous !== null) risen = Math.max(risen, previous - drawn);
+    previous = drawn;
+    motion.advance(15);
+  }
+  expect(worst).toBeLessThan(2);
+  expect(risen).toBe(0);
+});
+
+test("a drifted pose is bent back into the path, and only a discontinuity is presented", () => {
+  const motion = remote(player("ground", 0, 0, [0, 0]));
+  motion.sample(200);
+  // A walk-sized offset is chased over a few frames, never snapped.
+  motion.x = 60;
+  const first = motion.sample(205).x;
+  expect(first).toBeLessThan(60);
+  expect(first).toBeGreaterThan(0);
+  expect(motion.sample(600).x).toBe(0);
+  // An offset no reconstruction can explain is presented in one frame.
+  motion.x = 150;
+  expect(motion.sample(1600).x).toBe(0);
+});
+
 test("a peer teleport holds its destination until new movement arrives without retaining the old floor", () => {
   const source = player(),
     original = structuredClone(source),

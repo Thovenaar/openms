@@ -14,14 +14,16 @@ const MAX_INTERVAL_MS = 200;
  *  buffer eases to rest instead of sliding for 600 ms or freezing abruptly. */
 const MAX_EXTRAP_MS = 120;
 const COAST_TAU_MS = 200;
-/** The drawn pose chases the buffered target at a bounded rate. Forward catch-up is
- *  quicker than retreat, and neither exceeds a speed the character could produce, so a
- *  corrected trajectory stays a trajectory rather than a teleport. */
-const FORWARD_PX_PER_MS = 0.3;
-const BACKWARD_PX_PER_MS = 0.125;
+/** The drawn pose chases the buffered target along the error vector at one bounded rate.
+ *  The original globals put walkSpeed at125, jumpSpeed at555 and fallSpeed at670 pixels per
+ *  second, so any per-axis or per-direction rate below that leaves a jumping or falling peer
+ *  -- which moves the drawn pose against one of the axis signs -- trailing by more than a
+ *  hundred pixels. The correction is therefore directional in the vector sense only. */
+const CORRECTION_PX_PER_MS = 1.2;
 const MAX_SAMPLE_DT_MS = 100;
-/** A jump beyond this cannot be a movement update: it is a relocation and is presented. */
-const HARD_SNAP_PX = 192;
+/** An error larger than the fastest publication of travel cannot be a reconstruction
+ *  artifact: it is a relocation, and the destination is presented outright. */
+const SNAP_PX = 96;
 
 function clamp(value, minimum, maximum) {
   return value < minimum ? minimum : value > maximum ? maximum : value;
@@ -55,8 +57,9 @@ function sampleEntry() {
  *  samples. That is the native `CMovePath` replay: a continuous clock refilled by packets,
  *  never restarted by them. When the buffer is momentarily shallow the newest sample is
  *  forecast for at most one interval, then coasts smoothly to rest. The drawn pose chases
- *  the buffered target at a bounded rate, so reconciliation bends the path instead of
- *  snapping it; only a relocation or an impossible discontinuity is presented outright. */
+ *  the buffered target along the error vector at a rate above any original movement speed,
+ *  so reconciliation bends the path instead of snapping it and never lags a real jump; only
+ *  a relocation or an impossible discontinuity is presented outright. */
 export class RemoteMotion {
   constructor(entity, tick, now, trajectory = null) {
     this.trajectory = trajectory;
@@ -119,10 +122,16 @@ export class RemoteMotion {
       this.lastSampleAt > 0 ? now - this.lastSampleAt : MAX_SAMPLE_DT_MS;
     this.lastSampleAt = now;
     const dt = clamp(elapsed, 0, MAX_SAMPLE_DT_MS);
-    const forward = FORWARD_PX_PER_MS * dt;
-    const backward = BACKWARD_PX_PER_MS * dt;
-    this.x += clamp(target.x - this.x, -backward, forward);
-    this.y += clamp(target.y - this.y, -backward, forward);
+    const errorX = target.x - this.x,
+      errorY = target.y - this.y;
+    const distance = Math.hypot(errorX, errorY);
+    if (distance === 0) return this;
+    const step =
+      distance > SNAP_PX
+        ? distance
+        : Math.min(distance, CORRECTION_PX_PER_MS * dt);
+    this.x += (errorX / distance) * step;
+    this.y += (errorY / distance) * step;
     return this;
   }
 
@@ -133,7 +142,7 @@ export class RemoteMotion {
   /** A jump the buffer cannot explain is a relocation: present it instead of sliding. */
   present(now) {
     const target = this.evaluate(this.renderTime(now));
-    if (Math.hypot(this.x - target.x, this.y - target.y) > HARD_SNAP_PX) {
+    if (Math.hypot(this.x - target.x, this.y - target.y) > SNAP_PX) {
       this.x = target.x;
       this.y = target.y;
     }
