@@ -17,6 +17,25 @@ export default defineConfig({
   sitemap: { hostname: "https://docs.openms.dev" },
   head: [
     ["link", { rel: "icon", type: "image/png", href: "/openms-icon.png" }],
+    [
+      "script",
+      {
+        async: "",
+        src: "https://www.googletagmanager.com/gtag/js?id=G-TDW1MB14H6",
+      },
+    ],
+    [
+      "script",
+      {},
+      [
+        "window.dataLayer = window.dataLayer || [];",
+        "function gtag() {",
+        "  dataLayer.push(arguments);",
+        "}",
+        "gtag('js', new Date());",
+        "gtag('config', 'G-TDW1MB14H6');",
+      ].join("\n"),
+    ],
   ],
   markdown: {
     config(markdown) {
