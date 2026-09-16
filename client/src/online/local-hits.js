@@ -228,6 +228,8 @@ export class LocalHits {
   present(record, view, rolls) {
     if (record.rejected) return;
     const scene = this.combat.scene;
+    // A mob that died while a ray was in flight must not receive a corpse number.
+    if (!view.entity.mobState?.hp) return;
     if (!scene?.views.has(view.entity.id)) return;
     const target = scene.events.target(view);
     if (record.skillId) {

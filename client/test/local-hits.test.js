@@ -288,6 +288,27 @@ test("a refused or dead target draws nothing the server did not ask for", () => 
   expect(f.hits.pending.size).toBe(0);
 });
 
+test("a mob that dies while a ray is in flight receives no corpse number", async () => {
+  const view = mobView("mob-a", { x: 200 });
+  const f = fixture({ views: [view] });
+  const record = {
+    action: "swingO1",
+    release: 0,
+    skillId: null,
+    info: null,
+    spec: null,
+    use: null,
+    projectile: { range: 400, templateId: 2060000 },
+  };
+  f.hits.begin(record);
+  releaseNow(f, record);
+  const queued = f.hits.pending.get("mob-a");
+  view.entity.mobState.hp = 0;
+  await Bun.sleep(queued[0].at + 30);
+  expect(f.shown.length).toBe(0);
+  expect(f.hits.reaction(view)).toBe(null);
+});
+
 test("a mob without authored frames is skipped instead of failing the whole swing", () => {
   const framed = mobView("mob-framed", { x: 50 });
   const frameless = mobView("mob-frameless", {
