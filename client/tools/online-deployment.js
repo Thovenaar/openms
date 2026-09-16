@@ -61,7 +61,7 @@ export async function emitOnlineDeployment(root, build) {
     },
     http: {
       methods: ["GET", "HEAD"],
-      immutable: "/generated/**/<sha256>.(json|png|mp3|wav|bin)",
+      immutable: "/generated/**/<sha256>.(json|png|mp3|wav|bin)(.gz)?",
       immutableCacheControl: "public, max-age=31536000, immutable",
       mutableCacheControl: "no-store",
       vary: "Accept-Encoding",
