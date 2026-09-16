@@ -80,7 +80,7 @@ function combatSpec(id) {
 }
 
 /** Resolve the authored skill rectangle, falling back to its weapon action. */
-function attackRectangle(info, weapon) {
+export function attackRectangle(info, weapon) {
   if (!info.lt || !info.rb) return weapon?.rectangle;
   return {
     left: info.lt.x,
@@ -95,9 +95,10 @@ function attackRectangle(info, weapon) {
  * (Character.wz:Weapon/01332000.img) authors no attack node for; the weapon's
  * default action rectangle is therefore the admitted melee geometry.
  */
-function actionWeapon(combat, action) {
+export function actionWeapon(combat, action) {
   return combat?.attacks[action] ?? combat?.attacks[combat?.defaultAction];
 }
+
 function impactSlot() {
   return {
     active: false,

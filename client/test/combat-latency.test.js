@@ -256,3 +256,88 @@ test("a field change cancels an authored release even when projectile preparatio
   expect(f.containers.size).toBe(0);
   expect(record.rejected).toBe(true);
 });
+
+const MOB_HIT_BODY = { left: -20, top: -40, right: 20, bottom: 0 };
+
+function mobView(id, x) {
+  return {
+    entity: {
+      id,
+      kind: "mob",
+      position: { x, y: 0 },
+      facing: -1,
+      action: 0,
+      mobState: { hp: 400, phase: "idle", generation: 0 },
+    },
+    animation: {
+      action: "stand",
+      frame: 0,
+      actions: new Map([
+        ["stand", { duration: 600 }],
+        ["hit1", { duration: 480 }],
+      ]),
+    },
+    drawX: x,
+    drawY: 0,
+    life: {
+      info: { level: 10, maxHP: 400, pushed: 1, invincible: 0 },
+      actions: {
+        stand: { frames: [{ body: MOB_HIT_BODY }] },
+        hit1: { frames: [{ body: MOB_HIT_BODY }] },
+      },
+    },
+  };
+}
+
+test("an admitted basic attack resolves its own hit on the local release frame", async () => {
+  const f = await fixture();
+  const view = mobView("mob-a", 50);
+  const scene = f.owner.hooks.scene();
+  scene.views.set("mob-a", view);
+  f.owner.hooks.characterStats = () => ({
+    level: 10,
+    job: 100,
+    weaponType: 30,
+    damageSupported: true,
+    str: 200,
+    dex: 40,
+    pad: 60,
+    padWithoutProjectile: 60,
+    projectilePAD: 0,
+    mastery: 0,
+    masteryPercent: 20,
+    criticalChance: 0,
+    criticalDamage: 0,
+  });
+  const shown = [];
+  scene.events = {
+    reserveNumber() {},
+    target: (target) => ({ x: target.drawX, y: target.drawY }),
+    combat: {
+      onMobHit: (target, amount, critical) =>
+        shown.push({ target, amount, critical }),
+      onSkillDamageLine() {},
+      cancelProjectilePreview() {},
+    },
+  };
+  const record = f.local.begin(null, "attack");
+  expect(record.hitRectangle).toEqual({
+    source: "Character.wz:Afterimage/swordOL.img/0/swingO1",
+    left: -88,
+    top: -62,
+    right: -18,
+    bottom: -6,
+    properties: { lt: { x: -88, y: -62 }, rb: { x: -18, y: -6 } },
+  });
+  expect(record.hitScheduled).toBe(true);
+  clearTimeout(record.hitTimer);
+  f.local.hits.resolve(record);
+  expect(shown.length).toBe(1);
+  expect(shown[0].amount).toBeGreaterThan(0);
+  expect(f.local.hits.reaction(view)).toBe("hit1");
+  // The authoritative copy of this hit never draws a second number.
+  expect(
+    f.local.hits.consume({ actorId: "self", targetId: "mob-a", damage: 5 }),
+  ).toBe(true);
+  f.local.destroy();
+});

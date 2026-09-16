@@ -68,8 +68,8 @@ function weaponRange(owner, combat) {
   });
 }
 
-/** Aim at the nearest visible forward mob, or the original empty-ray endpoint. */
-export function previewDestination(scene, origin, range) {
+/** The nearest visible forward mob inside the ray, or null for the original empty endpoint. */
+export function previewTarget(scene, origin, range) {
   let selected = null,
     distance = range;
   for (const view of scene.views.values()) {
@@ -81,6 +81,12 @@ export function previewDestination(scene, origin, range) {
     distance = dx;
     selected = view;
   }
+  return selected;
+}
+
+/** Aim at the nearest visible forward mob, or the original empty-ray endpoint. */
+export function previewDestination(scene, origin, range) {
+  const selected = previewTarget(scene, origin, range);
   return selected
     ? { x: selected.drawX, y: selected.drawY - 20 }
     : { x: origin.x + origin.facing * range, y: origin.y - 28 };

@@ -368,6 +368,15 @@ Rotation is assigned at `00506142` inside `00505900` from the master clock
    [prediction.js](../client/src/online/prediction.js) absorbs sub-pixel error, eases larger
    error with a smoothstep window capped at walk speed, and presents only a disagreement
    beyond the band outright.
+7. Implemented. The attacking client resolves its own hit presentation in
+   [local-hits.js](../client/src/online/local-hits.js) at the authored release frame: it tests
+   the same admitted rectangle (`attackRectangle`/`actionWeapon`) against each mob's authored
+   receiver for the frame it is drawn with, rolls `PhysicalDamage` from the projected stats the
+   server itself publishes, draws the number (immediately for melee, after the previewed flight
+   for a ray) and starts the authored `hit1` pose. The server still owns admission, HP, death,
+   knockback, drops and rewards; a positive authoritative event for the same target consumes the
+   local prediction so the digits are not drawn twice, and a refusal or miss is still shown as a
+   correction.
 
 ## Implementation status
 
@@ -382,6 +391,8 @@ Rotation is assigned at `00506142` inside `00505900` from the master clock
 | Scheduled damage numbers (`0043da05`)   | `CombatPresentation` lifetime and per-line delay                         |
 | Swept mob receiver (`00664559(...,1)`)  | `SkillAttack.targetBody` unions the current and previous body            |
 | View-time hit judgement (`00678476`)    | `attackRewindTicks` widens the same sweep over the measured view window  |
+| Local damage and popup (`009581a9`)     | `local-hits.js` records damage and draws the popup at the release frame  |
+| Attack display (`0095931c`)             | `local-hits.js` starts the authored `hit1` pose from the local reaction  |
 
 One earlier proposal is withdrawn after measurement reasoning: a **per-tick sample stream
 inside the 90 ms entity view would not shrink the playout delay**. The binding constraint is
@@ -389,7 +400,13 @@ the publication _cadence_ (90 ms), not the sample spacing within a batch, becaus
 receiver must retain a whole batch interval to avoid running dry between batches. Cutting
 the playout needs publishing moving entities every tick, which triples the entity-view
 bandwidth and is not justified while Hermite interpolation at ~11 publications/s is already
-artifact-free. Local prediction of a mob's hit reaction remains open.
+artifact-free.
+
+Still open on the incoming side: a mob's attack on the local player resolves the player's HP
+and reaction on the server, and the published attack pose is what the client renders, so the
+swing and the damage number arrive together rather than being predicted. The browser also
+does not predict a mob's knockback displacement; the server's divert merges the impulse into
+the local kernel, which owns the resulting trajectory.
 
 ## Reproduce
 

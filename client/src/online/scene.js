@@ -51,6 +51,10 @@ const MAX_ANIMATION_STEP_MS = PROTOCOL.TICK_MS * 2;
 export function holdObservedClimb(action, previousY, nextY) {
   return CLIMB_ACTIONS.has(action) && previousY === nextY;
 }
+/** The authored life template behind a prepared entity's artwork, when this map authored it. */
+function lifeTemplate(manifest, key) {
+  return manifest.life.templates[key] ?? null;
+}
 /** Owns display resources only. Entity membership and actions are observations. */
 export class OnlineScene {
   constructor({ manifest, services, catalog, viewport, intent, app }) {
@@ -172,6 +176,9 @@ export class OnlineScene {
         animation: owner.animation,
         entity,
         identity,
+        // Authored receiver/info of this entity's own life template, used by local hit
+        // presentation; null for entities whose artwork lives in another map.
+        life: owner.life ?? null,
         fromX: entity.position.x,
         fromY: entity.position.y,
         drawX: entity.position.x,
@@ -463,7 +470,12 @@ export class OnlineScene {
     }
     const resources = new VisualTextures(manifest, this.services.atlases);
     await resources.load([original], signal);
-    return this.animationOwner(entity, original, resources);
+    return this.animationOwner(
+      entity,
+      original,
+      resources,
+      lifeTemplate(manifest, key),
+    );
   }
   async prepareDrop(entity) {
     if (entity.templateId === 0) return this.prepareCurrency(entity);
@@ -515,7 +527,7 @@ export class OnlineScene {
       throw error;
     }
   }
-  animationOwner(entity, original, resources) {
+  animationOwner(entity, original, resources, life = null) {
     const animation = new EntityAnimation(
       {
         ...original,
@@ -528,6 +540,7 @@ export class OnlineScene {
     );
     return {
       animation,
+      life,
       destroy() {
         animation.container.destroy({ children: true });
         resources.destroy();
@@ -541,8 +554,28 @@ export class OnlineScene {
       entity.kind !== "drop" && entity.facing > 0 ? -1 : 1;
     if (view.name) view.name.step(this.app.renderer.resolution);
     if (view.mobName) view.mobName.scale.x = animation.container.scale.x;
-    animation.setAction(this.poseAction(view), this.posePlayback(entity));
+    // A local hit reaction is presentation-only: the attacker sees the authored pose as soon
+    // as it lands, and the observed action takes the mob back when it confirms or expires.
+    const reaction = this.observeLocalReaction(view);
+    animation.setAction(
+      reaction ?? this.poseAction(view),
+      reaction ? "once" : this.posePlayback(entity),
+    );
+    // The observed action restarts at frame zero, so hand the mob back at its own elapsed time.
+    if (view.reactionYielded) {
+      view.reactionYielded = false;
+      this.seekActionStart(view);
+    }
     animation.holdFrame = view.holdClimb;
+  }
+  /** Returns the locally predicted pose, and marks the observed action for a handoff re-seek. */
+  observeLocalReaction(view) {
+    const reaction = this.localCombat?.hits?.reaction(view) ?? null;
+    if (view.localReaction !== reaction) {
+      view.reactionYielded = Boolean(view.localReaction) && !reaction;
+      view.localReaction = reaction;
+    }
+    return reaction;
   }
   poseAction(view) {
     const { entity, animation } = view;

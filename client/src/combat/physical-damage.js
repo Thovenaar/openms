@@ -59,6 +59,7 @@ export class PhysicalDamage {
     this.cursor = SAMPLE_COUNT;
     this.lastGenerated = 0;
     this.lastOutcome = "none";
+    this.lastCritical = false;
   }
 
   next() {
@@ -131,7 +132,8 @@ export class PhysicalDamage {
     let damage = (this.weaponDamage(stats, use) * skillPercent) / 100;
     damage *= damageBonusMultiplier(stats, info.boss);
     damage *= monsterDefenseMultiplier(info, stats.ignoreDefensePercent);
-    if (this.roll(0, 100) < (stats.criticalChance ?? 5)) {
+    this.lastCritical = this.roll(0, 100) < (stats.criticalChance ?? 5);
+    if (this.lastCritical) {
       damage *= 1 + (this.roll(20, 50) + (stats.criticalDamage ?? 0)) / 100;
     }
     damage = levelAdjustedDamage(damage, stats.level, info.level);

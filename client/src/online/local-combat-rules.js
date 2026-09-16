@@ -40,6 +40,11 @@ export function localAttackSpec(owner, skillId, variant) {
     speed: attackSpeed(combat, derived, null, null),
     sfx: combat.equipment.sfx,
     projectile: projectilePreview(owner, combat, {}, use),
+    // Local hit presentation reuses the same admitted weapon row; the server still owns
+    // whether the damage lands.
+    use,
+    info: null,
+    spec: null,
   };
 }
 
@@ -62,6 +67,11 @@ function skillSpec(owner, combat, derived, skillId) {
           spec,
         }),
         speed: spec ? attackSpeed(combat, derived, spec, skillId) : null,
+        // Local hit presentation reads the authored rectangle and damage percent; the
+        // server still resolves admission, HP and rewards.
+        use: null,
+        info,
+        spec: spec ?? null,
       }
     : null;
 }

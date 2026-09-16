@@ -1,4 +1,5 @@
 import { LocalProjectiles } from "./local-projectiles.js";
+import { LocalHits } from "./local-hits.js";
 import { localAttackSpec } from "./local-combat-rules.js";
 import {
   weaponActionDuration,
@@ -20,6 +21,7 @@ export class LocalCombat {
     this.held = false;
     this.sequence = 0;
     this.projectiles = new LocalProjectiles(this);
+    this.hits = new LocalHits(this, now);
   }
   bind() {
     const scene = this.owner.hooks.scene();
@@ -71,6 +73,7 @@ export class LocalCombat {
       record.soundPlayed = true;
     }
     this.projectiles.begin(record);
+    this.hits.begin(record);
     return record;
   }
   current(now = this.now()) {
@@ -123,6 +126,7 @@ export class LocalCombat {
     if (!record) return;
     record.rejected = true;
     this.projectiles.cancel(record);
+    this.hits.cancel(record);
     if (this.active === record) this.active = null;
   }
   prune(now) {
@@ -154,11 +158,13 @@ export class LocalCombat {
         rejected: record.rejected,
         previewCount: record.previewCount ?? 0,
         serverProjectile: record.serverProjectile ?? false,
+        predicted: Boolean(record.hitScheduled),
       })),
     };
   }
   destroy() {
     for (const record of this.records.values()) this.reject(record);
+    this.hits.destroy();
     if (this.scene) this.scene.localCombat = null;
     this.scene = null;
     this.records.clear();

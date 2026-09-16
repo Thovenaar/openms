@@ -132,6 +132,9 @@ export class SceneEvents {
       targetId: event.targetId,
       outcome: event.damage > 0 ? "hit" : "miss",
     });
+    // The attacker already drew its own number at its release frame; the authoritative event
+    // still moves HP, death and loot, so only the duplicate digits are dropped.
+    if (this.owner.localCombat?.hits?.consume(event)) return;
     const view = this.owner.views.get(event.targetId);
     if (!view) return;
     this.reserveNumber();
