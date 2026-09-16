@@ -106,7 +106,10 @@ export class GameplayGateway {
       pongAt: Date.now(),
       pingMonotonic: null,
       roundTripMs: null,
-      warmupPings: 2,
+      // A ping reports the preceding probe's RTT. Send three follow-ups so the
+      // client's median has three measurements and rejects one loading stall.
+      // Two measurements select the slower one until the 15-second heartbeat.
+      warmupPings: 3,
     };
     if (
       !server.upgrade(request, {

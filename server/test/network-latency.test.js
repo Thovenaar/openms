@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { GameplayGateway } from "../src/gateway.js";
 import { OnlineWorld } from "../src/world.js";
 import { PROTOCOL } from "../../shared/protocol.js";
+import { ServerClock } from "../../client/src/online/transport-clock.js";
+import { inputTargetTick } from "../../client/src/online/input-timing.js";
 
 function fixture() {
   const session = { id: "session", accountId: "account" };
@@ -145,13 +147,64 @@ test("disconnect releases a map preparation waiter promptly", () => {
 test("entry heartbeats calibrate RTT before the ordinary fifteen-second interval", () => {
   const probe = fixture();
   probe.gateway.ping(probe.socket, Date.now());
-  for (let index = 0; index < 2; index++) {
+  for (let index = 0; index < 3; index++) {
     probe.gateway.pong(probe.socket, { nonce: probe.socket.data.nonce });
   }
-  expect(probe.socket.sent).toHaveLength(3);
+  expect(probe.socket.sent).toHaveLength(4);
   expect(probe.socket.sent[1].roundTripMs).toBeNumber();
+  expect(probe.socket.sent[3].roundTripMs).toBeNumber();
   expect(probe.socket.data.warmupPings).toBe(0);
+  probe.gateway.pong(probe.socket, { nonce: probe.socket.data.nonce });
+  expect(probe.socket.sent).toHaveLength(4);
+  expect(probe.socket.data.nonce).toBeNull();
 });
+
+test.each([0, 1])(
+  "loading-delayed entry probe %i does not block movement and attacks until the next heartbeat",
+  (stalledProbe) => {
+    const probe = fixture();
+    const clock = new ServerClock();
+    probe.gateway.ping(probe.socket, Date.now());
+    let received = 0;
+    // Real network RTT is 30 ms. One browser startup stall delays a pong by
+    // another 870 ms; the server clock still advances throughout that stall.
+    for (let index = 0; index < 4; index++) {
+      const roundTripMs = index === stalledProbe ? 900 : 30;
+      const ping = probe.socket.sent[received++];
+      if (!ping) break;
+      clock.observe({
+        ...ping,
+        receivedAt: ping.serverTick * PROTOCOL.TICK_MS + 15,
+      });
+      probe.actor.field.tick += Math.ceil(roundTripMs / PROTOCOL.TICK_MS);
+      probe.socket.data.pingMonotonic = performance.now() - roundTripMs;
+      probe.gateway.pong(probe.socket, { nonce: ping.nonce });
+    }
+    // Use the actual server tick after the network round trip, not the client's
+    // estimated arrival tick: a bad estimate must fail real server admission.
+    clock.observe({
+      connectionEpoch: probe.socket.data.epoch,
+      fieldEpoch: "field",
+      serverTick: probe.actor.field.tick,
+      receivedAt: 30000,
+      paused: false,
+    });
+    const targetTick = inputTargetTick(clock, 30000);
+    probe.actor.field.tick += 1;
+    const tick = probe.actor.field.tick;
+    input(probe, 1, targetTick, {
+      attack: true,
+      motion: { x: 120, y: 0, vx: 125, vy: 0 },
+    });
+    expect(probe.actor.inputQueue.get(targetTick)).toMatchObject({
+      horizontal: 1,
+      motion: { x: 120, y: 0, vx: 125, vy: 0 },
+    });
+    expect(probe.actor.attackEdges).toHaveLength(1);
+    expect(probe.actor.field.tick).toBe(tick);
+    expect(probe.socket.data.closed).toBe(false);
+  },
+);
 
 test("dialogue prose uses the event frame budget and retains a private fallback for oversized pages", async () => {
   const { storeDialogue, publishInteraction } =
