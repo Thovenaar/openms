@@ -402,11 +402,16 @@ the playout needs publishing moving entities every tick, which triples the entit
 bandwidth and is not justified while Hermite interpolation at ~11 publications/s is already
 artifact-free.
 
-Still open on the incoming side: a mob's attack on the local player resolves the player's HP
-and reaction on the server, and the published attack pose is what the client renders, so the
-swing and the damage number arrive together rather than being predicted. The browser also
-does not predict a mob's knockback displacement; the server's divert merges the impulse into
-the local kernel, which owns the resulting trajectory.
+Still open on the incoming side, and deliberately so. A mob's attack on the local player is
+published as the mob's own action, so the swing the player sees already carries the playout
+delay (~90–320 ms) on top of the 90 ms entity publication cadence, while the `combat.impact`
+that names the player arrives about half a round trip later. The two therefore land within a
+few tens of milliseconds of each other, and the reaction the player presents comes from the
+same authoritative state. Predicting the number would need the browser to decide its own HP
+debit, which is durable state the server owns; resolving it any earlier would also draw the
+damage before the swing. The browser likewise does not predict a mob's knockback
+displacement: the server's divert merges the impulse into the local kernel, which then owns
+the resulting trajectory.
 
 ## Reproduce
 
