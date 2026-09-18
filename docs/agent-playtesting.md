@@ -1,6 +1,6 @@
 # Agent playtesting
 
-This is the first runnable step toward [issue #2](https://github.com/tensorfish/openms/issues/2): agents can run a bounded play session, inspect evidence, design another experiment and replay a suspected bug. The initial scope is a beginner in Henesys, native sign-in, movement/jumping, character windows and reconnect. JEV is not required or installed.
+This is the first runnable step toward [issue #2](https://github.com/tensorfish/openms/issues/2): agents can run a bounded play session, inspect evidence, design another experiment and replay a suspected bug. The initial scope is a beginner in Henesys, native sign-in and Quit, movement/jumping, character windows, map chat and reconnect. JEV is not required or installed.
 
 ```mermaid
 flowchart LR
@@ -38,6 +38,19 @@ All three skills live in the repository under `.agents/skills/`, with no persona
 The creator, maintainer and their bundled references are unchanged copies from [pstack revision `157aae39a733135e93d8b5b19ff62c6a84b0ad56`](https://github.com/backnotprop/pstack/tree/157aae39a733135e93d8b5b19ff62c6a84b0ad56/skills). Each imported skill directory includes the upstream MIT license.
 
 The runner creates a unique test database and an ordinary player account, uses ports 3297/3197, and closes its resources after success or failure. Override ports with `--server-port` and `--client-port`, and the local PostgreSQL connection with `--database-url`. Existing listeners are not reused. Use one run per checkout at a time because frontend builds share generated output paths. Your usual game session and database are not test fixtures.
+
+### Focused cases
+
+Pass any of these committed plans to `--plan`, with a fresh output directory for each run. They run without a model or API key.
+
+| Plan under `.agents/skills/verify-openms/plans/` | Checks |
+| --- | --- |
+| `smoke.json` | Movement, jumping, four windows through keyboard/HUD and native close buttons, then reconnect. |
+| `window-dismissal.json` | All four windows toggle closed with their shortcuts and dismiss with Escape after HUD entry. |
+| `chat-focus.json` | Shortcut letters and a held arrow remain in the editor; Escape discards a draft; Enter produces one server-confirmed map-chat row; game controls work after leaving the editor. |
+| `session-cycle.json` | GameMenu → Quit → OK revokes the session; normal sign-in recovers the character/map/mesos with a new connection; subsequent window/chat controls work. |
+
+The extended action format adds `chat` with `text` and `mode: send` or `cancel`, and `relogin` with no extra fields. Chat accepts 1–70 printable ASCII characters, without surrounding spaces or slash commands. Window actions accept optional `close: button`, `shortcut` or `escape`; omitted `close` keeps the original close-button behavior. Existing seeded sequences stay unchanged; use explicit plans for chat and relogin.
 
 ## Evidence and replay
 
@@ -78,7 +91,7 @@ These identify the recorded experiments, before the final failure-classification
 
 ## Scope and next steps
 
-The initial action vocabulary covers walking, jumping, opening/closing Item/Equip/Stat/Skill windows, and the visible development Reconnect session button. Agents can generate seeds or supply their own bounded action plans. They use read-only snapshots to inspect outcomes; gameplay input stays on the normal keyboard/pointer path. No agent-control permission checks are removed.
+The action vocabulary covers walking, jumping, opening/closing Item/Equip/Stat/Skill windows, map-chat submission/cancellation, native Quit/sign-in, and the visible development Reconnect session button. Agents can generate seeds or supply their own bounded action plans. They use read-only snapshots to inspect outcomes; gameplay input stays on the normal keyboard/pointer path. No agent-control permission checks are removed. Chat checks observe the sender's server acknowledgement, not delivery to another player. Session checks establish character/map/mesos continuity, not every inventory or progression field.
 
 Extend the existing `client/tools/scenarios/` and isolated fixture for NPC quests, portals, combat, inventory transactions and a second-player witness. Add an action and its observable contract together, with a replayable fixture. Later, a model such as JEV could choose actions through the same interface; observation, evidence, refusal handling and cleanup remain necessary regardless of the planner.
 

@@ -105,7 +105,7 @@ export async function runPlaytest(options) {
     phase: "fixture",
     seed: options.plan ? null : options.seed,
     scope:
-      "Henesys beginner: entry, movement, character windows, native reconnect",
+      "Henesys beginner: entry, movement, character windows, map chat, reconnect and native Quit/sign-in",
     trace: [],
     pageErrors: [],
     serviceEvents: [],

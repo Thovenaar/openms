@@ -5,7 +5,7 @@ description: Playtest OpenMS in an isolated local browser and database, choose o
 
 # Verify OpenMS
 
-Read [the feature map](features/README.md), then select the relevant recipe. This first version covers a beginner in Henesys, sign-in/reconnect, movement/jumping and character windows. Combat, quests, portals, multiplayer and visual/audio fidelity require separate scenarios; a passing run does not verify them.
+Read [the feature map](features/README.md), then select the relevant recipe. This first version covers a beginner in Henesys, sign-in/reconnect, native Quit/sign-in, movement/jumping, character windows and map chat. Combat, quests, portals, multiplayer and visual/audio fidelity require separate scenarios; a passing run does not verify them.
 
 ## Launch
 
@@ -53,7 +53,17 @@ For an agent-designed experiment, write a JSON file with `version: 1` and an `ac
 }
 ```
 
-Plans allow 1–32 actions, walking for 100–1500 ms, left/right movement, and Item/Equip/Stat/Skill windows through keyboard or HUD entry. Every action uses normal Puppeteer keyboard/pointer input. Each window action opens and closes the window. Reconnect uses the visible development Diagnostics → Reconnect session button. Read-only snapshots supply observations. Do not call internal setters, grant an agent lease through script, or replace earned outcomes with development mutations.
+Plans allow 1–32 actions, walking for 100–1500 ms, left/right movement, and Item/Equip/Stat/Skill windows through keyboard or HUD entry. Every action uses normal Puppeteer keyboard/pointer input. Each window action opens and closes the window. Optional `close` selects `button`, `shortcut` or `escape`; omitting it preserves the close-button behavior. Reconnect uses the visible development Diagnostics → Reconnect session button. Read-only snapshots supply observations. Do not call internal setters, grant an agent lease through script, or replace earned outcomes with development mutations.
+
+A `chat` action takes `text` and `mode: send` or `cancel`. Text must be 1–70 printable ASCII characters without surrounding spaces or slash commands. It selects To All, types natively, checks that shortcut letters and a held arrow stay in the editor, then either waits for a server-confirmed row or cancels with Escape. A `relogin` action uses GameMenu → Quit → OK, checks that the old session receives HTTP 401 from the character list, and signs back in through the form. Both reconnect and relogin require a new connection epoch with the same character, map and mesos.
+
+Run these focused plans separately, each with a fresh output directory:
+
+- [window-dismissal.json](plans/window-dismissal.json) checks shortcut toggles and Escape dismissal for all four windows.
+- [chat-focus.json](plans/chat-focus.json) checks draft cancellation, server-confirmed map chat, and control use after leaving chat.
+- [session-cycle.json](plans/session-cycle.json) checks native Quit/sign-in and subsequent window/chat controls.
+
+Seed generation retains its original movement/window/reconnect vocabulary so existing seeds keep their sequences. Use saved plans for the added chat and relogin actions.
 
 The agent loop is: select a mapped behavior or vary a bounded action plan, run it, inspect `report.json` and images, then choose the next experiment. Replay a candidate in a fresh fixture with the saved plan:
 
@@ -69,7 +79,7 @@ The requested output directory retains `plan.json`, `report.json`, a final scree
 
 Exit 0 means the executed checks passed. Exit 1 means a bug candidate needs triage. Exit 2 means setup, cancellation, unavailable services, changed identity or cleanup prevented a trustworthy completion. A candidate can still be a harness gap. Inspect `failure`, `infrastructureFailure`, `doctorAfterFailure` and `cleanup` before making a claim.
 
-Window visibility and closure are asserted. Movement records displacement and finite positions; hitting a wall is not itself an error. Reconnect checks a new connection with the same character, map and mesos. These are narrow observable contracts, not comprehensive gameplay or persistence proof. Screenshots need visual review before claiming appearance correctness.
+Window visibility and closure are asserted. Movement records displacement and finite positions; hitting a wall is not itself an error. Reconnect and relogin check a new connection with the same character, map and mesos. Chat observations in `during` retain the draft, focus, horizontal position, visible windows and matching delivery rows. Only the sender is observed; this does not prove delivery to another player. These are narrow observable contracts, not comprehensive gameplay or persistence proof. Screenshots need visual review before claiming appearance correctness.
 
 Retain raw reports/logs/images under ignored `artifacts/` or outside the checkout. Commit only concise findings and reusable action plans. Report a bug with its expected/observed behavior, minimal plan, source identities, reproducibility and evidence locations. Publishing GitHub issues or comments requires the user's instruction.
 

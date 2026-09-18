@@ -1,3 +1,5 @@
+import { CHAT_LIMIT } from "../../src/social/chat-rules.js";
+
 export const MAX_ACTIONS = 32;
 export const WINDOWS = Object.freeze({
   Item: { key: "i", label: "Item Inventory (I)" },
@@ -28,8 +30,10 @@ function validateAction(action) {
   const fields = {
     walk: ["type", "direction", "milliseconds"],
     jump: ["type", "direction"],
-    window: ["type", "name", "entry"],
+    window: ["type", "name", "entry", "close"],
     reconnect: ["type"],
+    relogin: ["type"],
+    chat: ["type", "text", "mode"],
   };
   if (
     !Object.hasOwn(fields, action.type) ||
@@ -38,13 +42,34 @@ function validateAction(action) {
     throw new Error("Unknown playtest action or action field");
   }
   if (["walk", "jump"].includes(action.type)) validateMovement(action);
+  if (action.type === "window") validateWindow(action);
+  if (action.type === "chat") validateChat(action);
+}
+
+function validateWindow(action) {
   if (
-    action.type === "window" &&
-    (!Object.hasOwn(WINDOWS, action.name) ||
-      !["keyboard", "hud"].includes(action.entry))
+    !Object.hasOwn(WINDOWS, action.name) ||
+    !["keyboard", "hud"].includes(action.entry) ||
+    (action.close !== undefined &&
+      !["button", "shortcut", "escape"].includes(action.close))
   ) {
     throw new Error(
-      "Window requires Item/Equip/Stat/Skill and keyboard/hud entry",
+      "Window requires Item/Equip/Stat/Skill, keyboard/hud entry and button/shortcut/escape close",
+    );
+  }
+}
+
+function validateChat(action) {
+  if (
+    typeof action.text !== "string" ||
+    action.text.length > CHAT_LIMIT ||
+    !/^[\x20-\x7e]+$/.test(action.text) ||
+    action.text !== action.text.trim() ||
+    action.text.startsWith("/") ||
+    !["send", "cancel"].includes(action.mode)
+  ) {
+    throw new Error(
+      `Chat requires 1..${CHAT_LIMIT} printable ASCII characters without commands or surrounding spaces, and send/cancel mode`,
     );
   }
 }

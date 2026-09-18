@@ -46,7 +46,7 @@ async function drivePlan(page, options, report) {
     step.durationMs = performance.now() - started;
     requireState(step.after, report.identity);
     if (
-      action.type === "reconnect" &&
+      ["reconnect", "relogin"].includes(action.type) &&
       (step.before.epoch === step.after.epoch ||
         step.before.characterId !== step.after.characterId ||
         step.before.map !== step.after.map ||
@@ -54,9 +54,9 @@ async function drivePlan(page, options, report) {
     ) {
       throw Object.assign(
         new Error(
-          "Reconnect changed character/map/mesos or retained the old connection",
+          "Session recovery changed character/map/mesos or retained the old connection",
         ),
-        { code: "reconnect-state" },
+        { code: "session-state" },
       );
     }
     if (report.pageErrors.length) {

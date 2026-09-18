@@ -1,8 +1,10 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { clickLabel, focusCanvas } from "./native.js";
-import { closeConsole } from "./online-ui-repairs.js";
+import { closeConsole, replace } from "./online-ui-repairs.js";
 import { ready, reconnect } from "./online-latency.js";
 import { WINDOWS } from "./playtest-plan.js";
+import { drivePlaytestChat } from "./playtest-chat.js";
+import { assertion } from "../native-evidence.js";
 
 /** Detached observation only; never call agent.act, development endpoints or setters. */
 export function observePlaytest(page) {
@@ -46,8 +48,13 @@ export async function enterPlaytest(page, url) {
     { timeout: 120000 },
   );
   await closeConsole(page);
-  await page.type('.online-login [name="name"]', "playtester");
-  await page.type('.online-login [name="password"]', "password");
+  await signInPlaytest(page);
+}
+
+async function signInPlaytest(page) {
+  await page.waitForSelector('.online-login [name="name"]', { visible: true });
+  await replace(page, '.online-login [name="name"]', "playtester");
+  await replace(page, '.online-login [name="password"]', "password");
   await page.click(".online-login-submit");
   await page.waitForFunction(() => {
     const login = window.maple.snapshot().login;
@@ -55,6 +62,28 @@ export async function enterPlaytest(page, url) {
   });
   await page.click(".online-login-enter");
   await ready(page);
+}
+
+async function relogin(page) {
+  await focusCanvas(page);
+  await clickLabel(page, "GameMenu");
+  await clickLabel(page, "Quit", '.maple-ui-panel[aria-label="GameMenu"]');
+  await clickLabel(page, "OK", '.maple-ui-panel[aria-label="NativePrompt"]');
+  await page.waitForSelector('.online-login [name="name"]', { visible: true });
+  const signedOut = await observePlaytest(page);
+  // Read-only request proves native Quit revoked the server session.
+  const authenticationStatus = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/characters", {
+      signal: AbortSignal.timeout(5000),
+    });
+    return response.status;
+  });
+  assertion(
+    authenticationStatus === 401,
+    "Quit retained an authenticated session",
+  );
+  await signInPlaytest(page);
+  return { signedOut, authenticationStatus };
 }
 
 async function move(page, action, signal) {
@@ -80,7 +109,9 @@ async function windowCycle(page, action) {
   const selector = `.maple-ui-panel[aria-label="${action.name}"]`;
   await page.waitForSelector(selector, { visible: true });
   const opened = await observePlaytest(page);
-  await clickLabel(page, `Close ${action.name}`, selector);
+  if (action.close === "shortcut") await page.keyboard.press(binding.key);
+  else if (action.close === "escape") await page.keyboard.press("Escape");
+  else await clickLabel(page, `Close ${action.name}`, selector);
   await page.waitForSelector(selector, { hidden: true });
   return opened;
 }
@@ -93,7 +124,10 @@ export async function drivePlaytestAction(page, action, signal) {
     during = await move(page, action, signal);
   } else if (action.type === "window") during = await windowCycle(page, action);
   else if (action.type === "reconnect") await reconnect(page);
-  else throw new Error(`Unsupported action: ${action.type}`);
+  else if (action.type === "relogin") during = await relogin(page);
+  else if (action.type === "chat") {
+    during = await drivePlaytestChat(page, action, signal);
+  } else throw new Error(`Unsupported action: ${action.type}`);
   await ready(page);
   await delay(250, null, { signal });
   return during;

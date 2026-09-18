@@ -55,6 +55,29 @@ test("observations distinguish game faults, unreadiness and changed builds", () 
   );
 });
 
+test("admits native chat, session cycles and bounded window dismissal methods", () => {
+  const actions = [
+    { type: "chat", text: "i e s k typing stays in chat", mode: "send" },
+    { type: "chat", text: "x".repeat(70), mode: "cancel" },
+    { type: "relogin" },
+    { type: "window", name: "Item", entry: "hud", close: "escape" },
+    { type: "window", name: "Skill", entry: "keyboard", close: "shortcut" },
+  ];
+  expect(validatePlan({ version: 1, actions }).actions).toEqual(actions);
+  for (const action of [
+    { type: "chat", text: "x".repeat(71), mode: "send" },
+    { type: "chat", text: "", mode: "send" },
+    { type: "chat", text: "hello\nworld", mode: "send" },
+    { type: "chat", text: "/whisper Player hello", mode: "send" },
+    { type: "chat", text: " hello ", mode: "send" },
+    { type: "chat", text: "hello", mode: "script" },
+    { type: "relogin", account: "someone-else" },
+    { type: "window", name: "Item", entry: "hud", close: "evaluate" },
+  ]) {
+    expect(() => validatePlan({ version: 1, actions: [action] })).toThrow();
+  }
+});
+
 test("rejects ambiguous plans, unsafe database targets and colliding ports", () => {
   for (const args of [
     ["--seed", "1", "--seed", "2"],
