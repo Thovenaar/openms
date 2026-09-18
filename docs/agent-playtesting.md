@@ -29,7 +29,13 @@ Outside the existing macOS Chrome default, pass `--chrome` with the installed Ch
 bun run playtest --chrome "C:\Program Files\Google\Chrome\Application\chrome.exe" --plan .agents/skills/verify-openms/plans/smoke.json --output artifacts/playtest/smoke-001
 ```
 
-The project-local [verify-openms skill](../.agents/skills/verify-openms/SKILL.md) contains the maintained feature map, input contract and triage procedure. Invoke it when asking an agent to explore these player flows. The creator and maintainer skills from [pstack](https://github.com/backnotprop/pstack/tree/157aae39a733135e93d8b5b19ff62c6a84b0ad56/skills) supply the generation/upkeep workflow; the generated verification skill lives in this repository.
+All three skills live in the repository under `.agents/skills/`, with no personal skill installation required:
+
+- [verify-openms](../.agents/skills/verify-openms/SKILL.md) contains the feature map, input contract and triage procedure. Invoke it to explore the mapped player flows.
+- [create-verification-skill](../.agents/skills/create-verification-skill/SKILL.md) supplies the generation workflow and bundled feature-map examples.
+- [maintain-verification-skill](../.agents/skills/maintain-verification-skill/SKILL.md) audits the verification skill and keeps its feature map current.
+
+The creator, maintainer and their bundled references are unchanged copies from [pstack revision `157aae39a733135e93d8b5b19ff62c6a84b0ad56`](https://github.com/backnotprop/pstack/tree/157aae39a733135e93d8b5b19ff62c6a84b0ad56/skills). Each imported skill directory includes the upstream MIT license.
 
 The runner creates a unique test database and an ordinary player account, uses ports 3297/3197, and closes its resources after success or failure. Override ports with `--server-port` and `--client-port`, and the local PostgreSQL connection with `--database-url`. Existing listeners are not reused. Use one run per checkout at a time because frontend builds share generated output paths. Your usual game session and database are not test fixtures.
 
